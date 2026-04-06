@@ -1,0 +1,33 @@
+# Staging environment variables
+aws_region="af-south-1"
+project="autoquote"
+env="staging"
+
+# Network (can reuse same CIDR if separate AWS account; if same account, change CIDR)
+vpc_cidr="10.10.0.0/16"
+
+# Database (use separate password)
+db_name="autoquote"
+db_user="postgres"
+db_pass="CHANGE_ME_STAGING_DB_PASSWORD"
+
+# App secrets (staging values)
+jwt_secret="CHANGE_ME_STAGING_JWT"
+mfa_secret_key="CHANGE_ME_STAGING_MFA"
+
+# Images (placeholders; CI will deploy real image)
+api_image="placeholder"
+worker_image="placeholder"
+beat_image="placeholder"
+
+# Features
+enable_bluegreen=true
+prod_listener_port=80
+test_listener_port=9000
+
+enable_github_oidc=true
+github_org="YOUR_GITHUB_ORG_OR_USERNAME"
+github_repo="YOUR_REPO_NAME"
+github_branch="staging"
+
+enable_codedeploy_bucket=true

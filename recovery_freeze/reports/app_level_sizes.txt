@@ -1,0 +1,116 @@
+  0B	app/__init__.py
+  0B	app/compliance_docs
+  0B	app/from
+  0B	app/generated
+  0B	app/signatures
+4,0K	app/attachments.py
+4,0K	app/audit_api.py
+4,0K	app/audit.py
+4,0K	app/autonomous_api.py
+4,0K	app/autonomous_api.py.bak
+4,0K	app/autonomous_guard.py
+4,0K	app/celery_app.py
+4,0K	app/classify.py
+4,0K	app/compliance_checker.py
+4,0K	app/compliance_logic.py
+4,0K	app/compliance_models.py
+4,0K	app/compliance_registry.py
+4,0K	app/compliance_schemas.py
+4,0K	app/compliance.py
+4,0K	app/config.py
+4,0K	app/database.py
+4,0K	app/db.py
+4,0K	app/drafting.py
+4,0K	app/email_api.py
+4,0K	app/email_rfq_report.py
+4,0K	app/email_sender.py
+4,0K	app/email_utils.py
+4,0K	app/etenders.py
+4,0K	app/evidence.py
+4,0K	app/filters.py
+4,0K	app/harvester_api.py
+4,0K	app/harvester.py.bak
+4,0K	app/init_db.py
+4,0K	app/limits.py
+4,0K	app/main.py
+4,0K	app/main.py.broken_20260320_181638
+4,0K	app/opportunities_api.py
+4,0K	app/pack_pages.py
+4,0K	app/pdf_signer.py
+4,0K	app/policy.py
+4,0K	app/quote_api.py
+4,0K	app/quote_builder.py
+4,0K	app/quote_items.py
+4,0K	app/quote_pack_schemas.py
+4,0K	app/quote_store.py
+4,0K	app/quotes_api.py
+4,0K	app/relevance_api.py
+4,0K	app/reset_db.py
+4,0K	app/sbd_parser.py
+4,0K	app/sbd_registry.py
+4,0K	app/schemas_sbd.py
+4,0K	app/schemas.py
+4,0K	app/seed_markup_rules.py
+4,0K	app/seed_suppliers.py
+4,0K	app/sending.py
+4,0K	app/source_registry.py
+4,0K	app/storage.py
+4,0K	app/submission_api.py
+4,0K	app/submission_emailer.py
+4,0K	app/submission_pack.py
+4,0K	app/system_guard_api.py
+4,0K	app/system_routes.py
+4,0K	app/tender_harvester.py
+4,0K	app/ui_routes.py
+8,0K	app/api.py
+8,0K	app/auto_matcher.py
+8,0K	app/company_profile.py
+8,0K	app/compliance_api.py
+8,0K	app/dashboard_api.py
+8,0K	app/department_scraper.py
+8,0K	app/documents.py
+8,0K	app/filtering.py
+8,0K	app/generated_submission_packs
+8,0K	app/intelligence.py
+8,0K	app/main.py.bak
+8,0K	app/models.py
+8,0K	app/ocds_client.py
+8,0K	app/quote_generator.py
+8,0K	app/quote_pack_api.py
+8,0K	app/quote_pack_models.py
+8,0K	app/relevance_scoring.py
+8,0K	app/sbd_models.py
+8,0K	app/scoring.py
+8,0K	app/seed_supplier_items.py
+8,0K	app/source_health.py
+8,0K	app/submission_detection.py
+8,0K	app/tasks.py
+8,0K	app/tasks.py.bak
+ 12K	app/autonomous_engine.py.bak
+ 12K	app/db
+ 12K	app/department_harvester.py
+ 12K	app/department_registry.py
+ 12K	app/department_sources.py
+ 12K	app/harvesters
+ 12K	app/ingestion.py
+ 12K	app/parser_router.py
+ 12K	app/relevance.py
+ 12K	app/tasks.py:42:
+ 16K	app/integrations
+ 16K	app/quote_engine.py
+ 16K	app/quote_logic.py
+ 16K	app/quote_pack_service.py
+ 16K	app/sbd_generator.py
+ 16K	app/ui.py
+ 20K	app/autonomous_engine.py
+ 20K	app/harvester.py
+ 20K	app/registry_enricher.py
+ 20K	app/sbd_api.py
+ 28K	app/scripts
+ 32K	app/templates
+ 36K	app/models
+ 40K	app/assets
+ 44K	app/core
+ 76K	app/api
+580K	app/services
+1,7M	app/data

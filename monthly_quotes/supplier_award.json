@@ -1,0 +1,10 @@
+{
+  "award_completed": true,
+  "auto_award": false,
+  "award_status": "no_recommendation",
+  "award_reason": "No supplier recommendation could be determined",
+  "awarded_supplier": null,
+  "runner_up_supplier": null,
+  "award_confidence": 0.0,
+  "award_datetime": "2026-04-06T22:49:05.942314Z"
+}

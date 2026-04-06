@@ -1,0 +1,645 @@
+import json
+import logging
+import os
+import re
+from dataclasses import dataclass
+from html import unescape
+from typing import Any, Dict, List, Optional
+from urllib.parse import urljoin
+
+from app.services.portal_registry import get_portal_registry
+from app.services.adaptive_crawl_scheduler import get_due_portals_for_crawl
+
+    portal_name = portal.get("portal_name", portal_slug)
+    priority_score = portal.get("priority_score", 0)
+    temperature = portal.get("temperature", "cold")
+    if not portal_slug:
+    continue
+
+    print(
+        f"[HEATMAP] Harvesting {portal_name} "
+        f"(slug={portal_slug}, score={priority_score}, temp={temperature})"
+    )
+
+    # existing harvest logic here
+
+try:
+    import requests
+except Exception:  # pragma: no cover
+    requests = None
+
+
+logger = logging.getLogger(__name__)
+
+ENABLE_NATIONAL_TENDER_RADAR = os.getenv("ENABLE_NATIONAL_TENDER_RADAR", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+SUPPLY_DELIVERY_ONLY = os.getenv("SUPPLY_DELIVERY_ONLY", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+DEFAULT_TIMEOUT = int(os.getenv("TENDER_RADAR_TIMEOUT", "20"))
+DEFAULT_RETRIES = int(os.getenv("TENDER_RADAR_RETRIES", "2"))
+DEFAULT_MAX_PER_SOURCE = int(os.getenv("TENDER_RADAR_MAX_PER_SOURCE", "25"))
+DEFAULT_MAX_TOTAL = int(os.getenv("TENDER_RADAR_MAX_TOTAL", "300"))
+
+
+@dataclass
+class SourceSeed:
+    name: str
+    listing_url: str
+    base_url: str
+    enabled: bool = True
+    national: bool = True
+    source_type: str = "html"
+
+
+def _load_registry() -> List[SourceSeed]:
+    return [
+        SourceSeed(
+            name="eTenders South Africa",
+            listing_url="https://www.etenders.gov.za/Home/opportunities",
+            base_url="https://www.etenders.gov.za",
+            enabled=True,
+            national=True,
+            source_type="html",
+        ),
+        SourceSeed(
+            name="SANRAL",
+            listing_url="https://www.nra.co.za",
+            base_url="https://www.nra.co.za",
+            enabled=True,
+            national=True,
+            source_type="html",
+        ),
+        SourceSeed(
+            name="Transnet",
+            listing_url="https://www.transnet.net",
+            base_url="https://www.transnet.net",
+            enabled=True,
+            national=True,
+            source_type="html",
+        ),
+    ]
+
+
+def _absolute_url(base_url: str, maybe_relative: str) -> str:
+    if not maybe_relative:
+        return base_url
+    return urljoin(base_url, maybe_relative)
+
+
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    text = unescape(str(value))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _strip_script_style(html_text: str) -> str:
+    html_text = re.sub(r"<script.*?>.*?</script>", " ", html_text, flags=re.IGNORECASE | re.DOTALL)
+    html_text = re.sub(r"<style.*?>.*?</style>", " ", html_text, flags=re.IGNORECASE | re.DOTALL)
+    return html_text
+
+
+def _looks_supply_delivery(title: str, description: str) -> bool:
+    haystack = f"{title} {description}".lower()
+    keywords = [
+        "supply",
+        "delivery",
+        "supply and delivery",
+        "supply of",
+        "procurement",
+        "purchase",
+        "goods",
+        "equipment",
+        "materials",
+        "stationery",
+        "furniture",
+        "laptops",
+        "printers",
+        "vehicles",
+        "uniform",
+        "medical supplies",
+        "ppe",
+    ]
+    return any(keyword in haystack for keyword in keywords)
+
+
+def _extract_emails(text: str) -> List[str]:
+    if not text:
+        return []
+    emails = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text)
+    seen = set()
+    ordered: List[str] = []
+    for email in emails:
+        key = email.lower()
+        if key not in seen:
+            seen.add(key)
+            ordered.append(email)
+    return ordered
+
+
+def _extract_portal_urls(text: str) -> List[str]:
+    if not text:
+        return []
+    urls = re.findall(r"https?://[^\s\"'<>]+", text, flags=re.IGNORECASE)
+    portal_hits: List[str] = []
+    portal_words = [
+        "portal",
+        "etenders",
+        "tender",
+        "procurement",
+        "supplier",
+        "vendor",
+        "rfq",
+        "bid",
+        "quot",
+    ]
+    for url in urls:
+        url_lower = url.lower()
+        if any(word in url_lower for word in portal_words):
+            portal_hits.append(url)
+    return portal_hits
+
+
+def _has_compulsory_briefing(text: str) -> bool:
+    haystack = (text or "").lower()
+    patterns = [
+        "compulsory briefing",
+        "mandatory briefing",
+        "compulsory site visit",
+        "mandatory site visit",
+        "compulsory site inspection",
+        "mandatory site inspection",
+        "compulsory clarification",
+        "mandatory clarification",
+        "briefing session is compulsory",
+        "site visit is compulsory",
+        "attendance is compulsory",
+        "non-attendance will lead to disqualification",
+        "failure to attend will lead to disqualification",
+        "must attend briefing",
+        "must attend site visit",
+        "compulsory briefing session",
+        "mandatory briefing session",
+    ]
+    return any(pattern in haystack for pattern in patterns)
+
+
+def _extract_briefing_text(text: str) -> str:
+    if not text:
+        return ""
+    sentences = re.split(r"(?<=[\.\!\?])\s+|\n+", text)
+    briefing_lines = []
+    briefing_words = [
+        "briefing",
+        "site visit",
+        "site inspection",
+        "clarification meeting",
+        "attendance",
+        "disqualification",
+    ]
+    for sentence in sentences:
+        sentence_clean = sentence.strip()
+        sentence_lower = sentence_clean.lower()
+        if sentence_clean and any(word in sentence_lower for word in briefing_words):
+            briefing_lines.append(sentence_clean)
+    return " | ".join(briefing_lines[:3])
+
+
+def _classify_submission_method(text: str, external_url: str = "") -> Dict[str, Any]:
+    haystack = (text or "").lower()
+    emails = _extract_emails(text)
+    portal_urls = _extract_portal_urls(text)
+
+    email_signals = [
+        "submit via email",
+        "submit by email",
+        "emailed to",
+        "email your quotation",
+        "email quotation",
+        "email quote",
+        "quotations must be emailed",
+        "send proposals to",
+        "send quotation to",
+        "submit quotation to",
+        "email submissions",
+        "electronic mail",
+    ]
+
+    portal_signals = [
+        "submit on portal",
+        "submit via portal",
+        "upload on portal",
+        "upload to portal",
+        "submit electronically on the system",
+        "submit online",
+        "uploaded on the portal",
+        "vendor portal",
+        "supplier portal",
+        "etenders portal",
+        "procurement portal",
+        "response must be uploaded",
+        "bid must be uploaded",
+    ]
+
+    physical_signals = [
+        "tender box",
+        "bid box",
+        "hand delivery",
+        "hand-delivered",
+        "courier",
+        "physical submission",
+        "deliver to the address",
+        "sealed envelope",
+        "deposit in the tender box",
+    ]
+
+    has_email_signal = bool(emails) or any(signal in haystack for signal in email_signals)
+    has_portal_signal = bool(portal_urls) or any(signal in haystack for signal in portal_signals)
+    has_physical_signal = any(signal in haystack for signal in physical_signals)
+
+    submission_method = "unknown"
+    submission_email = emails[0] if emails else None
+    portal_url = portal_urls[0] if portal_urls else None
+
+    if has_physical_signal:
+        submission_method = "physical"
+    elif has_email_signal and not has_portal_signal:
+        submission_method = "email"
+    elif has_portal_signal and not has_email_signal:
+        submission_method = "portal"
+    elif has_email_signal and has_portal_signal:
+        submission_method = "mixed"
+
+    if submission_method == "portal" and not portal_url and external_url:
+        if any(word in external_url.lower() for word in ["portal", "etenders", "tender", "procurement", "supplier", "vendor"]):
+            portal_url = external_url
+
+    return {
+        "submission_method": submission_method,
+        "submission_email": submission_email,
+        "portal_url": portal_url,
+        "has_email_signal": has_email_signal,
+        "has_portal_signal": has_portal_signal,
+        "has_physical_signal": has_physical_signal,
+    }
+
+
+def _is_allowed_submission(submission_method: str, compulsory_briefing: bool) -> bool:
+    return submission_method in {"email", "portal"} and not compulsory_briefing
+
+
+def _parse_html_links(source: SourceSeed, response_text: str) -> List[Dict[str, Any]]:
+    html_text = _strip_script_style(response_text)
+    anchors = re.findall(
+        r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    items: List[Dict[str, Any]] = []
+    seen_urls = set()
+
+    for href, inner_html in anchors:
+        title = _normalize_text(inner_html)
+        if not title:
+            continue
+
+        external_url = _absolute_url(source.base_url, href)
+        if external_url in seen_urls:
+            continue
+        seen_urls.add(external_url)
+
+        description = title
+        combined_text = f"{title}\n{description}\n{external_url}"
+        is_supply = _looks_supply_delivery(title, description)
+
+        if SUPPLY_DELIVERY_ONLY and not is_supply:
+            continue
+
+        submission_info = _classify_submission_method(combined_text, external_url=external_url)
+        compulsory_briefing = _has_compulsory_briefing(combined_text)
+        briefing_text = _extract_briefing_text(combined_text)
+
+        if not _is_allowed_submission(submission_info["submission_method"], compulsory_briefing):
+            continue
+
+        haystack = combined_text.lower()
+        intelligence_score = 0
+
+        if is_supply:
+            intelligence_score += 30
+        if len(title) >= 12:
+            intelligence_score += 5
+        if any(k in haystack for k in ["tender", "bid", "rfq", "quotation", "procurement"]):
+            intelligence_score += 10
+        if any(k in haystack for k in ["framework", "panel", "term contract", "contract"]):
+            intelligence_score += 5
+        if submission_info["submission_method"] in {"email", "portal"}:
+            intelligence_score += 10
+
+        items.append(
+            {
+                "title": title,
+                "description": description[:1200],
+                "external_url": external_url,
+                "published_date": None,
+                "closing_date": None,
+                "buyer_name": source.name,
+                "reference_number": "",
+                "province": None,
+                "category": "Supply / Delivery" if is_supply else "Other",
+                "source_name": source.name,
+                "source_url": source.listing_url,
+                "is_supply": is_supply,
+                "intelligence_score": float(intelligence_score),
+                "quote_ready": bool(is_supply and intelligence_score >= 40),
+                "submission_method": submission_info["submission_method"],
+                "submission_email": submission_info["submission_email"],
+                "portal_url": submission_info["portal_url"],
+                "compulsory_briefing": compulsory_briefing,
+                "briefing_text": briefing_text,
+                "eligible_for_autobid": _is_allowed_submission(
+                    submission_info["submission_method"],
+                    compulsory_briefing,
+                ),
+            }
+        )
+
+        if len(items) >= DEFAULT_MAX_PER_SOURCE:
+            break
+
+    return items
+
+
+def _safe_get(url: str, timeout: int = DEFAULT_TIMEOUT) -> Optional[str]:
+    if requests is None:
+        logger.warning("requests is not installed; skipping fetch for %s", url)
+        return None
+
+    headers = {
+        "User-Agent": "LMCP-AutoQuote-TenderRadar/1.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    last_error: Optional[Exception] = None
+    for _ in range(DEFAULT_RETRIES + 1):
+        try:
+            response = requests.get(url, timeout=timeout, headers=headers)
+            response.raise_for_status()
+            return response.text
+        except Exception as exc:  # pragma: no cover
+            last_error = exc
+
+    if last_error:
+        logger.warning("Failed fetching %s: %s", url, last_error)
+    return None
+
+
+def process_buyer_intelligence(db: Any, opportunity: Any) -> Dict[str, Any]:
+    title = _normalize_text(getattr(opportunity, "title", "") or opportunity.get("title", ""))
+    description = _normalize_text(
+        getattr(opportunity, "description", "") or opportunity.get("description", "")
+    )
+    buyer_name = _normalize_text(
+        getattr(opportunity, "buyer_name", "") or opportunity.get("buyer_name", "")
+    )
+    reference_number = _normalize_text(
+        getattr(opportunity, "reference_number", "") or opportunity.get("reference_number", "")
+    )
+
+    closing_date = getattr(opportunity, "closing_date", None)
+    if closing_date is None and isinstance(opportunity, dict):
+        closing_date = opportunity.get("closing_date")
+
+    submission_method = getattr(opportunity, "submission_method", None)
+    if submission_method is None and isinstance(opportunity, dict):
+        submission_method = opportunity.get("submission_method", "unknown")
+
+    compulsory_briefing = getattr(opportunity, "compulsory_briefing", None)
+    if compulsory_briefing is None and isinstance(opportunity, dict):
+        compulsory_briefing = bool(opportunity.get("compulsory_briefing", False))
+
+    haystack = f"{title} {description}".lower()
+    intelligence_score = 0
+    is_supply = _looks_supply_delivery(title, description)
+
+    if is_supply:
+        intelligence_score += 30
+    if title:
+        intelligence_score += 5
+    if len(description) > 40:
+        intelligence_score += 5
+    if reference_number:
+        intelligence_score += 5
+    if buyer_name:
+        intelligence_score += 5
+    if closing_date:
+        intelligence_score += 5
+    if submission_method in {"email", "portal"}:
+        intelligence_score += 10
+    if any(k in haystack for k in ["supply", "delivery", "procurement", "supply and delivery", "supply of"]):
+        intelligence_score += 10
+    if any(k in haystack for k in ["framework", "panel", "term contract", "contract"]):
+        intelligence_score += 5
+
+    buyer_code = (
+        buyer_name.upper().replace(" ", "_").replace("/", "_")[:32]
+        if buyer_name
+        else "UNKNOWN_BUYER"
+    )
+
+    category = "Supply / Delivery" if is_supply else "Other"
+    eligible_for_autobid = _is_allowed_submission(str(submission_method or "unknown"), bool(compulsory_briefing))
+    quote_ready = is_supply and intelligence_score >= 50 and eligible_for_autobid
+
+    return {
+        "buyer_code": buyer_code,
+        "intelligence_score": float(intelligence_score),
+        "quote_ready": bool(quote_ready),
+        "category": category,
+        "eligible_for_autobid": bool(eligible_for_autobid),
+    }
+
+
+def parse_raw_item_into_opportunity(raw_item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "title": _normalize_text(raw_item.get("title")),
+        "description": _normalize_text(raw_item.get("description")),
+        "external_url": raw_item.get("external_url"),
+        "published_date": raw_item.get("published_date"),
+        "closing_date": raw_item.get("closing_date"),
+        "buyer_name": _normalize_text(raw_item.get("buyer_name")),
+        "reference_number": _normalize_text(raw_item.get("reference_number")),
+        "province": raw_item.get("province"),
+        "category": raw_item.get("category"),
+        "source_name": raw_item.get("source_name"),
+        "source_url": raw_item.get("source_url"),
+        "is_supply": bool(raw_item.get("is_supply", False)),
+        "intelligence_score": float(raw_item.get("intelligence_score", 0)),
+        "quote_ready": bool(raw_item.get("quote_ready", False)),
+        "submission_method": raw_item.get("submission_method", "unknown"),
+        "submission_email": raw_item.get("submission_email"),
+        "portal_url": raw_item.get("portal_url"),
+        "compulsory_briefing": bool(raw_item.get("compulsory_briefing", False)),
+        "briefing_text": _normalize_text(raw_item.get("briefing_text")),
+        "eligible_for_autobid": bool(raw_item.get("eligible_for_autobid", False)),
+    }
+
+
+def _persist_opportunity_if_possible(db: Any, opportunity: Dict[str, Any]) -> None:
+    if db is None:
+        return
+
+    try:
+        if hasattr(db, "save_opportunity") and callable(db.save_opportunity):
+            db.save_opportunity(opportunity)
+            return
+
+        if hasattr(db, "add") and callable(db.add):
+            db.add(opportunity)
+
+        if hasattr(db, "flush") and callable(db.flush):
+            db.flush()
+    except Exception as persistence_error:
+        logger.warning("Opportunity persistence skipped/failed: %s", persistence_error)
+
+
+def harvest_source(source: SourceSeed) -> List[Dict[str, Any]]:
+    if not source.enabled:
+        return []
+
+    html = _safe_get(source.listing_url)
+    if not html:
+        return []
+
+    items = _parse_html_links(source, html)
+    return items[:DEFAULT_MAX_PER_SOURCE]
+
+
+    try:
+        due_portals = get_due_portals_for_crawl()
+        portals = due_portals if due_portals else get_portal_registry()
+    except Exception:
+        portals = get_portal_registry()
+
+    for portal in portals:
+        portal_slug = (
+            portal.get("portal_slug")
+            or portal.get("slug")
+            or portal.get("name")
+        )
+        portal_name = portal.get("portal_name", portal_slug)
+        temperature = portal.get("temperature", "cold")
+        interval_minutes = portal.get("interval_minutes", 120)
+
+        if not portal_slug:
+            continue
+
+        print(
+            f"[ADAPTIVE-CRAWL] Harvesting {portal_name} "
+            f"(slug={portal_slug}, temp={temperature}, every={interval_minutes}m)"
+        )
+
+        # existing harvest logic continues here
+
+def run_national_tender_radar(db: Any = None) -> Dict[str, Any]:
+    registry = _load_registry()
+
+    if not ENABLE_NATIONAL_TENDER_RADAR:
+        response = {
+            "enabled": False,
+            "sources_scanned": 0,
+            "opportunities_found": 0,
+            "results": [],
+            "message": "National tender radar is disabled by configuration.",
+        }
+        logger.info("run_national_tender_radar skipped because radar is disabled.")
+        return response
+
+    enabled_sources = [s for s in registry if s.enabled]
+    results: List[Dict[str, Any]] = []
+
+    for source in enabled_sources:
+        if len(results) >= DEFAULT_MAX_TOTAL:
+            break
+
+        try:
+            harvested_items = harvest_source(source)
+        except Exception as source_error:
+            logger.warning("Failed harvesting %s: %s", source.name, source_error)
+            continue
+
+        for raw_item in harvested_items:
+            if len(results) >= DEFAULT_MAX_TOTAL:
+                break
+
+            opportunity = parse_raw_item_into_opportunity(raw_item)
+
+            if not _is_allowed_submission(
+                str(opportunity.get("submission_method", "unknown")),
+                bool(opportunity.get("compulsory_briefing", False)),
+            ):
+                continue
+
+            try:
+                intelligence = process_buyer_intelligence(db, opportunity)
+                opportunity["buyer_code"] = intelligence.get("buyer_code")
+                opportunity["intelligence_score"] = intelligence.get("intelligence_score", 0.0)
+                opportunity["quote_ready"] = bool(intelligence.get("quote_ready", False))
+                opportunity["eligible_for_autobid"] = bool(intelligence.get("eligible_for_autobid", False))
+                if not opportunity.get("category"):
+                    opportunity["category"] = intelligence.get("category")
+            except Exception as intelligence_error:
+                print(f"[PROCUREMENT_INTELLIGENCE] failed: {intelligence_error}")
+
+            if not bool(opportunity.get("eligible_for_autobid", False)):
+                continue
+
+            _persist_opportunity_if_possible(db, opportunity)
+            results.append(opportunity)
+
+    response = {
+        "enabled": ENABLE_NATIONAL_TENDER_RADAR,
+        "supply_delivery_only": SUPPLY_DELIVERY_ONLY,
+        "submission_modes_allowed": ["email", "portal"],
+        "compulsory_briefing_allowed": False,
+        "sources_scanned": len(enabled_sources),
+        "opportunities_found": len(results),
+        "results": results,
+    }
+
+    logger.info("run_national_tender_radar completed with %s opportunities.", len(results))
+    return response
+
+
+def healthcheck_tender_radar() -> Dict[str, Any]:
+    registry = _load_registry()
+    return {
+        "enabled": ENABLE_NATIONAL_TENDER_RADAR,
+        "supply_delivery_only": SUPPLY_DELIVERY_ONLY,
+        "submission_modes_allowed": ["email", "portal"],
+        "compulsory_briefing_allowed": False,
+        "sources_configured": len(registry),
+        "sources_enabled": len([s for s in registry if s.enabled]),
+        "national_sources": len([s for s in registry if s.national]),
+        "timeout_seconds": DEFAULT_TIMEOUT,
+        "retries": DEFAULT_RETRIES,
+        "max_per_source": DEFAULT_MAX_PER_SOURCE,
+        "max_total": DEFAULT_MAX_TOTAL,
+    }
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    output = run_national_tender_radar(db=None)
+    print(json.dumps(output, indent=2, ensure_ascii=False))

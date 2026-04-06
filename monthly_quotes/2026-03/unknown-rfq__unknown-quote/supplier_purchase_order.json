@@ -1,0 +1,29 @@
+{
+  "po_number": "LMCP-PO-20260331-234105",
+  "po_date": "2026-03-31",
+  "buyer_rfq_number": "N/A",
+  "buyer_name": "Buyer / Issuing Entity",
+  "issuing_company": {
+    "company_name": "Lechesa Manaba Consulting and Projects (Pty) Ltd",
+    "address": "1787 Dube Street, Batho Location, Bloemfontein, 9323",
+    "phone": "0826338492",
+    "email": "lechesam@me.com",
+    "registration_number": "2012/159509/07",
+    "vat_number": "4260295953"
+  },
+  "selected_supplier": {
+    "supplier_name": "",
+    "quote_number": "",
+    "quote_date": "",
+    "supplier_email": "",
+    "lead_time": ""
+  },
+  "commercials": {
+    "subtotal": 0.0,
+    "vat_amount": 0.0,
+    "total_incl_vat": 0.0,
+    "currency": "ZAR"
+  },
+  "items": [],
+  "status": "draft"
+}

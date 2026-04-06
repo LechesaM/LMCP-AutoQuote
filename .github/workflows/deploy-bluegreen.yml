@@ -1,0 +1,67 @@
+name: Deploy (Blue/Green)
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: af-south-1
+  ECR_REPO: autoquote-tender-desk
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        run: |
+          IMAGE_URI="${{ steps.ecr.outputs.registry }}/${ECR_REPO}:${GITHUB_SHA}"
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      - name: Render taskdef.json
+        run: |
+          cp deploy/taskdef.json taskdef.json
+          sed -i "s|REPLACE_IMAGE|${IMAGE_URI}|g" taskdef.json
+          sed -i "s|REPLACE_EXEC_ROLE_ARN|${{ secrets.ECS_EXEC_ROLE_ARN }}|g" taskdef.json
+          sed -i "s|REPLACE_TASK_ROLE_ARN|${{ secrets.ECS_TASK_ROLE_ARN }}|g" taskdef.json
+          sed -i "s|REPLACE_SSM_DB_URL_ARN|${{ secrets.SSM_DB_URL_ARN }}|g" taskdef.json
+          sed -i "s|REPLACE_SSM_JWT_ARN|${{ secrets.SSM_JWT_ARN }}|g" taskdef.json
+          sed -i "s|REPLACE_SSM_MFA_ARN|${{ secrets.SSM_MFA_ARN }}|g" taskdef.json
+          sed -i "s|REPLACE_SSM_REDIS_ARN|${{ secrets.SSM_REDIS_ARN }}|g" taskdef.json
+
+      - name: Register task definition
+        run: |
+          ARN=$(aws ecs register-task-definition --cli-input-json file://taskdef.json --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "TASKDEF_ARN=$ARN" >> $GITHUB_ENV
+
+      - name: Create CodeDeploy revision bundle
+        run: |
+          cp deploy/appspec.yaml appspec.yaml
+          sed -i "s|<TASK_DEFINITION>|${TASKDEF_ARN}|g" appspec.yaml
+          zip -r revision.zip appspec.yaml
+
+      - name: Upload revision to S3
+        run: |
+          aws s3 mb "s3://${{ secrets.CODEDEPLOY_BUCKET }}" || true
+          aws s3 cp revision.zip "s3://${{ secrets.CODEDEPLOY_BUCKET }}/revisions/revision-${GITHUB_SHA}.zip"
+
+      - name: Create deployment
+        run: |
+          aws deploy create-deployment             --application-name "${{ secrets.CODEDEPLOY_APP_NAME }}"             --deployment-group-name "${{ secrets.CODEDEPLOY_DG_NAME }}"             --revision "revisionType=S3,s3Location={bucket=${{ secrets.CODEDEPLOY_BUCKET }},key=revisions/revision-${GITHUB_SHA}.zip,bundleType=zip}"             --description "Deploy ${GITHUB_SHA}"

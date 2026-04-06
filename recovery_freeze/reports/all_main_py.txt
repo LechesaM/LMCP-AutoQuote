@@ -1,0 +1,8 @@
+./.venv/lib/python3.9/site-packages/dotenv/main.py
+./.venv/lib/python3.9/site-packages/pip/_internal/cli/main.py
+./.venv/lib/python3.9/site-packages/pip/_internal/main.py
+./.venv/lib/python3.9/site-packages/pydantic/main.py
+./.venv/lib/python3.9/site-packages/pydantic/v1/main.py
+./.venv/lib/python3.9/site-packages/uvicorn/main.py
+./.venv/lib/python3.9/site-packages/watchfiles/main.py
+./app/main.py

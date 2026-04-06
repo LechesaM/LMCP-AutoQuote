@@ -1,0 +1,98 @@
+LMCP AUTOQUOTE SYSTEM - RECOVERY REPORT
+Generated: Sat 21 Mar 2026 17:18:13 SAST
+
+PROJECT ROOT:
+/Users/Shared/LMCP-AutoQuote-Server
+
+TOP LEVEL CONTENTS:
+_reference_packs
+=
+app
+app_code_review.zip
+app.tasks.py
+Atiye.pdf
+backup_app_files.txt
+backup_files.txt
+backup_system.sh
+celerybeat-schedule
+changed_vs_backup.txt
+control_panel.html
+data
+db
+deploy
+development_timeline.txt
+docker
+docker_cleanup.log
+docker_cleanup.sh
+docker-compose.yml
+docker-compose.yml.bak
+Dockerfile
+docs
+evidence
+extra_in_live.txt
+frontend
+generated
+harvest_opportunities
+i
+infra
+live_files_after_restore.txt
+live_files.txt
+LMCP_app_code.zip
+lmcp_database_backup.sql
+lmcp_db_backup_20260315-0228.sql
+lmcp_db_backup_20260315-0229.sql
+lmcp_db_backup_20260315-0230.sql
+lmcp_db_backup_20260315-0231.sql
+lmcp_db_backup_20260315-0233.sql
+LMCP_System_Backup_16032026_1735.tar.gz
+LMCP_System_Backup_16032026_FULL.tar.gz
+LMCP_System_Backup_16032026.tar.gz
+LMCP-AutoQuote-backup-20260315-0227.zip
+LMCP-AutoQuote-backup-20260315-1706.tar.gz
+LMCP-AutoQuote-FULL-STABLE-20260313-2209.tar.gz
+LMCP-AutoQuote-FULL-STABLE-20260313-2215.tar.gz
+LMCP-AutoQuote-FULL-STABLE-20260313-2216.tar.gz
+LMCP-AutoQuote-FULL-STABLE-20260313-2220.tar.gz
+LMCP-AutoQuote-Server
+LMCP-AutoQuote-STABLE-20260313-1843.tar.gz
+LMCP-AutoQuote-STABLE-20260313-1845.tar.gz
+main.tsx
+Makefile
+missing_from_live.txt
+models.py
+nano
+portal_radar_report.json
+portal_registry.py
+pricing_engine.py
+pyproject.toml
+README.md
+recovery_freeze
+requirements.txt
+runtime
+scripts
+supplier_engine.py
+tasks.py
+test_form_filler.py
+test_sbd_version_detector.py
+test_tender_form_priority_engine.py
+test_tender_submission_pipeline.py
+touch
+uploads
+
+CORE FILE CHECK:
+=== CORE FILE CHECK ===
+
+[FOUND] app/main.py
+[MISSING] app/api/autonomous_api.py
+[FOUND] app/api/system.py
+[FOUND] app/api/tender_pipeline_api.py
+[FOUND] app/tasks.py
+[FOUND] app/sbd_generator.py
+[FOUND] app/services/live_rfq_store.py
+[FOUND] app/services/tender_eligibility.py
+[FOUND] app/services/universal_form_filler.py
+[FOUND] app/services/sbd_version_detector.py
+[FOUND] docker-compose.yml
+[FOUND] Dockerfile
+[FOUND] requirements.txt
+STRUCTURE FIX APPLIED: autonomous_api moved + tasks.py cleaned

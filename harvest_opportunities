@@ -1,0 +1,88 @@
+def harvest_opportunities(
+    source_metrics=None,
+    sources=None,
+    cycle_state=None,
+    batch_size=25,
+    max_sources_per_cycle=25,
+):
+    """
+    Main harvesting entry point used by the autonomous engine.
+    Applies scheduling, batching, crawl caps, and persistent cycle memory.
+    """
+
+    source_metrics = source_metrics or {}
+    sources = sources or SOURCES
+
+    # Load persisted cycle state if not explicitly passed in
+    if cycle_state is None:
+        cycle_state = load_cycle_state()
+    else:
+        cycle_state = dict(cycle_state)
+
+    # Determine which sources are due for crawling
+    due_sources = select_sources_to_crawl(sources, source_metrics)
+
+    cycle_number = int(cycle_state.get("cycle_number", 0))
+
+    # Select batch for this cycle
+    batched_sources = select_batch_for_cycle(
+        due_sources,
+        cycle_number=cycle_number,
+        batch_size=batch_size,
+    )
+
+    # Apply hard cap
+    selected_sources = apply_crawl_cap(
+        batched_sources,
+        max_sources_per_cycle=max_sources_per_cycle,
+    )
+
+    batch_summary = summarize_batch_selection(
+        total_sources=len(due_sources),
+        selected_sources=selected_sources,
+        cycle_number=cycle_number,
+        batch_size=batch_size,
+        max_sources_per_cycle=max_sources_per_cycle,
+    )
+
+    logger.info("Batch selection summary: %s", batch_summary)
+
+    all_tenders = []
+
+    # Crawl each selected source
+    for source in selected_sources:
+        source_name = source.get("name") or source.get("url") or "unknown-source"
+        source_url = source.get("url")
+
+        if not source_url:
+            continue
+
+        try:
+            tenders = crawl_source(source_url, source_name=source_name)
+
+            for tender in tenders:
+                tender["source_name"] = source_name
+
+            all_tenders.extend(tenders)
+
+        except Exception as exc:
+            logger.exception("Source crawl failed for %s: %s", source_name, exc)
+
+    # Remove duplicates
+    deduped = deduplicate_tenders(all_tenders)
+
+    # Update and persist cycle state
+    updated_state = update_cycle_state(
+        cycle_state,
+        selected_sources=selected_sources,
+    )
+    save_cycle_state(updated_state)
+
+    logger.info("Cycle state updated and saved: %s", updated_state)
+    logger.info(
+        "Harvest complete: raw=%s deduplicated=%s",
+        len(all_tenders),
+        len(deduped),
+    )
+
+    return deduped

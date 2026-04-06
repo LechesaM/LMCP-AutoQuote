@@ -1,0 +1,107 @@
+from datetime import datetime
+
+from fastapi import APIRouter
+
+router = APIRouter(
+    prefix="/dashboard",
+    tags=["Autonomous Control Panel"],
+)
+
+
+@router.get("/status")
+def system_status():
+    return {
+        "system": "LMCP Autonomous Tender Engine",
+        "status": "RUNNING",
+        "timestamp": datetime.now().isoformat(),
+        "services": {
+            "database": "connected",
+            "redis": "active",
+            "celery_workers": "online",
+            "harvest_scheduler": "running",
+            "autonomous_brain": "active",
+        },
+    }
+
+
+@router.get("/statistics")
+def statistics():
+    return {
+        "harvest_frequency_minutes": 30,
+        "scoring_frequency_minutes": 15,
+        "quote_generation_frequency_minutes": 20,
+        "submission_pack_frequency_minutes": 25,
+        "email_submission_frequency_minutes": 30,
+    }
+
+
+@router.post("/harvest-now")
+def manual_harvest():
+    from app.tasks import run_harvest_cycle
+
+    task = run_harvest_cycle.delay()
+    return {
+        "message": "Tender harvest triggered manually",
+        "task_id": task.id,
+        "task_name": "run_harvest_cycle",
+    }
+
+
+@router.post("/score-now")
+def manual_score():
+    from app.tasks import run_scoring_cycle
+
+    task = run_scoring_cycle.delay()
+    return {
+        "message": "Opportunity scoring triggered manually",
+        "task_id": task.id,
+        "task_name": "run_scoring_cycle",
+    }
+
+
+@router.post("/generate-quotes")
+def manual_quote_generation():
+    from app.tasks import run_quote_cycle
+
+    task = run_quote_cycle.delay()
+    return {
+        "message": "Quote generation started",
+        "task_id": task.id,
+        "task_name": "run_quote_cycle",
+    }
+
+
+@router.post("/build-submissions")
+def build_submission_packs():
+    from app.tasks import run_submission_pack_cycle
+
+    task = run_submission_pack_cycle.delay()
+    return {
+        "message": "Submission pack builder started",
+        "task_id": task.id,
+        "task_name": "run_submission_pack_cycle",
+    }
+
+
+@router.post("/send-submissions")
+def send_submissions():
+    from app.tasks import run_email_submission_cycle
+
+    task = run_email_submission_cycle.delay()
+    return {
+        "message": "Email submissions triggered",
+        "task_id": task.id,
+        "task_name": "run_email_submission_cycle",
+    }
+
+
+@router.post("/run-full-cycle")
+def run_full_cycle():
+    from app.tasks import run_full_autonomous_cycle
+
+    task = run_full_autonomous_cycle.delay()
+    return {
+        "message": "Full autonomous cycle triggered",
+        "task_id": task.id,
+        "task_name": "run_full_autonomous_cycle",
+    }

@@ -1,0 +1,4 @@
+./.venv/lib/python3.9/site-packages/celery/contrib/testing/tasks.py
+./.venv/lib/python3.9/site-packages/celery/worker/consumer/tasks.py
+./app/tasks.py
+./tasks.py

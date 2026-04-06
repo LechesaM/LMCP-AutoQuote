@@ -1,0 +1,206 @@
+cat > app/ocds_client.py <<'PY'
+from __future__ import annotations
+
+import os
+import time
+import logging
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+# The Swagger spec shows the main endpoint is:
+#   GET /api/OCDSReleases
+# with query params: PageNumber, PageSize, dateFrom, dateTo
+# dateFrom/dateTo are format: date-time.  :contentReference[oaicite:1]{index=1}
+DEFAULT_BASE_URL = "https://ocds-api.etenders.gov.za"
+DEFAULT_ENDPOINT = "/api/OCDSReleases"
+
+# Backwards compatibility with older env naming you used earlier
+# Preferred:
+#   ETENDERS_OCDS_BASE_URL=https://ocds-api.etenders.gov.za
+#   ETENDERS_OCDS_RELEASES_ENDPOINT=/api/OCDSReleases
+# Also supported:
+#   ETENDERS_API_URL=https://ocds-api.etenders.gov.za
+OCDS_BASE_URL = (
+    os.getenv("ETENDERS_OCDS_BASE_URL")
+    or os.getenv("ETENDERS_API_URL")
+    or DEFAULT_BASE_URL
+).rstrip("/")
+
+OCDS_ENDPOINT = os.getenv("ETENDERS_OCDS_RELEASES_ENDPOINT", DEFAULT_ENDPOINT)
+
+USER_AGENT = os.getenv("LMCP_USER_AGENT", "LMCP-AutoQuote/1.0")
+REQUEST_TIMEOUT = float(os.getenv("ETENDERS_HTTP_TIMEOUT", "60"))
+MAX_RETRIES = int(os.getenv("ETENDERS_HTTP_MAX_RETRIES", "3"))
+RETRY_SLEEP_SECONDS = float(os.getenv("ETENDERS_HTTP_RETRY_SLEEP", "2"))
+
+DEFAULT_PAGE_SIZE = int(os.getenv("ETENDERS_OCDS_PAGE_SIZE", "200"))
+DEFAULT_DAYS_BACK = int(os.getenv("ETENDERS_OCDS_DAYS_BACK", "7"))
+DEFAULT_MAX_PAGES = int(os.getenv("ETENDERS_OCDS_MAX_PAGES", "50"))
+
+
+def _iso_z(dt: datetime) -> str:
+    """ISO 8601 with Z (UTC)."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _default_date_range(days_back: int = DEFAULT_DAYS_BACK) -> Tuple[datetime, datetime]:
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days_back)
+    # Normalize to day boundaries for stable results
+    start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = now.replace(hour=23, minute=59, second=59, microsecond=0)
+    return start, end
+
+
+class OCDSClient:
+    def __init__(
+        self,
+        base_url: str = OCDS_BASE_URL,
+        endpoint: str = OCDS_ENDPOINT,
+        user_agent: str = USER_AGENT,
+        timeout: float = REQUEST_TIMEOUT,
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.endpoint = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update(
+            {
+                "User-Agent": user_agent,
+                "Accept": "application/json",
+            }
+        )
+
+    def _url(self) -> str:
+        return f"{self.base_url}{self.endpoint}"
+
+    def _request_with_retries(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        url = self._url()
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                resp = self.session.get(url, params=params, timeout=self.timeout)
+
+                # If anything goes wrong, surface it loudly so you can see it in logs
+                if resp.status_code >= 400:
+                    # Try to include response text safely (not huge)
+                    body_preview = resp.text[:500] if resp.text else ""
+                    raise RuntimeError(
+                        f"OCDS API error {resp.status_code} for {resp.url} :: {body_preview}"
+                    )
+
+                # Some servers return JSON with wrong content-type; be tolerant
+                return resp.json()
+
+            except Exception as e:
+                last_exc = e
+                logger.warning(
+                    "OCDS request failed (attempt %s/%s): %s",
+                    attempt,
+                    MAX_RETRIES,
+                    str(e),
+                )
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_SLEEP_SECONDS)
+
+        raise RuntimeError(f"OCDS request failed after {MAX_RETRIES} retries: {last_exc}")
+
+    def fetch_release_pages(
+        self,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        max_pages: int = DEFAULT_MAX_PAGES,
+        start_page: int = 1,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch multiple pages from /api/OCDSReleases.
+
+        Returns: a list of Release dicts.
+        """
+        if date_from is None or date_to is None:
+            date_from, date_to = _default_date_range(DEFAULT_DAYS_BACK)
+
+        releases: List[Dict[str, Any]] = []
+
+        # The API expects date-time strings. :contentReference[oaicite:2]{index=2}
+        date_from_s = _iso_z(date_from)
+        date_to_s = _iso_z(date_to)
+
+        logger.info(
+            "Fetching OCDS releases from %s%s dateFrom=%s dateTo=%s pageSize=%s",
+            self.base_url,
+            self.endpoint,
+            date_from_s,
+            date_to_s,
+            page_size,
+        )
+
+        for page in range(start_page, start_page + max_pages):
+            params = {
+                "PageNumber": page,
+                "PageSize": page_size,
+                "dateFrom": date_from_s,
+                "dateTo": date_to_s,
+            }
+
+            data = self._request_with_retries(params=params)
+
+            page_releases = data.get("releases") or []
+            if not isinstance(page_releases, list):
+                logger.warning("Unexpected 'releases' type: %s", type(page_releases))
+                page_releases = []
+
+            logger.info("Page %s: received %s releases", page, len(page_releases))
+            if not page_releases:
+                # Stop when a page is empty
+                break
+
+            releases.extend(page_releases)
+
+            # If API provides links.next, we could use it, but paging is explicit here.
+            links = data.get("links") or {}
+            next_link = links.get("next")
+            if not next_link:
+                # No next link -> likely last page
+                # (But we still continue based on empty pages; this is just an optimization.)
+                pass
+
+        logger.info("Total releases fetched: %s", len(releases))
+        return releases
+
+
+def get_client() -> OCDSClient:
+    return OCDSClient()
+
+
+def fetch_releases(
+    days_back: int = DEFAULT_DAYS_BACK,
+    page_size: int = DEFAULT_PAGE_SIZE,
+    max_pages: int = DEFAULT_MAX_PAGES,
+) -> List[Dict[str, Any]]:
+    """
+    Convenience function used by tasks.
+    """
+    date_from, date_to = _default_date_range(days_back)
+    client = get_client()
+    return client.fetch_release_pages(
+        date_from=date_from,
+        date_to=date_to,
+        page_size=page_size,
+        max_pages=max_pages,
+        start_page=1,
+    )
+PY
+
+@router.get("/procurement-heatmap")
+def procurement_heatmap():
+    return build_procurement_heatmap()

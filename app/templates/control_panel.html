@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LMCP Control Panel</title>
+    <style>
+        :root{
+            --bg:#0b1020;
+            --panel:#121a31;
+            --panel-2:#18213f;
+            --line:#263252;
+            --text:#eef3ff;
+            --muted:#9fb0d3;
+            --accent:#4da3ff;
+            --accent-2:#6ef3c5;
+            --danger:#ff6b6b;
+            --warn:#ffca57;
+            --ok:#2ed573;
+            --shadow:0 10px 30px rgba(0,0,0,.25);
+            --radius:18px;
+        }
+
+        *{box-sizing:border-box}
+        body{
+            margin:0;
+            font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+            background:linear-gradient(180deg,#0a0f1d 0%, #0f1630 100%);
+            color:var(--text);
+        }
+
+        .layout{
+            display:grid;
+            grid-template-columns:260px 1fr;
+            min-height:100vh;
+        }
+
+        .sidebar{
+            background:rgba(8,12,24,.85);
+            border-right:1px solid var(--line);
+            padding:22px 18px;
+            position:sticky;
+            top:0;
+            height:100vh;
+            backdrop-filter: blur(10px);
+        }
+
+        .brand{
+            display:flex;
+            align-items:center;
+            gap:12px;
+            margin-bottom:28px;
+        }
+
+        .brand-badge{
+            width:44px;
+            height:44px;
+            border-radius:14px;
+            background:linear-gradient(135deg,var(--accent),var(--accent-2));
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            color:#08111f;
+            font-weight:800;
+            box-shadow:var(--shadow);
+        }
+
+        .brand h1{
+            margin:0;
+            font-size:18px;
+            line-height:1.1;
+        }
+
+        .brand small{
+            color:var(--muted);
+            display:block;
+            margin-top:3px;
+        }
+
+        .nav{
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+        }
+
+        .nav button{
+            width:100%;
+            border:1px solid var(--line);
+            background:var(--panel);
+            color:var(--text);
+            text-align:left;
+            padding:13px 14px;
+            border-radius:14px;
+            cursor:pointer;
+            transition:.2s ease;
+            font-size:14px;
+        }
+
+        .nav button:hover,
+        .nav button.active{
+            background:linear-gradient(180deg,#1b2950,#162243);
+            border-color:#3a4d80;
+            transform:translateY(-1px);
+        }
+
+        .main{
+            padding:24px;
+        }
+
+        .topbar{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:16px;
+            margin-bottom:22px;
+            flex-wrap:wrap;
+        }
+
+        .topbar h2{
+            margin:0;
+            font-size:28px;
+        }
+
+        .topbar p{
+            margin:6px 0 0 0;
+            color:var(--muted);
+        }
+
+        .actions{
+            display:flex;
+            gap:10px;
+            flex-wrap:wrap;
+        }
+
+        .btn{
+            border:none;
+            border-radius:12px;
+            padding:11px 16px;
+            font-weight:700;
+            cursor:pointer;
+            transition:.2s ease;
+        }
+
+        .btn-primary{
+            background:linear-gradient(135deg,var(--accent),#2d7fff);
+            color:white;
+        }
+
+        .btn-secondary{
+            background:var(--panel);
+            color:var(--text);
+            border:1px solid var(--line);
+        }
+
+        .btn-success{
+            background:linear-gradient(135deg,#17c964,#0ea75a);
+            color:white;
+        }
+
+        .btn:hover{
+            transform:translateY(-1px);
+        }
+
+        .grid{
+            display:grid;
+            grid-template-columns:repeat(12,1fr);
+            gap:18px;
+        }
+
+        .card{
+            background:linear-gradient(180deg,rgba(24,33,63,.96),rgba(18,26,49,.96));
+            border:1px solid var(--line);
+            border-radius:var(--radius);
+            padding:18px;
+            box-shadow:var(--shadow);
+        }
+
+        .span-3{grid-column:span 3;}
+        .span-4{grid-column:span 4;}
+        .span-5{grid-column:span 5;}
+        .span-6{grid-column:span 6;}
+        .span-7{grid-column:span 7;}
+        .span-8{grid-column:span 8;}
+        .span-12{grid-column:span 12;}
+
+        .metric-title{
+            color:var(--muted);
+            font-size:13px;
+            margin-bottom:10px;
+        }
+
+        .metric-value{
+            font-size:30px;
+            font-weight:800;
+            margin:0;
+        }
+
+        .metric-sub{
+            color:var(--muted);
+            font-size:12px;
+            margin-top:8px;
+        }
+
+        .pill{
+            display:inline-flex;
+            align-items:center;
+            gap:8px;
+            padding:7px 11px;
+            border-radius:999px;
+            font-size:12px;
+            font-weight:700;
+            border:1px solid transparent;
+        }
+
+        .pill.ok{background:rgba(46,213,115,.12); color:#9cffc2; border-color:rgba(46,213,115,.25);}
+        .pill.warn{background:rgba(255,202,87,.12); color:#ffe29c; border-color:rgba(255,202,87,.25);}
+        .pill.danger{background:rgba(255,107,107,.12); color:#ffb3b3; border-color:rgba(255,107,107,.25);}
+        .pill.info{background:rgba(77,163,255,.12); color:#b8d8ff; border-color:rgba(77,163,255,.25);}
+
+        .section-title{
+            margin:0 0 14px 0;
+            font-size:16px;
+        }
+
+        .row{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            padding:12px 0;
+            border-bottom:1px solid rgba(255,255,255,.06);
+        }
+
+        .row:last-child{
+            border-bottom:none;
+            padding-bottom:0;
+        }
+
+        .row-title{
+            font-weight:700;
+            font-size:14px;
+        }
+
+        .row-sub{
+            font-size:12px;
+            color:var(--muted);
+            margin-top:4px;
+        }
+
+        table{
+            width:100%;
+            border-collapse:collapse;
+        }
+
+        th, td{
+            text-align:left;
+            padding:12px 8px;
+            border-bottom:1px solid rgba(255,255,255,.06);
+            font-size:14px;
+        }
+
+        th{
+            color:var(--muted);
+            font-weight:600;
+            font-size:12px;
+            text-transform:uppercase;
+            letter-spacing:.04em;
+        }
+
+        .log-box{
+            background:#0a1124;
+            border:1px solid var(--line);
+            border-radius:14px;
+            padding:14px;
+            min-height:260px;
+            max-height:420px;
+            overflow:auto;
+            font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size:12px;
+            white-space:pre-wrap;
+            line-height:1.6;
+            color:#d7e3ff;
+        }
+
+        .mini-grid{
+            display:grid;
+            grid-template-columns:repeat(2,1fr);
+            gap:12px;
+        }
+
+        .status-line{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            padding:10px 12px;
+            background:#0d152c;
+            border:1px solid var(--line);
+            border-radius:12px;
+            margin-bottom:10px;
+        }
+
+        .muted{color:var(--muted)}
+        .hidden{display:none !important;}
+
+        @media (max-width: 1100px){
+            .span-3,.span-4,.span-5,.span-6,.span-7,.span-8{grid-column:span 12;}
+        }
+
+        @media (max-width: 860px){
+            .layout{grid-template-columns:1fr;}
+            .sidebar{
+                height:auto;
+                position:relative;
+                border-right:none;
+                border-bottom:1px solid var(--line);
+            }
+            .nav{
+                display:grid;
+                grid-template-columns:repeat(2,1fr);
+            }
+        }
+
+        @media (max-width: 560px){
+            .nav{grid-template-columns:1fr;}
+            .mini-grid{grid-template-columns:1fr;}
+            .topbar h2{font-size:22px;}
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-badge">LM</div>
+                <div>
+                    <h1>LMCP Control Panel</h1>
+                    <small>Autonomous Tender Engine</small>
+                </div>
+            </div>
+
+            <div class="nav">
+                <button class="active" onclick="showSection('overview', this)">Overview</button>
+                <button onclick="showSection('opportunities', this)">Opportunities</button>
+                <button onclick="showSection('quotes', this)">Quotes</button>
+                <button onclick="showSection('scheduler', this)">Scheduler</button>
+                <button onclick="showSection('submissions', this)">Submissions</button>
+                <button onclick="showSection('logs', this)">System Logs</button>
+            </div>
+        </aside>
+
+        <main class="main">
+            <div class="topbar">
+                <div>
+                    <h2>Autonomous Control Panel</h2>
+                    <p>See live system status, tender flow, scheduler health, and recent activity in one place.</p>
+                </div>
+                <div class="actions">
+                    <button class="btn btn-primary" onclick="refreshDashboard()">Refresh Dashboard</button>
+                    <button class="btn btn-secondary" onclick="runQuickAction('/harvest', 'POST')">Run Harvest</button>
+                    <button class="btn btn-success" onclick="runQuickAction('/scheduler/run-now', 'POST')">Run Scheduler</button>
+                </div>
+            </div>
+
+            <!-- OVERVIEW -->
+            <section id="overview" class="panel-section">
+                <div class="grid">
+                    <div class="card span-3">
+                        <div class="metric-title">System Health</div>
+                        <h3 class="metric-value" id="metric-health">Checking...</h3>
+                        <div class="metric-sub" id="metric-health-sub">Connecting to backend</div>
+                    </div>
+
+                    <div class="card span-3">
+                        <div class="metric-title">Total Opportunities</div>
+                        <h3 class="metric-value" id="metric-opps">0</h3>
+                        <div class="metric-sub">Harvested RFQs and tenders</div>
+                    </div>
+
+                    <div class="card span-3">
+                        <div class="metric-title">Quote Drafts</div>
+                        <h3 class="metric-value" id="metric-quotes">0</h3>
+                        <div class="metric-sub">Generated quotation drafts</div>
+                    </div>
+
+                    <div class="card span-3">
+                        <div class="metric-title">Submissions</div>
+                        <h3 class="metric-value" id="metric-submissions">0</h3>
+                        <div class="metric-sub">Prepared / sent submissions</div>
+                    </div>
+
+                    <div class="card span-7">
+                        <h3 class="section-title">System Services</h3>
+                        <div id="services-box">
+                            <div class="status-line"><span>API</span><span class="pill info">Checking</span></div>
+                            <div class="status-line"><span>Scheduler</span><span class="pill info">Checking</span></div>
+                            <div class="status-line"><span>Database</span><span class="pill info">Checking</span></div>
+                            <div class="status-line"><span>Submission Engine</span><span class="pill info">Checking</span></div>
+                        </div>
+                    </div>
+
+                    <div class="card span-5">
+                        <h3 class="section-title">Quick Actions</h3>
+                        <div class="mini-grid">
+                            <button class="btn btn-secondary" onclick="runQuickAction('/harvest', 'POST')">Harvest Now</button>
+                            <button class="btn btn-secondary" onclick="runQuickAction('/auto-quotes/run', 'POST')">Auto Build Quotes</button>
+                            <button class="btn btn-secondary" onclick="runQuickAction('/submission-pack/build-all', 'POST')">Build Packs</button>
+                            <button class="btn btn-secondary" onclick="runQuickAction('/scheduler/run-now', 'POST')">Run Scheduler</button>
+                        </div>
+                        <div style="margin-top:14px;" id="action-result" class="muted">Action results will appear here.</div>
+                    </div>
+
+                    <div class="card span-6">
+                        <h3 class="section-title">Recent Opportunities</h3>
+                        <div id="recent-opps">
+                            <div class="muted">Loading opportunities...</div>
+                        </div>
+                    </div>
+
+                    <div class="card span-6">
+                        <h3 class="section-title">Recent Quote Drafts</h3>
+                        <div id="recent-quotes">
+                            <div class="muted">Loading quote drafts...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- OPPORTUNITIES -->
+            <section id="opportunities" class="panel-section hidden">
+                <div class="card span-12">
+                    <h3 class="section-title">Opportunities</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Title</th>
+                                <th>Buyer</th>
+                                <th>Closing Date</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="opportunities-table">
+                            <tr><td colspan="5" class="muted">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- QUOTES -->
+            <section id="quotes" class="panel-section hidden">
+                <div class="card span-12">
+                    <h3 class="section-title">Quote Drafts</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Opportunity</th>
+                                <th>Quote Number</th>
+                                <th>Total</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="quotes-table">
+                            <tr><td colspan="5" class="muted">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- SCHEDULER -->
+            <section id="scheduler" class="panel-section hidden">
+                <div class="grid">
+                    <div class="card span-5">
+                        <h3 class="section-title">Scheduler Status</h3>
+                        <div id="scheduler-status-box" class="muted">Loading scheduler status...</div>
+                    </div>
+                    <div class="card span-7">
+                        <h3 class="section-title">Scheduled Activity</h3>
+                        <div id="scheduler-activity-box" class="muted">Loading scheduler activity...</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SUBMISSIONS -->
+            <section id="submissions" class="panel-section hidden">
+                <div class="card span-12">
+                    <h3 class="section-title">Submissions</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Opportunity</th>
+                                <th>Method</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                            </tr>
+                        </thead>
+                        <tbody id="submissions-table">
+                            <tr><td colspan="5" class="muted">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- LOGS -->
+            <section id="logs" class="panel-section hidden">
+                <div class="card span-12">
+                    <h3 class="section-title">System Logs</h3>
+                    <div id="logs-box" class="log-box">Loading logs...</div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        function showSection(id, btn){
+            document.querySelectorAll(".panel-section").forEach(section => {
+                section.classList.add("hidden");
+            });
+            document.getElementById(id).classList.remove("hidden");
+
+            document.querySelectorAll(".nav button").forEach(b => b.classList.remove("active"));
+            btn.classList.add("active");
+        }
+
+        function safeArray(data) {
+            if (Array.isArray(data)) return data;
+            if (Array.isArray(data?.items)) return data.items;
+            if (Array.isArray(data?.results)) return data.results;
+            if (Array.isArray(data?.data)) return data.data;
+            return [];
+        }
+
+        function safeText(value, fallback="—"){
+            if (value === null || value === undefined || value === "") return fallback;
+            return String(value);
+        }
+
+        function pillClassFromStatus(status){
+            const s = (status || "").toString().toLowerCase();
+            if (s.includes("ok") || s.includes("healthy") || s.includes("running") || s.includes("success") || s.includes("active")) return "ok";
+            if (s.includes("warn") || s.includes("pending") || s.includes("queued")) return "warn";
+            if (s.includes("error") || s.includes("fail") || s.includes("down") || s.includes("stopped")) return "danger";
+            return "info";
+        }
+
+        async function fetchJson(url, options={}){
+            try{
+                const response = await fetch(url, options);
+                const text = await response.text();
+
+                try{
+                    const data = text ? JSON.parse(text) : {};
+                    return { ok: response.ok, status: response.status, data };
+                }catch{
+                    return { ok: response.ok, status: response.status, data: { raw: text } };
+                }
+            }catch(error){
+                return { ok: false, status: 0, data: { error: error.message } };
+            }
+        }
+
+        async function runQuickAction(url, method="POST"){
+            const resultBox = document.getElementById("action-result");
+            resultBox.textContent = `Running action: ${method} ${url} ...`;
+
+            const res = await fetchJson(url, { method });
+
+            if(res.ok){
+                resultBox.textContent = `Success: ${url} completed.`;
+                refreshDashboard();
+            }else{
+                const detail = res.data?.detail || res.data?.error || `HTTP ${res.status}`;
+                resultBox.textContent = `Action failed: ${detail}`;
+            }
+        }
+
+        async function loadHealth(){
+            const health = await fetchJson("/health");
+            const metricHealth = document.getElementById("metric-health");
+            const metricHealthSub = document.getElementById("metric-health-sub");
+            const servicesBox = document.getElementById("services-box");
+
+            if(health.ok){
+                const data = health.data || {};
+                const status = safeText(data.status || data.health || "ONLINE");
+                metricHealth.textContent = status.toUpperCase();
+                metricHealthSub.textContent = "Backend API reachable";
+
+                const serviceRows = [
+                    ["API", data.status || "running"],
+                    ["Scheduler", data.scheduler || data.celery || "unknown"],
+                    ["Database", data.database || "unknown"],
+                    ["Submission Engine", data.submission_engine || "unknown"]
+                ];
+
+                servicesBox.innerHTML = serviceRows.map(([name, value]) => `
+                    <div class="status-line">
+                        <span>${name}</span>
+                        <span class="pill ${pillClassFromStatus(value)}">${safeText(value)}</span>
+                    </div>
+                `).join("");
+            }else{
+                metricHealth.textContent = "OFFLINE";
+                metricHealthSub.textContent = "Could not reach /health";
+                servicesBox.innerHTML = `
+                    <div class="status-line"><span>API</span><span class="pill danger">Offline</span></div>
+                    <div class="status-line"><span>Scheduler</span><span class="pill danger">Unknown</span></div>
+                    <div class="status-line"><span>Database</span><span class="pill danger">Unknown</span></div>
+                    <div class="status-line"><span>Submission Engine</span><span class="pill danger">Unknown</span></div>
+                `;
+            }
+        }
+
+        async function loadOpportunities(){
+            const res = await fetchJson("/opportunities");
+            const rows = safeArray(res.data);
+            document.getElementById("metric-opps").textContent = rows.length;
+
+            const recentOpps = document.getElementById("recent-opps");
+            const table = document.getElementById("opportunities-table");
+
+            if(rows.length === 0){
+                recentOpps.innerHTML = `<div class="muted">No opportunities found or endpoint not ready yet.</div>`;
+                table.innerHTML = `<tr><td colspan="5" class="muted">No data found.</td></tr>`;
+                return;
+            }
+
+            recentOpps.innerHTML = rows.slice(0,5).map(item => `
+                <div class="row">
+                    <div>
+                        <div class="row-title">${safeText(item.title)}</div>
+                        <div class="row-sub">${safeText(item.buyer_name || item.department || item.entity)}</div>
+                    </div>
+                    <span class="pill ${pillClassFromStatus(item.status || 'active')}">${safeText(item.status || "active")}</span>
+                </div>
+            `).join("");
+
+            table.innerHTML = rows.slice(0,30).map(item => `
+                <tr>
+                    <td>${safeText(item.id)}</td>
+                    <td>${safeText(item.title)}</td>
+                    <td>${safeText(item.buyer_name || item.department || item.entity)}</td>
+                    <td>${safeText(item.closing_date || item.deadline)}</td>
+                    <td><span class="pill ${pillClassFromStatus(item.status || 'active')}">${safeText(item.status || "active")}</span></td>
+                </tr>
+            `).join("");
+        }
+
+        async function loadQuotes(){
+            const res = await fetchJson("/quotes");
+            const rows = safeArray(res.data);
+            document.getElementById("metric-quotes").textContent = rows.length;
+
+            const recentQuotes = document.getElementById("recent-quotes");
+            const table = document.getElementById("quotes-table");
+
+            if(rows.length === 0){
+                recentQuotes.innerHTML = `<div class="muted">No quote drafts found or endpoint not ready yet.</div>`;
+                table.innerHTML = `<tr><td colspan="5" class="muted">No data found.</td></tr>`;
+                return;
+            }
+
+            recentQuotes.innerHTML = rows.slice(0,5).map(item => `
+                <div class="row">
+                    <div>
+                        <div class="row-title">${safeText(item.quote_number || item.id)}</div>
+                        <div class="row-sub">${safeText(item.opportunity_title || item.opportunity_id || "Quote draft")}</div>
+                    </div>
+                    <span class="pill ${pillClassFromStatus(item.status || 'draft')}">${safeText(item.status || "draft")}</span>
+                </div>
+            `).join("");
+
+            table.innerHTML = rows.slice(0,30).map(item => `
+                <tr>
+                    <td>${safeText(item.id)}</td>
+                    <td>${safeText(item.opportunity_title || item.opportunity_id)}</td>
+                    <td>${safeText(item.quote_number)}</td>
+                    <td>${safeText(item.total_amount || item.total || item.grand_total)}</td>
+                    <td><span class="pill ${pillClassFromStatus(item.status || 'draft')}">${safeText(item.status || "draft")}</span></td>
+                </tr>
+            `).join("");
+        }
+
+        async function loadSubmissions(){
+            const res = await fetchJson("/submissions");
+            const rows = safeArray(res.data);
+            document.getElementById("metric-submissions").textContent = rows.length;
+
+            const table = document.getElementById("submissions-table");
+
+            if(rows.length === 0){
+                table.innerHTML = `<tr><td colspan="5" class="muted">No submissions found or endpoint not ready yet.</td></tr>`;
+                return;
+            }
+
+            table.innerHTML = rows.slice(0,30).map(item => `
+                <tr>
+                    <td>${safeText(item.id)}</td>
+                    <td>${safeText(item.opportunity_title || item.opportunity_id)}</td>
+                    <td>${safeText(item.method || item.submission_method || "email")}</td>
+                    <td><span class="pill ${pillClassFromStatus(item.status || 'pending')}">${safeText(item.status || "pending")}</span></td>
+                    <td>${safeText(item.created_at || item.created)}</td>
+                </tr>
+            `).join("");
+        }
+
+        async function loadScheduler(){
+            const statusRes = await fetchJson("/scheduler/status");
+            const activityRes = await fetchJson("/scheduler/activity");
+
+            const statusBox = document.getElementById("scheduler-status-box");
+            const activityBox = document.getElementById("scheduler-activity-box");
+
+            if(statusRes.ok){
+                const data = statusRes.data || {};
+                const statusRows = Object.entries(data).map(([k,v]) => `
+                    <div class="status-line">
+                        <span>${k.replace(/_/g, " ")}</span>
+                        <span class="pill ${pillClassFromStatus(v)}">${safeText(v)}</span>
+                    </div>
+                `).join("");
+
+                statusBox.innerHTML = statusRows || `<div class="muted">No scheduler status data.</div>`;
+            }else{
+                statusBox.innerHTML = `<div class="muted">Scheduler status endpoint not available yet.</div>`;
+            }
+
+            if(activityRes.ok){
+                const rows = safeArray(activityRes.data);
+                if(rows.length){
+                    activityBox.innerHTML = rows.slice(0,10).map(item => `
+                        <div class="row">
+                            <div>
+                                <div class="row-title">${safeText(item.task_name || item.name || "Task")}</div>
+                                <div class="row-sub">${safeText(item.run_at || item.created_at || item.time)}</div>
+                            </div>
+                            <span class="pill ${pillClassFromStatus(item.status || "queued")}">${safeText(item.status || "queued")}</span>
+                        </div>
+                    `).join("");
+                }else{
+                    activityBox.innerHTML = `<div class="muted">No scheduler activity found.</div>`;
+                }
+            }else{
+                activityBox.innerHTML = `<div class="muted">Scheduler activity endpoint not available yet.</div>`;
+            }
+        }
+
+        async function loadLogs(){
+            const logsRes = await fetchJson("/logs/recent");
+            const logsBox = document.getElementById("logs-box");
+
+            if(logsRes.ok){
+                if (typeof logsRes.data?.raw === "string" && logsRes.data.raw.trim()) {
+                    logsBox.textContent = logsRes.data.raw;
+                    return;
+                }
+
+                if (Array.isArray(logsRes.data)) {
+                    logsBox.textContent = logsRes.data.map(x => JSON.stringify(x, null, 2)).join("\n\n");
+                    return;
+                }
+
+                logsBox.textContent = JSON.stringify(logsRes.data, null, 2);
+            }else{
+                logsBox.textContent = "Log endpoint not available yet. Add /logs/recent later if needed.";
+            }
+        }
+
+        async function refreshDashboard(){
+            await Promise.all([
+                loadHealth(),
+                loadOpportunities(),
+                loadQuotes(),
+                loadSubmissions(),
+                loadScheduler(),
+                loadLogs()
+            ]);
+        }
+
+        refreshDashboard();
+        setInterval(refreshDashboard, 30000);
+    </script>
+</body>
+</html>

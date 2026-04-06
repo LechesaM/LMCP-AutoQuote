@@ -1,0 +1,52 @@
+/Users/cash/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+Traceback (most recent call last):
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 197, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/runpy.py", line 87, in _run_code
+    exec(code, run_globals)
+  File "/Users/Shared/LMCP-AutoQuote-Server/app/scripts/run_csd_report_refresh.py", line 15, in <module>
+    raise SystemExit(main())
+  File "/Users/Shared/LMCP-AutoQuote-Server/app/scripts/run_csd_report_refresh.py", line 9, in main
+    result = refresh_csd_registration_report()
+  File "/Users/Shared/LMCP-AutoQuote-Server/app/services/csd_report_refresh_service.py", line 412, in refresh_csd_registration_report
+    return CSDReportRefreshService.refresh_registration_report()
+  File "/Users/Shared/LMCP-AutoQuote-Server/app/services/csd_report_refresh_service.py", line 363, in refresh_registration_report
+    driver = cls._build_driver(temp_download_dir, config)
+  File "/Users/Shared/LMCP-AutoQuote-Server/app/services/csd_report_refresh_service.py", line 124, in _build_driver
+    return webdriver.Chrome(options=options)
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/selenium/webdriver/chrome/webdriver.py", line 46, in __init__
+    super().__init__(
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/selenium/webdriver/chromium/webdriver.py", line 71, in __init__
+    super().__init__(command_executor=executor, options=options)
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/selenium/webdriver/remote/webdriver.py", line 263, in __init__
+    self.start_session(capabilities)
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/selenium/webdriver/remote/webdriver.py", line 366, in start_session
+    response = self.execute(Command.NEW_SESSION, caps)["value"]
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/selenium/webdriver/remote/webdriver.py", line 455, in execute
+    response = cast(RemoteConnection, self.command_executor).execute(driver_command, params)
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/selenium/webdriver/remote/remote_connection.py", line 405, in execute
+    return self._request(command_info[0], url, body=data)
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/selenium/webdriver/remote/remote_connection.py", line 429, in _request
+    response = self._conn.request(method, url, body=body, headers=headers, timeout=self._client_config.timeout)
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/urllib3/_request_methods.py", line 143, in request
+    return self.request_encode_body(
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/urllib3/_request_methods.py", line 278, in request_encode_body
+    return self.urlopen(method, url, **extra_kw)
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/urllib3/poolmanager.py", line 457, in urlopen
+    response = conn.urlopen(method, u.request_uri, **kw)
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/urllib3/connectionpool.py", line 787, in urlopen
+    response = self._make_request(
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/urllib3/connectionpool.py", line 534, in _make_request
+    response = conn.getresponse()
+  File "/Users/cash/Library/Python/3.9/lib/python/site-packages/urllib3/connection.py", line 571, in getresponse
+    httplib_response = super().getresponse()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/http/client.py", line 1349, in getresponse
+    response.begin()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/http/client.py", line 316, in begin
+    version, status, reason = self._read_status()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/http/client.py", line 277, in _read_status
+    line = str(self.fp.readline(_MAXLINE + 1), "iso-8859-1")
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/socket.py", line 704, in readinto
+    return self._sock.recv_into(b)
+KeyboardInterrupt

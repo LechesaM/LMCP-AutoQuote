@@ -1,0 +1,51 @@
+{
+  "generated_at": "2026-03-15 13:58:40",
+  "total_portals": 2,
+  "scan_duration_seconds": 4.46,
+  "summary": {
+    "healthy": 1,
+    "slow": 0,
+    "broken": 0,
+    "blocked": 1
+  },
+  "slowest_20": [
+    {
+      "name": "eTenders",
+      "url": "https://www.etenders.gov.za/",
+      "ip": "164.151.136.188",
+      "status_code": 200,
+      "response_time_seconds": 4.46,
+      "category": "healthy",
+      "error": ""
+    },
+    {
+      "name": "Tender Bulletin",
+      "url": "https://www.tenderbulletins.co.za/",
+      "ip": "172.67.167.222",
+      "status_code": 403,
+      "response_time_seconds": 0.94,
+      "category": "blocked",
+      "error": ""
+    }
+  ],
+  "results": [
+    {
+      "name": "Tender Bulletin",
+      "url": "https://www.tenderbulletins.co.za/",
+      "ip": "172.67.167.222",
+      "status_code": 403,
+      "response_time_seconds": 0.94,
+      "category": "blocked",
+      "error": ""
+    },
+    {
+      "name": "eTenders",
+      "url": "https://www.etenders.gov.za/",
+      "ip": "164.151.136.188",
+      "status_code": 200,
+      "response_time_seconds": 4.46,
+      "category": "healthy",
+      "error": ""
+    }
+  ]
+}

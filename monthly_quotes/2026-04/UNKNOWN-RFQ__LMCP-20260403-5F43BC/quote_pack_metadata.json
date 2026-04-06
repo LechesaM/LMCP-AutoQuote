@@ -1,0 +1,52 @@
+{
+  "buyer_rfq_number": "UNKNOWN-RFQ",
+  "quote_number": "LMCP-20260403-5F43BC",
+  "document_number": "UNKNOWN-RFQ",
+  "pdf_path": "monthly_quotes/2026-04/UNKNOWN-RFQ__LMCP-20260403-5F43BC/LMCP-20260403-5F43BC.pdf",
+  "quote_folder": "monthly_quotes/2026-04/UNKNOWN-RFQ__LMCP-20260403-5F43BC",
+  "generated_at": "2026-04-03T15:47:35.006364",
+  "currency": "ZAR",
+  "seller": {
+    "name": "Lechesa Manaba Consulting and Projects (Pty) Ltd",
+    "address": "1787 Dube Street, Batho Location, Bloemfontein, 9323",
+    "phone": "0826338492",
+    "email": "lechesam@me.com",
+    "registration_number": "2012/159509/07",
+    "vat_number": "4260295953"
+  },
+  "buyer": {
+    "name": "Buyer / Issuing Entity",
+    "department": "Procurement Office",
+    "contact_person": "Procurement Office",
+    "email": "-",
+    "phone": "-",
+    "address_lines": [
+      "South Africa"
+    ]
+  },
+  "subject": "Supply and delivery item",
+  "totals": {
+    "subtotal_excl_vat": "0.00",
+    "vat_amount": "0.00",
+    "total_incl_vat": "0.00",
+    "vat_rate": "15.00"
+  },
+  "items_count": 1,
+  "items": [
+    {
+      "item_no": 1,
+      "description": "Supply and delivery item",
+      "unit": "Lot",
+      "quantity": 1.0,
+      "unit_price": 0.0,
+      "line_total": 0.0
+    }
+  ],
+  "used_buyer_format": false,
+  "supporting_documents": [],
+  "submission_attachments": [
+    "monthly_quotes/2026-04/UNKNOWN-RFQ__LMCP-20260403-5F43BC/LMCP-20260403-5F43BC.pdf"
+  ],
+  "latest_csd_report": null,
+  "csd_report_attached": false
+}

@@ -1,0 +1,5 @@
+./.github/workflows/deploy-bg.yml
+./.github/workflows/deploy-bluegreen.yml
+./.github/workflows/deploy-staging-bluegreen.yml
+./deploy/appspec.yaml
+./docker-compose.yml

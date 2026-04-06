@@ -1,0 +1,78 @@
+{
+  "generated_at": "2026-03-28T23:50:38.572349",
+  "rfq_number": "RFQ 12345",
+  "quote_number": "LMCP-20260328-977BCF",
+  "supplier_quote_count": 7,
+  "supplier_quotes": [
+    {
+      "email_id": "28205",
+      "supplier_name": "Lechesa Manaba",
+      "supplier_email": "lechesam@me.com",
+      "subject": "RFQ 12345 Supplier Quote LMCP-20260328-0001",
+      "filename": "supplier_quote_1_lechesa_manaba.pdf",
+      "saved_path": "monthly_quotes/2026-03/RFQ_12345__LMCP-20260328-977BCF/supplier_quote_1_lechesa_manaba.pdf",
+      "received_date": "Sat, 28 Mar 2026 15:19:39 +0200",
+      "content_type": "application/pdf"
+    },
+    {
+      "email_id": "28206",
+      "supplier_name": "Lechesa Manaba",
+      "supplier_email": "lechesam@me.com",
+      "subject": "RFQ 12345 Supplier Quote LMCP-20260328-0001",
+      "filename": "supplier_quote_2_lechesa_manaba.pdf",
+      "saved_path": "monthly_quotes/2026-03/RFQ_12345__LMCP-20260328-977BCF/supplier_quote_2_lechesa_manaba.pdf",
+      "received_date": "Sat, 28 Mar 2026 18:14:34 +0200",
+      "content_type": "application/pdf"
+    },
+    {
+      "email_id": "28208",
+      "supplier_name": "Lechesa Manaba",
+      "supplier_email": "lechesam@me.com",
+      "subject": "RFQ 12345 Supplier Quote LMCP-20260328-ABCD12",
+      "filename": "supplier_quote_3_lechesa_manaba.pdf",
+      "saved_path": "monthly_quotes/2026-03/RFQ_12345__LMCP-20260328-977BCF/supplier_quote_3_lechesa_manaba.pdf",
+      "received_date": "Sat, 28 Mar 2026 19:41:22 +0200",
+      "content_type": "application/pdf"
+    },
+    {
+      "email_id": "28209",
+      "supplier_name": "LMCP AutoQuote",
+      "supplier_email": "lechesam@me.com",
+      "subject": "Quotation Submission - LMCP-20260328-A7F6F9",
+      "filename": "supplier_quote_4_lmcp_autoquote.pdf",
+      "saved_path": "monthly_quotes/2026-03/RFQ_12345__LMCP-20260328-977BCF/supplier_quote_4_lmcp_autoquote.pdf",
+      "received_date": "Sat, 28 Mar 2026 17:42:15 +0000",
+      "content_type": "application/pdf"
+    },
+    {
+      "email_id": "28210",
+      "supplier_name": "Lechesa Manaba",
+      "supplier_email": "lechesam@me.com",
+      "subject": "RFQ 12345 Supplier Quote LMCP-20260328-XYZ123",
+      "filename": "supplier_quote_5_lechesa_manaba.pdf",
+      "saved_path": "monthly_quotes/2026-03/RFQ_12345__LMCP-20260328-977BCF/supplier_quote_5_lechesa_manaba.pdf",
+      "received_date": "Sat, 28 Mar 2026 19:45:16 +0200",
+      "content_type": "application/pdf"
+    },
+    {
+      "email_id": "28212",
+      "supplier_name": "Lechesa Manaba Consulting and Projects",
+      "supplier_email": "lechesam@me.com",
+      "subject": "Request for Supplier Quote - RFQ 12345 - LMCP-20260328-24AA53 -\r\n Supply and delivery of test goods",
+      "filename": "supplier_quote_6_lechesa_manaba_consulting_and_projects.pdf",
+      "saved_path": "monthly_quotes/2026-03/RFQ_12345__LMCP-20260328-977BCF/supplier_quote_6_lechesa_manaba_consulting_and_projects.pdf",
+      "received_date": "Sat, 28 Mar 2026 21:21:33 +0000",
+      "content_type": "application/pdf"
+    },
+    {
+      "email_id": "28213",
+      "supplier_name": "Lechesa Manaba Consulting and Projects",
+      "supplier_email": "lechesam@me.com",
+      "subject": "Quotation Submission - LMCP-20260328-24AA53",
+      "filename": "supplier_quote_7_lechesa_manaba_consulting_and_projects.pdf",
+      "saved_path": "monthly_quotes/2026-03/RFQ_12345__LMCP-20260328-977BCF/supplier_quote_7_lechesa_manaba_consulting_and_projects.pdf",
+      "received_date": "Sat, 28 Mar 2026 21:21:40 +0000",
+      "content_type": "application/pdf"
+    }
+  ]
+}

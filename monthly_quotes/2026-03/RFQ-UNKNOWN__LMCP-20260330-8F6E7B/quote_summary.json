@@ -1,0 +1,11 @@
+{
+  "rfq_reference": "RFQ-UNKNOWN",
+  "quote_reference": "LMCP-20260330-8F6E7B",
+  "submission_method": "unknown",
+  "submission_status": "not_submitted",
+  "quote_generated": true,
+  "pdf_generated": true,
+  "pdf_path": "/app/output/quotes/LMCP-20260330-8F6E7B.pdf",
+  "buyer_name": "Client",
+  "updated_at": "2026-03-30T22:37:24.863021+00:00"
+}

@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LMCP Control Panel</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        .wrap {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        h1 {
+            margin-bottom: 8px;
+        }
+        .sub {
+            color: #94a3b8;
+            margin-bottom: 24px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .card {
+            background: #1e293b;
+            border-radius: 14px;
+            padding: 18px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+        }
+        .card h3 {
+            margin-top: 0;
+            font-size: 14px;
+            color: #94a3b8;
+        }
+        .big {
+            font-size: 28px;
+            font-weight: bold;
+            margin: 0;
+        }
+        .section {
+            background: #1e293b;
+            border-radius: 14px;
+            padding: 18px;
+            margin-bottom: 18px;
+        }
+        .section h2 {
+            margin-top: 0;
+            font-size: 18px;
+        }
+        .row {
+            padding: 10px 0;
+            border-bottom: 1px solid #334155;
+        }
+        .row:last-child {
+            border-bottom: none;
+        }
+        .muted {
+            color: #94a3b8;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 14px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background: #0b1220;
+            padding: 14px;
+            border-radius: 10px;
+            overflow-x: auto;
+        }
+        @media (max-width: 900px) {
+            .grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        @media (max-width: 600px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <h1>LMCP Control Panel</h1>
+        <div class="sub">Autonomous Tender Engine Dashboard</div>
+
+        <div style="margin-bottom: 20px;">
+            <button onclick="refreshDashboard()">Refresh Dashboard</button>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h3>System Health</h3>
+                <p id="health-status" class="big">Loading...</p>
+            </div>
+            <div class="card">
+                <h3>Total Opportunities</h3>
+                <p id="total-opportunities" class="big">0</p>
+            </div>
+            <div class="card">
+                <h3>Total Quotes</h3>
+                <p id="total-quotes" class="big">0</p>
+            </div>
+            <div class="card">
+                <h3>Total Submissions</h3>
+                <p id="total-submissions" class="big">0</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Recent Activity</h2>
+            <div id="recent-activity" class="muted">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h2>Opportunities</h2>
+            <div id="opportunities-list" class="muted">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h2>Quotes</h2>
+            <div id="quotes-list" class="muted">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h2>Submissions</h2>
+            <div id="submissions-list" class="muted">Loading...</div>
+        </div>
+
+        <div class="section">
+            <h2>Logs</h2>
+            <pre id="logs-box">Loading...</pre>
+        </div>
+    </div>
+
+    <script>
+        async function getJson(url) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to load ${url}: ${response.status}`);
+            }
+            return await response.json();
+        }
+
+        async function loadHealth() {
+            const data = await getJson("/dashboard/health");
+            document.getElementById("health-status").textContent = data.status || "unknown";
+        }
+
+        async function loadSummary() {
+            const data = await getJson("/dashboard/summary");
+            document.getElementById("total-opportunities").textContent = data.total_opportunities ?? 0;
+            document.getElementById("total-quotes").textContent = data.total_quotes ?? 0;
+            document.getElementById("total-submissions").textContent = data.total_submissions ?? 0;
+
+            const activity = data.recent_activity || [];
+            const box = document.getElementById("recent-activity");
+
+            if (!activity.length) {
+                box.innerHTML = '<div class="muted">No recent activity yet.</div>';
+                return;
+            }
+
+            box.innerHTML = activity.map(item => `
+                <div class="row">
+                    <div><strong>${item.title || "Activity"}</strong></div>
+                    <div class="muted">${item.status || ""} ${item.time || ""}</div>
+                </div>
+            `).join("");
+        }
+
+        async function loadOpportunities() {
+            const data = await getJson("/dashboard/opportunities");
+            const box = document.getElementById("opportunities-list");
+
+            if (!data.length) {
+                box.innerHTML = '<div class="muted">No opportunities yet.</div>';
+                return;
+            }
+
+            box.innerHTML = data.map(item => `
+                <div class="row">
+                    <div><strong>${item.title || ""}</strong></div>
+                    <div class="muted">Buyer: ${item.buyer || ""} | Closing: ${item.closing_date || ""} | Status: ${item.status || ""}</div>
+                </div>
+            `).join("");
+        }
+
+        async function loadQuotes() {
+            const data = await getJson("/dashboard/quotes");
+            const box = document.getElementById("quotes-list");
+
+            if (!data.length) {
+                box.innerHTML = '<div class="muted">No quotes yet.</div>';
+                return;
+            }
+
+            box.innerHTML = data.map(item => `
+                <div class="row">
+                    <div><strong>${item.quote_number || ""}</strong></div>
+                    <div class="muted">Opportunity: ${item.opportunity || ""} | Total: ${item.total || ""} | Status: ${item.status || ""}</div>
+                </div>
+            `).join("");
+        }
+
+        async function loadSubmissions() {
+            const data = await getJson("/dashboard/submissions");
+            const box = document.getElementById("submissions-list");
+
+            if (!data.length) {
+                box.innerHTML = '<div class="muted">No submissions yet.</div>';
+                return;
+            }
+
+            box.innerHTML = data.map(item => `
+                <div class="row">
+                    <div><strong>${item.opportunity || ""}</strong></div>
+                    <div class="muted">Method: ${item.method || ""} | Status: ${item.status || ""} | Created: ${item.created || ""}</div>
+                </div>
+            `).join("");
+        }
+
+        async function loadLogs() {
+            const data = await getJson("/dashboard/logs");
+            const logs = data.logs || [];
+            document.getElementById("logs-box").textContent = logs.join("\n");
+        }
+
+        async function refreshDashboard() {
+            try {
+                await loadHealth();
+                await loadSummary();
+                await loadOpportunities();
+                await loadQuotes();
+                await loadSubmissions();
+                await loadLogs();
+            } catch (error) {
+                console.error(error);
+            }
+        }
+
+        refreshDashboard();
+        setInterval(refreshDashboard, 30000);
+    </script>
+</body>
+</html>

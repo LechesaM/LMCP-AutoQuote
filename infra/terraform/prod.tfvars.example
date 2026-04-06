@@ -1,0 +1,27 @@
+# DO NOT COMMIT real secrets. Copy to prod.tfvars and fill in.
+
+db_pass="CHANGE_ME_STRONG"
+jwt_secret="CHANGE_ME_STRONG"
+mfa_secret_key="PASTE_FERNET_KEY"
+
+api_image="ACCOUNT.dkr.ecr.af-south-1.amazonaws.com/autoquote:sha"
+worker_image="ACCOUNT.dkr.ecr.af-south-1.amazonaws.com/autoquote:sha"
+beat_image="ACCOUNT.dkr.ecr.af-south-1.amazonaws.com/autoquote:sha"
+
+# Optional TLS
+#acm_cert_arn="arn:aws:acm:..."
+
+# Alerts
+alert_emails=["you@example.com"]
+
+# Admin UI allowlist
+#admin_ip_allowlist=["102.0.0.0/24"]
+
+# GitHub OIDC
+enable_github_oidc=true
+github_org="YOUR_GITHUB_ORG_OR_USERNAME"
+github_repo="YOUR_REPO_NAME"
+github_branch="main"
+
+# CodeDeploy bucket
+enable_codedeploy_bucket=true

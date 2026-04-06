@@ -1,0 +1,16 @@
+ 1079  find app -name "stability.py"
+ 1080  find app -name "autonomous_api.py"
+ 1081  find ~ -name "*AutoQuote*backup*.tar.gz"
+ 1082  find ~ -name "*AutoQuote*backup*.tar.gz"
+ 1083  ls ~/Documents | grep LMCP
+ 1084  find app -type f -name "*.py" | sort\nfind app -type f -size 0\nls -lht app/services\ndocker ps -a
+ 1085  cd /Users/Shared/LMCP-AutoQuote-Server\nfind app -name "portal_*"
+ 1086  history | tail -300
+ 1087  history | grep -E "LMCP|app/|nano|touch|mkdir|docker|python"
+ 1088  stat app/services/*.py
+ 1089  ls -lt app/services
+ 1090  find app -type f -name "*.py" -print0 | xargs -0 ls -lt
+ 1091  ls -a | grep nano
+ 1092  find ~ -name "*.swp"
+ 1093  find app -type f -name "*.py" -exec stat -f "%SB %N" {} \ | sort
+ 1094  history | grep "Mar 15"

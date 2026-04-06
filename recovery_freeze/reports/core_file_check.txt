@@ -1,0 +1,15 @@
+=== CORE FILE CHECK ===
+
+[FOUND] app/main.py
+[MISSING] app/api/autonomous_api.py
+[FOUND] app/api/system.py
+[FOUND] app/api/tender_pipeline_api.py
+[FOUND] app/tasks.py
+[FOUND] app/sbd_generator.py
+[FOUND] app/services/live_rfq_store.py
+[FOUND] app/services/tender_eligibility.py
+[FOUND] app/services/universal_form_filler.py
+[FOUND] app/services/sbd_version_detector.py
+[FOUND] docker-compose.yml
+[FOUND] Dockerfile
+[FOUND] requirements.txt

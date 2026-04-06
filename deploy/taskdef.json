@@ -1,0 +1,35 @@
+{
+  "family": "autoquote-prod-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "REPLACE_EXEC_ROLE_ARN",
+  "taskRoleArn": "REPLACE_TASK_ROLE_ARN",
+  "containerDefinitions": [
+    {
+      "name": "api",
+      "image": "REPLACE_IMAGE",
+      "essential": true,
+      "portMappings": [{ "containerPort": 8000, "protocol": "tcp" }],
+      "environment": [
+        { "name": "POLICY_PATH", "value": "config/policy.json" },
+        { "name": "MFA_ISSUER", "value": "AutoQuoteTenderDesk" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "REPLACE_SSM_DB_URL_ARN" },
+        { "name": "JWT_SECRET", "valueFrom": "REPLACE_SSM_JWT_ARN" },
+        { "name": "MFA_SECRET_KEY", "valueFrom": "REPLACE_SSM_MFA_ARN" },
+        { "name": "REDIS_URL", "valueFrom": "REPLACE_SSM_REDIS_ARN" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/autoquote-prod/api",
+          "awslogs-region": "af-south-1",
+          "awslogs-stream-prefix": "api"
+        }
+      }
+    }
+  ]
+}

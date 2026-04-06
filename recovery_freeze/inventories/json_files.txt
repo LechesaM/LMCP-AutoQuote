@@ -1,0 +1,12 @@
+./.venv/lib/python3.9/site-packages/setuptools/config/distutils.schema.json
+./.venv/lib/python3.9/site-packages/setuptools/config/setuptools.schema.json
+./app/data/form_profiles/example_sbd4_profile.json
+./app/data/form_profiles/sbd4_new_profile.json
+./app/data/form_profiles/sbd4_old_profile.json
+./app/data/lmcp_entity_master_seed.json
+./data/crawl_cycle_state.json
+./deploy/taskdef.json
+./frontend/package-lock.json
+./frontend/package.json
+./frontend/tsconfig.json
+./portal_radar_report.json

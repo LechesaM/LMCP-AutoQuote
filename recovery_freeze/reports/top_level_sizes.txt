@@ -1,0 +1,73 @@
+  0B	./=
+  0B	./Atiye.pdf
+  0B	./evidence
+  0B	./generated
+  0B	./lmcp_db_backup_20260315-0228.sql
+  0B	./lmcp_db_backup_20260315-0229.sql
+  0B	./lmcp_db_backup_20260315-0230.sql
+  0B	./lmcp_db_backup_20260315-0231.sql
+  0B	./uploads
+4,0K	./backup_system.sh
+4,0K	./changed_vs_backup.txt
+4,0K	./data
+4,0K	./development_timeline.txt
+4,0K	./docker
+4,0K	./docker_cleanup.log
+4,0K	./docker_cleanup.sh
+4,0K	./docker-compose.yml
+4,0K	./docker-compose.yml.bak
+4,0K	./Dockerfile
+4,0K	./extra_in_live.txt
+4,0K	./harvest_opportunities
+4,0K	./live_files_after_restore.txt
+4,0K	./live_files.txt
+4,0K	./main.tsx
+4,0K	./Makefile
+4,0K	./models.py
+4,0K	./portal_radar_report.json
+4,0K	./portal_registry.py
+4,0K	./pyproject.toml
+4,0K	./README.md
+4,0K	./requirements.txt
+4,0K	./scripts
+4,0K	./tasks.py
+4,0K	./test_form_filler.py
+4,0K	./test_sbd_version_detector.py
+4,0K	./test_tender_form_priority_engine.py
+4,0K	./test_tender_submission_pipeline.py
+4,0K	./touch
+8,0K	./app.tasks.py
+8,0K	./backup_app_files.txt
+8,0K	./deploy
+8,0K	./missing_from_live.txt
+8,0K	./nano
+8,0K	./pricing_engine.py
+ 12K	./control_panel.html
+ 12K	./i
+ 12K	./lmcp_db_backup_20260315-0233.sql
+ 12K	./runtime
+ 12K	./supplier_engine.py
+ 16K	./lmcp_database_backup.sql
+ 20K	./db
+ 28K	./celerybeat-schedule
+ 32K	./docs
+ 60K	./backup_files.txt
+ 64K	./LMCP-AutoQuote-Server
+104K	./_reference_packs
+148K	./infra
+152K	./LMCP-AutoQuote-STABLE-20260313-1843.tar.gz
+152K	./LMCP-AutoQuote-STABLE-20260313-1845.tar.gz
+160K	./app_code_review.zip
+160K	./LMCP_app_code.zip
+328K	./frontend
+3,2M	./app
+ 36M	./LMCP-AutoQuote-FULL-STABLE-20260313-2209.tar.gz
+ 36M	./LMCP-AutoQuote-FULL-STABLE-20260313-2220.tar.gz
+ 72M	./LMCP-AutoQuote-FULL-STABLE-20260313-2215.tar.gz
+143M	./LMCP-AutoQuote-FULL-STABLE-20260313-2216.tar.gz
+362M	./LMCP-AutoQuote-backup-20260315-0227.zip
+390M	./LMCP_System_Backup_16032026_1735.tar.gz
+677M	./LMCP-AutoQuote-backup-20260315-1706.tar.gz
+1,3G	./LMCP_System_Backup_16032026.tar.gz
+2,6G	./LMCP_System_Backup_16032026_FULL.tar.gz
+5,7G	./recovery_freeze

@@ -1,0 +1,177 @@
+{
+  "quote_number": "LMCP-20260331-EA7708",
+  "rfq_id": "",
+  "rfq_title": "Quotation",
+  "issue_date": "2026-03-31",
+  "validity_days": 30,
+  "delivery_days": 14,
+  "payment_terms": "Payment due within 30 days from statement unless otherwise agreed in writing.",
+  "submission_method": "unknown",
+  "buyer": {
+    "company_name": "Buyer / Issuing Entity",
+    "contact_person": "Procurement Office",
+    "email": "",
+    "phone": "",
+    "address": "South Africa",
+    "name": "Buyer / Issuing Entity"
+  },
+  "seller": {
+    "company_name": "Lechesa Manaba Consulting and Projects (Pty) Ltd",
+    "registration_number": "2012/159509/07",
+    "vat_number": "4260295953",
+    "email": "lechesam@me.com",
+    "phone": "0826338492",
+    "address": "1787 Dube Street, Batho Location, Bloemfontein, 9323"
+  },
+  "items": [
+    {
+      "line_number": "1",
+      "description": "Supply and delivery item",
+      "unit": "Lot",
+      "quantity": 1.0,
+      "unit_price": 0.0,
+      "line_total": 0.0
+    }
+  ],
+  "totals": {
+    "subtotal_excl_vat": "0.00",
+    "vat_rate": "0.15",
+    "vat_amount": "0.00",
+    "total_incl_vat": "0.00"
+  },
+  "notes": [
+    "Quotation validity: 30 days from date of issue.",
+    "Estimated delivery period: 14 days from official order or appointment.",
+    "Pricing is subject to final confirmation against the buyer's full RFQ documents and specifications."
+  ],
+  "source_rfq": {
+    "supplier_quote_ingestion": {
+      "success": true,
+      "processed": 0,
+      "saved_attachments": 0,
+      "folders_updated": [],
+      "matched_email_ids": [],
+      "saved_files": [],
+      "matched_emails": [],
+      "quote_folder": "monthly_quotes/2026-03/LMCP-20260331161405__LMCP-20260331161405",
+      "quote_comparison_json": null,
+      "probable_matches": [],
+      "unmatched_saved_files": [],
+      "blocking_quote_generation": false,
+      "should_continue_quote_generation": true,
+      "processed_quote_folder": false,
+      "match_context_summary": {
+        "buyer_rfq_number": null,
+        "quote_number": "LMCP-20260331161405",
+        "expected_supplier_emails": [],
+        "expected_supplier_domains": []
+      },
+      "message": "Supplier inbox ingestion completed"
+    },
+    "supplier_quote_files": [],
+    "supplier_quote_emails": [],
+    "matched_email_ids": [],
+    "supplier_quotes_found": false,
+    "supplier_quotes_saved": 0,
+    "supplier_quotes_folder": null,
+    "quote_comparison_json": null,
+    "supplier_reply_matches": [],
+    "supplier_probable_matches": [],
+    "supplier_unmatched_saved_files": [],
+    "blocking_quote_generation": false,
+    "should_continue_quote_generation": true,
+    "pricing_mode": "fallback_pricing_required",
+    "supplier_quote_comparison": {},
+    "comparison_completed": true,
+    "recommended_supplier": null,
+    "runner_up_supplier": null,
+    "supplier_award": {
+      "award_completed": true,
+      "auto_award": false,
+      "award_status": "no_recommendation",
+      "award_reason": "No supplier recommendation could be determined",
+      "awarded_supplier": null,
+      "runner_up_supplier": null,
+      "award_confidence": 0.0,
+      "award_datetime": "2026-03-31T16:14:31.478602Z"
+    },
+    "supplier_award_status": "no_recommendation",
+    "auto_award": false,
+    "awarded_supplier": null,
+    "supplier_award_summary_pdf": "monthly_quotes/2026-03/unknown-rfq__unknown-quote/supplier_award_summary.pdf",
+    "supplier_purchase_order": {
+      "po_number": "LMCP-PO-20260331-161431",
+      "po_date": "2026-03-31",
+      "buyer_rfq_number": "N/A",
+      "buyer_name": "Buyer / Issuing Entity",
+      "issuing_company": {
+        "company_name": "Lechesa Manaba Consulting and Projects (Pty) Ltd",
+        "address": "1787 Dube Street, Batho Location, Bloemfontein, 9323",
+        "phone": "0826338492",
+        "email": "lechesam@me.com",
+        "registration_number": "2012/159509/07",
+        "vat_number": "4260295953"
+      },
+      "selected_supplier": {
+        "supplier_name": "",
+        "quote_number": "",
+        "quote_date": "",
+        "supplier_email": "",
+        "lead_time": ""
+      },
+      "commercials": {
+        "subtotal": 0.0,
+        "vat_amount": 0.0,
+        "total_incl_vat": 0.0,
+        "currency": "ZAR"
+      },
+      "items": [],
+      "status": "draft"
+    },
+    "supplier_purchase_order_json": "monthly_quotes/2026-03/unknown-rfq__unknown-quote/supplier_purchase_order.json",
+    "supplier_purchase_order_pdf": "monthly_quotes/2026-03/unknown-rfq__unknown-quote/supplier_purchase_order.pdf",
+    "supplier_award_workflow_completed": true,
+    "supplier_ingestion": {
+      "success": true,
+      "processed": 0,
+      "saved_attachments": 0,
+      "folders_updated": [],
+      "matched_email_ids": [],
+      "saved_files": [],
+      "matched_emails": [],
+      "quote_folder": "monthly_quotes/2026-03/UNKNOWN-RFQ__UNKNOWN-QUOTE",
+      "quote_comparison_json": null,
+      "probable_matches": [],
+      "unmatched_saved_files": [],
+      "blocking_quote_generation": false,
+      "should_continue_quote_generation": true,
+      "processed_quote_folder": false,
+      "match_context_summary": {
+        "buyer_rfq_number": null,
+        "quote_number": null,
+        "expected_supplier_emails": [],
+        "expected_supplier_domains": []
+      },
+      "message": "Supplier inbox ingestion completed"
+    },
+    "supplier_quotes_count": 0,
+    "supplier_responses_count": 0
+  },
+  "quote_generated": true,
+  "currency": "ZAR",
+  "margin_rate": "0.25",
+  "title": "Supply and delivery item",
+  "buyer_name": "Buyer / Issuing Entity",
+  "document_number": "LMCP-20260331-EA7708",
+  "line_items": [
+    {
+      "line_number": "1",
+      "description": "Supply and delivery item",
+      "unit": "Lot",
+      "quantity": 1.0,
+      "unit_price": 0.0,
+      "line_total": 0.0
+    }
+  ],
+  "supplier_quote_files": []
+}

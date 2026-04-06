@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-03-28T17:22:33.398922",
+  "rfq_number": "LMCP-20260328-A0326F",
+  "quote_number": "LMCP-20260328-A0326F",
+  "supplier_quote_count": 2,
+  "supplier_quotes": [
+    {
+      "email_id": "28205",
+      "supplier_name": "Lechesa Manaba",
+      "supplier_email": "lechesam@me.com",
+      "subject": "RFQ 12345 Supplier Quote LMCP-20260328-0001",
+      "filename": "supplier_quote_1_lechesa_manaba.pdf",
+      "saved_path": "monthly_quotes/2026-03/LMCP-20260328-A0326F__LMCP-20260328-A0326F/supplier_quote_1_lechesa_manaba.pdf",
+      "received_date": "Sat, 28 Mar 2026 15:19:39 +0200",
+      "content_type": "application/pdf"
+    },
+    {
+      "email_id": "28206",
+      "supplier_name": "Lechesa Manaba",
+      "supplier_email": "lechesam@me.com",
+      "subject": "RFQ 12345 Supplier Quote LMCP-20260328-0001",
+      "filename": "supplier_quote_2_lechesa_manaba.pdf",
+      "saved_path": "monthly_quotes/2026-03/LMCP-20260328-A0326F__LMCP-20260328-A0326F/supplier_quote_2_lechesa_manaba.pdf",
+      "received_date": "Sat, 28 Mar 2026 18:14:34 +0200",
+      "content_type": "application/pdf"
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+# Placeholder.
+# Blue/Green deploy workflow was generated earlier in-chat.
+# Paste it here in your real repo and set secrets:
+# - AWS_ROLE_ARN
+# - CODEDEPLOY_BUCKET

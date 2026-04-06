@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:15
+    container_name: lmcp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: autoquote
+      POSTGRES_PASSWORD: autoquote
+      POSTGRES_DB: autoquote
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: lmcp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    environment:
+      - TENDER_RADAR_MAX_TOTAL=1000
+      - TENDER_RADAR_MAX_PER_SOURCE=50
+    container_name: lmcp-api
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
+  lmcp-worker:
+    build: .
+    environment:
+      - TENDER_RADAR_MAX_TOTAL=1000
+      - TENDER_RADAR_MAX_PER_SOURCE=50
+    container_name: lmcp-worker
+    command: "celery -A app.celery_app:celery worker --loglevel=info"
+    depends_on:
+      - redis
+      - db
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+
+  lmcp-beat:
+    build: .
+    container_name: lmcp-beat
+    command: "celery -A app.celery_app:celery beat --loglevel=info"
+    depends_on:
+      - redis
+      - db
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+
+volumes:
+  postgres_data:

@@ -1,0 +1,4 @@
+./Dockerfile
+./docker-compose.yml
+./recovery_freeze/backups/core_files/Dockerfile
+./recovery_freeze/backups/core_files/docker-compose.yml

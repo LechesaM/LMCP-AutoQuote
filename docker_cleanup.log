@@ -1,0 +1,135 @@
+----------------------------------
+LMCP Docker Maintenance Started
+Sun Mar 29 03:00:00 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Sun Mar 29 03:00:00 SAST 2026
+----------------------------------
+LMCP Docker Maintenance Started
+Mon Mar 30 03:00:00 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Mon Mar 30 03:00:00 SAST 2026
+----------------------------------
+LMCP Docker Maintenance Started
+Tue Mar 31 03:00:00 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Tue Mar 31 03:00:00 SAST 2026
+----------------------------------
+LMCP Docker Maintenance Started
+Wed Apr  1 03:00:00 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Wed Apr  1 03:00:00 SAST 2026
+----------------------------------
+LMCP Docker Maintenance Started
+Thu Apr  2 03:00:00 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Thu Apr  2 03:00:00 SAST 2026
+----------------------------------
+LMCP Docker Maintenance Started
+Fri Apr  3 03:00:01 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Fri Apr  3 03:00:01 SAST 2026
+----------------------------------
+LMCP Docker Maintenance Started
+Sat Apr  4 03:00:00 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Sat Apr  4 03:00:00 SAST 2026
+----------------------------------
+LMCP Docker Maintenance Started
+Sun Apr  5 03:00:01 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Sun Apr  5 03:00:01 SAST 2026
+----------------------------------
+LMCP Docker Maintenance Started
+Mon Apr  6 03:00:00 SAST 2026
+----------------------------------
+./docker_cleanup.sh: line 9: docker: command not found
+./docker_cleanup.sh: line 12: docker: command not found
+./docker_cleanup.sh: line 15: docker: command not found
+./docker_cleanup.sh: line 18: docker: command not found
+./docker_cleanup.sh: line 21: docker: command not found
+----------------------------------
+Docker disk usage after cleanup:
+./docker_cleanup.sh: line 25: docker: command not found
+----------------------------------
+LMCP Docker Maintenance Complete
+Mon Apr  6 03:00:00 SAST 2026

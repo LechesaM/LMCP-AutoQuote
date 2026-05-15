@@ -258,6 +258,38 @@
 .quote-quality-summary b,.quote-manifest-preview b{display:block;margin-top:5px;color:#eef7ff;font-size:13px;word-break:break-word}
 .quote-quality-actions{display:flex;flex-wrap:wrap;gap:8px}
 .quote-quality-actions button{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.055);color:#eef7ff;border-radius:11px;padding:8px 10px;font:inherit;font-size:11px;font-weight:900;cursor:pointer}
+.dashboard-compliance-card{margin:0 0 8px;padding:12px;display:grid;gap:10px}
+.dashboard-compliance-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.dashboard-compliance-head h2{margin:0;font-size:14px}
+.dashboard-compliance-head p{margin:4px 0 0}
+.dashboard-compliance-controls{display:grid;grid-template-columns:minmax(220px,1fr) minmax(220px,1fr) auto;gap:8px;align-items:end}
+.dashboard-compliance-controls label{display:grid;gap:6px;min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:12px;padding:9px}
+.dashboard-compliance-controls span{display:block;color:#9fb2c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.dashboard-compliance-controls input,.dashboard-compliance-controls select{width:100%;min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(6,16,25,.7);color:#eef7ff;border-radius:10px;padding:9px 10px;font:inherit;font-size:12px;line-height:1.35}
+.dashboard-compliance-controls select option{background:#081421;color:#eef7ff}
+.dashboard-compliance-controls button{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid rgba(118,167,255,.28);background:rgba(118,167,255,.1);color:#dbe8ff;border-radius:11px;padding:10px 12px;font:inherit;font-size:11px;font-weight:900;cursor:pointer;white-space:nowrap;height:100%}
+.dashboard-compliance-controls button:disabled{opacity:.55;cursor:not-allowed}
+.dashboard-compliance-warning{display:flex;align-items:center;gap:8px;border:1px solid rgba(255,211,106,.2);background:rgba(255,211,106,.08);color:#ffe29a;border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.45}
+.dashboard-compliance-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.dashboard-compliance-grid div,.dashboard-compliance-meta div{min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:12px;padding:9px}
+.dashboard-compliance-grid span,.dashboard-compliance-meta span{display:block;color:#9fb2c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.dashboard-compliance-grid b,.dashboard-compliance-meta b{display:block;margin-top:4px;color:#eef7ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dashboard-compliance-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.dashboard-compliance-columns{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dashboard-compliance-columns h3{margin:0 0 6px;color:#eef7ff;font-size:12px}
+.dashboard-compliance-columns p{display:grid;grid-template-columns:auto 1fr;gap:8px;margin:0;padding:8px 9px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.04);border-radius:10px;color:#c9d8e7;font-size:11px;line-height:1.4}
+.dashboard-compliance-columns p b{display:grid;place-items:center;width:18px;height:18px;border-radius:999px;background:rgba(24,230,166,.12);border:1px solid rgba(24,230,166,.25);color:#bfffe9;font-size:9px}
+
+@media(max-width:1100px){
+  .dashboard-compliance-controls,.dashboard-compliance-grid,.dashboard-compliance-meta,.dashboard-compliance-columns{grid-template-columns:1fr 1fr}
+  .dashboard-compliance-controls button{width:100%}
+}
+
+@media(max-width:720px){
+  .dashboard-compliance-controls,.dashboard-compliance-grid,.dashboard-compliance-meta,.dashboard-compliance-columns{grid-template-columns:1fr}
+  .dashboard-compliance-head{flex-direction:column;align-items:flex-start}
+  .dashboard-compliance-controls button{width:100%}
+}
 .quote-quality-actions button:hover{border-color:rgba(24,230,166,.32);background:rgba(24,230,166,.1)}
 .quote-quality-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:start}
 .quote-quality-card h3{margin:0 0 10px;font-size:13px}

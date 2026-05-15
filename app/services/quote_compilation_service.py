@@ -652,6 +652,166 @@ def get_submission_binder_evidence_bundle(
     return bundle
 
 
+def _compliance_summary_blockers(
+    gate: Dict[str, Any],
+    readiness_checklist: Dict[str, Any],
+    evidence_bundle: Dict[str, Any],
+    manual_completion: Dict[str, Any],
+    workspace: Optional[Path],
+) -> List[str]:
+    blockers: List[str] = []
+    if not workspace or gate.get("status") != "ok":
+        blockers.append("No local quote compilation pack matched the requested pack_id.")
+
+    gate_blockers = [
+        _safe_text(item, 260)
+        for item in gate.get("blockers") or []
+        if _safe_text(item, 260)
+    ]
+    blockers.extend(gate_blockers)
+
+    manual_reason = _safe_text(manual_completion.get("blocked_reason"), 500)
+    if not manual_completion.get("allowed", False):
+        blockers.append(manual_reason or "Manual completion record is required before final submission.")
+
+    if readiness_checklist.get("status") == "not_found" or not readiness_checklist.get("readiness_status"):
+        blockers.append("Readiness checklist is unavailable for this pack.")
+
+    if evidence_bundle.get("status") == "not_found" or not evidence_bundle.get("submission_gate_state"):
+        blockers.append("Evidence bundle is unavailable for this pack.")
+
+    return _dedupe_preserve_order(blockers)
+
+
+def _compliance_summary_warnings(
+    readiness_checklist: Dict[str, Any],
+    evidence_bundle: Dict[str, Any],
+    audit_trail: Dict[str, Any],
+    manual_completion: Dict[str, Any],
+) -> List[str]:
+    warnings: List[str] = []
+    audit_warning_count = int(audit_trail.get("warning_count") or 0)
+    if audit_warning_count:
+        warnings.append(f"Audit trail contains {audit_warning_count} invalid line(s) that were skipped.")
+
+    readiness_warnings = readiness_checklist.get("warnings")
+    if isinstance(readiness_warnings, list):
+        warnings.extend(_safe_text(item, 260) for item in readiness_warnings if _safe_text(item, 260))
+
+    bundle_warnings = evidence_bundle.get("bundle_warnings")
+    if isinstance(bundle_warnings, list):
+        warnings.extend(_safe_text(item, 260) for item in bundle_warnings if _safe_text(item, 260))
+
+    if manual_completion.get("status") == "invalid":
+        warnings.append(_safe_text(manual_completion.get("blocked_reason"), 260) or "Manual completion record is invalid and should be resaved.")
+
+    return _dedupe_preserve_order(warnings)
+
+
+def _compliance_summary_status(
+    gate: Dict[str, Any],
+    readiness_checklist: Dict[str, Any],
+    evidence_bundle: Dict[str, Any],
+    manual_completion: Dict[str, Any],
+    blockers: List[str],
+) -> str:
+    if gate.get("status") != "ok" or not gate.get("matched_binder"):
+        return "unknown"
+    if not manual_completion.get("status") or manual_completion.get("status") != "ok":
+        return "blocked"
+    if not bool(manual_completion.get("allowed")):
+        return "blocked"
+    if blockers:
+        return "locked"
+    if bool(readiness_checklist.get("checklist_text")) and bool(evidence_bundle.get("pack_id")) and bool(gate.get("can_submit_final")):
+        return "ready_manual_only"
+    return "locked"
+
+
+def get_submission_binder_compliance_summary(
+    pack_id: str,
+    rfq_reference: str | None = None,
+) -> Dict[str, Any]:
+    safe_pack_id = _safe_text(pack_id, 220)
+    workspace = _safe_quote_pack_dir(safe_pack_id)
+    generated_at = _now_iso()
+
+    if not workspace:
+        return _sanitize_audit_payload(
+            {
+                "status": "unknown",
+                "pack_id": safe_pack_id,
+                "generated_at": generated_at,
+                "manual_completion_present": False,
+                "manual_completion_allowed": False,
+                "readiness_checklist_available": False,
+                "evidence_bundle_available": False,
+                "audit_event_count": 0,
+                "audit_warning_count": 0,
+                "final_submit_locked": True,
+                "automated_submit_disabled": True,
+                "can_submit_final": False,
+                "status_detail": "No local quote compilation pack matched the requested pack_id.",
+                "blockers": ["No local quote compilation pack matched the requested pack_id."],
+                "warnings": [],
+                "latest_audit_event_summary": "",
+                "safety_flags": dict(BINDER_SAFETY_FLAGS),
+                "message": "No local quote compilation pack matched the requested pack_id.",
+            }
+        )
+
+    gate = get_submission_binder_gate(safe_pack_id, rfq_reference)
+    manual_completion = _manual_completion_gate(workspace)
+    audit_trail = _read_pack_audit_trail(workspace)
+    readiness_checklist = _readiness_checklist_payload(gate, audit_trail, manual_completion)
+    evidence_bundle = _evidence_bundle_payload(gate, readiness_checklist, manual_completion, audit_trail)
+
+    readiness_available = readiness_checklist.get("status") != "not_found"
+    evidence_available = evidence_bundle.get("status") != "not_found"
+    manual_completion_present = bool(manual_completion.get("status") == "ok")
+    manual_completion_allowed = bool(manual_completion.get("allowed"))
+    can_submit_final = bool(gate.get("can_submit_final") and readiness_available and evidence_available)
+    blockers = _compliance_summary_blockers(gate, readiness_checklist, evidence_bundle, manual_completion, workspace)
+    warnings = _compliance_summary_warnings(readiness_checklist, evidence_bundle, audit_trail, manual_completion)
+    latest_event = audit_trail.get("events")[-1] if isinstance(audit_trail.get("events"), list) and audit_trail.get("events") else None
+    status = _compliance_summary_status(gate, readiness_checklist, evidence_bundle, manual_completion, blockers)
+
+    summary = {
+        "status": status,
+        "pack_id": workspace.name,
+        "generated_at": generated_at,
+        "manual_completion_present": manual_completion_present,
+        "manual_completion_allowed": manual_completion_allowed,
+        "readiness_checklist_available": readiness_available,
+        "evidence_bundle_available": evidence_available,
+        "audit_event_count": int(audit_trail.get("count") or 0),
+        "audit_warning_count": int(audit_trail.get("warning_count") or 0),
+        "final_submit_locked": True,
+        "automated_submit_disabled": True,
+        "can_submit_final": can_submit_final,
+        "blockers": blockers,
+        "warnings": warnings,
+        "latest_audit_event_summary": _audit_event_summary(latest_event),
+        "safety_flags": dict(BINDER_SAFETY_FLAGS),
+        "message": "Submission compliance summary is read-only. Manual submission remains locked.",
+    }
+    append_pack_audit_event(
+        workspace.name,
+        "compliance_summary_generated",
+        {
+            "status": status,
+            "manual_completion_present": manual_completion_present,
+            "manual_completion_allowed": manual_completion_allowed,
+            "readiness_checklist_available": readiness_available,
+            "evidence_bundle_available": evidence_available,
+            "audit_event_count": summary["audit_event_count"],
+            "audit_warning_count": summary["audit_warning_count"],
+            "can_submit_final": can_submit_final,
+        },
+    )
+    return _sanitize_audit_payload(summary)
+
+
 def append_pack_audit_event(pack_id: str, event_type: str, payload: Optional[Any] = None) -> Optional[Dict[str, Any]]:
     workspace = _pack_audit_workspace(pack_id, create=True)
     if not workspace:
@@ -2891,6 +3051,14 @@ class QuoteCompilationService:
 
     def submission_gate_summary(self, pack_id: str, rfq_reference: Optional[str] = None) -> Dict[str, Any]:
         summary = get_submission_binder_pack_summary(pack_id, rfq_reference)
+        return {
+            **summary,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def compliance_summary(self, pack_id: str, rfq_reference: Optional[str] = None) -> Dict[str, Any]:
+        summary = get_submission_binder_compliance_summary(pack_id, rfq_reference)
         return {
             **summary,
             "read_only": True,

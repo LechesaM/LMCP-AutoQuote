@@ -131,6 +131,11 @@ def submission_gate_summary_json(pack_id: str, rfq_reference: Optional[str] = Qu
     )
 
 
+@router.get("/submission-gate/{pack_id}/compliance-summary")
+def submission_gate_compliance_summary(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> Dict[str, Any]:
+    return service().compliance_summary(pack_id, rfq_reference=rfq_reference)
+
+
 @router.get("/submission-gate/{pack_id}/readiness-checklist")
 def submission_gate_readiness_checklist(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> Dict[str, Any]:
     return service().readiness_checklist(pack_id, rfq_reference=rfq_reference)

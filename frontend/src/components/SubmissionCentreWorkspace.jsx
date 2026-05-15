@@ -723,6 +723,20 @@ async function postEndpoint(path, body) {
   }
 }
 
+async function fetchTextEndpoint(path) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, { signal: controller.signal });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    return { path, ok: true, data: await response.text() };
+  } catch (error) {
+    return { path, ok: false, error: error.message || "request failed" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function submissionGatePath(packId, rfqReference) {
   const encodedPack = encodeURIComponent(packId);
   const encodedReference = safeText(rfqReference) ? `?rfq_reference=${encodeURIComponent(rfqReference)}` : "";
@@ -840,6 +854,22 @@ function submissionEvidenceBundleExportPath(packId, rfqReference) {
   return `/quote-compilation/submission-gate/${encodedPack}/evidence-bundle.json${query ? `?${query}` : ""}`;
 }
 
+function submissionPrintableReportPath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/printable-report${query ? `?${query}` : ""}`;
+}
+
+function submissionPrintableReportHtmlPath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/printable-report.html${query ? `?${query}` : ""}`;
+}
+
 function manualCompletionFormFromRecord(record) {
   return {
     submitted_by: safeText(record?.submitted_by),
@@ -860,6 +890,40 @@ function ScoreChip({ label, score }) {
   );
 }
 
+function parsePrintableReportPreview(html) {
+  if (!html) {
+    return {
+      generated_at: "",
+      status: "unknown",
+      final_submit_locked: true,
+      automated_submit_disabled: true,
+      audit_event_count: 0,
+      audit_warning_count: 0,
+    };
+  }
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const meta = (name) => safeText(doc.querySelector(`meta[name="${name}"]`)?.getAttribute("content"));
+    return {
+      generated_at: meta("lmcp-report-generated-at"),
+      status: meta("lmcp-report-status") || "unknown",
+      final_submit_locked: meta("lmcp-report-final-submit-locked") !== "false",
+      automated_submit_disabled: meta("lmcp-report-automated-submit-disabled") !== "false",
+      audit_event_count: normalizeNumber(meta("lmcp-report-audit-event-count"), 0),
+      audit_warning_count: normalizeNumber(meta("lmcp-report-audit-warning-count"), 0),
+    };
+  } catch {
+    return {
+      generated_at: "",
+      status: "unknown",
+      final_submit_locked: true,
+      automated_submit_disabled: true,
+      audit_event_count: 0,
+      audit_warning_count: 0,
+    };
+  }
+}
+
 function SubmissionGateCard({
   gateState,
   summaryState,
@@ -869,10 +933,12 @@ function SubmissionGateCard({
   readinessChecklistState,
   evidenceState,
   evidenceBundleState,
+  submissionPrintableReportState,
   manualCompletionState,
   manualCompletionForm,
   onManualCompletionChange,
   onManualCompletionSave,
+  onPrintableReportRequest,
   packId,
   onSummaryRequest,
   onChecklistRequest,
@@ -914,6 +980,16 @@ function SubmissionGateCard({
   const evidenceBundleManualPresent = Boolean(evidenceBundle?.manual_completion_record);
   const evidenceBundleFinalLocked = evidenceBundle?.final_submit_locked !== false;
   const evidenceBundleAutomatedDisabled = evidenceBundle?.automated_submit_disabled !== false;
+  const printableReportReference = gate?.rfq_reference || readinessChecklist?.rfq_reference || summary?.rfq_reference || "";
+  const printableReportUrl = packId ? `${API_BASE}${submissionPrintableReportPath(packId, printableReportReference)}` : "";
+  const printableReportHtmlUrl = packId ? `${API_BASE}${submissionPrintableReportHtmlPath(packId, printableReportReference)}` : "";
+  const printableReportPreview = submissionPrintableReportState?.data || null;
+  const printableReportGeneratedAt = safeText(printableReportPreview?.generated_at, "Not loaded");
+  const printableReportStatus = safeText(printableReportPreview?.status, "unknown");
+  const printableReportFinalLocked = printableReportPreview ? printableReportPreview.final_submit_locked !== false : true;
+  const printableReportAutomatedDisabled = printableReportPreview ? printableReportPreview.automated_submit_disabled !== false : true;
+  const printableReportAuditCount = normalizeNumber(printableReportPreview?.audit_event_count, 0);
+  const printableReportWarningCount = normalizeNumber(printableReportPreview?.audit_warning_count, 0);
   const checklistPreview =
     safeText(checklist?.checklist_text) ||
     [
@@ -947,6 +1023,11 @@ function SubmissionGateCard({
   const readinessAuditCount = normalizeNumber(readinessChecklist?.audit_event_count, 0);
   const readinessAuditWarningCount = normalizeNumber(readinessChecklist?.audit_warning_count, 0);
   const readinessLatestAuditSummary = safeText(readinessChecklist?.latest_audit_event_summary, "No audit events recorded yet.");
+
+  function openPrintableReport(url) {
+    if (!url) return;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   function readinessFinalLabel(value) {
     const lower = safeText(value, "blocked").toLowerCase();
@@ -1492,6 +1573,54 @@ function SubmissionGateCard({
               <div className="submission-gate-empty">Evidence bundle has not been loaded yet. Final submit remains locked.</div>
             )}
           </div>
+          <div className="submission-gate-printable-card">
+            <div className="submission-gate-printable-head">
+              <div>
+                <h3>Printable Report</h3>
+                <p>Browser-viewable compliance report built from the current pack evidence.</p>
+              </div>
+              <div className="submission-gate-printable-actions">
+                <span className={`submission-gate-printable-badge ${statusTone(printableReportStatus)}`}>
+                  <FileText size={13} />
+                  {safeText(printableReportStatus, "unknown").replaceAll("_", " ")}
+                </span>
+                <button type="button" onClick={onPrintableReportRequest} disabled={!packId || submissionPrintableReportState.loading}>
+                  <Clock3 size={15} />
+                  {submissionPrintableReportState.loading ? "Loading" : "Load Report"}
+                </button>
+                <button type="button" onClick={() => openPrintableReport(printableReportUrl)} disabled={!packId}>
+                  <FileArchive size={15} />
+                  Open Printable Report
+                </button>
+                <button type="button" onClick={() => openPrintableReport(printableReportHtmlUrl)} disabled={!packId}>
+                  <FileDown size={15} />
+                  Open HTML Report
+                </button>
+              </div>
+            </div>
+            {submissionPrintableReportState.error ? <div className="submission-gate-warning"><AlertTriangle size={15} />{submissionPrintableReportState.error}</div> : null}
+            <div className="submission-gate-printable-summary">
+              <div><span>Generated At</span><b>{printableReportGeneratedAt}</b></div>
+              <div><span>Final Submit Locked</span><b>{printableReportFinalLocked ? "Yes" : "No"}</b></div>
+              <div><span>Automated Submit Disabled</span><b>{printableReportAutomatedDisabled ? "Yes" : "No"}</b></div>
+              <div><span>Audit Events</span><b>{printableReportAuditCount}</b></div>
+              <div><span>Warning Count</span><b>{printableReportWarningCount}</b></div>
+            </div>
+            <div className="submission-gate-printable-columns">
+              <div>
+                <h4>Preview Status</h4>
+                <div className="submission-risk-list">
+                  <p className={`submission-risk ${printableReportPreview?.generated_at ? "ok" : "warning"}`}>{printableReportPreview ? "Printable report preview loaded locally." : "Load the report to preview its generated timestamp."}</p>
+                </div>
+              </div>
+              <div>
+                <h4>Print Notes</h4>
+                <div className="submission-risk-list">
+                  <p className="submission-risk warning">Report content is read-only and safe for print-to-PDF.</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       ) : (
         <div className="submission-gate-empty">No gate data available. Final submission remains locked.</div>
@@ -1842,6 +1971,7 @@ export default function SubmissionCentreWorkspace() {
   const [readinessChecklistState, setReadinessChecklistState] = useState({ loading: false, data: null, error: "" });
   const [submissionEvidenceState, setSubmissionEvidenceState] = useState({ loading: false, data: null, error: "" });
   const [submissionEvidenceBundleState, setSubmissionEvidenceBundleState] = useState({ loading: false, data: null, error: "" });
+  const [submissionPrintableReportState, setSubmissionPrintableReportState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionState, setManualCompletionState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionForm, setManualCompletionForm] = useState(manualCompletionFormFromRecord({}));
 
@@ -1944,6 +2074,7 @@ export default function SubmissionCentreWorkspace() {
         setReadinessChecklistState({ loading: false, data: null, error: "" });
         setSubmissionEvidenceState({ loading: false, data: null, error: "" });
         setSubmissionEvidenceBundleState({ loading: false, data: null, error: "" });
+        setSubmissionPrintableReportState({ loading: false, data: null, error: "" });
         setManualCompletionState({ loading: false, data: null, error: "" });
         setManualCompletionForm(manualCompletionFormFromRecord({}));
         return;
@@ -1956,6 +2087,7 @@ export default function SubmissionCentreWorkspace() {
       setReadinessChecklistState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionEvidenceState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionEvidenceBundleState((prev) => ({ ...prev, loading: true, error: "" }));
+      setSubmissionPrintableReportState((prev) => ({ ...prev, loading: true, error: "" }));
       setManualCompletionState((prev) => ({ ...prev, loading: true, error: "" }));
       const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, evidenceBundleResult, manualCompletionResult] = await Promise.all([
         fetchEndpoint(submissionGatePath(gatePackId, gateRfqReference)),
@@ -2009,6 +2141,7 @@ export default function SubmissionCentreWorkspace() {
         data: evidenceBundleResult.ok ? evidenceBundleResult.data : null,
         error: evidenceBundleResult.ok ? "" : evidenceBundleResult.error || "Evidence bundle endpoint did not respond.",
       });
+      setSubmissionPrintableReportState({ loading: false, data: null, error: "" });
       const manualCompletionData = manualCompletionResult.ok ? manualCompletionResult.data : null;
       setManualCompletionState({
         loading: false,
@@ -2123,6 +2256,23 @@ export default function SubmissionCentreWorkspace() {
     });
   }
 
+  async function refreshPrintableReport() {
+    if (!gatePackId) return;
+    setSubmissionPrintableReportState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await fetchTextEndpoint(submissionPrintableReportPath(gatePackId, gateRfqReference));
+    const preview = result.ok ? parsePrintableReportPreview(result.data) : null;
+    setSubmissionPrintableReportState({
+      loading: false,
+      data: preview,
+      error: result.ok ? "" : result.error || "Printable report endpoint did not respond.",
+    });
+  }
+
+  function openPrintableReport(path) {
+    if (!gatePackId) return;
+    window.open(`${API_BASE}${path}`, "_blank", "noopener,noreferrer");
+  }
+
   function onManualCompletionChange(field, value) {
     setManualCompletionForm((prev) => ({ ...prev, [field]: value }));
   }
@@ -2212,10 +2362,12 @@ export default function SubmissionCentreWorkspace() {
         readinessChecklistState={readinessChecklistState}
         evidenceState={submissionEvidenceState}
         evidenceBundleState={submissionEvidenceBundleState}
+        submissionPrintableReportState={submissionPrintableReportState}
         manualCompletionState={manualCompletionState}
         manualCompletionForm={manualCompletionForm}
         onManualCompletionChange={onManualCompletionChange}
         onManualCompletionSave={saveManualCompletionRecord}
+        onPrintableReportRequest={refreshPrintableReport}
         packId={gatePackId}
         onSummaryRequest={refreshSubmissionPackSummary}
         onChecklistRequest={refreshManualChecklist}

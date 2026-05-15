@@ -698,6 +698,24 @@
 .submission-gate-bundle-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .submission-gate-bundle-columns{display:grid;grid-template-columns:1fr;gap:12px;align-items:start}
 .submission-gate-bundle-columns h4{margin:0 0 8px;color:#eef7ff;font-size:13px}
+.submission-gate-printable-card{border:1px solid rgba(214,234,255,.12);background:rgba(214,234,255,.04);border-radius:14px;padding:12px;display:grid;gap:10px}
+.submission-gate-printable-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.submission-gate-printable-head h3{margin:0;font-size:14px}
+.submission-gate-printable-head p{margin:4px 0 0;color:#9fb2c8;font-size:12px;line-height:1.35}
+.submission-gate-printable-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.submission-gate-printable-actions button,.submission-gate-printable-actions a,.submission-gate-printable-badge{display:inline-flex;align-items:center;gap:7px;border-radius:11px;padding:8px 10px;font:inherit;font-size:11px;font-weight:900;white-space:nowrap;text-decoration:none}
+.submission-gate-printable-actions button{border:1px solid rgba(214,234,255,.28);background:rgba(214,234,255,.1);color:#dbe8ff;cursor:pointer}
+.submission-gate-printable-actions button:disabled{opacity:.55;cursor:not-allowed}
+.submission-gate-printable-badge{border:1px solid rgba(214,234,255,.22);background:rgba(214,234,255,.08);color:#dbe8ff;text-transform:uppercase;letter-spacing:.04em}
+.submission-gate-printable-badge.green{border-color:rgba(24,230,166,.28);background:rgba(24,230,166,.08);color:#bfffe9}
+.submission-gate-printable-badge.amber{border-color:rgba(255,211,106,.28);background:rgba(255,211,106,.08);color:#ffe29a}
+.submission-gate-printable-badge.red{border-color:rgba(255,112,112,.32);background:rgba(255,112,112,.08);color:#ffb0b0}
+.submission-gate-printable-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+.submission-gate-printable-summary div{min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:12px;padding:9px}
+.submission-gate-printable-summary span{display:block;color:#9fb2c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.submission-gate-printable-summary b{display:block;margin-top:4px;color:#eef7ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.submission-gate-printable-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+.submission-gate-printable-columns h4{margin:0 0 8px;color:#eef7ff;font-size:13px}
 
 @media(max-width:1240px){
   .submission-toolbar{grid-template-columns:1fr 1fr}

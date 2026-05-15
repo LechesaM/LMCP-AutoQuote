@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 from app.services.quote_compilation_service import QuoteCompilationService, append_pack_audit_event
 
@@ -182,6 +182,44 @@ def submission_gate_evidence_bundle_json(pack_id: str, rfq_reference: Optional[s
     return JSONResponse(
         content=bundle,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/submission-gate/{pack_id}/printable-report")
+def submission_gate_printable_report(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> HTMLResponse:
+    report = service().printable_report(pack_id, rfq_reference=rfq_reference)
+    append_pack_audit_event(
+        report.get("pack_id") or pack_id,
+        "printable_report_viewed",
+        {
+            "status": report.get("status"),
+            "final_submit_locked": bool(report.get("final_submit_locked")),
+            "automated_submit_disabled": bool(report.get("automated_submit_disabled")),
+            "audit_event_count": report.get("audit_summary", {}).get("count", 0) if isinstance(report.get("audit_summary"), dict) else 0,
+            "audit_warning_count": report.get("audit_summary", {}).get("warning_count", 0) if isinstance(report.get("audit_summary"), dict) else 0,
+        },
+    )
+    return HTMLResponse(content=str(report.get("html") or ""))
+
+
+@router.get("/submission-gate/{pack_id}/printable-report.html")
+def submission_gate_printable_report_html(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> HTMLResponse:
+    report = service().printable_report(pack_id, rfq_reference=rfq_reference)
+    append_pack_audit_event(
+        report.get("pack_id") or pack_id,
+        "printable_report_exported",
+        {
+            "status": report.get("status"),
+            "final_submit_locked": bool(report.get("final_submit_locked")),
+            "automated_submit_disabled": bool(report.get("automated_submit_disabled")),
+            "audit_event_count": report.get("audit_summary", {}).get("count", 0) if isinstance(report.get("audit_summary"), dict) else 0,
+            "audit_warning_count": report.get("audit_summary", {}).get("warning_count", 0) if isinstance(report.get("audit_summary"), dict) else 0,
+        },
+    )
+    filename = _safe_download_filename(f"{report.get('pack_id') or pack_id}-printable-compliance-report", "html")
+    return HTMLResponse(
+        content=str(report.get("html") or ""),
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 

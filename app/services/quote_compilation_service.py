@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import csv
 import json
 import os
@@ -168,10 +169,15 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _safe_text(value: Any, max_length: int = 500) -> str:
+def _safe_text(value: Any, max_length: int = 500, fallback: str = "") -> str:
+    if isinstance(max_length, str) and not fallback:
+        fallback = max_length
+        max_length = 500
     if value is None:
-        return ""
+        return fallback
     text = str(value).replace("\n", " ").replace("\r", " ").strip()
+    if not text:
+        return fallback
     if len(text) > max_length:
         return f"{text[:max_length]}..."
     return text
@@ -359,6 +365,422 @@ def _audit_event_summary(event: Any) -> str:
     elif allowed is False:
         parts.append("blocked")
     return " · ".join(part for part in parts if part)
+
+
+def _printable_text(value: Any, fallback: str = "") -> str:
+    return html.escape(_safe_text(value, fallback), quote=True)
+
+
+def _printable_bool(value: Any) -> str:
+    return "Yes" if bool(value) else "No"
+
+
+def _printable_status_class(status: Any) -> str:
+    text = _safe_text(status, "unknown").lower()
+    if text in {"ready_manual_only", "ready_for_manual_submission", "ready"} or "ready" in text:
+        return "status-good"
+    if text in {"blocked", "manual_completion_missing", "manual_completion_invalid"} or "blocked" in text or "missing" in text:
+        return "status-blocked"
+    if text in {"locked", "manual_only"} or "locked" in text:
+        return "status-locked"
+    return "status-unknown"
+
+
+def _printable_list(items: Any, empty_label: str) -> str:
+    values = [
+        _printable_text(item)
+        for item in (items or [])
+        if _safe_text(item, "")
+    ]
+    if not values:
+        return f'<p class="printable-empty">{_printable_text(empty_label)}</p>'
+    return "<ul>" + "".join(f"<li>{value}</li>" for value in values) + "</ul>"
+
+
+def _printable_rows(rows: List[Tuple[str, Any]]) -> str:
+    return "".join(
+        f"<tr><th>{_printable_text(label)}</th><td>{_printable_text(value)}</td></tr>"
+        for label, value in rows
+    )
+
+
+def _printable_metric(label: str, value: Any) -> str:
+    return f"""
+      <div class="printable-metric">
+        <span>{_printable_text(label)}</span>
+        <b>{_printable_text(value, "N/A")}</b>
+      </div>
+    """
+
+
+def _printable_events_table(events: List[Dict[str, Any]]) -> str:
+    if not events:
+        return '<p class="printable-empty">No audit events available.</p>'
+    rows = []
+    for event in events:
+        rows.append(
+            "<tr>"
+            f"<td>{_printable_text(event.get('timestamp'), 'No timestamp')}</td>"
+            f"<td><span class=\"printable-event-type\">{_printable_text(event.get('event_type'), 'event')}</span></td>"
+            f"<td>{_printable_text(event.get('event_id'), 'event')}</td>"
+            f"<td>{_printable_text(_audit_event_summary(event), 'Audit event recorded locally.')}</td>"
+            "</tr>"
+        )
+    return (
+        '<table class="printable-table printable-events-table">'
+        "<thead><tr><th>Timestamp</th><th>Event</th><th>Event ID</th><th>Summary</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table>"
+    )
+
+
+def _printable_section(title: str, body: str, section_class: str = "") -> str:
+    extra_class = f" {section_class}" if section_class else ""
+    return f"""
+      <section class="printable-section{extra_class}">
+        <h2>{_printable_text(title)}</h2>
+        {body}
+      </section>
+    """
+
+
+def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
+    status = _safe_text(report.get("status"), "unknown")
+    status_class = _printable_status_class(status)
+    generated_at = _printable_text(report.get("generated_at"), "Unknown")
+    pack_id = _printable_text(report.get("pack_id"), "Unknown")
+    compliance_summary = report.get("compliance_summary") if isinstance(report.get("compliance_summary"), dict) else {}
+    readiness_checklist = report.get("readiness_checklist") if isinstance(report.get("readiness_checklist"), dict) else {}
+    evidence_bundle = report.get("evidence_bundle") if isinstance(report.get("evidence_bundle"), dict) else {}
+    audit_summary = report.get("audit_summary") if isinstance(report.get("audit_summary"), dict) else {}
+    audit_events = report.get("latest_audit_events") if isinstance(report.get("latest_audit_events"), list) else []
+
+    meta = {
+        "lmcp-report-generated-at": report.get("generated_at"),
+        "lmcp-report-pack-id": report.get("pack_id"),
+        "lmcp-report-status": status,
+        "lmcp-report-final-submit-locked": report.get("final_submit_locked"),
+        "lmcp-report-automated-submit-disabled": report.get("automated_submit_disabled"),
+        "lmcp-report-audit-event-count": report.get("audit_event_count"),
+        "lmcp-report-audit-warning-count": report.get("audit_warning_count"),
+    }
+    meta_tags = "".join(
+        f'<meta name="{_printable_text(key)}" content="{_printable_text(value)}" />'
+        for key, value in meta.items()
+    )
+
+    checklist_summary = readiness_checklist.get("binder_readiness_summary") if isinstance(readiness_checklist.get("binder_readiness_summary"), dict) else {}
+    manual_status = _safe_text(readiness_checklist.get("manual_completion_status") or compliance_summary.get("manual_completion_status"), "missing")
+    manual_allowed = bool(readiness_checklist.get("manual_completion_allowed"))
+    manual_present = bool(readiness_checklist.get("manual_completion_present"))
+    final_submit_locked = bool(readiness_checklist.get("final_submit_locked") if "final_submit_locked" in readiness_checklist else report.get("final_submit_locked", True))
+    automated_submit_disabled = bool(readiness_checklist.get("automated_submit_disabled") if "automated_submit_disabled" in readiness_checklist else report.get("automated_submit_disabled", True))
+
+    blockers = report.get("blockers") if isinstance(report.get("blockers"), list) else []
+    warnings = report.get("warnings") if isinstance(report.get("warnings"), list) else []
+    readiness_blockers = readiness_checklist.get("blockers") if isinstance(readiness_checklist.get("blockers"), list) else []
+    readiness_warnings = readiness_checklist.get("warnings") if isinstance(readiness_checklist.get("warnings"), list) else []
+    bundle_warnings = evidence_bundle.get("bundle_warnings") if isinstance(evidence_bundle.get("bundle_warnings"), list) else []
+
+    evidence_manual = evidence_bundle.get("manual_completion_record") if isinstance(evidence_bundle.get("manual_completion_record"), dict) else None
+    evidence_manual_rows = [
+        ("Present", _printable_bool(evidence_manual is not None)),
+        ("Final Submit Locked", _printable_bool(evidence_bundle.get("final_submit_locked"))),
+        ("Automated Submit Disabled", _printable_bool(evidence_bundle.get("automated_submit_disabled"))),
+        ("Audit Events", evidence_bundle.get("audit_event_count", 0)),
+        ("Warning Count", evidence_bundle.get("audit_warning_count", 0)),
+    ]
+    if evidence_manual:
+        evidence_manual_rows.extend([
+            ("Submitted By", evidence_manual.get("submitted_by")),
+            ("Submitted At", evidence_manual.get("submitted_at")),
+            ("Portal Name", evidence_manual.get("portal_name")),
+            ("Portal Reference", evidence_manual.get("portal_reference")),
+            ("Uploaded Files", len(evidence_manual.get("uploaded_file_names") or [])),
+        ])
+
+    compliance_section = _printable_section(
+        "Compliance Summary",
+        """
+          <div class="grid-two">
+            <div class="panel">
+              <table class="printable-table">
+                <tbody>
+                  {compliance_rows}
+                </tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <h3>Blockers</h3>
+              {blockers_html}
+              <h3 style="margin-top:12px;">Warnings</h3>
+              {warnings_html}
+            </div>
+          </div>
+        """.format(
+            compliance_rows=_printable_rows([
+                ("Status", compliance_summary.get("status")),
+                ("Can Submit Final", _printable_bool(compliance_summary.get("can_submit_final"))),
+                ("Manual Completion Present", _printable_bool(compliance_summary.get("manual_completion_present"))),
+                ("Manual Completion Allowed", _printable_bool(compliance_summary.get("manual_completion_allowed"))),
+                ("Final Submit Locked", _printable_bool(compliance_summary.get("final_submit_locked"))),
+                ("Automated Submit Disabled", _printable_bool(compliance_summary.get("automated_submit_disabled"))),
+                ("Audit Event Count", compliance_summary.get("audit_event_count", 0)),
+                ("Audit Warning Count", compliance_summary.get("audit_warning_count", 0)),
+            ]),
+            blockers_html=_printable_list(blockers, "No overall blockers reported."),
+            warnings_html=_printable_list(warnings, "No overall warnings reported."),
+        ),
+    )
+
+    readiness_section = _printable_section(
+        "Readiness Checklist Summary",
+        """
+          <div class="grid-three">
+            <div class="panel">
+              <table class="printable-table">
+                <tbody>
+                  {readiness_rows}
+                </tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <h3>Binder Readiness Summary</h3>
+              <table class="printable-table">
+                <tbody>
+                  {binder_rows}
+                </tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <h3>Checklist Blockers</h3>
+              {checklist_blockers_html}
+              <h3 style="margin-top:12px;">Checklist Warnings</h3>
+              {checklist_warnings_html}
+            </div>
+          </div>
+        """.format(
+            readiness_rows=_printable_rows([
+                ("Readiness Status", readiness_checklist.get("readiness_status")),
+                ("Manual Completion Status", manual_status),
+                ("Manual Completion Present", _printable_bool(readiness_checklist.get("manual_completion_present"))),
+                ("Manual Completion Allowed", _printable_bool(readiness_checklist.get("manual_completion_allowed"))),
+                ("Can Submit Final", _printable_bool(readiness_checklist.get("can_submit_final"))),
+                ("Final Submit Locked", _printable_bool(final_submit_locked)),
+                ("Automated Submit Disabled", _printable_bool(automated_submit_disabled)),
+                ("Audit Event Count", readiness_checklist.get("audit_event_count", 0)),
+                ("Audit Warning Count", readiness_checklist.get("audit_warning_count", 0)),
+            ]),
+            binder_rows=_printable_rows([
+                ("Status", checklist_summary.get("status")),
+                ("Binder Score", checklist_summary.get("binder_score", 0)),
+                ("Can Prepare Submission", _printable_bool(checklist_summary.get("can_prepare_submission"))),
+                ("Blocker Count", checklist_summary.get("blocker_count", 0)),
+                ("Missing Returnable Count", checklist_summary.get("missing_returnable_count", 0)),
+                ("Message", checklist_summary.get("message")),
+            ]),
+            checklist_blockers_html=_printable_list(readiness_checklist.get("blockers"), "No readiness blockers reported."),
+            checklist_warnings_html=_printable_list(readiness_checklist.get("warnings"), "No readiness warnings reported."),
+        ),
+    )
+
+    evidence_section = _printable_section(
+        "Evidence Bundle Summary",
+        """
+          <div class="grid-two">
+            <div class="panel">
+              <table class="printable-table">
+                <tbody>
+                  {evidence_rows}
+                </tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <h3>Bundle Warnings</h3>
+              {bundle_warnings_html}
+              <h3 style="margin-top:12px;">Evidence Bundle Notes</h3>
+              <p>{bundle_notes}</p>
+            </div>
+          </div>
+        """.format(
+            evidence_rows=_printable_rows(evidence_manual_rows),
+            bundle_warnings_html=_printable_list(evidence_bundle.get("bundle_warnings"), "No bundle warnings reported."),
+            bundle_notes=_printable_text(evidence_bundle.get("message"), "Submission evidence bundle is read-only."),
+        ),
+    )
+
+    audit_section = _printable_section(
+        "Audit Trail Summary",
+        """
+          <div class="grid-three">
+            <div class="panel">
+              <table class="printable-table">
+                <tbody>
+                  {audit_rows}
+                </tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <h3>Latest Audit Events</h3>
+              {events_table}
+            </div>
+          </div>
+        """.format(
+            audit_rows=_printable_rows([
+                ("Audit Event Count", audit_summary.get("count", 0)),
+                ("Audit Warning Count", audit_summary.get("warning_count", 0)),
+                ("Audit Trail Path", audit_summary.get("audit_trail_path")),
+                ("Latest Event Summary", audit_summary.get("latest_audit_event_summary")),
+            ]),
+            events_table=_printable_events_table(audit_events),
+        ),
+    )
+
+    html_doc = (
+        "<!DOCTYPE html>"
+        '<html lang="en">'
+        "<head>"
+        '<meta charset="utf-8" />'
+        '<meta name="viewport" content="width=device-width, initial-scale=1" />'
+        f"{meta_tags}"
+        f"<title>LMCP AutoQuote Submission Compliance Report - {pack_id}</title>"
+        "<style>"
+        ':root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #182635; background: #ffffff; }'
+        "* { box-sizing: border-box; }"
+        "html, body { margin: 0; padding: 0; background: #ffffff; color: #182635; }"
+        "body { font-size: 13px; line-height: 1.45; }"
+        ".page { max-width: 1120px; margin: 0 auto; padding: 24px; }"
+        ".header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding-bottom: 16px; border-bottom: 2px solid #dbe5ef; }"
+        ".header h1 { margin: 0; font-size: 24px; line-height: 1.15; }"
+        ".header p { margin: 6px 0 0; color: #526476; }"
+        ".eyebrow { margin: 0 0 6px; text-transform: uppercase; letter-spacing: .16em; color: #0a8f63; font-size: 10px; font-weight: 800; }"
+        ".badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 7px 10px; border: 1px solid #cad5e0; background: #f7fafc; color: #243444; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }"
+        ".badge.status-good { border-color: #b7ead7; background: #ecfbf4; color: #147a57; }"
+        ".badge.status-blocked { border-color: #f0c2c2; background: #fff2f2; color: #a73b3b; }"
+        ".badge.status-locked { border-color: #f2d79b; background: #fff8e8; color: #906700; }"
+        ".badge.status-unknown { border-color: #d7dfe7; background: #f4f7fa; color: #526476; }"
+        ".header-meta { display: grid; gap: 8px; justify-items: end; text-align: right; }"
+        ".header-meta div { color: #526476; font-size: 11px; }"
+        ".header-meta b { display: block; margin-top: 3px; color: #182635; font-size: 13px; }"
+        ".metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }"
+        ".printable-metric { border: 1px solid #dbe5ef; border-radius: 12px; padding: 10px 12px; background: #fff; }"
+        ".printable-metric span { display: block; color: #5a6877; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }"
+        ".printable-metric b { display: block; margin-top: 6px; color: #182635; font-size: 14px; }"
+        ".section { margin-top: 18px; border: 1px solid #dbe5ef; border-radius: 14px; padding: 14px; background: #fff; break-inside: avoid; }"
+        ".section h2 { margin: 0 0 10px; font-size: 15px; }"
+        ".grid-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }"
+        ".grid-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }"
+        ".panel { border: 1px solid #e4ebf1; border-radius: 12px; padding: 12px; background: #fff; break-inside: avoid; }"
+        ".panel h3 { margin: 0 0 8px; font-size: 13px; }"
+        ".panel p { margin: 0 0 8px; color: #4f6274; }"
+        ".panel ul { margin: 0; padding-left: 18px; color: #243444; }"
+        ".panel li { margin: 0 0 6px; }"
+        ".printable-empty { margin: 0; color: #667789; font-style: italic; }"
+        ".printable-table { width: 100%; border-collapse: collapse; font-size: 12px; }"
+        ".printable-table th, .printable-table td { padding: 8px 10px; border-bottom: 1px solid #e6edf3; vertical-align: top; text-align: left; }"
+        ".printable-table th { color: #607286; width: 190px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }"
+        ".printable-table td { color: #182635; }"
+        ".printable-events-table th:nth-child(1) { width: 180px; }"
+        ".printable-events-table th:nth-child(2) { width: 160px; }"
+        ".printable-events-table th:nth-child(3) { width: 180px; }"
+        ".printable-event-type { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 8px; background: #f3f7fb; border: 1px solid #d8e1ea; font-size: 10px; text-transform: uppercase; font-weight: 900; letter-spacing: .04em; }"
+        ".notes { margin-top: 10px; color: #5a6877; font-size: 11px; }"
+        "@media print { @page { margin: 14mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } .page { padding: 0; max-width: none; } .section, .panel, .printable-metric, .badge { break-inside: avoid; } }"
+        "@media (max-width: 960px) { .header, .grid-two, .grid-three, .metrics { grid-template-columns: 1fr; display: grid; } .header { display: grid; } .header-meta { justify-items: start; text-align: left; } }"
+        "</style>"
+        "</head>"
+        "<body>"
+        '<main class="page">'
+        '<header class="header">'
+        "<div>"
+        '<p class="eyebrow">LMCP AutoQuote</p>'
+        "<h1>Submission Compliance Report</h1>"
+        "<p>Printable, read-only evidence report for manual submission review.</p>"
+        "</div>"
+        '<div class="header-meta">'
+        f'<span class="badge {status_class}">Status: {_printable_text(status, "unknown")}</span>'
+        f"<div><span>Pack ID</span><b>{pack_id}</b></div>"
+        f"<div><span>Generated</span><b>{generated_at}</b></div>"
+        "</div>"
+        "</header>"
+        f'<section class="metrics">{_printable_metric("Manual Completion", "Present" if manual_present else "Missing")}{_printable_metric("Manual Completion Allowed", _printable_bool(manual_allowed))}{_printable_metric("Final Submit Locked", _printable_bool(final_submit_locked))}{_printable_metric("Automated Submit Disabled", _printable_bool(automated_submit_disabled))}</section>'
+        f"{compliance_section}"
+        f"{readiness_section}"
+        f"{evidence_section}"
+        f"{audit_section}"
+        '<p class="notes">This report is generated locally from pack evidence only. No portal was contacted, no upload was performed, and final submit remains locked.</p>'
+        "</main>"
+        "</body>"
+        "</html>"
+    )
+    return html_doc
+
+
+def build_printable_compliance_report(pack_id: str, rfq_reference: str | None = None) -> Dict[str, Any]:
+    safe_pack_id = _safe_text(pack_id, 220)
+    workspace = _safe_quote_pack_dir(safe_pack_id)
+    generated_at = _now_iso()
+
+    compliance_summary = get_submission_binder_compliance_summary(safe_pack_id, rfq_reference)
+    readiness_checklist = get_submission_binder_readiness_checklist(safe_pack_id, rfq_reference)
+    evidence_bundle = get_submission_binder_evidence_bundle(safe_pack_id, rfq_reference)
+    manual_completion_validation = _manual_completion_gate(workspace) if workspace else {
+        "status": "missing",
+        "allowed": False,
+        "blocked_reason": "Manual completion record is required before final submission.",
+    }
+    audit_trail = _read_pack_audit_trail(workspace) if workspace else {
+        "status": "ok",
+        "pack_id": safe_pack_id,
+        "audit_trail_path": _relative(_audit_trail_path(OUTPUT_ROOT / safe_pack_id)),
+        "events": [],
+        "warning_count": 0,
+        "count": 0,
+        "read_only": True,
+        "timestamp": generated_at,
+    }
+
+    append_pack_audit_event(
+        safe_pack_id,
+        "printable_report_generated",
+        {
+            "status": compliance_summary.get("status"),
+            "manual_completion_allowed": bool(compliance_summary.get("manual_completion_allowed")),
+            "final_submit_locked": bool(compliance_summary.get("final_submit_locked")),
+            "audit_event_count": int(audit_trail.get("count") or 0),
+            "audit_warning_count": int(audit_trail.get("warning_count") or 0),
+        },
+    )
+
+    audit_trail = _read_pack_audit_trail(workspace) if workspace else audit_trail
+    latest_events = (audit_trail.get("events") or [])[-10:] if isinstance(audit_trail.get("events"), list) else []
+    report = {
+        "status": _safe_text(compliance_summary.get("status"), 40) or "unknown",
+        "pack_id": safe_pack_id,
+        "generated_at": generated_at,
+        "final_submit_locked": bool(compliance_summary.get("final_submit_locked", True)),
+        "automated_submit_disabled": bool(compliance_summary.get("automated_submit_disabled", True)),
+        "manual_completion_present": bool(compliance_summary.get("manual_completion_present")),
+        "manual_completion_allowed": bool(compliance_summary.get("manual_completion_allowed")),
+        "submission_status": _safe_text(compliance_summary.get("status"), 40),
+        "compliance_summary": compliance_summary,
+        "readiness_checklist": readiness_checklist,
+        "evidence_bundle": evidence_bundle,
+        "manual_completion_record": _sanitize_audit_payload(manual_completion_validation.get("manual_completion")) if isinstance(manual_completion_validation.get("manual_completion"), dict) else None,
+        "audit_summary": {
+            "count": int(audit_trail.get("count") or 0),
+            "warning_count": int(audit_trail.get("warning_count") or 0),
+            "audit_trail_path": audit_trail.get("audit_trail_path"),
+            "latest_audit_event_summary": _audit_event_summary(audit_trail.get("events")[-1]) if isinstance(audit_trail.get("events"), list) and audit_trail.get("events") else "",
+        },
+        "latest_audit_events": _sanitize_audit_payload(latest_events),
+        "blockers": _sanitize_audit_payload(compliance_summary.get("blockers") or []),
+        "warnings": _sanitize_audit_payload(compliance_summary.get("warnings") or []),
+        "html": "",
+        "message": "Printable compliance report is read-only. Manual submission remains locked.",
+    }
+    report["html"] = _printable_compliance_report_html(report)
+    return report
 
 
 def _readiness_checklist_blockers(gate: Dict[str, Any], manual_completion: Dict[str, Any]) -> List[str]:
@@ -3077,6 +3499,14 @@ class QuoteCompilationService:
         bundle = get_submission_binder_evidence_bundle(pack_id, rfq_reference)
         return {
             **bundle,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def printable_report(self, pack_id: str, rfq_reference: Optional[str] = None) -> Dict[str, Any]:
+        report = build_printable_compliance_report(pack_id, rfq_reference)
+        return {
+            **report,
             "read_only": True,
             "timestamp": _now_iso(),
         }

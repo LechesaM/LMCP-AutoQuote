@@ -1,0 +1,307 @@
+<!DOCTYPE html><html><head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - eTenders Portal</title>
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/icons/favicon green v2.ico">
+    
+    
+        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" crossorigin="anonymous" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T">
+<meta name="x-stylesheet-fallback-test" content="" class="sr-only"><script type="text/javascript" async="" src="https://www.google-analytics.com/analytics.js"></script><script type="text/javascript" async="" src="https://www.googletagmanager.com/gtag/js?id=G-CWE9GTXE8V&amp;cx=c&amp;gtm=4e64f1"></script><script>!function(a,b,c,d){var e,f=document,g=f.getElementsByTagName("SCRIPT"),h=g[g.length-1].previousElementSibling,i=f.defaultView&&f.defaultView.getComputedStyle?f.defaultView.getComputedStyle(h):h.currentStyle;if(i&&i[a]!==b)for(e=0;e<c.length;e++)f.write('<link href="'+c[e]+'" '+d+"/>")}("position","absolute",["/lib/bootstrap/dist/css/bootstrap.min.css"], "rel=\u0022stylesheet\u0022 crossorigin=\u0022anonymous\u0022 integrity=\u0022sha384-ggOyR0iXCbMQv3Xipma34MD\u002BdH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T\u0022 ");</script>
+    
+    
+        <!-- Global site tag (gtag.js) - Google Analytics -->
+        <script async="" src="https://www.googletagmanager.com/gtag/js?id=UA-148237721-1"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag() { dataLayer.push(arguments); }
+            gtag('js', new Date());
+
+            gtag('config', 'UA-148237721-1');
+        </script>
+    
+    <link href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,600,700,900&amp;display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/site.css">
+    <link rel="icon" type="image/png" sizes="16x16" href="/images/icons/favicon green v2.ico">
+
+    <style>
+        .contact{
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            color: #7b7b7b;
+            font-family: 'Source Sans Pro';
+        }
+
+    </style>
+</head>
+<body>
+    <!-- Notification/Bookmark Modal -->
+    <!-- TODO: Update Modal to be generic across the board -->
+    <div class="modal fade" id="TempPopupModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header bg-info">
+                    <h5 class="modal-title"><i class="text-warning fa fa-exclamation-circle"></i>Login Required</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="close">
+                        <span aria-hidden="true">×</span>
+                    </button>
+                </div>
+                <div class="modal-body" id="modal-body">
+                    <h5>It seems like you are not logged in. Please note that to bookmark or subscribe to tender notifications you need to be logged-in.</h5>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" data-dismiss="modal" id="LoginButton">Login</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Generic Modal -->
+    <div id="genericModal" name="genericModal" class="modal fade" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-warning" id="modal-title">
+                    <!--Dynamic Content-->
+                </div>
+                <div class="modal-body" id="modal-body-gn">
+                    <!--Dynamic Content-->
+                </div>
+                <div class="modal-footer bg-light">
+                    <button data-dismiss="modal" type="button" class="btn btn-danger">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <header>
+        <div class="container">
+            <div class="col-md-12 px-0">
+                <a href="/">
+               <img src="/images/header-logoEtenders.png" style="float:left;" width="160" alt="Logo">
+            </a>
+            <img src="/images/header-saFlag.png" style="float:right;" alt="flg">
+
+      <!--  <nav class="navbar navbar-expand-lg navbar-dark gmc-header" align>
+            <div class="container-fluid">
+
+                <button class="navbar-toggler collapsed" type="button" data-toggle="collapse" data-target="#GMC-Navigation" aria-controls="navbarsExample04" aria-expanded="false" aria-label="Toggle navigation"> <span class="navbar-toggler-icon"></span> </button>
+                <div class="navbar-collapse collapse" id="GMC-Navigation">
+                    <ul class="navbar-nav mb-2 mb-md-0 w-100">
+                        <li class="nav-item"> <a id="homeLink" href="/" class="nav-link link-light px-2" aria-current="page"> Home </a> </li>
+                        <li class="nav-item"> <a id="tendersLink" href="/Home/opportunities?id=1" class="nav-link link-light px-2" aria-current="page"> Tender Opportunities </a> </li>
+                        <li class="nav-item"> <a href="/Home/ProcurementPlans" class="nav-link link-light px-2" aria-current="page"> Procurement Plans </a> </li>
+                        <li class="nav-item"> <a href="https://www.data.etenders.gov.za" target="_blank" class="nav-link link-light px-2" aria-current="page"> Procurement Data </a> </li>
+            
+                        <li class="nav-item dropdown">
+                            <a id="aboutLink" href="#" class="nav-link link-light px-2 dropdown-toggle" id="navbarDropdown" role="button" data-toggle="dropdown" aria-expanded="false">About</a>
+                            <ul class="dropdown-menu" aria-labelledby="navbarDropdown">
+                                <li><a class="dropdown-item" href="/Home/About">About E-Tender</a></li>
+                                <li><a class="dropdown-item" href="/Home/VisionMission">Vision and Mission</a></li>
+                                <li><a class="dropdown-item" href="/Home/Mandate">Mandate</a></li>
+                            </ul>
+                        </li>
+
+
+
+                            <li class="nav-item"> <a href="https://admin.etenders.gov.za/Identity/Account/Login?ReturnUrl=%2F" class="nav-link link-light px-2" aria-current="page"> Login </a> </li>
+
+                    </ul>
+                </div>
+            </div>
+        </nav>
+        -->
+         </div>
+        </div>
+    </header>
+
+    <div class="container">
+        
+
+
+        <main role="main" class="pb-3" style="float:left;width:100%;">
+            
+
+<div class="banner-image"></div>
+<div class="row justify-content-center">
+    <div class="col-md-12">
+        <div class="row">
+            <div class="col-md-8 mx-auto text-center">
+                <div class="LoginContainer">
+
+                    <section>
+                        <form id="account" method="post" action="/Login/UserLogin">
+
+                            <h4>Use your CSD Credentials to Login below.</h4>
+
+
+                            <div class="text-danger validation-summary-valid" data-valmsg-summary="true"><ul><li style="display:none"></li>
+</ul></div>
+                            <div class="form-group row">
+                                <label class="control-label" for="UserName">UserName</label>
+                                <input type="email" class="form-control" id="UserName" name="UserName" value="" style="">
+                                <span class="text-danger field-validation-valid" data-valmsg-for="UserName" data-valmsg-replace="true"></span>
+                            </div>
+                            <div class="form-group row">
+                                <label class="control-label" for="Password">Password</label>
+                                <input type="password" class="form-control" id="Password" name="Password" style="">
+                                <span class="text-danger field-validation-valid" data-valmsg-for="Password" data-valmsg-replace="true"></span>
+                            </div>
+
+                            <input type="hidden" name="returnUrl" value="" style="">
+
+                            <div class="form-group row">
+                                <div class="captcha-container d-flex flex-column align-items-center" style="background-color: #F9F9F9; padding: 15px; border-radius: 5px; width:100%;">
+                                    <label class="control-label">CAPTCHA Verification</label>
+                                    <label class="control-label text-danger"><strong>Please Note: </strong> The captcha text is case insensitive</label>
+                                    <div class="captcha-image-container d-flex justify-content-center align-items-center mb-2" style="width: 280px; margin: 0 auto;">
+                                            <img id="captchaImage" src="data:image/png;base64,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" alt="CAPTCHA Image" class="captcha-image border me-5 " style="max-width: 200px; height: 60px; cursor: pointer; display: block;" onerror="this.style.display='none'; document.getElementById('captchaError').style.display='block';">
+                                            <span id="captchaError" style="display:none; color: red;">Error loading CAPTCHA image. The data might be invalid.</span>
+                                        <span class="mx-1"></span>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" id="refreshButton" title="Refresh CAPTCHA">
+                                            <i class="fa-solid fa-arrows-rotate"></i>
+                                        </button>
+                                    </div>
+                                    <p class="mb-2 text-center" style="font-size: 9.6px; font-family: 'Source Sans Pro', sans-serif; color: #6C757D;">Type the characters shown above:</p>
+                                    <input type="hidden" name="captchaId" value="3b9d7177-a9a4-4793-b081-f77310aff4a5" style="">                          
+                                    <input name="captchaInput" class="form-control" placeholder="e.g. X9A2F" autocomplete="off" style="width: 160px; height: 33.5px;">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <button type="submit" class="btn btn-info">Log in</button>
+                            </div>
+
+                        <input name="__RequestVerificationToken" type="hidden" value="CfDJ8NC9Mt3QZSNFspBwkjMKwcZ3S3h3rCjrpHB9kCPXJkRB0sHSUrIZO2zzwVQT50KPiKB35tiKS3_hv_By4bI54xz4JcGpB4wB8SnCNbatbofOepV4b8csdu7Lt3gp4gPc8FS4EyxdoqLPi7mM4n27lcs" style=""></form>
+                    </section>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+        </main>
+    </div>
+
+    <footer>
+        <div class="city-bar"> </div>
+        <div class="links">
+            <div class="container">
+                <div class="row">
+                    <div class="col-md-5">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <ul>
+                                    <li><a href="/Home">Home</a></li>
+                                    <li><a href="/Home/opportunities?id=1">Tenders</a></li>
+                                    <li><a href="/Home/Contact">Get In touch</a></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-4">
+                                <ul>
+                                    <li><a href="/Home/About">About E-Tender</a></li>
+                                    <li><a href="/Home/VisionMission">Vision and Mission</a></li>
+                                    <li><a href="/Home/Mandate">Mandate</a></li>
+                                </ul>
+                            </div>
+                            <div class="col-md-5">
+                                <ul>
+                                    <li class="nav-item"> <a id="tendersLink" href="/Home/opportunities?id=1"> Tender Opportunities </a> </li>
+                                    <li class="nav-item"> <a href="/Home/ProcurementPlans"> Procurement Plans </a> </li>
+                                    <li><a href="http://ocpo.treasury.gov.za" target="_blank">Office of the CPO</a></li>
+                                </ul>
+
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <h4 class="contact">+ 27(0) 12 406 9222</h4>
+                        <span><img src="/images/footer-locationPin.png" alt="CSD"></span> <span style="color:#D3B721; font-weight:600;font-size:14px; margin-left: 5px;">National Treasury</span>
+                        <br><span style="margin-left: 30px; margin-top: -8px;  color: #7b7b7b !important; font-weight: 600 !important;  font-size: 13.3333px !important; font-family: 'Source Sans Pro';">40 Church Square, Pretoria</span>
+                    </div>
+                     <div class="col-md-2 csdLogo">
+                        <a href="https://secure.csd.gov.za/" target="_blank"><img src="/images/footer-logoCSD.png"></a>
+                    </div>
+                    <div class="col-md-2">
+                       <a href="http://www.treasury.gov.za/" target="_blank"><img src="/images/footer-logoTreasury.png" alt="Treasury logo"></a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    
+    
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js" crossorigin="anonymous" integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="></script>
+<script>(window.jQuery||document.write("\u003Cscript src=\u0022/lib/jquery/dist/jquery.min.js\u0022 crossorigin=\u0022anonymous\u0022 integrity=\u0022sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=\u0022\u003E\u003C/script\u003E"));</script>
+        <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.bundle.min.js" crossorigin="anonymous" integrity="sha384-xrRywqdh3PHs8keKZN+8zzc5TX0GRTLCcmivcbNJWm2rs5C8PRhcEn3czEjhAO9o"></script>
+<script>(window.jQuery && window.jQuery.fn && window.jQuery.fn.modal||document.write("\u003Cscript src=\u0022/lib/bootstrap/dist/js/bootstrap.bundle.min.js\u0022 crossorigin=\u0022anonymous\u0022 integrity=\u0022sha384-xrRywqdh3PHs8keKZN\u002B8zzc5TX0GRTLCcmivcbNJWm2rs5C8PRhcEn3czEjhAO9o\u0022\u003E\u003C/script\u003E"));</script>
+    
+    <script src="/js/site.js?v=DOagYNyVqyBiqVPGcktzpMH3ZYmrb4Fl_TguDjiXCqM"></script>
+
+    
+    
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validate/1.17.0/jquery.validate.min.js" crossorigin="anonymous" integrity="sha256-F6h55Qw6sweK+t7SiOJX+2bpSAa3b/fnlrVCJvmEj1A=">
+    </script>
+<script>(window.jQuery && window.jQuery.validator||document.write("\u003Cscript src=\u0022/lib/jquery-validation/dist/jquery.validate.min.js\u0022 crossorigin=\u0022anonymous\u0022 integrity=\u0022sha256-F6h55Qw6sweK\u002Bt7SiOJX\u002B2bpSAa3b/fnlrVCJvmEj1A=\u0022\u003E\u003C/script\u003E"));</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validation-unobtrusive/3.2.11/jquery.validate.unobtrusive.min.js" crossorigin="anonymous" integrity="sha256-9GycpJnliUjJDVDqP0UEu/bsm9U+3dnQUH8+3W10vkY=">
+    </script>
+<script>(window.jQuery && window.jQuery.validator && window.jQuery.validator.unobtrusive||document.write("\u003Cscript src=\u0022/lib/jquery-validation-unobtrusive/jquery.validate.unobtrusive.min.js\u0022 crossorigin=\u0022anonymous\u0022 integrity=\u0022sha256-9GycpJnliUjJDVDqP0UEu/bsm9U\u002B3dnQUH8\u002B3W10vkY=\u0022\u003E\u003C/script\u003E"));</script>
+
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://kit.fontawesome.com/a076d05399.js" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" xintegrity="sha512-iecdLmaskl7CVkjK+Bf6sLh4h47E8V2J1F6yFzB8L/o5e8k5sE5j+Pz1z8d+l7vFq+8q/oBqFzB8L/o8j/wA==" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const refreshButton = document.getElementById('refreshButton');
+            const mainCaptchaImage = document.getElementById('captchaImage');
+            const captchaError = document.getElementById('captchaError');
+
+            // Function to handle the CAPTCHA refresh
+            async function refreshCaptcha() {
+                try {
+                    const response = await fetch('/api/captcha/generate', {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        mainCaptchaImage.src = data.imageData;
+                        document.querySelector('input[name="captchaId"]').value = data.captchaId;
+                        document.querySelector('input[name="captchaInput"]').value = '';
+                        mainCaptchaImage.style.display = 'block';
+                        captchaError.style.display = 'none';
+                    } else {
+                        captchaError.textContent = 'Failed to refresh CAPTCHA. Please try again.';
+                        captchaError.style.display = 'block';
+                        mainCaptchaImage.style.display = 'none';
+                    }
+                } catch (error) {
+                    captchaError.textContent = 'An unexpected error occurred. Please try again.';
+                    captchaError.style.display = 'block';
+                    mainCaptchaImage.style.display = 'none';
+                    console.error('Error refreshing CAPTCHA:', error);
+                }
+            }
+            // Initial CAPTCHA load
+            refreshCaptcha();
+
+
+            // Bind refresh function to button and image
+            if (refreshButton) {
+                refreshButton.addEventListener('click', refreshCaptcha);
+            }
+            if (mainCaptchaImage) {
+                mainCaptchaImage.addEventListener('click', refreshCaptcha);
+            }
+        });
+    </script>
+
+
+
+</body></html>

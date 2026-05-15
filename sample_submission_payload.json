@@ -1,0 +1,24 @@
+{
+  "tender_reference": "6000080338",
+  "supplier_hint": "Lechesa Manaba Consulting and Projects",
+  "documents": {
+    "mandatory": [
+      {
+        "label": "SBD 1",
+        "path": "/Users/Shared/LMCP-AutoQuote-Server/monthly_quotes/REPLACE_ME/SBD1.pdf"
+      },
+      {
+        "label": "Quote Pack",
+        "path": "/Users/Shared/LMCP-AutoQuote-Server/monthly_quotes/REPLACE_ME/lmcp_quote_pack.pdf"
+      }
+    ],
+    "essential": [
+      {
+        "label": "CSD Report",
+        "path": "/Users/Shared/LMCP-AutoQuote-Server/company_docs/CSD_Report.pdf"
+      }
+    ],
+    "non_essential": [],
+    "other": []
+  }
+}

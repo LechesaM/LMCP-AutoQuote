@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from app.services.opportunity_persistence import persist_harvested_opportunities
+from app.services.system_control_service import get_system_control_state
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +313,55 @@ def run_autonomous_cycle(db: Any = None) -> Dict[str, Any]:
     """
     started_at = _utc_now_iso()
 
+    # ---------------------------------------------------------------------
+    # Master system switch check
+    # ---------------------------------------------------------------------
+    try:
+        control_state = get_system_control_state()
+        if not control_state.get("system_on", True):
+            return {
+                "success": True,
+                "mode": "safe_autonomous_cycle",
+                "started_at": started_at,
+                "finished_at": _utc_now_iso(),
+                "skipped": True,
+                "skipped_reason": "system master switch is OFF",
+                "system_control_state": control_state,
+                "counts": {
+                    "harvested": 0,
+                    "scored": 0,
+                    "quote_ready": 0,
+                    "errors": 0,
+                },
+                "stages": {
+                    "harvest": {
+                        "success": True,
+                        "message": "Skipped because system master switch is OFF.",
+                        "count": 0,
+                    },
+                    "scoring": {
+                        "success": True,
+                        "message": "Skipped because system master switch is OFF.",
+                        "count": 0,
+                    },
+                    "quote_pipeline": {
+                        "success": True,
+                        "message": "Skipped because system master switch is OFF.",
+                        "count": 0,
+                    },
+                },
+                "results": {
+                    "harvested_opportunities": [],
+                    "scored_opportunities": [],
+                    "quote_ready_results": [],
+                },
+                "preview": {
+                    "top_quote_candidates": [],
+                },
+            }
+    except Exception as exc:
+        logger.warning("System control check failed, continuing safe default: %s", exc)
+
     run_summary: Dict[str, Any] = {
         "success": True,
         "mode": "safe_autonomous_cycle",
@@ -534,3 +584,4 @@ def execute_autonomous_flow(db: Any = None) -> Dict[str, Any]:
 
 def autonomous_status() -> Dict[str, Any]:
     return get_autonomous_status()
+

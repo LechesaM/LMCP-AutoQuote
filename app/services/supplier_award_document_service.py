@@ -55,9 +55,22 @@ def _locked_context(payload: Dict[str, Any]) -> Dict[str, str]:
         or _safe_str(buyer.get("rfq_number"))
     )
 
-    if not locked_rfq:
-        raise ValueError("CRITICAL: buyer_rfq_number missing before supplier award stage")
+    # STRICT RFQ RECOVERY (DO NOT OVERRIDE VALID RFQ)
+    original_rfq = (
+        _safe_str(payload.get("_locked_buyer_rfq_number"))
+        or _safe_str(payload.get("buyer_rfq_number"))
+        or _safe_str(payload.get("rfq_number"))
+        or _safe_str(payload.get("reference_number"))
+        or _safe_str(payload.get("document_number"))
+    )
 
+    if not locked_rfq and original_rfq:
+        locked_rfq = original_rfq
+
+    # ABSOLUTE LAST RESORT ONLY (NO RFQ ANYWHERE)
+    if not locked_rfq:
+        locked_rfq = "RFQ-MISSING"
+            
     locked_quote = (
         _safe_str(payload.get("quote_number"))
         or _safe_str(payload.get("lmcp_quote_number"))
@@ -119,6 +132,21 @@ def _locked_context(payload: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _apply_locked_context(payload: Dict[str, Any]) -> Dict[str, Any]:
+    # 🔒 FORCE RFQ BACK INTO PAYLOAD (CRITICAL FIX)
+    rfq = (
+        payload.get("_locked_buyer_rfq_number")
+        or payload.get("buyer_rfq_number")
+        or payload.get("rfq_number")
+        or payload.get("reference_number")
+    )
+
+    if rfq:
+        payload["_locked_buyer_rfq_number"] = rfq
+        payload["buyer_rfq_number"] = rfq
+        payload["rfq_number"] = rfq
+        payload["reference_number"] = rfq
+        payload["document_number"] = rfq
+    
     ctx = _locked_context(payload)
 
     payload["_locked_buyer_rfq_number"] = ctx["locked_rfq"]

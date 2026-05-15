@@ -1,6 +1,7 @@
 .git
 .gitignore
 __pycache__/
+**/__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -10,15 +11,20 @@ __pycache__/
 venv/
 .venv/
 node_modules/
+**/node_modules/
+lmcp-frontend/node_modules/
 frontend/node_modules/
 dist/
+**/dist/
 build/
+**/build/
 coverage/
 .pytest_cache/
 .mypy_cache/
 .DS_Store
 
 backups/
+**/backups/
 restore_check/
 *.zip
 *.tar
@@ -28,6 +34,34 @@ restore_check/
 celerybeat-schedule
 data/
 logs/
+**/logs/
 tmp/
+**/tmp/
 .cache/
+**/.cache/
 recovery_freeze/
+
+# Runtime/generated operational artifacts must not enter image builds.
+runtime/
+monthly_quotes/
+output/
+supplier_quotes/unmatched_supplier_quotes/
+submission_proofs/
+proofs/
+portal-runtime/
+final-submission-runtime/
+proof-center-runtime/
+
+# Large browser/test artifacts.
+playwright-report/
+test-results/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.mp4
+
+# Local scripts and captured portal pages not needed in the image.
+post_login*.html
+post_login*.png

@@ -1,0 +1,343 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List
+import json
+import os
+import re
+import uuid
+
+RUNTIME_DIR = Path("runtime/rfq_lifecycle")
+STATE_FILE = RUNTIME_DIR / "rfqs.json"
+UPLOAD_DRY_RUN_DIR = RUNTIME_DIR / "upload_dry_runs"
+MONTHLY_QUOTES_DIR = Path("monthly_quotes")
+
+SAFE_MODE = {
+    "no_email_send": True,
+    "no_portal_upload": True,
+    "no_final_submit": True,
+    "no_captcha_bypass": True,
+    "controlled_dry_run_only": True,
+}
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_str(value: Any) -> str:
+    try:
+        if value is None:
+            return ""
+        return str(value).strip()
+    except Exception:
+        return ""
+
+
+def _slug(value: Any, limit: int = 120) -> str:
+    text = _safe_str(value)
+    text = re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-").lower()
+    return (text[:limit].strip("-") or "rfq")
+
+
+def _read_json(path: Path, default: Any) -> Any:
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+    return default
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _state_items() -> List[Dict[str, Any]]:
+    data = _read_json(STATE_FILE, {})
+
+    if isinstance(data, list):
+        return [x for x in data if isinstance(x, dict)]
+
+    if isinstance(data, dict):
+        for key in ("items", "rfqs", "records", "data"):
+            value = data.get(key)
+
+            if isinstance(value, list):
+                return [x for x in value if isinstance(x, dict)]
+
+            if isinstance(value, dict):
+                return [x for x in value.values() if isinstance(x, dict)]
+
+        values = list(data.values())
+        if values and all(isinstance(x, dict) for x in values):
+            return [x for x in values if isinstance(x, dict)]
+
+    return []
+
+
+def _rfq_id(item: Dict[str, Any]) -> str:
+    return (
+        _safe_str(item.get("rfq_id"))
+        or _safe_str(item.get("id"))
+        or _safe_str(item.get("buyer_rfq_number"))
+        or _slug(item.get("title") or item.get("description"))
+    )
+
+
+def _state(item: Dict[str, Any]) -> str:
+    return (
+        _safe_str(item.get("state"))
+        or _safe_str(item.get("lifecycle_state"))
+        or _safe_str(item.get("current_state"))
+    ).upper()
+
+
+def _candidate_file_paths(item: Dict[str, Any]) -> List[Path]:
+    paths: List[Path] = []
+
+    def add(value: Any) -> None:
+        if not value:
+            return
+        if isinstance(value, str):
+            paths.append(Path(value))
+        elif isinstance(value, list):
+            for row in value:
+                add(row)
+        elif isinstance(value, dict):
+            for key in (
+                "path", "file_path", "quote_pack_path", "sbd_path",
+                "buyer_form_path", "pricing_schedule_path", "proof_manifest",
+                "manifest_path", "pdf_path", "output_path",
+            ):
+                if value.get(key):
+                    add(value.get(key))
+
+    for key in (
+        "quote_pack_path", "quote_pack", "quote_pack_files",
+        "submission_pack", "submission_pack_path", "buyer_forms",
+        "buyer_form_path", "sbd_forms", "sbd_completed_files",
+        "pricing_schedule_path", "proof_manifest", "proof_archive",
+        "downloaded_files", "documents", "files", "attachments",
+        "artifact_paths",
+    ):
+        add(item.get(key))
+
+    return paths
+
+
+def _find_related_files(item: Dict[str, Any]) -> Dict[str, List[str]]:
+    rid = _rfq_id(item)
+    slug = _slug(rid or item.get("title"))
+    title_slug = _slug(item.get("title"))
+
+    found = {
+        "quote_packs": [],
+        "buyer_forms": [],
+        "sbd_forms": [],
+        "pricing_schedules": [],
+        "proof_manifests": [],
+        "other_documents": [],
+    }
+
+    explicit_paths = _candidate_file_paths(item)
+    search_roots = [
+        MONTHLY_QUOTES_DIR,
+        RUNTIME_DIR,
+        Path("runtime/tender_form_intelligence/completed_forms"),
+        Path("runtime/submission_pack_v45"),
+        Path("runtime/auto_submission_v46"),
+        Path("runtime/portal_submission_v47"),
+    ]
+
+    candidates: List[Path] = []
+    for path in explicit_paths:
+        candidates.append(path)
+
+    tokens = [x for x in {slug, title_slug, _slug(rid, 80)} if x]
+    for root in search_roots:
+        if not root.exists():
+            continue
+        try:
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                low = str(path).lower()
+                name = path.name.lower()
+                if any(token and token in low for token in tokens):
+                    candidates.append(path)
+                elif "proof_archive_manifest.json" in name and slug in low:
+                    candidates.append(path)
+        except Exception:
+            continue
+
+    seen = set()
+    for path in candidates:
+        try:
+            exists = path.exists()
+        except Exception:
+            exists = False
+        if not exists:
+            continue
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        low = key.lower()
+        if "proof_archive_manifest" in low or ("proof" in low and low.endswith(".json")):
+            found["proof_manifests"].append(key)
+        elif "quote" in low and low.endswith((".pdf", ".zip", ".json")):
+            found["quote_packs"].append(key)
+        elif (
+            "sbd" in low
+            or "completed_form" in low
+            or "declaration" in low
+        ) and low.endswith((".pdf", ".doc", ".docx")):
+            found["sbd_forms"].append(key)
+        elif "pricing" in low or "schedule" in low or "boq" in low:
+            if low.endswith((".pdf", ".xlsx", ".xls", ".csv", ".json")):
+                found["pricing_schedules"].append(key)
+            else:
+                found["other_documents"].append(key)
+        elif "form" in low or "buyer" in low:
+            found["buyer_forms"].append(key)
+        else:
+            found["other_documents"].append(key)
+
+    return found
+
+
+def _score_readiness(files: Dict[str, List[str]]) -> Dict[str, Any]:
+    required = {
+        "quote_packs": "Quote pack / quotation file",
+        "proof_manifests": "Existing proof manifest / proof archive",
+    }
+    recommended = {
+        "buyer_forms": "Buyer forms",
+        "sbd_forms": "Completed SBD forms",
+        "pricing_schedules": "Pricing schedule / BOQ",
+    }
+
+    missing_required = [label for key, label in required.items() if not files.get(key)]
+    missing_recommended = [label for key, label in recommended.items() if not files.get(key)]
+
+    score = 100
+    score -= 35 * len(missing_required)
+    score -= 10 * len(missing_recommended)
+    score = max(0, min(100, score))
+
+    if missing_required:
+        status = "not_ready"
+    elif missing_recommended:
+        status = "operator_review_required"
+    else:
+        status = "ready_for_operator_upload_rehearsal"
+
+    return {
+        "upload_readiness_score": score,
+        "upload_readiness_status": status,
+        "missing_required": missing_required,
+        "missing_recommended": missing_recommended,
+    }
+
+
+def _operator_checklist(readiness: Dict[str, Any], files: Dict[str, List[str]]) -> List[str]:
+    checklist = [
+        "Confirm buyer portal/login is available.",
+        "Confirm RFQ closing date and time are still valid.",
+        "Confirm quotation values and margins are approved.",
+        "Confirm uploaded files match buyer requirements.",
+        "Confirm no final submit is performed during dry-run.",
+    ]
+    if readiness.get("missing_required"):
+        checklist.insert(0, "Resolve missing required files before upload rehearsal.")
+    if files.get("sbd_forms"):
+        checklist.append("Verify SBD forms are signed and correctly completed.")
+    if files.get("pricing_schedules"):
+        checklist.append("Verify pricing schedule matches buyer template.")
+    return checklist
+
+
+def run_upload_dry_run(limit: int = 5, dry_run: bool = True) -> Dict[str, Any]:
+    started_at = _now_iso()
+    UPLOAD_DRY_RUN_DIR.mkdir(parents=True, exist_ok=True)
+
+    items = _state_items()
+    eligible_states = {"SUBMISSION_READY", "PROOF_CAPTURED", "QUOTE_PACK_READY"}
+    eligible = [item for item in items if _state(item) in eligible_states]
+    selected = eligible[: max(1, int(limit or 5))]
+
+    report_items: List[Dict[str, Any]] = []
+    ready_count = 0
+    missing_documents_count = 0
+
+    for item in selected:
+        rid = _rfq_id(item)
+        files = _find_related_files(item)
+        readiness = _score_readiness(files)
+        if readiness["upload_readiness_score"] >= 70 and not readiness["missing_required"]:
+            ready_count += 1
+        if readiness["missing_required"] or readiness["missing_recommended"]:
+            missing_documents_count += 1
+
+        report_items.append(
+            {
+                "rfq_id": rid,
+                "title": item.get("title") or item.get("description") or rid,
+                "buyer_name": item.get("buyer_name") or item.get("buyer") or item.get("source"),
+                "state": _state(item),
+                "files": files,
+                **readiness,
+                "operator_action_checklist": _operator_checklist(readiness, files),
+                "safety": SAFE_MODE,
+            }
+        )
+
+    average_score = round(
+        sum(float(row.get("upload_readiness_score") or 0.0) for row in report_items) / max(len(report_items), 1),
+        2,
+    )
+
+    run_id = f"upload-dry-run-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    out_dir = UPLOAD_DRY_RUN_DIR / run_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    report_path = out_dir / "upload_dry_run_report.json"
+
+    payload = {
+        "status": "ok",
+        "mode": "controlled_upload_dry_run_no_submission",
+        "dry_run": bool(dry_run),
+        "started_at": started_at,
+        "completed_at": _now_iso(),
+        "selected_count": len(selected),
+        "eligible_count": len(eligible),
+        "ready_count": ready_count,
+        "missing_documents_count": missing_documents_count,
+        "upload_readiness_score": average_score,
+        "operator_action_required": True,
+        "items": report_items,
+        "report_path": str(report_path),
+        "safety": SAFE_MODE,
+    }
+
+    _write_json(report_path, payload)
+    _write_json(UPLOAD_DRY_RUN_DIR / "latest_upload_dry_run.json", payload)
+    return payload
+
+
+def latest_upload_dry_run_status() -> Dict[str, Any]:
+    latest = _read_json(UPLOAD_DRY_RUN_DIR / "latest_upload_dry_run.json", {})
+    if isinstance(latest, dict) and latest:
+        return latest
+    return {
+        "status": "not_run",
+        "mode": "controlled_upload_dry_run_no_submission",
+        "upload_readiness_score": 0.0,
+        "ready_count": 0,
+        "missing_documents_count": 0,
+        "safety": SAFE_MODE,
+    }

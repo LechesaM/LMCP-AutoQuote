@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import json
 import mimetypes
 import os
 import smtplib
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+
+try:
+    from app.services.submission_history_service import log_submission_event
+except Exception:
+    log_submission_event = None
 
 
 class EmailSubmissionError(Exception):
@@ -13,6 +20,18 @@ class EmailSubmissionError(Exception):
 
 
 class EmailSubmissionService:
+    """
+    Production email submission service for LMCP AutoQuote.
+
+    Important production behavior:
+    - No pipeline_test_mode simulation branch.
+    - If SMTP is enabled and a valid PDF + recipient exist, it attempts a real SMTP send.
+    - If SMTP is disabled/missing, it returns failed instead of pretending submitted.
+    - Submission history is logged with the actual send result.
+    """
+
+    _env_loaded: bool = False
+
     @staticmethod
     def _safe_str(value: Any, default: str = "") -> str:
         if value is None:
@@ -24,19 +43,102 @@ class EmailSubmissionService:
             return default
 
     @classmethod
+    def _now(cls) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    @classmethod
+    def _load_local_env_file(cls) -> None:
+        if cls._env_loaded:
+            return
+
+        cls._env_loaded = True
+
+        candidate_paths = [
+            Path.cwd() / ".env",
+            Path(__file__).resolve().parents[2] / ".env",
+        ]
+
+        seen: set[str] = set()
+
+        for env_path in candidate_paths:
+            try:
+                resolved = str(env_path.resolve())
+            except Exception:
+                resolved = str(env_path)
+
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+
+            if not env_path.exists() or not env_path.is_file():
+                continue
+
+            try:
+                for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                    line = raw_line.strip()
+
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+
+                    if not key:
+                        continue
+
+                    if (
+                        len(value) >= 2
+                        and (
+                            (value.startswith('"') and value.endswith('"'))
+                            or (value.startswith("'") and value.endswith("'"))
+                        )
+                    ):
+                        value = value[1:-1]
+
+                    os.environ.setdefault(key, value)
+            except Exception:
+                continue
+
+    @classmethod
     def _get_env(cls, name: str, default: Optional[str] = None, required: bool = False) -> str:
+        cls._load_local_env_file()
         value = os.getenv(name, default)
         if required and not value:
             raise EmailSubmissionError(f"Missing required environment variable: {name}")
         return value or ""
 
     @classmethod
-    def is_enabled(cls) -> bool:
-        return cls._get_env("SMTP_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+    def _bool_from_value(cls, value: Any, default: bool = False) -> bool:
+        text = cls._safe_str(value).lower()
+        if not text:
+            return default
+        return text in {"1", "true", "yes", "on"}
 
     @classmethod
     def _bool_env(cls, name: str, default: str = "false") -> bool:
-        return cls._get_env(name, default).strip().lower() in {"1", "true", "yes", "on"}
+        return cls._bool_from_value(cls._get_env(name, default), default=cls._bool_from_value(default))
+
+    @classmethod
+    def is_enabled(cls) -> bool:
+        cls._load_local_env_file()
+
+        explicit_values = [
+            os.getenv("SMTP_ENABLED"),
+            os.getenv("EMAIL_SMTP_ENABLED"),
+            os.getenv("MAIL_ENABLED"),
+        ]
+
+        for value in explicit_values:
+            text = cls._safe_str(value).lower()
+            if text:
+                return text in {"1", "true", "yes", "on"}
+
+        smtp_host = cls._safe_str(os.getenv("SMTP_HOST"))
+        smtp_username = cls._safe_str(os.getenv("SMTP_USERNAME"))
+        smtp_password = cls._safe_str(os.getenv("SMTP_PASSWORD"))
+
+        return bool(smtp_host and smtp_username and smtp_password)
 
     @classmethod
     def _safe_list(cls, value: Any) -> List[Any]:
@@ -65,6 +167,7 @@ class EmailSubmissionService:
     def _normalize_email_list(cls, value: Any) -> List[str]:
         if value is None:
             return []
+
         if isinstance(value, str):
             parts = [part.strip() for part in value.split(",")]
         elif isinstance(value, (list, tuple, set)):
@@ -82,6 +185,7 @@ class EmailSubmissionService:
                 continue
             seen.add(key)
             cleaned.append(part)
+
         return cleaned
 
     @classmethod
@@ -100,6 +204,37 @@ class EmailSubmissionService:
                 return None
             current = current.get(key)
         return current
+
+    @classmethod
+    def _safe_int(cls, value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except Exception:
+            return default
+
+    @classmethod
+    def _safe_float(cls, value: Any, default: float = 0.0) -> float:
+        try:
+            if value is None or value == "":
+                return default
+            if isinstance(value, str):
+                cleaned = (
+                    value.replace("R", "")
+                    .replace("ZAR", "")
+                    .replace("zar", "")
+                    .replace(",", "")
+                    .strip()
+                )
+                if cleaned == "":
+                    return default
+                return float(cleaned)
+            return float(value)
+        except Exception:
+            return default
+
+    @classmethod
+    def _safe_dict(cls, value: Any) -> Dict[str, Any]:
+        return value if isinstance(value, dict) else {}
 
     @classmethod
     def _is_valid_email_like(cls, value: str) -> bool:
@@ -124,6 +259,39 @@ class EmailSubmissionService:
         }
 
     @classmethod
+    def _candidate_paths_for(cls, raw_path: str) -> List[Path]:
+        text = cls._safe_str(raw_path)
+        if not text:
+            return []
+
+        candidates = [Path(text)]
+
+        if text.startswith("/app/"):
+            candidates.append(Path(text.replace("/app/", "", 1)))
+
+        if not Path(text).is_absolute():
+            candidates.append(Path.cwd() / text)
+            try:
+                project_root = Path(__file__).resolve().parents[2]
+                candidates.append(project_root / text)
+            except Exception:
+                pass
+
+        unique: List[Path] = []
+        seen = set()
+        for candidate in candidates:
+            try:
+                key = str(candidate.resolve())
+            except Exception:
+                key = str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(candidate)
+
+        return unique
+
+    @classmethod
     def _normalize_document_list_to_paths(cls, value: Any) -> List[str]:
         paths: List[str] = []
         for item in cls._safe_list(value):
@@ -138,14 +306,166 @@ class EmailSubmissionService:
         return paths
 
     @classmethod
+    def _read_json_file(cls, path_value: Any) -> Dict[str, Any]:
+        path_text = cls._safe_str(path_value)
+        if not path_text:
+            return {}
+
+        for candidate in cls._candidate_paths_for(path_text):
+            try:
+                if not candidate.exists() or not candidate.is_file():
+                    continue
+                raw = candidate.read_text(encoding="utf-8").strip()
+                if not raw:
+                    return {}
+                data = json.loads(raw)
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                continue
+
+        return {}
+
+    @classmethod
+    def _extract_financials_from_sources(cls, *sources: Any) -> Dict[str, float]:
+        revenue = 0.0
+        cost = 0.0
+        profit = 0.0
+        margin = 0.0
+
+        revenue_keys = [
+            "estimated_revenue",
+            "quotation_total",
+            "grand_total",
+            "total_including_vat",
+            "total_incl_vat",
+            "total_sell_incl_vat",
+            "total",
+        ]
+        cost_keys = [
+            "estimated_cost",
+            "supplier_cost_total",
+            "selected_quote_total",
+            "cost_estimate",
+            "cost",
+            "total_cost_excl_vat",
+        ]
+        profit_keys = [
+            "estimated_profit",
+            "profit",
+            "total_profit",
+        ]
+        margin_keys = [
+            "estimated_margin",
+            "estimated_margin_percent",
+            "achieved_margin_percent",
+            "margin_percent",
+            "margin_rate",
+            "profit_margin",
+        ]
+
+        nested_financial_keys = ["financials", "totals", "summary", "pricing", "pricing_summary"]
+
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+
+            for key in revenue_keys:
+                revenue = revenue or cls._safe_float(source.get(key), 0.0)
+            for key in cost_keys:
+                cost = cost or cls._safe_float(source.get(key), 0.0)
+            for key in profit_keys:
+                profit = profit or cls._safe_float(source.get(key), 0.0)
+            for key in margin_keys:
+                margin = margin or cls._safe_float(source.get(key), 0.0)
+
+            for nested_key in nested_financial_keys:
+                nested = source.get(nested_key)
+                if not isinstance(nested, dict):
+                    continue
+                for key in revenue_keys:
+                    revenue = revenue or cls._safe_float(nested.get(key), 0.0)
+                for key in cost_keys:
+                    cost = cost or cls._safe_float(nested.get(key), 0.0)
+                for key in profit_keys:
+                    profit = profit or cls._safe_float(nested.get(key), 0.0)
+                for key in margin_keys:
+                    margin = margin or cls._safe_float(nested.get(key), 0.0)
+
+        if margin > 1.0:
+            margin = margin / 100.0
+
+        if revenue <= 0.0:
+            return {
+                "estimated_revenue": 0.0,
+                "estimated_cost": 0.0,
+                "estimated_profit": 0.0,
+                "estimated_margin": 0.0,
+            }
+
+        if cost <= 0.0 and profit > 0.0:
+            cost = max(0.0, revenue - profit)
+
+        if profit <= 0.0 and cost > 0.0:
+            profit = max(0.0, revenue - cost)
+
+        if cost <= 0.0 and profit <= 0.0:
+            default_margin = cls._safe_float(os.getenv("DEFAULT_ESTIMATED_MARGIN_RATE"), 0.25)
+            if default_margin <= 0.0:
+                default_margin = 0.25
+            cost = round(revenue / (1.0 + default_margin), 2)
+            profit = round(revenue - cost, 2)
+            margin = default_margin
+
+        if margin <= 0.0 and revenue > 0.0 and profit > 0.0:
+            margin = profit / revenue
+
+        return {
+            "estimated_revenue": round(revenue, 2),
+            "estimated_cost": round(cost, 2),
+            "estimated_profit": round(profit, 2),
+            "estimated_margin": round(margin, 4),
+        }
+
+    @classmethod
+    def _resolve_financials(cls, payload: Dict[str, Any], send_result: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+        submission_pack = cls._safe_dict(payload.get("submission_pack"))
+        quote_pack = cls._safe_dict(payload.get("quote_pack"))
+        rfq = cls._safe_dict(payload.get("rfq"))
+        opportunity = cls._safe_dict(payload.get("opportunity"))
+        pricing_summary = cls._safe_dict(payload.get("pricing_summary"))
+        totals = cls._safe_dict(payload.get("totals"))
+        send_result = cls._safe_dict(send_result)
+
+        metadata_path = cls._first_non_empty(
+            payload.get("quote_pack_metadata_path"),
+            submission_pack.get("quote_pack_metadata_path"),
+            quote_pack.get("quote_pack_metadata_path"),
+            send_result.get("quote_pack_metadata_path"),
+        )
+        metadata_json = cls._read_json_file(metadata_path)
+
+        return cls._extract_financials_from_sources(
+            send_result,
+            payload,
+            submission_pack,
+            quote_pack,
+            rfq,
+            opportunity,
+            pricing_summary,
+            totals,
+            metadata_json,
+        )
+
+    @classmethod
     def _resolve_submission_email(cls, payload: Dict[str, Any]) -> str:
-        buyer = payload.get("buyer") if isinstance(payload.get("buyer"), dict) else {}
-        submission_pack = payload.get("submission_pack") if isinstance(payload.get("submission_pack"), dict) else {}
-        quote_pack = payload.get("quote_pack") if isinstance(payload.get("quote_pack"), dict) else {}
-        rfq = payload.get("rfq") if isinstance(payload.get("rfq"), dict) else {}
-        opportunity = payload.get("opportunity") if isinstance(payload.get("opportunity"), dict) else {}
+        buyer = cls._safe_dict(payload.get("buyer"))
+        submission_pack = cls._safe_dict(payload.get("submission_pack"))
+        quote_pack = cls._safe_dict(payload.get("quote_pack"))
+        rfq = cls._safe_dict(payload.get("rfq"))
+        opportunity = cls._safe_dict(payload.get("opportunity"))
 
         candidates = [
+            payload.get("_locked_submission_email"),
             payload.get("recipient_email"),
             payload.get("buyer_email"),
             payload.get("submission_email"),
@@ -180,16 +500,15 @@ class EmailSubmissionService:
 
     @classmethod
     def _resolve_quote_number(cls, payload: Dict[str, Any]) -> str:
-        submission_pack = payload.get("submission_pack") if isinstance(payload.get("submission_pack"), dict) else {}
-        quote_pack = payload.get("quote_pack") if isinstance(payload.get("quote_pack"), dict) else {}
-        rfq = payload.get("rfq") if isinstance(payload.get("rfq"), dict) else {}
-        opportunity = payload.get("opportunity") if isinstance(payload.get("opportunity"), dict) else {}
+        submission_pack = cls._safe_dict(payload.get("submission_pack"))
+        quote_pack = cls._safe_dict(payload.get("quote_pack"))
+        rfq = cls._safe_dict(payload.get("rfq"))
+        opportunity = cls._safe_dict(payload.get("opportunity"))
 
         return cls._first_non_empty(
             payload.get("quote_number"),
             payload.get("lmcp_quote_number"),
             payload.get("quotation_number"),
-            payload.get("document_number"),
             submission_pack.get("quote_number"),
             quote_pack.get("quote_number"),
             rfq.get("quote_number"),
@@ -198,14 +517,16 @@ class EmailSubmissionService:
 
     @classmethod
     def _resolve_buyer_rfq_number(cls, payload: Dict[str, Any]) -> str:
-        submission_pack = payload.get("submission_pack") if isinstance(payload.get("submission_pack"), dict) else {}
-        quote_pack = payload.get("quote_pack") if isinstance(payload.get("quote_pack"), dict) else {}
-        rfq = payload.get("rfq") if isinstance(payload.get("rfq"), dict) else {}
-        opportunity = payload.get("opportunity") if isinstance(payload.get("opportunity"), dict) else {}
-        buyer_schedule = payload.get("buyer_pricing_schedule") if isinstance(payload.get("buyer_pricing_schedule"), dict) else {}
-        mapped_schedule = payload.get("pricing_schedule_mapped") if isinstance(payload.get("pricing_schedule_mapped"), dict) else {}
+        submission_pack = cls._safe_dict(payload.get("submission_pack"))
+        quote_pack = cls._safe_dict(payload.get("quote_pack"))
+        rfq = cls._safe_dict(payload.get("rfq"))
+        opportunity = cls._safe_dict(payload.get("opportunity"))
+        buyer_schedule = cls._safe_dict(payload.get("buyer_pricing_schedule"))
+        mapped_schedule = cls._safe_dict(payload.get("pricing_schedule_mapped"))
+        original_input = cls._safe_dict(payload.get("_original_input_payload"))
 
         candidates = [
+            payload.get("_locked_buyer_rfq_number"),
             payload.get("buyer_rfq_number"),
             payload.get("rfq_number"),
             payload.get("reference_number"),
@@ -234,6 +555,11 @@ class EmailSubmissionService:
             buyer_schedule.get("reference_number"),
             mapped_schedule.get("rfq_number"),
             mapped_schedule.get("reference_number"),
+            original_input.get("_locked_buyer_rfq_number"),
+            original_input.get("buyer_rfq_number"),
+            original_input.get("rfq_number"),
+            original_input.get("reference_number"),
+            original_input.get("document_number"),
             cls._deep_get(payload, ["submission_pack", "buyer_rfq_number"]),
             cls._deep_get(payload, ["submission_pack", "document_number"]),
             cls._deep_get(payload, ["rfq", "buyer_rfq_number"]),
@@ -249,8 +575,8 @@ class EmailSubmissionService:
 
     @classmethod
     def _resolve_document_number(cls, payload: Dict[str, Any]) -> str:
-        submission_pack = payload.get("submission_pack") if isinstance(payload.get("submission_pack"), dict) else {}
-        quote_pack = payload.get("quote_pack") if isinstance(payload.get("quote_pack"), dict) else {}
+        submission_pack = cls._safe_dict(payload.get("submission_pack"))
+        quote_pack = cls._safe_dict(payload.get("quote_pack"))
 
         return cls._first_non_empty(
             payload.get("document_number"),
@@ -330,7 +656,7 @@ class EmailSubmissionService:
         lines.extend(
             [
                 "",
-                "This quote is valid for 30 days from the date issued.",
+                "This quote is valid for 30 days from the date issued, unless the buyer requires a 60-day validity period.",
                 "For any queries pertaining to the quote please contact us at 0826338492 or lechesam@me.com.",
                 "",
                 "We trust that our submission will meet your requirements.",
@@ -352,16 +678,20 @@ class EmailSubmissionService:
             if not path_str:
                 continue
 
-            path = Path(path_str)
-            if not path.exists() or not path.is_file():
+            found_path = ""
+            for candidate in cls._candidate_paths_for(path_str):
+                try:
+                    if candidate.exists() and candidate.is_file():
+                        found_path = str(candidate.resolve())
+                        break
+                except Exception:
+                    continue
+
+            if not found_path or found_path in seen:
                 continue
 
-            resolved = str(path.resolve())
-            if resolved in seen:
-                continue
-
-            seen.add(resolved)
-            cleaned.append(resolved)
+            seen.add(found_path)
+            cleaned.append(found_path)
 
         return cleaned
 
@@ -373,13 +703,8 @@ class EmailSubmissionService:
     def _resolve_attachment_paths(cls, payload: Dict[str, Any]) -> List[str]:
         attachment_candidates: List[Any] = []
 
-        submission_pack = payload.get("submission_pack")
-        if not isinstance(submission_pack, dict):
-            submission_pack = {}
-
-        quote_pack = payload.get("quote_pack")
-        if not isinstance(quote_pack, dict):
-            quote_pack = {}
+        submission_pack = cls._safe_dict(payload.get("submission_pack"))
+        quote_pack = cls._safe_dict(payload.get("quote_pack"))
 
         for key in [
             "submission_attachments",
@@ -459,10 +784,14 @@ class EmailSubmissionService:
         )
 
         if preferred_pdf:
-            preferred_pdf = cls._safe_str(preferred_pdf)
-            if preferred_pdf and Path(preferred_pdf).exists() and Path(preferred_pdf).is_file():
-                resolved_preferred = str(Path(preferred_pdf).resolve())
-                pdf_candidates = [resolved_preferred] + [p for p in pdf_candidates if p != resolved_preferred]
+            for candidate in cls._candidate_paths_for(preferred_pdf):
+                try:
+                    if candidate.exists() and candidate.is_file() and cls._is_pdf_path(str(candidate)):
+                        resolved_preferred = str(candidate.resolve())
+                        pdf_candidates = [resolved_preferred] + [p for p in pdf_candidates if p != resolved_preferred]
+                        break
+                except Exception:
+                    continue
 
         ordered = cls._dedupe_paths(pdf_candidates + non_pdf_candidates)
         return ordered
@@ -480,9 +809,12 @@ class EmailSubmissionService:
             cls._deep_get(payload, ["quote_pack", "pdf_path"]),
         )
         if explicit:
-            path = Path(explicit)
-            if path.exists() and path.is_file() and cls._is_pdf_path(str(path)):
-                return str(path.resolve())
+            for candidate in cls._candidate_paths_for(explicit):
+                try:
+                    if candidate.exists() and candidate.is_file() and cls._is_pdf_path(str(candidate)):
+                        return str(candidate.resolve())
+                except Exception:
+                    continue
 
         for attachment in attachments:
             if cls._is_pdf_path(attachment):
@@ -501,13 +833,21 @@ class EmailSubmissionService:
         cc_email: Optional[str] = None,
         bcc_email: Optional[str] = None,
     ) -> EmailMessage:
-        from_email = cls._get_env("SMTP_FROM") or cls._get_env("SMTP_USERNAME", required=True)
+        from_email = (
+            cls._get_env("SMTP_FROM_EMAIL")
+            or cls._get_env("SMTP_FROM")
+            or cls._get_env("SMTP_EMAIL")
+            or cls._get_env("SMTP_USERNAME", required=True)
+        )
+        from_name = cls._get_env("SMTP_FROM_NAME", "").strip()
 
         msg = EmailMessage()
-        msg["From"] = from_email
+        msg["From"] = f"{from_name} <{from_email}>" if from_name else from_email
         msg["To"] = cls._normalize_emails(to_email)
         if cc_email:
             msg["Cc"] = cls._normalize_emails(cc_email)
+        if bcc_email:
+            msg["Bcc"] = cls._normalize_emails(bcc_email)
         msg["Subject"] = subject
         msg.set_content(body)
 
@@ -517,7 +857,7 @@ class EmailSubmissionService:
                 continue
 
             mime_type, _ = mimetypes.guess_type(str(path))
-            if mime_type:
+            if mime_type and "/" in mime_type:
                 maintype, subtype = mime_type.split("/", 1)
             else:
                 maintype, subtype = "application", "octet-stream"
@@ -533,6 +873,242 @@ class EmailSubmissionService:
         return msg
 
     @classmethod
+    def _normalize_submission_status(cls, status: Any) -> str:
+        text = cls._safe_str(status).strip().lower()
+        if text in {"sent", "submitted", "success", "ok"}:
+            return "submitted"
+        if text in {"failed", "error"}:
+            return "failed"
+        if text == "manual_action_required":
+            return "manual_action_required"
+        if text == "queued":
+            return "queued"
+        return text or "unknown"
+
+    @classmethod
+    def _collect_existing_artifacts(cls, payload: Dict[str, Any], send_result: Dict[str, Any], attachment_paths: List[str]) -> List[str]:
+        candidates: List[str] = []
+
+        for value in [
+            payload.get("final_pdf_path"),
+            payload.get("pdf_path"),
+            payload.get("quote_pdf_path"),
+            payload.get("quote_pack_pdf"),
+            payload.get("quote_pack_metadata_path"),
+            payload.get("submission_log_path"),
+            payload.get("proof_path"),
+            payload.get("quote_folder"),
+            payload.get("quote_pack_dir"),
+            send_result.get("primary_pdf_path"),
+            send_result.get("quote_pack_metadata_path"),
+            send_result.get("submission_log_path"),
+            send_result.get("proof_path"),
+        ]:
+            text = cls._safe_str(value)
+            if text:
+                candidates.append(text)
+
+        candidates.extend([cls._safe_str(path) for path in attachment_paths if cls._safe_str(path)])
+        return cls._dedupe_paths(candidates)
+
+    @classmethod
+    def _resolve_document_path_for_history(cls, payload: Dict[str, Any], send_result: Dict[str, Any], attachment_paths: List[str]) -> str:
+        for candidate in [
+            send_result.get("primary_pdf_path"),
+            payload.get("final_pdf_path"),
+            payload.get("pdf_path"),
+            payload.get("quote_pdf_path"),
+            payload.get("quote_pack_pdf"),
+        ]:
+            text = cls._safe_str(candidate)
+            if text:
+                for path in cls._candidate_paths_for(text):
+                    try:
+                        if path.exists() and path.is_file() and cls._is_pdf_path(str(path)):
+                            return str(path.resolve())
+                    except Exception:
+                        continue
+
+        for attachment in attachment_paths:
+            if cls._is_pdf_path(attachment):
+                return attachment
+
+        return ""
+
+    @classmethod
+    def _resolve_proof_path_for_history(cls, payload: Dict[str, Any], send_result: Dict[str, Any]) -> str:
+        for candidate in [
+            send_result.get("proof_path"),
+            payload.get("proof_path"),
+            payload.get("submission_log_path"),
+            send_result.get("submission_log_path"),
+        ]:
+            text = cls._safe_str(candidate)
+            if text:
+                for path in cls._candidate_paths_for(text):
+                    try:
+                        if path.exists():
+                            return str(path.resolve())
+                    except Exception:
+                        continue
+        return ""
+
+    @classmethod
+    def _build_submission_history_payload(
+        cls,
+        payload: Dict[str, Any],
+        send_result: Dict[str, Any],
+        attachment_paths: List[str],
+        to_email: str,
+        cc_email: str,
+        bcc_email: str,
+        subject: str,
+    ) -> Dict[str, Any]:
+        submission_pack = cls._safe_dict(payload.get("submission_pack"))
+        quote_pack = cls._safe_dict(payload.get("quote_pack"))
+        buyer = cls._safe_dict(payload.get("buyer"))
+        rfq = cls._safe_dict(payload.get("rfq"))
+        opportunity = cls._safe_dict(payload.get("opportunity"))
+
+        status = cls._normalize_submission_status(send_result.get("status"))
+        artifacts = cls._collect_existing_artifacts(payload, send_result, attachment_paths)
+        document_path = cls._resolve_document_path_for_history(payload, send_result, attachment_paths)
+        proof_path = cls._resolve_proof_path_for_history(payload, send_result)
+
+        buyer_name = cls._first_non_empty(
+            payload.get("buyer_name"),
+            buyer.get("name"),
+            submission_pack.get("buyer_name"),
+            quote_pack.get("buyer_name"),
+            rfq.get("buyer_name"),
+            opportunity.get("buyer_name"),
+        )
+
+        title = cls._first_non_empty(
+            payload.get("title"),
+            payload.get("description"),
+            payload.get("quote_subject"),
+            subject,
+        )
+
+        financials = cls._resolve_financials(payload, send_result)
+
+        raw_result = dict(send_result if isinstance(send_result, dict) else {})
+        raw_result["estimated_revenue"] = financials["estimated_revenue"]
+        raw_result["estimated_cost"] = financials["estimated_cost"]
+        raw_result["estimated_profit"] = financials["estimated_profit"]
+        raw_result["estimated_margin"] = financials["estimated_margin"]
+
+        metadata = {
+            "submission_channel": "email",
+            "subject": subject,
+            "to_email": cls._first_non_empty(send_result.get("to_email"), to_email),
+            "cc_email": cc_email,
+            "bcc_email": bcc_email,
+            "attachment_count": len(attachment_paths),
+            "quote_folder": cls._first_non_empty(send_result.get("quote_folder"), payload.get("quote_folder")),
+            "quote_pack_dir": cls._first_non_empty(send_result.get("quote_pack_dir"), payload.get("quote_pack_dir")),
+            "quote_pack_metadata_path": cls._first_non_empty(
+                send_result.get("quote_pack_metadata_path"),
+                payload.get("quote_pack_metadata_path"),
+                submission_pack.get("quote_pack_metadata_path"),
+                quote_pack.get("quote_pack_metadata_path"),
+            ),
+            "estimated_revenue": financials["estimated_revenue"],
+            "estimated_cost": financials["estimated_cost"],
+            "estimated_profit": financials["estimated_profit"],
+            "estimated_margin": financials["estimated_margin"],
+            "real_email_attempted": True,
+            "pipeline_test_mode_ignored": True,
+        }
+
+        return {
+            "buyer_name": buyer_name,
+            "buyer_rfq_number": cls._first_non_empty(
+                send_result.get("buyer_rfq_number"),
+                payload.get("buyer_rfq_number"),
+                payload.get("rfq_number"),
+            ),
+            "quote_number": cls._first_non_empty(
+                send_result.get("quote_number"),
+                payload.get("quote_number"),
+                payload.get("lmcp_quote_number"),
+                payload.get("quotation_number"),
+            ),
+            "title": title,
+            "submission_method": "email",
+            "recipient_email": cls._first_non_empty(send_result.get("to_email"), to_email),
+            "portal_name": "",
+            "status": status,
+            "status_message": cls._first_non_empty(send_result.get("error"), send_result.get("message"), send_result.get("status")),
+            "document_path": document_path,
+            "proof_path": proof_path,
+            "submission_log_path": cls._safe_str(send_result.get("submission_log_path") or payload.get("submission_log_path")),
+            "attachments": attachment_paths,
+            "artifacts": artifacts,
+            "source": cls._first_non_empty(
+                payload.get("source"),
+                payload.get("source_name"),
+                opportunity.get("source"),
+                rfq.get("source"),
+            ),
+            "submitted_by": cls._first_non_empty(payload.get("submitted_by"), "system"),
+            "retry_count": cls._safe_int(payload.get("retry_count"), 0),
+            "estimated_revenue": financials["estimated_revenue"],
+            "estimated_cost": financials["estimated_cost"],
+            "estimated_profit": financials["estimated_profit"],
+            "estimated_margin": financials["estimated_margin"],
+            "raw_result": raw_result,
+            "metadata": metadata,
+        }
+
+    @classmethod
+    def _log_submission_history_if_available(
+        cls,
+        payload: Dict[str, Any],
+        send_result: Dict[str, Any],
+        attachment_paths: List[str],
+        to_email: str,
+        cc_email: str,
+        bcc_email: str,
+        subject: str,
+    ) -> None:
+        if log_submission_event is None:
+            return
+        if not isinstance(payload, dict) or not isinstance(send_result, dict):
+            return
+
+        try:
+            history_payload = cls._build_submission_history_payload(
+                payload=payload,
+                send_result=send_result,
+                attachment_paths=attachment_paths,
+                to_email=to_email,
+                cc_email=cc_email,
+                bcc_email=bcc_email,
+                subject=subject,
+            )
+
+            log_submission_event(history_payload)
+
+            try:
+                from app.services.auto_proof_after_submission_service import auto_generate_submission_proof
+
+                proof_result = auto_generate_submission_proof(history_payload)
+                if isinstance(proof_result, dict):
+                    send_result["proof_result"] = proof_result
+                    if proof_result.get("proof_pdf_path"):
+                        send_result["proof_pdf_path"] = proof_result.get("proof_pdf_path")
+            except Exception as proof_exc:
+                send_result["proof_result"] = {
+                    "status": "failed",
+                    "proof_generated": False,
+                    "error": str(proof_exc),
+                }
+        except Exception:
+            pass
+
+    @classmethod
     def send_email(
         cls,
         *,
@@ -543,12 +1119,30 @@ class EmailSubmissionService:
         cc_email: Optional[str] = None,
         bcc_email: Optional[str] = None,
     ) -> Dict[str, Any]:
+        cls._load_local_env_file()
+
+        attachment_list = list(attachment_paths or [])
+
         if not cls.is_enabled():
             return {
                 "success": False,
                 "submitted": False,
                 "status": "failed",
-                "error": "SMTP is disabled.",
+                "error": "SMTP is disabled. Set SMTP_ENABLED=true or provide SMTP_HOST, SMTP_USERNAME, and SMTP_PASSWORD.",
+                "message": "Real email not sent because SMTP is not enabled.",
+                "to_email": to_email,
+                "subject": subject,
+                "attachments": attachment_list,
+                "sent_at": None,
+                "debug": {
+                    "SMTP_ENABLED": os.getenv("SMTP_ENABLED", ""),
+                    "SMTP_HOST": os.getenv("SMTP_HOST", ""),
+                    "SMTP_PORT": os.getenv("SMTP_PORT", ""),
+                    "SMTP_USERNAME": os.getenv("SMTP_USERNAME", ""),
+                    "SMTP_FROM_EMAIL": os.getenv("SMTP_FROM_EMAIL", ""),
+                    "SMTP_FROM": os.getenv("SMTP_FROM", ""),
+                    "SMTP_EMAIL": os.getenv("SMTP_EMAIL", ""),
+                },
             }
 
         smtp_host = cls._get_env("SMTP_HOST", required=True)
@@ -556,6 +1150,7 @@ class EmailSubmissionService:
         smtp_username = cls._get_env("SMTP_USERNAME", required=True)
         smtp_password = cls._get_env("SMTP_PASSWORD", required=True)
         use_tls = cls._bool_env("SMTP_USE_TLS", "true")
+        use_ssl = cls._bool_env("SMTP_USE_SSL", "false")
 
         if not cls._safe_str(to_email):
             return {
@@ -563,6 +1158,8 @@ class EmailSubmissionService:
                 "submitted": False,
                 "status": "failed",
                 "error": "No buyer submission email found.",
+                "message": "Real email not sent because recipient email is missing.",
+                "attachments": attachment_list,
             }
 
         try:
@@ -577,38 +1174,48 @@ class EmailSubmissionService:
                     "submitted": False,
                     "status": "failed",
                     "error": "No valid recipients found.",
+                    "message": "Real email not sent because recipients are invalid.",
                     "to_email": to_email,
                     "subject": subject,
-                    "attachments": list(attachment_paths or []),
+                    "attachments": attachment_list,
                 }
 
             msg = cls._build_message(
                 to_email=", ".join(normalized_to),
                 subject=subject,
                 body=body,
-                attachment_paths=attachment_paths,
+                attachment_paths=attachment_list,
                 cc_email=", ".join(normalized_cc) if normalized_cc else None,
-                bcc_email=None,
+                bcc_email=", ".join(normalized_bcc) if normalized_bcc else None,
             )
 
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=60) as server:
-                server.ehlo()
-                if use_tls:
-                    server.starttls()
+            if use_ssl:
+                with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=60) as server:
                     server.ehlo()
-                server.login(smtp_username, smtp_password)
-                server.send_message(msg, to_addrs=all_recipients)
+                    server.login(smtp_username, smtp_password)
+                    server.send_message(msg, to_addrs=all_recipients)
+            else:
+                with smtplib.SMTP(smtp_host, smtp_port, timeout=60) as server:
+                    server.ehlo()
+                    if use_tls:
+                        server.starttls()
+                        server.ehlo()
+                    server.login(smtp_username, smtp_password)
+                    server.send_message(msg, to_addrs=all_recipients)
 
             return {
                 "success": True,
                 "submitted": True,
-                "status": "submitted",
+                "status": "sent",
                 "error": None,
+                "message": "Email submission sent successfully.",
                 "to_email": ", ".join(normalized_to),
                 "cc_email": ", ".join(normalized_cc),
                 "bcc_email": ", ".join(normalized_bcc),
                 "subject": subject,
-                "attachments": list(attachment_paths or []),
+                "attachments": attachment_list,
+                "sent_at": cls._now(),
+                "smtp_host": smtp_host,
             }
 
         except Exception as exc:
@@ -617,17 +1224,19 @@ class EmailSubmissionService:
                 "submitted": False,
                 "status": "failed",
                 "error": str(exc),
+                "message": "Email submission failed during SMTP send.",
                 "to_email": to_email,
                 "subject": subject,
-                "attachments": list(attachment_paths or []),
+                "attachments": attachment_list,
+                "sent_at": None,
             }
 
     @classmethod
     def submit_quote_email(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
         payload = payload or {}
 
-        submission_pack = payload.get("submission_pack") if isinstance(payload.get("submission_pack"), dict) else {}
-        quote_pack = payload.get("quote_pack") if isinstance(payload.get("quote_pack"), dict) else {}
+        submission_pack = cls._safe_dict(payload.get("submission_pack"))
+        quote_pack = cls._safe_dict(payload.get("quote_pack"))
 
         submission_method = cls._safe_str(
             payload.get("submission_method")
@@ -637,37 +1246,75 @@ class EmailSubmissionService:
             or "email"
         ).lower()
 
+        if submission_method in {
+            "physical",
+            "physical_via_email",
+            "courier",
+            "manual",
+            "hand",
+            "hand delivery",
+            "hand-delivery",
+        }:
+            submission_method = "email"
+
         if submission_method and submission_method not in {"email", "mail"}:
-            return {
+            send_result = {
                 "success": False,
                 "submitted": False,
                 "status": "failed",
                 "error": f"Unsupported submission method: {submission_method}",
+                "message": "Email service received a non-email submission method.",
             }
+            cls._log_submission_history_if_available(
+                payload=payload,
+                send_result=send_result,
+                attachment_paths=[],
+                to_email="",
+                cc_email="",
+                bcc_email="",
+                subject=cls._resolve_subject(payload),
+            )
+            return send_result
 
         to_email = cls._resolve_submission_email(payload)
+        subject = cls._resolve_subject(payload)
+        buyer_rfq_number = cls._resolve_buyer_rfq_number(payload)
+        quote_number = cls._resolve_quote_number(payload)
+        document_number = cls._resolve_document_number(payload)
+
         if not to_email:
-            return {
+            send_result = {
                 "success": False,
                 "submitted": False,
                 "status": "failed",
                 "error": "No buyer submission email found.",
+                "message": "Email submission blocked because no recipient email was resolved.",
+                "buyer_rfq_number": buyer_rfq_number,
+                "quote_number": quote_number,
+                "document_number": document_number,
             }
+            cls._log_submission_history_if_available(
+                payload=payload,
+                send_result=send_result,
+                attachment_paths=[],
+                to_email="",
+                cc_email="",
+                bcc_email="",
+                subject=subject,
+            )
+            return send_result
 
-        buyer_rfq_number = cls._resolve_buyer_rfq_number(payload)
-        quote_number = cls._resolve_quote_number(payload)
-        document_number = cls._resolve_document_number(payload)
-        subject = cls._resolve_subject(payload)
         body = cls._resolve_body(payload)
         attachment_paths = cls._resolve_attachment_paths(payload)
         primary_pdf_path = cls._resolve_primary_pdf_path(payload, attachment_paths)
 
         if not primary_pdf_path:
-            return {
+            send_result = {
                 "success": False,
                 "submitted": False,
                 "status": "failed",
                 "error": "No quotation PDF found. Email submission blocked.",
+                "message": "Real email not sent because no quotation PDF was found.",
                 "to_email": to_email,
                 "subject": subject,
                 "attachments": attachment_paths,
@@ -675,6 +1322,16 @@ class EmailSubmissionService:
                 "quote_number": quote_number,
                 "document_number": document_number,
             }
+            cls._log_submission_history_if_available(
+                payload=payload,
+                send_result=send_result,
+                attachment_paths=attachment_paths,
+                to_email=to_email,
+                cc_email="",
+                bcc_email="",
+                subject=subject,
+            )
+            return send_result
 
         if primary_pdf_path not in attachment_paths:
             attachment_paths.insert(0, primary_pdf_path)
@@ -700,9 +1357,12 @@ class EmailSubmissionService:
             bcc_email=bcc_email or None,
         )
 
-        return {
+        financials = cls._resolve_financials(payload, send_result)
+
+        final_result = {
             **send_result,
             "submission_method": submission_method,
+            "submission_channel": "email",
             "primary_pdf_path": primary_pdf_path,
             "pdf_attached": bool(primary_pdf_path),
             "attachment_count": len(attachment_paths),
@@ -726,7 +1386,25 @@ class EmailSubmissionService:
                 submission_pack.get("quote_pack_metadata_path"),
                 quote_pack.get("quote_pack_metadata_path"),
             ),
+            "estimated_revenue": financials["estimated_revenue"],
+            "estimated_cost": financials["estimated_cost"],
+            "estimated_profit": financials["estimated_profit"],
+            "estimated_margin": financials["estimated_margin"],
+            "production_mode": True,
+            "pipeline_test_mode_ignored": True,
         }
+
+        cls._log_submission_history_if_available(
+            payload=payload,
+            send_result=final_result,
+            attachment_paths=attachment_paths,
+            to_email=to_email,
+            cc_email=cc_email or "",
+            bcc_email=bcc_email or "",
+            subject=subject,
+        )
+
+        return final_result
 
 
 def send_submission_email(payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -1,0 +1,190 @@
+{
+  "name": "COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Advert_1__mbd_1__municipal_mbd1_profile",
+  "template_type": "mbd_form",
+  "field_aliases": {
+    "company_name": [
+      "name of bidder",
+      "bidder name",
+      "service provider name"
+    ],
+    "postal_address": [
+      "postal address"
+    ],
+    "company_address": [
+      "street address",
+      "physical address"
+    ],
+    "company_phone": [
+      "telephone number",
+      "telephone"
+    ],
+    "company_cellphone": [
+      "cellphone number",
+      "cellphone"
+    ],
+    "company_email": [
+      "e-mail address",
+      "email address"
+    ],
+    "vat_number": [
+      "vat registration number",
+      "vat no"
+    ],
+    "csd_number": [
+      "csd no",
+      "csd number"
+    ],
+    "tcs_pin": [
+      "tcs pin",
+      "tax compliance status"
+    ],
+    "signatory_capacity": [
+      "capacity under which this bid is signed",
+      "capacity"
+    ],
+    "date_signed": [
+      "date",
+      "signature date"
+    ]
+  },
+  "anchor_rules": [
+    {
+      "field_name": "company_name",
+      "anchor_text": "NAME OF BIDDER",
+      "x_offset": 170,
+      "y_offset": -2,
+      "width": 300,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "postal_address",
+      "anchor_text": "POSTAL ADDRESS",
+      "x_offset": 170,
+      "y_offset": -2,
+      "width": 300,
+      "height": 26,
+      "font_size": 10,
+      "multiline": true,
+      "max_lines": 2,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "company_address",
+      "anchor_text": "STREET ADDRESS",
+      "x_offset": 170,
+      "y_offset": -2,
+      "width": 300,
+      "height": 26,
+      "font_size": 10,
+      "multiline": true,
+      "max_lines": 2,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "company_phone",
+      "anchor_text": "TELEPHONE NUMBER",
+      "x_offset": 215,
+      "y_offset": -2,
+      "width": 120,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "company_cellphone",
+      "anchor_text": "CELLPHONE NUMBER",
+      "x_offset": 170,
+      "y_offset": -2,
+      "width": 220,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "company_email",
+      "anchor_text": "E-MAIL ADDRESS",
+      "x_offset": 170,
+      "y_offset": -2,
+      "width": 280,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "vat_number",
+      "anchor_text": "VAT REGISTRATION NUMBER",
+      "x_offset": 170,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "tcs_pin",
+      "anchor_text": "TCS PIN:",
+      "x_offset": 55,
+      "y_offset": -2,
+      "width": 90,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "csd_number",
+      "anchor_text": "CSD No:",
+      "x_offset": 55,
+      "y_offset": -2,
+      "width": 120,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "signatory_capacity",
+      "anchor_text": "CAPACITY UNDER WHICH THIS BID IS SIGNED",
+      "x_offset": 230,
+      "y_offset": -2,
+      "width": 250,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    },
+    {
+      "field_name": "date_signed",
+      "anchor_text": "DATE",
+      "x_offset": 45,
+      "y_offset": -2,
+      "width": 110,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 0
+    }
+  ],
+  "signature_coordinates": {
+    "page": 0,
+    "x": 255,
+    "y": 102,
+    "width": 150,
+    "height": 42
+  },
+  "docx_signature_placeholder": "{{signature}}",
+  "docx_witness_1_signature_placeholder": "{{witness_1_signature}}",
+  "docx_witness_2_signature_placeholder": "{{witness_2_signature}}",
+  "xlsx_signature_anchor": "E20",
+  "xlsx_witness_1_signature_anchor": "E24",
+  "xlsx_witness_2_signature_anchor": "J24"
+}

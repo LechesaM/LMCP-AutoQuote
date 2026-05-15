@@ -1,0 +1,55 @@
+# PATCH SNIPPET for app/services/handwriting_simulation_service.py
+# Replace your existing _draw_line_ink(...) function with this version.
+
+def _draw_line_ink(c: Any, field: Dict[str, Any], style: Dict[str, Any]) -> bool:
+    try:
+        from app.services.handwriting_line_ink_v5 import build_line_ink_assets_v5, resolve_line_asset_v5
+    except Exception:
+        return False
+
+    job_id = str(field.get("line_ink_job_id") or style.get("line_ink_job_id") or "REAL-HANDWRITING")
+    build_line_ink_assets_v5(job_id=job_id)
+
+    line_index = field.get("line_index")
+
+    asset = None
+
+    # V7 normalized line asset support
+    if bool(style.get("normalize_ink_thickness", False)) or bool(field.get("normalize_ink_thickness", False)):
+        try:
+            from app.services.handwriting_thickness_normalizer_v7 import (
+                normalize_line_ink_job_v7,
+                resolve_normalized_line_asset_v7,
+            )
+
+            normalize_line_ink_job_v7(
+                job_id=job_id,
+                target_density=float(style.get("normalized_target_density") or 0.065),
+                darken_factor=float(style.get("normalized_darken_factor") or 0.82),
+            )
+
+            asset = resolve_normalized_line_asset_v7(
+                job_id=job_id,
+                line_index=int(line_index) if line_index else None,
+            )
+        except Exception:
+            asset = None
+
+    if not asset:
+        asset = resolve_line_asset_v5(
+            job_id=job_id,
+            text=str(field.get("text") or ""),
+            line_index=line_index,
+        )
+
+    if not asset:
+        return False
+
+    return _draw_png_image(
+        c,
+        field,
+        style,
+        asset,
+        default_max_width=float(field.get("max_width") or style.get("line_ink_max_width") or 420),
+        default_max_height=float(field.get("max_height") or style.get("line_ink_max_height") or 55),
+    )

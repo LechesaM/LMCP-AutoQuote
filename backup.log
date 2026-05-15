@@ -7,3 +7,175 @@
 /bin/sh: ./backup_system.sh: No such file or directory
 /bin/sh: ./backup_system.sh: No such file or directory
 /bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+/bin/sh: ./backup_system.sh: No such file or directory
+[2026-04-21 02:00:01] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-04-21 02:00:01] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260421_020001.tar.gz
+[2026-04-21 02:00:46] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260421_020001.tar.gz
+[2026-04-21 02:00:46] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-04-21 02:00:46] Applying backup retention policy: keep latest 10 backup(s).
+[2026-04-21 02:00:46] Backup completed successfully.
+[2026-04-21 02:00:46] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260421_020001.tar.gz
+[2026-04-22 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-04-22 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260422_020000.tar.gz
+[2026-04-22 02:00:45] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260422_020000.tar.gz
+[2026-04-22 02:00:45] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-04-22 02:00:45] Applying backup retention policy: keep latest 10 backup(s).
+[2026-04-22 02:00:45] Backup completed successfully.
+[2026-04-22 02:00:45] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260422_020000.tar.gz
+[2026-04-25 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-04-25 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260425_020000.tar.gz
+[2026-04-25 02:00:46] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260425_020000.tar.gz
+[2026-04-25 02:00:46] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-04-25 02:00:46] Applying backup retention policy: keep latest 10 backup(s).
+[2026-04-25 02:00:46] Backup completed successfully.
+[2026-04-25 02:00:46] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260425_020000.tar.gz
+[2026-04-26 02:00:01] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-04-26 02:00:01] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260426_020001.tar.gz
+[2026-04-26 02:00:50] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260426_020001.tar.gz
+[2026-04-26 02:00:50] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-04-26 02:00:50] Applying backup retention policy: keep latest 10 backup(s).
+[2026-04-26 02:00:50] Backup completed successfully.
+[2026-04-26 02:00:50] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260426_020001.tar.gz
+[2026-04-27 02:00:01] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-04-27 02:00:01] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260427_020001.tar.gz
+[2026-04-27 02:00:49] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260427_020001.tar.gz
+[2026-04-27 02:00:49] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-04-27 02:00:49] Applying backup retention policy: keep latest 10 backup(s).
+[2026-04-27 02:00:49] Backup completed successfully.
+[2026-04-27 02:00:49] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260427_020001.tar.gz
+[2026-04-28 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-04-28 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260428_020000.tar.gz
+[2026-04-28 02:01:23] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260428_020000.tar.gz
+[2026-04-28 02:01:23] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-04-28 02:01:24] Applying backup retention policy: keep latest 10 backup(s).
+[2026-04-28 02:01:24] Backup completed successfully.
+[2026-04-28 02:01:24] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260428_020000.tar.gz
+[2026-04-30 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-04-30 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260430_020000.tar.gz
+[2026-04-30 02:00:56] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260430_020000.tar.gz
+[2026-04-30 02:00:56] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-04-30 02:00:56] Applying backup retention policy: keep latest 10 backup(s).
+[2026-04-30 02:00:56] Backup completed successfully.
+[2026-04-30 02:00:56] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260430_020000.tar.gz
+[2026-05-01 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-01 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260501_020000.tar.gz
+[2026-05-01 02:00:58] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260501_020000.tar.gz
+[2026-05-01 02:00:58] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-01 02:00:58] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-01 02:00:59] Removing old backup: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260420_170454.tar.gz
+[2026-05-01 02:00:59] Backup completed successfully.
+[2026-05-01 02:00:59] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260501_020000.tar.gz
+[2026-05-02 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-02 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260502_020000.tar.gz
+[2026-05-02 02:00:55] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260502_020000.tar.gz
+[2026-05-02 02:00:55] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-02 02:00:55] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-02 02:00:55] Removing old backup: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260420_174138.tar.gz
+[2026-05-02 02:00:56] Backup completed successfully.
+[2026-05-02 02:00:56] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260502_020000.tar.gz
+[2026-05-03 02:00:01] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-03 02:00:01] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260503_020001.tar.gz
+[2026-05-03 02:01:12] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260503_020001.tar.gz
+[2026-05-03 02:01:12] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-03 02:01:12] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-03 02:01:12] Removing old backup: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260420_174608.tar.gz
+[2026-05-03 02:01:12] Backup completed successfully.
+[2026-05-03 02:01:12] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260503_020001.tar.gz
+[2026-05-04 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-04 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260504_020000.tar.gz
+[2026-05-04 02:07:46] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260504_020000.tar.gz
+[2026-05-04 02:07:46] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-04 02:07:46] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-04 02:07:46] Removing old backup: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260421_020001.tar.gz
+[2026-05-04 02:07:46] Backup completed successfully.
+[2026-05-04 02:07:46] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260504_020000.tar.gz
+[2026-05-05 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-05 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260505_020000.tar.gz
+[2026-05-05 02:00:44] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260505_020000.tar.gz
+[2026-05-05 02:00:44] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-05 02:00:44] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-05 02:00:45] Backup completed successfully.
+[2026-05-05 02:00:45] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260505_020000.tar.gz
+[2026-05-06 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-06 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260506_020000.tar.gz
+[2026-05-06 02:00:40] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260506_020000.tar.gz
+[2026-05-06 02:00:40] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-06 02:00:41] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-06 02:00:41] Backup completed successfully.
+[2026-05-06 02:00:41] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260506_020000.tar.gz
+[2026-05-07 02:00:01] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-07 02:00:01] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260507_020000.tar.gz
+[2026-05-07 02:00:47] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260507_020000.tar.gz
+[2026-05-07 02:00:47] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-07 02:00:47] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-07 02:00:47] Backup completed successfully.
+[2026-05-07 02:00:47] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260507_020000.tar.gz
+[2026-05-08 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-08 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260508_020000.tar.gz
+[2026-05-08 02:01:08] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260508_020000.tar.gz
+[2026-05-08 02:01:08] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-08 02:01:08] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-08 02:01:08] Backup completed successfully.
+[2026-05-08 02:01:08] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260508_020000.tar.gz
+[2026-05-09 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-09 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260509_020000.tar.gz
+[2026-05-09 02:01:10] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260509_020000.tar.gz
+[2026-05-09 02:01:10] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-09 02:01:10] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-09 02:01:10] Backup completed successfully.
+[2026-05-09 02:01:10] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260509_020000.tar.gz
+[2026-05-10 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-10 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260510_020000.tar.gz
+[2026-05-10 02:01:13] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260510_020000.tar.gz
+[2026-05-10 02:01:13] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-10 02:01:13] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-10 02:01:13] Backup completed successfully.
+[2026-05-10 02:01:13] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260510_020000.tar.gz
+[2026-05-11 02:00:01] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-11 02:00:01] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260511_020001.tar.gz
+[2026-05-11 02:01:19] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260511_020001.tar.gz
+[2026-05-11 02:01:19] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-11 02:01:19] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-11 02:01:19] Backup completed successfully.
+[2026-05-11 02:01:19] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260511_020001.tar.gz
+[2026-05-12 02:00:01] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-12 02:00:01] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260512_020001.tar.gz
+[2026-05-12 02:01:19] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260512_020001.tar.gz
+[2026-05-12 02:01:20] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-12 02:01:20] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-12 02:01:20] Backup completed successfully.
+[2026-05-12 02:01:20] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260512_020001.tar.gz
+[2026-05-13 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-13 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260513_020000.tar.gz
+[2026-05-13 02:01:22] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260513_020000.tar.gz
+[2026-05-13 02:01:22] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-13 02:01:22] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-13 02:01:22] Backup completed successfully.
+[2026-05-13 02:01:22] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260513_020000.tar.gz
+[2026-05-14 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-14 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260514_020000.tar.gz
+[2026-05-14 02:01:19] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260514_020000.tar.gz
+[2026-05-14 02:01:19] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-14 02:01:19] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-14 02:01:19] Backup completed successfully.
+[2026-05-14 02:01:19] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260514_020000.tar.gz
+[2026-05-15 02:00:00] Starting LMCP backup from: /Users/Shared/LMCP-AutoQuote-Server
+[2026-05-15 02:00:00] Creating archive: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260515_020000.tar.gz
+[2026-05-15 02:01:23] Backup archive verification passed: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260515_020000.tar.gz
+[2026-05-15 02:01:23] Updated latest backup symlink: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup_latest.tar.gz
+[2026-05-15 02:01:23] Applying backup retention policy: keep latest 10 backup(s).
+[2026-05-15 02:01:23] Backup completed successfully.
+[2026-05-15 02:01:23] Archive path: /Users/Shared/LMCP-AutoQuote-Server/runtime/backups/LMCP-AutoQuote-Backup-20260515_020000.tar.gz

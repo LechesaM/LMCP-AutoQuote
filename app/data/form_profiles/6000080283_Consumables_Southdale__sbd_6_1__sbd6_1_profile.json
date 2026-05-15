@@ -1,0 +1,61 @@
+{
+  "name": "6000080283_Consumables_Southdale__sbd_6_1__sbd6_1_profile",
+  "template_type": "sbd_form",
+  "field_aliases": {
+    "company_name": [
+      "name of tenderer",
+      "name of bidder",
+      "bidder name"
+    ],
+    "date_signed": [
+      "date"
+    ],
+    "signatory_capacity": [
+      "capacity",
+      "position"
+    ]
+  },
+  "anchor_rules": [
+    {
+      "field_name": "company_name",
+      "anchor_text": "Name of tenderer",
+      "x_offset": 150,
+      "y_offset": -2,
+      "width": 250,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 8
+    },
+    {
+      "field_name": "signatory_capacity",
+      "anchor_text": "Capacity under which this bid is signed",
+      "x_offset": 220,
+      "y_offset": -2,
+      "width": 250,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 8
+    },
+    {
+      "field_name": "date_signed",
+      "anchor_text": "Date",
+      "x_offset": 45,
+      "y_offset": -2,
+      "width": 100,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 8
+    }
+  ],
+  "signature_coordinates": {
+    "page": 8,
+    "x": 110,
+    "y": 95,
+    "width": 150,
+    "height": 40
+  },
+  "docx_signature_placeholder": "{{signature}}"
+}

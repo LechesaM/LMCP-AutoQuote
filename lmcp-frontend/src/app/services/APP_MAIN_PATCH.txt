@@ -1,0 +1,4 @@
+
+Add this line inside OPTIONAL_ROUTERS in app/main.py:
+
+("true_navigation_extraction_v39_router", "app.api.true_navigation_extraction_v39_api", "router"),

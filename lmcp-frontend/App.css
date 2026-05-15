@@ -1,0 +1,29 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #0b1220;
+  color: white;
+}
+
+h1, h2 {
+  margin: 10px 0;
+}
+
+button {
+  margin-right: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+}
+
+button:hover {
+  opacity: 0.85;
+}
+
+pre {
+  background: #111827;
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+}

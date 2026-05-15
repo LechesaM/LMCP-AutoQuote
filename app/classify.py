@@ -27,8 +27,11 @@ def extract_emails(*texts: str) -> list[str]:
             out.append(e)
     return out
 
-if rfq.get("briefing_required") is True:
-    return False
+def passes_basic_rfq_filters(rfq: dict, estimated_profit: float) -> bool:
+    if rfq.get("briefing_required") is True:
+        return False
 
-if estimated_profit < 30000:
-    return False
+    if estimated_profit < 30000:
+        return False
+
+    return True

@@ -24,6 +24,7 @@ class SubmissionPipeline:
                 quote_data = cls.build_quote_data(rfq)
                 pack = cls._generate_quote_pack(rfq, quote_data)
                 cls._send_submission_email(rfq, pack)
+                cls._log_submission_history(rfq, quote_data, pack, status="submitted")
 
                 results.append(
                     {
@@ -34,6 +35,17 @@ class SubmissionPipeline:
                     }
                 )
             except Exception as e:
+                try:
+                    cls._log_submission_history(
+                        rfq,
+                        quote_data if "quote_data" in locals() else {},
+                        pack if "pack" in locals() else {},
+                        status="failed",
+                        error=str(e),
+                    )
+                except Exception:
+                    pass
+
                 results.append(
                     {
                         "rfq": rfq.get("rfq_number") or rfq.get("reference") or rfq.get("id"),
@@ -61,7 +73,6 @@ class SubmissionPipeline:
         Pull RFQs from the existing LMCP system without assuming one specific harvester function.
         This avoids breaking the project if a previous module name/function changed.
         """
-        # 1. Try live RFQ store first
         try:
             from app.services.live_rfq_store import LiveRFQStore
 
@@ -73,7 +84,6 @@ class SubmissionPipeline:
         except Exception:
             pass
 
-        # 2. Try common harvester module patterns already used in this project
         try:
             from app.harvester import TenderHarvester  # type: ignore
 
@@ -89,7 +99,6 @@ class SubmissionPipeline:
         except Exception:
             pass
 
-        # 3. Try service-based harvester if it exists
         try:
             from app.services.tender_harvester import TenderHarvesterService  # type: ignore
 
@@ -100,21 +109,18 @@ class SubmissionPipeline:
         except Exception:
             pass
 
-        # 4. Final safe fallback
         return []
 
-        @classmethod
-        def _is_valid_submission_rfq(cls, rfq: Dict[str, Any]) -> bool:
-            title = str(rfq.get("title", "")).lower()
-            description = str(rfq.get("description", "")).lower()
-            combined = f"{title} {description}"
+    @classmethod
+    def _is_valid_submission_rfq(cls, rfq: Dict[str, Any]) -> bool:
+        title = str(rfq.get("title", "")).lower()
+        description = str(rfq.get("description", "")).lower()
+        combined = f"{title} {description}"
 
-        # Exclude briefing session tenders
         briefing_required = rfq.get("briefing_required", False)
         if briefing_required is True:
             return False
 
-        # Email submission only
         submission_email = (
             rfq.get("submission_email")
             or rfq.get("email")
@@ -124,7 +130,6 @@ class SubmissionPipeline:
         if not str(submission_email).strip():
             return False
 
-        # Supply and delivery focus only
         supply_keywords = [
             "supply",
             "delivery",
@@ -136,7 +141,6 @@ class SubmissionPipeline:
         if not any(keyword in combined for keyword in supply_keywords):
             return False
 
-        # Excluded categories
         excluded_keywords = [
             "medical consumables",
             "medical",
@@ -154,7 +158,6 @@ class SubmissionPipeline:
         if any(keyword in combined for keyword in excluded_keywords):
             return False
 
-        # Minimum profit rule
         estimated_profit = cls._estimate_profit(rfq)
         if estimated_profit < 30000:
             return False
@@ -185,7 +188,6 @@ class SubmissionPipeline:
                 continue
 
         if contract_value is None:
-            # Safe fallback assumption to avoid false positives
             return 0.0
 
         assumed_cost = contract_value / 1.25
@@ -244,6 +246,11 @@ class SubmissionPipeline:
             .replace("\\", "-")
         )
 
+        estimated_revenue = cls._estimate_revenue_from_items(priced_items)
+        estimated_cost = round(estimated_revenue / 1.25, 2) if estimated_revenue > 0 else 0.0
+        estimated_profit = round(estimated_revenue - estimated_cost, 2) if estimated_revenue > 0 else 0.0
+        estimated_margin = round((estimated_profit / estimated_revenue), 4) if estimated_revenue > 0 else 0.0
+
         return {
             "client_name": rfq.get("issuing_entity", rfq.get("department", "")),
             "rfq_number": rfq_number,
@@ -251,7 +258,20 @@ class SubmissionPipeline:
             "issue_date": cls._today_str(),
             "subject": rfq.get("title", ""),
             "items": priced_items,
+            "estimated_revenue": estimated_revenue,
+            "estimated_cost": estimated_cost,
+            "estimated_profit": estimated_profit,
+            "estimated_margin": estimated_margin,
         }
+
+    @classmethod
+    def _estimate_revenue_from_items(cls, items: List[Dict[str, Any]]) -> float:
+        total = 0.0
+        for item in items:
+            qty = cls._to_float(item.get("qty", 1), default=1.0)
+            rate = cls._to_float(item.get("rate", 0), default=0.0)
+            total += qty * rate
+        return round(total, 2)
 
     @classmethod
     def _generate_quote_pack(
@@ -262,10 +282,16 @@ class SubmissionPipeline:
         try:
             from app.services.quote_pack_service import generate_branded_quote_pack
 
-            return generate_branded_quote_pack(
+            pack = generate_branded_quote_pack(
                 rfq_data=rfq_data,
                 quote_data=quote_data,
             )
+            if isinstance(pack, dict):
+                pack.setdefault("estimated_revenue", quote_data.get("estimated_revenue", 0.0))
+                pack.setdefault("estimated_cost", quote_data.get("estimated_cost", 0.0))
+                pack.setdefault("estimated_profit", quote_data.get("estimated_profit", 0.0))
+                pack.setdefault("estimated_margin", quote_data.get("estimated_margin", 0.0))
+            return pack
         except Exception as e:
             raise RuntimeError(f"Quote pack generation failed: {e}") from e
 
@@ -288,7 +314,6 @@ class SubmissionPipeline:
         body = pack.get("email_body", "Please find attached our quotation.")
         attachment_path = pack.get("pdf_path", "")
 
-        # Preferred existing API path
         try:
             from app.email_api import send_email_with_attachment  # type: ignore
 
@@ -302,7 +327,6 @@ class SubmissionPipeline:
         except Exception:
             pass
 
-        # Alternative service/module fallback
         try:
             from app.services.email_api import send_email_with_attachment  # type: ignore
 
@@ -315,6 +339,110 @@ class SubmissionPipeline:
             return
         except Exception as e:
             raise RuntimeError(f"Email send failed: {e}") from e
+
+    @classmethod
+    def _log_submission_history(
+        cls,
+        rfq: Dict[str, Any],
+        quote_data: Dict[str, Any],
+        pack: Dict[str, Any],
+        *,
+        status: str,
+        error: str = "",
+    ) -> None:
+        try:
+            from app.services.submission_history_service import log_submission_event
+        except Exception:
+            return
+
+        rfq_number = str(rfq.get("rfq_number") or rfq.get("reference") or rfq.get("id") or "").strip()
+        quote_number = str(
+            pack.get("quote_number")
+            or quote_data.get("quote_number")
+            or (f"LMCP-{rfq_number}" if rfq_number else "")
+        ).strip()
+        recipient = str(
+            rfq.get("submission_email")
+            or rfq.get("email")
+            or rfq.get("contact_email")
+            or ""
+        ).strip()
+
+        estimated_revenue = cls._to_float(
+            pack.get("estimated_revenue", quote_data.get("estimated_revenue", rfq.get("estimated_value", 0.0))),
+            default=0.0,
+        )
+        estimated_cost = cls._to_float(
+            pack.get("estimated_cost", quote_data.get("estimated_cost", 0.0)),
+            default=0.0,
+        )
+        estimated_profit = cls._to_float(
+            pack.get("estimated_profit", quote_data.get("estimated_profit", 0.0)),
+            default=0.0,
+        )
+        estimated_margin = cls._to_float(
+            pack.get("estimated_margin", quote_data.get("estimated_margin", 0.0)),
+            default=0.0,
+        )
+
+        if estimated_revenue > 0 and estimated_cost <= 0 and estimated_profit > 0:
+            estimated_cost = round(estimated_revenue - estimated_profit, 2)
+
+        if estimated_revenue > 0 and estimated_profit <= 0 and estimated_cost > 0:
+            estimated_profit = round(estimated_revenue - estimated_cost, 2)
+
+        if estimated_revenue > 0 and estimated_margin <= 0 and estimated_profit > 0:
+            estimated_margin = round(estimated_profit / estimated_revenue, 4)
+
+        payload = {
+            "buyer_name": str(rfq.get("issuing_entity") or rfq.get("department") or "").strip(),
+            "buyer_rfq_number": rfq_number,
+            "quote_number": quote_number,
+            "title": str(rfq.get("title") or "").strip(),
+            "submission_method": "email",
+            "recipient_email": recipient,
+            "portal_name": "",
+            "status": status,
+            "status_message": error or ("Email submission sent successfully." if status == "submitted" else "Submission failed."),
+            "document_path": str(pack.get("pdf_path") or "").strip(),
+            "proof_path": "",
+            "submission_log_path": "",
+            "attachments": [str(pack.get("pdf_path") or "").strip()] if str(pack.get("pdf_path") or "").strip() else [],
+            "artifacts": [
+                str(x).strip()
+                for x in [
+                    pack.get("pdf_path"),
+                    pack.get("quote_pack_metadata_path"),
+                ]
+                if str(x or "").strip()
+            ],
+            "source": str(rfq.get("source") or "").strip(),
+            "submitted_by": "system",
+            "retry_count": 0,
+            "raw_result": {
+                "status": status,
+                "estimated_revenue": estimated_revenue,
+                "estimated_cost": estimated_cost,
+                "estimated_profit": estimated_profit,
+                "estimated_margin": estimated_margin,
+                "quote_number": quote_number,
+                "buyer_rfq_number": rfq_number,
+                "pdf_path": str(pack.get("pdf_path") or "").strip(),
+                "quote_pack_metadata_path": str(pack.get("quote_pack_metadata_path") or "").strip(),
+                "error": error,
+            },
+            "metadata": {
+                "submission_channel": "email",
+                "estimated_revenue": estimated_revenue,
+                "estimated_cost": estimated_cost,
+                "estimated_profit": estimated_profit,
+                "estimated_margin": estimated_margin,
+                "quote_folder": str(pack.get("quote_folder") or "").strip(),
+                "quote_pack_dir": str(pack.get("quote_pack_dir") or "").strip(),
+            },
+        }
+
+        log_submission_event(payload)
 
     @staticmethod
     def _to_float(value: Any, default: float = 0.0) -> float:
@@ -330,3 +458,5 @@ class SubmissionPipeline:
     @staticmethod
     def _now_iso() -> str:
         return datetime.now().isoformat()
+
+

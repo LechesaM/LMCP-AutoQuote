@@ -83,7 +83,7 @@ def _persist_result_to_live_store_if_requested(
                 if isinstance(row, dict):
                     items.append(_build_live_store_item(row))
             if items:
-                LiveRFQStore.save(items)
+                LiveRFQStore.upsert_rfq(item)
                 result_dict["live_store_persisted"] = True
                 result_dict["live_store_persisted_count"] = len(items)
             else:
@@ -92,7 +92,7 @@ def _persist_result_to_live_store_if_requested(
             return result_dict
 
         live_item = _build_live_store_item(result_dict)
-        LiveRFQStore.save([live_item])
+        LiveRFQStore.upsert_rfq(live_item)
         result_dict["live_store_persisted"] = True
         result_dict["live_store_persisted_count"] = 1
         return result_dict
@@ -160,9 +160,9 @@ def test_run_pipeline() -> Dict[str, Any]:
             "email": "lechesam@icloud.com",
         },
         "force_quote_ready": True,
-        "pipeline_test_mode": True,
+        "pipeline_test_mode": False,
         "skip_supplier_ingestion": True,
-        "skip_external_calls": True,
+        "skip_external_calls": False,
         "auto_refresh_csd": False,
         "persist_to_live_store": False,
         "source": "test",

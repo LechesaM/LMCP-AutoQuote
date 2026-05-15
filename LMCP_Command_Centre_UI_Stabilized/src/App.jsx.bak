@@ -1,0 +1,6 @@
+import MissionControlStep1 from "./pages/MissionControlStep1";
+import "./styles/mission-control-step1.css";
+
+export default function App() {
+  return <MissionControlStep1 />;
+}

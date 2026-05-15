@@ -1,0 +1,56 @@
+{
+  "name": "mbombela_mbd_profile",
+  "template_type": "sbd_form",
+
+  "anchor_rules": [
+    {
+      "field_name": "company_name",
+      "anchor_text": "NAME OF BIDDER",
+      "x_offset": 180,
+      "y_offset": -2,
+      "width": 250
+    },
+    {
+      "field_name": "company_email",
+      "anchor_text": "E-MAIL ADDRESS",
+      "x_offset": 180,
+      "y_offset": -2,
+      "width": 250
+    },
+    {
+      "field_name": "vat_number",
+      "anchor_text": "VAT REGISTRATION NUMBER",
+      "x_offset": 180,
+      "y_offset": -2,
+      "width": 200
+    }
+  ],
+
+  "signature_coordinates": {
+    "page": 2,
+    "x": 120,
+    "y": 140,
+    "width": 140,
+    "height": 50
+  },
+
+  "witness_1_signature_coordinates": {
+    "page": 2,
+    "x": 120,
+    "y": 90,
+    "width": 140,
+    "height": 40
+  },
+
+  "witness_2_signature_coordinates": {
+    "page": 2,
+    "x": 300,
+    "y": 90,
+    "width": 140,
+    "height": 40
+  },
+
+  "docx_signature_placeholder": "{{signature}}",
+  "docx_witness_1_signature_placeholder": "{{witness_1_signature}}",
+  "docx_witness_2_signature_placeholder": "{{witness_2_signature}}"
+}

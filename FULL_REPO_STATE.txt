@@ -1,0 +1,1007 @@
+ M .DS_Store
+ M .dockerignore
+ M .env
+ M Atiye.pdf
+ M Dockerfile
+ M LMCP-AutoQuote-Server/app/generated_submission_packs/submission_pack_general.txt
+ M LMCP_Backup_20260327_0451.tar.gz
+ M app.tasks.py
+ M app/.DS_Store
+ M app/api/__init__.py
+ M app/api/autonomous_api.py
+ M app/api/csd_api.py
+ M app/api/dashboard.py
+ M app/api/email_ingestion_api.py
+ M app/api/form_filler_api.py
+ M app/api/live_autoquote_api.py
+ M app/api/opportunities_api.py
+ M app/api/quote_engine_api.py
+ M app/api/quote_pack_api.py
+ M app/api/revenue_dashboard_api.py
+ M app/api/sbd_version_detector_api.py
+ M app/api/self_healing_harvester.py
+ M app/api/stability.py
+ M app/api/submission_pipeline_api.py
+ M app/api/supervisor.py
+ M app/api/supplier_quotes_api.py
+ M app/api/supply_command_api.py
+ M app/api/system.py
+ M app/api/tender_form_priority_api.py
+ M app/api/tender_pipeline_api.py
+ M app/api/tender_submission_pipeline_api.py
+ M app/api/test_pricing_api.py
+ M app/audit.py
+ M app/audit_api.py
+ M app/autonomous_api.py
+ M app/autonomous_engine.py
+ M app/autonomous_guard.py
+ M app/branding/company_branding.py
+ M app/branding/logo.png
+ M app/celery_app.py
+ M app/classify.py
+ M app/core/__init__.py
+ M app/core/autonomous_supervisor.py
+ M app/core/runtime_guard.py
+ M app/core/safe_loader.py
+ M app/core/self_check.py
+ M app/core/stability_guard.py
+ M app/core/supply_target_config.py
+ M app/core/system_guard.py
+ M app/dashboard_api.py
+ M app/data/form_profiles/example_sbd4_profile.json
+ M app/data/form_profiles/sbd4_new_profile.json
+ M app/data/form_profiles/sbd4_old_profile.json
+ M app/data/lmcp_entity_master_seed.json
+ M app/data/lmcp_entity_master_seed.py
+ M app/data/lmcp_municipal_registry.py
+ M app/data/lmcp_soe_registry.py
+ M app/db/__init__.py
+ M app/db/base.py
+ M app/db/session.py
+ M app/generated_submission_packs/submission_pack_1.txt
+ M app/generated_submission_packs/submission_pack_general.txt
+ M app/harvester_api.py
+ M app/main.py
+ M app/models/__init__.py
+ M app/models/audit_log.py
+ M app/models/buyer_event.py
+ M app/models/buyer_profile.py
+ M app/models/core.py
+ M app/models/markup_rule.py
+ M app/models/opportunity.py
+ M app/models/procurement_signal.py
+ M app/models/quote_draft.py
+ M app/models/submission_record.py
+ M app/models/supplier_item.py
+ M app/models/supplier_product.py
+ M app/parser_router.py
+ M app/registry_enricher.py
+ M app/sbd_generator.py
+ M app/scripts/__init__.py
+ M app/scripts/portal_radar_diagnostic.py
+ M app/scripts/run_csd_report_refresh.py
+ M app/scripts/run_national_portal_radar.py
+ M app/scripts/seed_supplier_products.py
+ M app/services/__init__.py
+ M app/services/adaptive_crawl_scheduler.py
+ M app/services/adaptive_crawler.py
+ M app/services/auto_quote_trigger.py
+ M app/services/autonomous_engine.py
+ M app/services/autonomous_tender_hunter.py
+ M app/services/autoquote_pipeline.py
+ M app/services/buyer_schedule_exporter.py
+ M app/services/buyer_schedule_mapper.py
+ M app/services/catalog_matcher.py
+ M app/services/compliance_document_service.py
+ M app/services/cost_estimator.py
+ M app/services/crawl_batching.py
+ M app/services/csd_inbox_fallback_service.py
+ M app/services/csd_refresh_service.py
+ M app/services/csd_report_refresh_service.py
+ M app/services/cycle_state_store.py
+ M app/services/deduplication.py
+ M app/services/direct_portal_harvesters.py
+ M app/services/disk_safety_guard.py
+ M app/services/document_ingestion_service.py
+ M app/services/email_submission_service.py
+ M app/services/harvest_entrypoint.py
+ M app/services/harvest_source_registry_service.py
+ M app/services/harvest_to_opportunity.py
+ M app/services/harvester_adapter.py
+ M app/services/intelligence_quote_pipeline.py
+ M app/services/live_autoquote_runner.py
+ M app/services/live_rfq_store.p
+ M app/services/live_rfq_store.py
+ M app/services/live_supply_pipeline.py
+ M app/services/margin_engine.py
+ M app/services/monthly_quotes_storage.py
+ M app/services/national_portal_radar.py
+ M app/services/opportunity_persistence.py
+ M app/services/opportunity_scorer.py
+ M app/services/parser_executor_service.py
+ M app/services/pdf_quote_generator.py
+ M app/services/portal_crawl_priority.py
+ M app/services/portal_health_dashboard.py
+ M app/services/portal_isolation.py
+ M app/services/portal_radar_service.py
+ M app/services/portal_registry.py
+ M app/services/portal_submission_service.py
+ M app/services/pricing_engine.py
+ M app/services/pricing_schedule_service.py
+ M app/services/priority_harvest_queue.py
+ M app/services/procurement_heatmap.py
+ M app/services/procurement_intelligence/__init__.py
+ M app/services/procurement_intelligence/behavior_engine.py
+ M app/services/procurement_intelligence/buyer_identity.py
+ M app/services/procurement_intelligence/buyer_profiler.py
+ M app/services/procurement_intelligence/intelligence_score.py
+ M app/services/procurement_intelligence/normalizer.py
+ M app/services/procurement_intelligence/radar_pipeline.py
+ M app/services/procurement_intelligence/signal_engine.py
+ M app/services/profitability.py
+ M app/services/quote_draft_store.py
+ M app/services/quote_engine.py
+ M app/services/quote_pack_service.py
+ M app/services/quote_pack_service_broken_20260326.py
+ M app/services/quote_submission_pipeline.py
+ M app/services/rfq_normalizer.py
+ M app/services/sbd_version_detector.py
+ M app/services/self_healing_harvester.py
+ M app/services/source_parser_routing_service.py
+ M app/services/source_scheduler.py
+ M app/services/submission_engine.py
+ M app/services/submission_pipeline.py
+ M app/services/supplier_award_document_service.py
+ M app/services/supplier_award_document_service.py.FINAL_LOCK_CLEAN
+ M app/services/supplier_award_document_service.py.FINAL_PASS
+ M app/services/supplier_award_execution_service.py
+ M app/services/supplier_award_execution_service.py.FINAL_LOCK_CLEAN
+ M app/services/supplier_award_execution_service.py.FINAL_PASS
+ M app/services/supplier_catalog_service.py
+ M app/services/supplier_engine.py
+ M app/services/supplier_price_extraction_service.py
+ M app/services/supplier_price_selection_service.py
+ M app/services/supplier_quote_award_service.py
+ M app/services/supplier_quote_comparison_service.py
+ M app/services/supplier_quote_ingestion.py
+ M app/services/supplier_quote_ingestion_service.py
+ M app/services/supplier_quote_pipeline_bridge.py
+ M app/services/supplier_quote_selection_service.py
+ M app/services/supplier_reply_matching_service.py
+ M app/services/supplier_request_registry_service.py
+ M app/services/supplier_rfq_request_service.py
+ M app/services/supply_classifier.py
+ M app/services/target_control_engine.py
+ M app/services/tender_eligibility.py
+ M app/services/tender_form_priority_engine.py
+ M app/services/tender_harvester.py
+ M app/services/tender_harvester.py.bak_20260316_fix
+ M app/services/tender_intelligence.py
+ M app/services/tender_pipeline.py
+ M app/services/tender_pipeline.py.FINAL_LOCK_CLEAN
+ M app/services/tender_pipeline.py.FINAL_LOCK_OK
+ M app/services/tender_pipeline.py.FINAL_PASS
+ M app/services/tender_pipeline_models.py
+ M app/services/tender_qualification.py
+ M app/services/tender_quote_pack_generator.py
+ M app/services/tender_scoring.py
+ M app/services/tender_submission_pipeline.py
+ M app/services/universal_form_filler.py
+ M app/services/unmatched_supplier_reply_service.py
+ M app/source_health.py
+ M app/source_registry.py
+ M app/system_guard_api.py
+ M app/system_routes.py
+ M app/tasks.py
+ M app/tasks_api.py
+ M app/templates/control_panel.html
+ M app/templates/forms/sbd_1.docx
+ M app/templates/forms/sbd_4.docx
+ M app/templates/forms/sbd_6_1.docx
+ M app/templates/forms/sbd_8.docx
+ M app/templates/forms/sbd_9.docx
+ M app/tender_harvester.py
+ M app/ui_routes.py
+ M backup.log
+ M celerybeat-schedule
+ M clean_health_check.log
+ M control_panel.html
+ M csd_refresh.log
+ M data/crawl_cycle_state.json
+ M development_timeline.txt
+ M docker-compose.yml
+ M docker_cleanup.log
+ M extra_in_live.txt
+ M frontend/.gitignore
+ M frontend/README.md
+ M frontend/eslint.config.js
+ M frontend/index.html
+ M frontend/package-lock.json
+ M frontend/postcss.config.js
+ M frontend/public/favicon.svg
+ M frontend/public/icons.svg
+ D frontend/public/vite.svg
+ D frontend/src/App.tsx
+ D frontend/src/assets/hero.png
+ D frontend/src/assets/react.svg
+ D frontend/src/assets/vite.svg
+ D frontend/src/config/endpoints.js
+ D frontend/src/counter.ts
+ D frontend/src/data/fallbackData.js
+ D frontend/src/hooks/useDashboardData.js
+ M frontend/src/index.css
+ M frontend/src/main.jsx
+ D frontend/src/main.tsx
+ D frontend/src/pages/DashboardPage.jsx
+ D frontend/src/pages/MissionControlDashboard.tsx
+ D frontend/src/style.css
+ D frontend/src/styles.css
+ D frontend/src/typescript.svg
+ M frontend/tailwind.config.js
+ M frontend/tsconfig.json
+ M frontend/vite.config.js
+ M harvest_opportunities
+ M i
+ M live_files.txt
+ M live_files_after_restore.txt
+ M main.tsx
+ M missing_from_live.txt
+ M portal_radar_report.json
+ M portal_registry.py
+ M pricing_engine.py
+ M recovery_freeze/inventories/app_python_only.txt
+ M recovery_freeze/inventories/docker_files.txt
+ M recovery_freeze/inventories/env_files.txt
+ M recovery_freeze/inventories/frontend_files.txt
+ M recovery_freeze/inventories/json_files.txt
+ M recovery_freeze/inventories/python_files.txt
+ M recovery_freeze/inventories/yaml_files.txt
+ M recovery_freeze/reports/all_autonomous_api.txt
+ M recovery_freeze/reports/all_live_rfq_store.txt
+ M recovery_freeze/reports/all_main_py.txt
+ M recovery_freeze/reports/all_sbd_generator.txt
+ M recovery_freeze/reports/all_tasks_py.txt
+ M recovery_freeze/reports/all_tender_pipeline_api.txt
+ M recovery_freeze/reports/all_universal_form_filler.txt
+ M recovery_freeze/reports/app_level_sizes.txt
+ M recovery_freeze/reports/core_file_check.txt
+ M recovery_freeze/reports/recovery_report.txt
+ M recovery_freeze/reports/top_level_sizes.txt
+ M recovery_freeze/tree/full_tree.txt
+ M recovery_freeze/tree/top_tree_depth3.txt
+ M requirements.txt
+ M run_once_output.json
+ M supplier_engine.py
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_marketdirect.co.za__Secure_RDP_Subcontractor_Contruction_Work_Square.jpeg
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_marketdirect.co.za__Secure_RDP_Subcontractor_Contruction_Work_Square_1.jpeg
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_matsobanemetja.co.za__image001.png
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__LMCP-20260331-818A2D.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__LMCP-20260331-EFAE4C.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__LMCP-20260331-EFAE4C_1.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__LMCP-20260331-EFAE4C_2.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__RFQ_12345_quote.pdf.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__RFQ_12345_quote.pdf_1.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__RFQ_12345_quote.pdf_2.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_1.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_2.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_3.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_4.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_5.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_6.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_7.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_8.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__supplier_quote_test.pdf.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__supplier_quote_test.pdf_1.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__supplier_quote_test.pdf_2.pdf
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_marketdirect.co.za__Market_Direct_Square_-_LOGO.png
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_marketdirect.co.za__Market_Direct_Square_-_LOGO_1.png
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_matsobanemetja.co.za__image002.jpg
+ M supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_3_matsobanemetja.co.za__Accounting_Services_Poster.jpg
+ M test.pdf
+ M test.txt
+ M test_form_filler.py
+ M test_pipeline.py
+ M test_sbd_version_detector.py
+ M test_tender_form_priority_engine.py
+ M test_tender_pipeline_channels.py
+ M test_tender_pipeline_channels.py.FINAL_LOCK_CLEAN
+ M test_tender_pipeline_channels.py.FINAL_LOCK_OK
+ M test_tender_pipeline_channels.py.FINAL_PASS
+ M test_tender_submission_pipeline.py
+ M touch
+?? -s
+?? 0
+?? FULL_REPO_STATE.txt
+?? LMCP-E2E-WORKING-BASELINE-2026-04-14.zip
+?? LMCP_AutoQuote_Evaluation.zip
+?? LMCP_Command_Centre_UI_Stabilized/
+?? LMCP_backup_20260409.zip
+?? PATCH_replace_draw_line_ink.txt
+?? PATCH_replace_draw_line_ink_for_v8.txt
+?? README_HANDWRITING_GLYPH_ENGINE.md
+?? README_V5_LINE_INK.md
+?? README_V7_THICKNESS_NORMALIZER.md
+?? README_V8_PEN_FLOW.md
+?? RFQ-LIVE-001__portal_submission.html
+?? RFQ-LIVE-001__portal_submission.png
+?? app/api/assisted_browser_v47_2_api.py
+?? app/api/audit_trail_api.py
+?? app/api/auto_pricing_v43_api.py
+?? app/api/auto_submission_v46_api.py
+?? app/api/backend_intelligence_api.py
+?? app/api/clean_ink_extraction_v3_api.py
+?? app/api/clickable_navigation_v40_api.py
+?? app/api/csd_monthly_refresh_api.py
+?? app/api/csd_persistent_session_api.py
+?? app/api/decision_intelligence_api.py
+?? app/api/deep_rfq_link_extractor_v37_api.py
+?? app/api/deep_verification_v47_7_api.py
+?? app/api/detail_page_follow_v49_1_api.py
+?? app/api/etenders_ajax_datatables_resolver_v50_8_1_api.py
+?? app/api/etenders_browser_download_interceptor_v50_9_3_api.py
+?? app/api/etenders_browser_download_interceptor_v50_9_3_api.py.backup
+?? app/api/etenders_document_download_v50_9_api.py
+?? app/api/etenders_document_mapping_resolver_v50_9_7_api.py
+?? app/api/etenders_document_url_reconstruction_v50_8_2_api.py
+?? app/api/etenders_dom_modal_autoclick_v50_9_4_api.py
+?? app/api/etenders_dom_trigger_forced_click_v50_9_5_api.py
+?? app/api/etenders_download_replay_reconstruction_v50_9_8_api.py
+?? app/api/etenders_hidden_api_discovery_v50_9_6_api.py
+?? app/api/etenders_local_filter_v50_8_5_api.py
+?? app/api/etenders_local_filter_v50_8_5_api.py.backup_v50_8_5
+?? app/api/etenders_real_detail_navigation_v50_7_api.py
+?? app/api/etenders_runtime_download_interceptor_v50_9_9_api.py
+?? app/api/etenders_session_api.py
+?? app/api/etenders_status_enumerator_v50_8_4_api.py
+?? app/api/etenders_structured_json_parser_v50_8_3_api.py
+?? app/api/etenders_support_document_download_v50_9_2_api.py
+?? app/api/etenders_tender_download_correlation_v50_9_10_api.py
+?? app/api/etenders_tenderdetails_json_v50_9_1_api.py
+?? app/api/final_automation_layer_api.py
+?? app/api/full_autonomous_cycle_api.py
+?? app/api/full_autonomous_v48_api.py
+?? app/api/go_live_guard_api.py
+?? app/api/handwriting_field_detector_api.py
+?? app/api/handwriting_form_overlay_api.py
+?? app/api/handwriting_full_auto_api.py
+?? app/api/handwriting_glyph_api.py
+?? app/api/handwriting_simulation_api.py
+?? app/api/interactive_click_deep_extraction_v38_api.py
+?? app/api/interactive_playwright_extractor_v36_api.py
+?? app/api/live_browser_attach_v47_3_api.py
+?? app/api/mission_control_compat_api.py
+?? app/api/navigation_intelligence_v41_api.py
+?? app/api/operator_actions_api.py
+?? app/api/pipeline_enforcement_api.py
+?? app/api/playwright_live_dom_extractor_v35_api.py
+?? app/api/portal_form_autofill_v47_1_api.py
+?? app/api/portal_submission_api.py
+?? app/api/portal_submission_v47_api.py
+?? app/api/pricing_table_extraction_v42_api.py
+?? app/api/production_lock_api.py
+?? app/api/proof_center_api.py
+?? app/api/proof_of_submission_api.py
+?? app/api/proof_of_submission_api.py.backup
+?? app/api/quote_pack_v44_api.py
+?? app/api/quotes_stable_api.py
+?? app/api/real_portal_rfq_extraction_v33_api.py
+?? app/api/real_profit_pricing_api.py
+?? app/api/real_rfq_detail_navigation_v49_api.py
+?? app/api/real_rfq_harvester_v32_api.py
+?? app/api/rfq_lifecycle_api.py
+?? app/api/rfq_lifecycle_api.py.bak_upload_dry_run
+?? app/api/rfq_stable_api.py
+?? app/api/safe_autonomous_scheduler_api.py
+?? app/api/sbd_completion_api.py
+?? app/api/sbd_intelligence_api.py
+?? app/api/security_api.py
+?? app/api/smart_harvester_v31_api.py
+?? app/api/smart_upload_v47_4_api.py
+?? app/api/structured_rfq_extractor_v34_api.py
+?? app/api/submission_analytics_api.py
+?? app/api/submission_history.py
+?? app/api/submission_history_pipeline_sync_api.py
+?? app/api/submission_history_proof_enrichment_api.py
+?? app/api/submission_history_recent_api.py
+?? app/api/submission_pack_v45_api.py
+?? app/api/submission_retry_api.py
+?? app/api/submission_scheduler_api.py
+?? app/api/system_control.py
+?? app/api/system_stability_api.py
+?? app/api/system_stable_api.py
+?? app/api/tender_form_intelligence_api.py
+?? app/api/true_etenders_detail_resolution_v50_8_api.py
+?? app/api/true_navigation_extraction_v39_api.py
+?? app/api/v47_live_browser_api.py
+?? app/api/verified_rfq_promotion_gate_v50_7_api.py
+?? app/api/ws_live.py
+?? app/assets/handwriting/
+?? app/assets/handwriting_sample.jpg
+?? app/assets/handwriting_samples/
+?? app/assets/signatures/
+?? app/core/system_lock.py
+?? app/data/form_profiles/133-2025-2026_Tender_Document__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/133-2025-2026_Tender_Document__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/133-2025-2026_Tender_Document__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/133-2025-2026_Tender_Document__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/133-2025-2026_Tender_Document__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/133-2025-2026_Tender_Document__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/133-2025-2026_Tender_Document__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/133-2025-2026_Tender_Document__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/6000080275_Supply__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/6000080275_Supply__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/6000080275_Supply__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/6000080275_Supply__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/6000080275_Supply__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/6000080275_Supply__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/6000080275_Supply__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/6000080275_Supply__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/6000080275_Supply__sbd_8__sbd8_profile.json
+?? app/data/form_profiles/6000080275_Supply__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__sbd_8__sbd8_profile.json
+?? app/data/form_profiles/6000080282_Bolts_and_Nuts_Southdale__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__sbd_8__sbd8_profile.json
+?? app/data/form_profiles/6000080283_Consumables_Southdale__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__sbd_8__sbd8_profile.json
+?? app/data/form_profiles/6000080324_General_Supplies_2__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/Annec_C_-_RFQ_Doc_-_RF_Cables_FALE__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/Annec_C_-_RFQ_Doc_-_RF_Cables_FALE__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/Annec_C_-_RFQ_Doc_-_RF_Cables_FALE__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/Annec_C_-_RFQ_Doc_-_RF_Cables_FALE__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/Annec_C_-_RFQ_Doc_-_RF_Cables_FALE__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/Annec_C_-_RFQ_Doc_-_RF_Cables_FALE__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__authority_to_sign__authority_to_sign_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__municipal_mbd1_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/BID-DOCUMENT-_T20-2526_NOTICE_67-2526_SUPPLY_AND_DELIVERY_OF_TOILET_PAPER_AND_RELATED_ITEMS_FINAL__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__authority_to_sign__authority_to_sign_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/COM43-2026_SUPPLY_AND_DELIVERY_OF_BAKERY_EQUIPMENT_FOR_CoM__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Advert_1__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Advert__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__authority_to_sign__authority_to_sign_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/COM44-2026_SUPPLY_AND_FITMENT_OF_COMPACTOR_TRUCK_TYRES_FOR_CoM_-_Doc__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/GSDM57-2025_Supply_and_Delivery_of_discrete_analyser_Gallery_Plus_reagents_and_consumables_for_12_months_period_updated_close_tender__authority_to_sign__authority_to_sign_profile.json
+?? app/data/form_profiles/GSDM57-2025_Supply_and_Delivery_of_discrete_analyser_Gallery_Plus_reagents_and_consumables_for_12_months_period_updated_close_tender__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/GSDM57-2025_Supply_and_Delivery_of_discrete_analyser_Gallery_Plus_reagents_and_consumables_for_12_months_period_updated_close_tender__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/GSDM57-2025_Supply_and_Delivery_of_discrete_analyser_Gallery_Plus_reagents_and_consumables_for_12_months_period_updated_close_tender__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/GSDM57-2025_Supply_and_Delivery_of_discrete_analyser_Gallery_Plus_reagents_and_consumables_for_12_months_period_updated_close_tender__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/LMCP_Quotation_REF_26-876__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/LONG_TERM_LEASE_TENDERS__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/NC_24_2025_MAINTENANCE_OF_SECURITY_SYSTEMS_FOR_THREE_YEARS__authority_to_sign__authority_to_sign_profile.json
+?? app/data/form_profiles/NC_24_2025_MAINTENANCE_OF_SECURITY_SYSTEMS_FOR_THREE_YEARS__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/NC_24_2025_MAINTENANCE_OF_SECURITY_SYSTEMS_FOR_THREE_YEARS__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/NC_24_2025_MAINTENANCE_OF_SECURITY_SYSTEMS_FOR_THREE_YEARS__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/NC_24_2025_MAINTENANCE_OF_SECURITY_SYSTEMS_FOR_THREE_YEARS__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/NC_24_2025_MAINTENANCE_OF_SECURITY_SYSTEMS_FOR_THREE_YEARS__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/PAMun_Bid_Document_-_RFQ_54_2026_Streetlights_and_Spotlights__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/RFQ_20-2026_High_Mast__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/RFQ_20-2026_High_Mast__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/RFQ_20-2026_High_Mast__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/RFQ_20-2026_High_Mast__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/RFQ_20-2026_High_Mast__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/RFQ_20-2026_High_Mast__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/RFQ_20-2026_High_Mast__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/RFQ_22-2026_BLINDS__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/RFQ_22-2026_BLINDS__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/RFQ_22-2026_BLINDS__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/RFQ_22-2026_BLINDS__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/RFQ_22-2026_BLINDS__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/RFQ_22-2026_BLINDS__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/RFQ_22-2026_BLINDS__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/RFQ_4254__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/RFQ_4254__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/RFQ_4254__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/RFQ_4254__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/RFQ_4254__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/RFQ_Cylindrical_Filters__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/RFQ_Cylindrical_Filters__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/RFQ_Cylindrical_Filters__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/RFQ_Cylindrical_Filters__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/RFQ_Cylindrical_Filters__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__authority_to_sign__authority_to_sign_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__mbd_8__municipal_mbd8_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__mbd_9__municipal_mbd9_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__sbd_8__sbd8_profile.json
+?? app/data/form_profiles/SUPPLY_AND_DELIVERY_OF_CLEAR_AND_BLACK_REFUSE_BAGS_FANAL_MARCH_2026__sbd_9__sbd9_profile.json
+?? app/data/form_profiles/Sample_SBD__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/Sample_SBD__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/Sample_SBD__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/Sample_SBD__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/Sample_SBD__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/TENDER_03_2026__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/TOR_FOR_BOOKS__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/TOR_FOR_BOOKS__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/TOR_FOR_BOOKS__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/Tender_Document_-_Tendergate_Fencing_Material_PDF__authority_to_sign__authority_to_sign_profile.json
+?? app/data/form_profiles/Tender_Document_-_Tendergate_Fencing_Material_PDF__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/Tender_Document_-_Tendergate_Fencing_Material_PDF__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/Tender_Document_-_Tendergate_Fencing_Material_PDF__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/Tender_Document_-_Tendergate_Fencing_Material_PDF__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/Tender_Document_-_Tendergate_Fencing_Material_PDF__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/Tender_Document_-_Tendergate_Fencing_Material_PDF__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/Tender_document_-_HDAHO2026001_Appointment_of_Contractor_for_Removal_of_Asbestos_in_Nationally__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/Tender_document_-_HDAHO2026001_Appointment_of_Contractor_for_Removal_of_Asbestos_in_Nationally__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/Tender_document_-_HDAHO2026001_Appointment_of_Contractor_for_Removal_of_Asbestos_in_Nationally__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/Tender_document_-_HDAHO2026001_Appointment_of_Contractor_for_Removal_of_Asbestos_in_Nationally__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/Tender_document_for_Gym_Equipment_-__authority_to_sign__authority_to_sign_profile.json
+?? app/data/form_profiles/Tender_document_for_Gym_Equipment_-__mbd_1__municipal_mbd1_profile.json
+?? app/data/form_profiles/Tender_document_for_Gym_Equipment_-__mbd_4__municipal_mbd4_profile.json
+?? app/data/form_profiles/Tender_document_for_Gym_Equipment_-__pricing_schedule__pricing_schedule_profile.json
+?? app/data/form_profiles/Tender_document_for_Gym_Equipment_-__sbd_1__sbd1_profile.json
+?? app/data/form_profiles/Tender_document_for_Gym_Equipment_-__sbd_4__sbd4_profile.json
+?? app/data/form_profiles/Tender_document_for_Gym_Equipment_-__sbd_6_1__sbd6_1_profile.json
+?? app/data/form_profiles/authority_to_sign_profile.json
+?? app/data/form_profiles/mbombela_mbd_profile.json
+?? app/data/form_profiles/municipal_mbd1_profile.json
+?? app/data/form_profiles/municipal_mbd4_profile.json
+?? app/data/form_profiles/municipal_mbd8_profile.json
+?? app/data/form_profiles/municipal_mbd9_profile.json
+?? app/data/form_profiles/pricing_schedule_profile.json
+?? app/data/form_profiles/sbd1_profile.json
+?? app/data/form_profiles/sbd4_profile.json
+?? app/data/form_profiles/sbd6_1_profile.json
+?? app/data/form_profiles/sbd8_profile.json
+?? app/data/form_profiles/sbd9_profile.json
+?? app/data/handwriting_profiles.json
+?? app/data/harvest_intelligence.json
+?? app/data/harvest_sources.json
+?? app/data/rfq_memory.json
+?? app/data/source_intelligence.json
+?? app/main.py.backup_v50_7
+?? app/main.py.bak_mission_control_compat
+?? app/main.py.bak_pipeline_sync_20260503_003929
+?? app/main.py.bak_proof_history_20260503_095829
+?? app/main.py.bak_proof_submission_20260503_004609
+?? app/main.py.bak_submission_history_recent_20260502_180537
+?? app/main.py.bak_submission_history_recent_20260502_180546
+?? app/main.py.bak_submission_history_recent_20260502_181529
+?? app/services/README_STEP_2_INSTALL.md
+?? app/services/actual_email_send_service.py
+?? app/services/ai_signature_detector.py
+?? app/services/amount_quantity_integrity_validation_engine.py
+?? app/services/assisted_browser_v47_2_service.py
+?? app/services/audit_trail_service.py
+?? app/services/auto_multi_form_pipeline.py
+?? app/services/auto_pricing_v43_service.py
+?? app/services/auto_profile_generator.py
+?? app/services/auto_proof_after_submission_service.py
+?? app/services/auto_proof_after_submission_v2.py
+?? app/services/auto_quote_trigger_engine.py
+?? app/services/auto_submission_v46_service.py
+?? app/services/auto_submission_v46_service.py.backup
+?? app/services/autonomous_scheduler_service.py
+?? app/services/autonomous_submission_loop_service.py
+?? app/services/backend_intelligence_integration.py
+?? app/services/backend_intelligence_layer.py
+?? app/services/boq_cleanup_pipeline.py
+?? app/services/boq_row_routing_service.py
+?? app/services/buyer_form_population_service.py
+?? app/services/buyer_pdf_renderer_form_filler_service.py
+?? app/services/buyer_pricing_schedule_filler_service.py
+?? app/services/buyer_pricing_schedule_mapper_service.py
+?? app/services/clean_ink_extraction_v3.py
+?? app/services/clickable_navigation_v40_service.py
+?? app/services/column_realignment_engine.py
+?? app/services/continuation_merge_repair_engine.py
+?? app/services/csd_monthly_refresh_service.py
+?? app/services/csd_persistent_session_service.py
+?? app/services/decision_intelligence_engine.py
+?? app/services/decision_intelligence_service.py
+?? app/services/decision_learning_store.py
+?? app/services/deep_rfq_link_extractor_v37_service.py
+?? app/services/deep_verification_v47_7_service.py
+?? app/services/detail_page_follow_v49_1_service.py
+?? app/services/email_submission_preparation_service.py
+?? app/services/email_submission_service.py.bak_auto_proof_20260503_094130
+?? app/services/etenders_ajax_datatables_resolver_v50_8_1_service.py
+?? app/services/etenders_browser_download_interceptor_v50_9_3_service.py
+?? app/services/etenders_browser_download_interceptor_v50_9_3_service.py.backup
+?? app/services/etenders_document_download_v50_9_service.py
+?? app/services/etenders_document_mapping_resolver_v50_9_7_service.py
+?? app/services/etenders_document_url_reconstruction_v50_8_2_service.py
+?? app/services/etenders_dom_modal_autoclick_v50_9_4_service.corrected.py
+?? app/services/etenders_dom_modal_autoclick_v50_9_4_service.py
+?? app/services/etenders_dom_modal_autoclick_v50_9_4_service.py.backup_before_currently_advertised
+?? app/services/etenders_dom_modal_autoclick_v50_9_4_service.py.backup_before_forced_datatables
+?? app/services/etenders_dom_trigger_forced_click_v50_9_5_service.py
+?? app/services/etenders_download_replay_reconstruction_v50_9_8_service.py
+?? app/services/etenders_hidden_api_discovery_v50_9_6_service.py
+?? app/services/etenders_local_filter_v50_8_5_service.py
+?? app/services/etenders_local_filter_v50_8_5_service.py.backup_v50_8_5
+?? app/services/etenders_persistent_session_service.py
+?? app/services/etenders_playwright.py
+?? app/services/etenders_real_detail_navigation_v50_7_service.py
+?? app/services/etenders_runtime_download_interceptor_v50_9_9.py
+?? app/services/etenders_status_enumerator_v50_8_4_service.py
+?? app/services/etenders_structured_json_parser_v50_8_3_service.py
+?? app/services/etenders_submission_v1_service.py
+?? app/services/etenders_support_document_download_v50_9_2_service.py
+?? app/services/etenders_tender_download_correlation_v50_9_10.py
+?? app/services/etenders_tender_download_correlation_v50_9_10.py.backup
+?? app/services/etenders_tenderdetails_json_v50_9_1_service.py
+?? app/services/etenders_web_parser.py
+?? app/services/final_automation_layer_service.py
+?? app/services/final_boq_row_normalization_engine.py
+?? app/services/final_output_builder_service.py
+?? app/services/final_submission_v47_5_service.py.backup
+?? app/services/frontend/
+?? app/services/full_autonomous_cycle_service.py
+?? app/services/full_autonomous_cycle_service.py.bak_auto_proof_20260503_094130
+?? app/services/full_autonomous_cycle_service.py.bak_before_remove_test_mode
+?? app/services/full_autonomous_cycle_service.py.bak_safe_pricing_v2_20260503_102529
+?? app/services/full_autonomous_v48_service.py
+?? app/services/full_autonomous_v48_service.py.backup
+?? app/services/go_live_guard_service.py
+?? app/services/handwriting_field_detector_service.py
+?? app/services/handwriting_form_overlay_service.py
+?? app/services/handwriting_full_auto_service.py
+?? app/services/handwriting_glyph_service.py
+?? app/services/handwriting_line_ink_v5.py
+?? app/services/handwriting_pen_flow_v8.py
+?? app/services/handwriting_service.py
+?? app/services/handwriting_signature_engine.py
+?? app/services/handwriting_simulation_service.py
+?? app/services/handwriting_thickness_normalizer_v7.py
+?? app/services/handwriting_v4_dynamic_writer.py
+?? app/services/interactive_click_deep_extraction_v38_service.py
+?? app/services/interactive_playwright_extractor_v36_service.py
+?? app/services/live_browser_attach_v47_3_service.py
+?? app/services/live_event_examples.py
+?? app/services/navigation_intelligence_v41_service.py
+?? app/services/operator_action_service.py
+?? app/services/pdf_stamp_injector.py
+?? app/services/pipeline_enforcement_service.py
+?? app/services/playwright_live_dom_extractor_v35_service.py
+?? app/services/portal_form_autofill_v47_1_service.py
+?? app/services/portal_form_autofill_v47_1_service.py.backup
+?? app/services/portal_submission_service.py.backup_before_production_lock_20260504_214857
+?? app/services/portal_submission_v47_service.py
+?? app/services/portal_upload_service.py
+?? app/services/pricing_engine_v2_realistic.py
+?? app/services/pricing_table_extraction_v42_service.py
+?? app/services/priority_engine.py
+?? app/services/production_lock_service.py
+?? app/services/proof_center_service.py
+?? app/services/proof_of_submission_service.py
+?? app/services/proof_of_submission_service.py.backup
+?? app/services/quote_engine_live_events.py
+?? app/services/quote_engine_service.py
+?? app/services/quote_pack_builder_service.py
+?? app/services/quote_pack_v44_service.py
+?? app/services/quote_pricing_engine_service.py
+?? app/services/real_buyer_pricing_engine.py
+?? app/services/real_portal_rfq_extraction_v33_service.py
+?? app/services/real_profit_pricing_service.py
+?? app/services/real_rfq_detail_navigation_v49_service.py
+?? app/services/real_rfq_extractor_v32_service.py
+?? app/services/real_rfq_harvester_v32_service.py
+?? app/services/retry_engine_service.py
+?? app/services/rfq_ai_scoring_service.py
+?? app/services/rfq_boq_extraction_engine.py
+?? app/services/rfq_document_acquisition_engine.py
+?? app/services/rfq_document_acquisition_engine.py.bak_js_sanitizer
+?? app/services/rfq_document_intelligence.py
+?? app/services/rfq_docx_main_document_intelligence.py
+?? app/services/rfq_lifecycle_service.py
+?? app/services/rfq_memory_engine.py
+?? app/services/rfq_recovery_service.py
+?? app/services/rfq_state_store.py
+?? app/services/rfq_zip_content_extraction_engine.py
+?? app/services/safe_autonomous_scheduler_service.py
+?? app/services/safe_autonomous_scheduler_service.py.backup_before_real_profit_20260505_001636
+?? app/services/safe_autonomous_scheduler_service.py.backup_before_real_rfq_filter_20260505_003814
+?? app/services/safe_autonomous_scheduler_service.py.backup_before_strict_supply_20260505_002434
+?? app/services/sbd_auto_completion_service.py
+?? app/services/sbd_auto_detection_engine.py
+?? app/services/sbd_completion_engine.py
+?? app/services/sbd_docx_field_completion_engine.py
+?? app/services/sbd_field_mapping_engine_v20.py
+?? app/services/sbd_intelligence_api.py
+?? app/services/sbd_precision_engine_v19.py
+?? app/services/security_guard_service.py
+?? app/services/self_healing_autonomous_engine.py
+?? app/services/self_healing_service.py
+?? app/services/smart_harvester_v31_service.py
+?? app/services/smart_rfq_detection_service.py
+?? app/services/smart_upload_v47_4_service.py
+?? app/services/smart_upload_v47_4_service.py.backup
+?? app/services/smtp_preflight_service.py
+?? app/services/stamp_service.py
+?? app/services/structured_rfq_extractor_v34_service.py
+?? app/services/submission_analytics_service.py
+?? app/services/submission_history_pipeline_sync_service.py
+?? app/services/submission_history_proof_enrichment_service.py
+?? app/services/submission_history_recent_service.py
+?? app/services/submission_history_service.py
+?? app/services/submission_log_dashboard_service.py
+?? app/services/submission_pack_assembler_service.py
+?? app/services/submission_pack_v45_service.py
+?? app/services/submission_proof_artifact_service.py
+?? app/services/submission_retry_service.py
+?? app/services/submission_scheduler_service.py
+?? app/services/submission_verification_v47_6_service.py
+?? app/services/supplier_auto_rfq_service.py
+?? app/services/system_control_service.py
+?? app/services/system_state_service.py
+?? app/services/tender_form_intelligence_engine.py
+?? app/services/tender_harvester.py.backup
+?? app/services/tender_harvester.py.backup_v50_7
+?? app/services/tender_harvester.py.bak_real_rfq_gate_20260506_205958
+?? app/services/tender_pipeline.py.backup
+?? app/services/tender_pipeline.py.bak
+?? app/services/tender_pipeline.py.bak_auto_proof_v2_20260503_120700
+?? app/services/tender_pipeline.py.bak_before_remove_test_mode
+?? app/services/tender_pipeline.py.bak_pricing_v2_20260503_101824
+?? app/services/tender_pipeline.py.broken_before_safe_restore_20260503_102529
+?? app/services/tender_pipeline.py.broken_indent_20260503_102133
+?? app/services/true_etenders_detail_resolution_v50_8_service.py
+?? app/services/true_navigation_extraction_v39_service.py
+?? app/services/upload_dry_run_service.py
+?? app/services/upload_dry_run_service.py.backup
+?? app/services/v47_live_browser_attach_service.py
+?? app/services/verified_rfq_promotion_gate_v50_7_service.py
+?? app/services/websocket_broker.py
+?? app/services/~$nder_pipeline.py.ignored
+?? app/tasks/
+?? app_services_tender_pipeline_item_preservation_fix.py
+?? apply_real_rfq_detection_filter.py
+?? apply_strict_supply_filter_to_scheduler.py
+?? authority_to_sign_profile.json
+?? backfill_submission_profit.py
+?? backup_system.sh
+?? deploy/deployment_readiness_check.sh
+?? deploy/launch_24_7.sh
+?? docs/backend_consolidation_audit.md
+?? enable_v48_full_autonomous_policy.py
+?? etenders_login_prefilled.png
+?? fresh_captcha.png
+?? frontend/src/App.jsx.bak
+?? "frontend/src/INTEGRATION_GUIDE copy 2.md"
+?? "frontend/src/INTEGRATION_GUIDE copy 3.md"
+?? "frontend/src/INTEGRATION_GUIDE copy 4.md"
+?? "frontend/src/INTEGRATION_GUIDE copy 5.md"
+?? "frontend/src/INTEGRATION_GUIDE copy.md"
+?? frontend/src/INTEGRATION_GUIDE.md
+?? frontend/src/LiveMissionMetricsPanel.jsx
+?? frontend/src/PATCH_SCHEDULER.txt
+?? "frontend/src/README copy 2.txt"
+?? "frontend/src/README copy.md"
+?? "frontend/src/README copy.txt"
+?? frontend/src/README.md
+?? frontend/src/README.txt
+?? frontend/src/README_ONOFF_UPDATE.md
+?? frontend/src/README_STEP1.md
+?? frontend/src/README_STEP6.md
+?? frontend/src/README_STEP_5.txt
+?? frontend/src/SubmissionControlActions.jsx
+?? frontend/src/SystemControlPanel.jsx
+?? frontend/src/components/shared/
+?? frontend/src/data/missionControlData.js
+?? frontend/src/frontend/
+?? frontend/src/hooks/useLiveTenderStream.js
+?? frontend/src/hooks/usePipelineActivity.js
+?? frontend/src/hooks/useRealtimeWebSocket.js
+?? frontend/src/interactive_playwright_extractor_v36_api.py
+?? frontend/src/liveMissionMetrics.js
+?? frontend/src/lock_backend_production.py
+?? frontend/src/pages/SubmissionControlPage.jsx
+?? frontend/src/scripts/
+?? frontend/src/services/SafeModeToggle.jsx
+?? frontend/src/services/alert_live_events.py
+?? frontend/src/services/auditTrailApi.js
+?? frontend/src/services/autonomousCycle.js
+?? frontend/src/services/commandWallApi.js
+?? frontend/src/services/decision_intelligence_service.py
+?? frontend/src/services/liveAutoRefresh.js
+?? frontend/src/services/liveDashboardAlertsService.js
+?? frontend/src/services/liveMissionMetrics.js
+?? frontend/src/services/liveSystemApi.js
+?? frontend/src/services/lmcpApi.js
+?? frontend/src/services/missionControlApi.js
+?? frontend/src/services/operatorActionsApi.js
+?? frontend/src/services/portal_form_autofill_v47_1_service.py
+?? frontend/src/services/portal_health_live_events.py
+?? frontend/src/services/proofCenterService.js
+?? frontend/src/services/proofDownloadService.js
+?? frontend/src/services/proofService.js
+?? frontend/src/services/proof_center_service.py
+?? frontend/src/services/quote_engine_live_events.py
+?? frontend/src/services/realtimeWebSocket.js
+?? frontend/src/services/restore_pipeline_apply_pricing_v2_safely.py
+?? frontend/src/services/safe_autonomous_scheduler_api.py
+?? frontend/src/services/safe_autonomous_scheduler_service.py
+?? frontend/src/services/self_clean_archive_service.py
+?? frontend/src/services/submissionControlApi.js
+?? frontend/src/services/systemControl.js
+?? frontend/src/services/systemControlApi.js
+?? frontend/src/services/v48AutonomousPolicy.js
+?? frontend/src/services/websocketFeed.js
+?? frontend/src/styles/
+?? frontend/src/tasks/
+?? lmcp-frontend/
+?? lmcp-preview/
+?? lmcp_v21_1_real_ink_field_locator/
+?? lmcp_v21_2_sbd_autofill_engine/
+?? lmcp_v21_3_training_map_engine/
+?? lmcp_v21_4_glyph_handwriting_engine/
+?? lmcp_v21_5_real_handwriting_engine/
+?? lmcp_v21_6_rendering_fix_engine/
+?? lmcp_v21_7_full_handwriting_composer/
+?? lmcp_v21_9_realism_engine/
+?? lmcp_v21_handwriting_engine/
+?? lmcp_v22_1_baseline_lock_engine/
+?? lmcp_v22_2_true_ink_engine/
+?? lmcp_v40_clickable_navigation_extractor/
+?? lmcp_v41_navigation_intelligence/
+?? lmcp_v42_pricing_table_extraction/
+?? lmcp_v43_auto_pricing_engine/
+?? lmcp_v44_quote_pack_generator/
+?? lmcp_v45_pdf_submission_prep/
+?? lmcp_v46_auto_submission_engine/
+?? lmcp_v47_1_portal_form_autofill/
+?? lmcp_v47_2_assisted_browser_automation/
+?? lmcp_v47_3_attach_live_browser/
+?? lmcp_v47_4_smart_upload_engine/
+?? lmcp_v47_5_guarded_final_submission/
+?? lmcp_v47_7_deep_verification_audit/
+?? lmcp_v47_portal_submission_engine/
+?? lmcp_v48_full_autonomous_orchestrator/
+?? lmcp_v50_7_etenders_detail_and_promotion/
+?? lmcp_v50_8_1_etenders_ajax_datatables_resolver/
+?? lmcp_v50_8_2_etenders_document_url_reconstruction/
+?? lmcp_v50_8_3_etenders_structured_json_parser/
+?? lmcp_v50_8_4_etenders_status_enumerator/
+?? lmcp_v50_8_5_etenders_local_filter_engine/
+?? lmcp_v50_8_6_etenders_local_filter_dedup/
+?? lmcp_v50_8_true_etenders_detail_resolution/
+?? lmcp_v50_9_10_tender_download_correlation/
+?? lmcp_v50_9_1_tenderdetails_json_parser/
+?? lmcp_v50_9_2_support_document_download/
+?? lmcp_v50_9_3_browser_download_interceptor/
+?? lmcp_v50_9_3_cdp_host_header_patch/
+?? lmcp_v50_9_4_dom_modal_autoclick/
+?? lmcp_v50_9_5_dom_trigger_forced_click/
+?? lmcp_v50_9_6_hidden_api_discovery/
+?? lmcp_v50_9_7_tender_document_mapping_resolver/
+?? lmcp_v50_9_8_download_replay_reconstruction/
+?? lmcp_v50_9_9_runtime_download_interceptor/
+?? lmcp_v50_9_document_download_engine/
+?? login_etenders.py
+?? login_etenders_real_chrome.py
+?? manual_debug.html
+?? manual_debug.png
+?? package-lock.json
+?? patch_auto_generate_proof_after_submission.py
+?? patch_final_pipeline_production.py
+?? patch_main_add_proof_of_submission.py
+?? patch_main_add_submission_history_pipeline_sync.py
+?? patch_main_add_submission_history_proof_enrichment.py
+?? patch_main_add_submission_history_recent.py
+?? patch_tender_pipeline_auto_proof_v2.py
+?? patch_tender_pipeline_pricing_v2.py
+?? post_login.html
+?? post_login.png
+?? post_login2.html
+?? rc/
+?? remove_test_mode_systemwide.py
+?? repair_pricing_v2_indent.py
+?? restore_pipeline_apply_pricing_v2_safely.py
+?? run_v19_precision_test.sh
+?? run_v19_precision_test_fixed.sh
+?? run_v20_1_1_coordinate_fix_test.sh
+?? run_v20_1_clean_writer_test.sh
+?? run_v20_field_mapping_test.sh
+?? sample_submission_payload.json
+?? save_etenders_login_state.py
+?? save_etenders_state.py
+?? scripts/activate_portal_automation.py
+?? scripts/activate_profit_engine_policy.py
+?? submit_etenders_with_proof.py
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_accounting.sageone.co.za__Statement_-_MAN006_Manaba_LM_Innovative_Instruction.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_dcs.gov.za__RFT-T078-26_STANDARD_BIDDING_FORM.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_dhet.gov.za__DHET078_2026.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_fshs.gov.za__Outlook-4ekkeea1.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_mail.tcrec.co.za__779968427_000876863692.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_marketdirect.co.za__Market_Direct_Square_-_LOGO.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_me.com__new_CSD_report_04_9.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_purcosa.co.za__image001.gif
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_sampra.org.za__PAR049_04_2026_Statement.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_sars.gov.za__image001.jpg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_sars.gov.za__image001_1.jpg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_sars.gov.za__image001_2.jpg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_shegroup.co.za__image001.jpg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_wrseta.org.za__image001.jpg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_wrseta.org.za__image001_1.jpg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_wrseta.org.za__image001_2.jpg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_1_wrseta.org.za__image001_3.jpg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_fshs.gov.za__HS-B03_2025-2026_3GB-5GB.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_marketdirect.co.za__TolaTenderPro_-_Construction_Subcontractors_-_Square.jpeg
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_purcosa.co.za__image002.gif
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_sampra.org.za__FNB_Bank_Confirmation_Letter.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_sars.gov.za__image002.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_sars.gov.za__image002_1.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_sars.gov.za__image002_2.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_shegroup.co.za__image002.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_wrseta.org.za__image002.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_wrseta.org.za__image002_1.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_wrseta.org.za__image002_2.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_2_wrseta.org.za__image002_3.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_3_purcosa.co.za__image003.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_3_sars.gov.za__LECHESA_DOP_AGREEMENT.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_3_sars.gov.za__LECHESA_DOP_AGREEMENT_1.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_3_shegroup.co.za__image003.png
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_4_purcosa.co.za__PU7215-184_Outcome_Letter.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_4_shegroup.co.za__KM_Mosweu_CV_280725.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_5_shegroup.co.za__KM_Mosweu_CV_250625_ECO_Project_Values.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_6_shegroup.co.za__Kuni_Mosweu_EAPASA_2020_2956.pdf
+?? supplier_quotes/unmatched_supplier_quotes/unmatched_supplier_quote_7_shegroup.co.za__Kuni_Mosweu_Certificates.pdf
+?? system_lock_ACTIVE_UPLOAD.py
+?? tender_pipeline_ACTIVE_UPLOAD.py
+?? test_auto_multi_form_pipeline.py
+?? test_direct_signature.py
+?? test_live_email.py
+?? test_live_submission_email.py
+?? test_mbd4_profile.py
+?? test_pipeline_with_buyer_docs.py
+?? test_sbd_auto_detection.py
+?? test_signatures.py
+?? test_stamp_integration.py
+?? truncate
+?? wire_production_lock_into_portal_submission.py
+?? wire_real_profit_pricing_into_scheduler.py

@@ -1,0 +1,12 @@
+{
+  "default_profile": "lmcp_director",
+  "profiles": {
+    "lmcp_director": {
+      "full_name_image": "app/assets/handwriting/lechesa_manaba.png",
+      "initials_image": "app/assets/handwriting/lm_initials.png",
+      "witness_1_name_image": "app/assets/handwriting/nobuhle_cath.png",
+      "witness_2_name_image": "app/assets/handwriting/charlie_champion_moeng.png",
+      "digit_folder": "app/assets/handwriting/digits"
+    }
+  }
+}

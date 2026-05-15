@@ -1,82 +1,14 @@
-import json
+from __future__ import annotations
+
+import io
 import os
 import re
-import subprocess
-import tempfile
-import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import BooleanObject, NameObject
-
-from docx import Document
-from docx.shared import Inches
-
-from openpyxl import load_workbook
-from openpyxl.drawing.image import Image as XLImage
-
-from reportlab.lib.colors import black, white
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
-
-
-DEFAULT_OUTPUT_DIR = "runtime/generated_forms"
-DEFAULT_PROFILE_DIR = "app/data/form_profiles"
-
-
-@dataclass
-class PDFFieldCoordinate:
-    page: int
-    x: float
-    y: float
-    width: Optional[float] = None
-    height: Optional[float] = None
-    font_size: int = 10
-    multiline: bool = False
-    whiteout: bool = True
-    whiteout_padding: float = 2.0
-    max_lines: Optional[int] = None
-    align: str = "left"
-
-
-@dataclass
-class SignatureCoordinate:
-    page: int
-    x: float
-    y: float
-    width: float
-    height: float
-
-
-@dataclass
-class AnchorRule:
-    field_name: str
-    anchor_text: str
-    page: Optional[int] = None
-    x_offset: float = 0.0
-    y_offset: float = 0.0
-    width: Optional[float] = None
-    height: Optional[float] = None
-    font_size: int = 10
-    multiline: bool = False
-    whiteout: bool = True
-    whiteout_padding: float = 2.0
-    match_mode: str = "contains"
-    max_lines: Optional[int] = None
-    align: str = "left"
-
-
-@dataclass
-class FormProfile:
-    name: str
-    template_type: str
-    field_aliases: Dict[str, List[str]] = field(default_factory=dict)
-    pdf_coordinates: Dict[str, PDFFieldCoordinate] = field(default_factory=dict)
-    anchor_rules: List[AnchorRule] = field(default_factory=list)
-    signature_coordinates: Optional[SignatureCoordinate] = None
-    docx_signature_placeholder: Optional[str] = None
-    xlsx_signature_anchor: Optional[str] = None
 
 
 class UniversalFormFillerError(Exception):
@@ -85,478 +17,598 @@ class UniversalFormFillerError(Exception):
 
 class UniversalFormFiller:
     """
-    Hybrid universal form filler.
+    Multi-signature relaxed precision mode.
 
-    PDF priority:
-    1. Editable PDF form fields
-    2. Anchor-based overlay placement
-    3. Coordinate-based overlay placement
-
-    DOCX / XLSX:
-    - placeholder replacement
-    - optional signature insertion
-    - optional PDF conversion through LibreOffice
+    Goals:
+    - keep working text-fill layer
+    - detect more real signature rows across the whole PDF
+    - still avoid random floating placements
+    - allow relaxed matching for dotted/underscored lines near signature labels
     """
 
-    def __init__(
-        self,
-        output_dir: str = DEFAULT_OUTPUT_DIR,
-        profile_dir: str = DEFAULT_PROFILE_DIR,
-        libreoffice_binary: str = "soffice",
-    ) -> None:
-        self.output_dir = Path(output_dir)
-        self.profile_dir = Path(profile_dir)
-        self.libreoffice_binary = libreoffice_binary
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+    TEXT_FIELD_MAP = {
+        "name of bidder": ["name_of_bidder", "bidder_name", "company_name", "client_name"],
+        "name of tenderer": ["name_of_bidder", "bidder_name", "company_name", "client_name"],
+        "surname and name": ["surname_and_name", "director_name", "signatory_name"],
+        "name": ["surname_and_name", "director_name", "signatory_name", "name_of_bidder"],
+        "capacity": ["capacity", "designation", "position"],
+        "designation": ["designation", "capacity", "position"],
+        "position": ["position", "designation", "capacity"],
+        "email": ["email", "email_address"],
+        "email address": ["email_address", "email"],
+        "telephone": ["telephone", "phone", "cellphone_number"],
+        "tel": ["telephone", "phone", "cellphone_number"],
+        "cell": ["cellphone_number", "telephone"],
+        "mobile": ["cellphone_number", "telephone"],
+        "postal address": ["postal_address", "address", "street_address"],
+        "physical address": ["street_address", "address", "postal_address"],
+        "address": ["address", "street_address", "postal_address"],
+        "tax reference number": ["tax_reference_number", "tcs_pin"],
+        "sars pin tax reference number": ["tcs_pin", "tax_reference_number"],
+        "csd registration number": ["csd_number", "csd_registration_number"],
+        "date": ["date_signed"],
+        "date signed": ["date_signed"],
+        "place": ["signed_place", "address"],
+    }
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
+    DIRECTOR_ALLOWED_LABELS = {
+        "signature",
+        "signature:",
+        "signature of bidder",
+        "signature of bidder:",
+        "signature of tenderer",
+        "signature of tenderer:",
+        "signature(s) of tenderer(s)",
+        "signature(s) of tenderer(s):",
+        "signature(s) of tenderers",
+        "bidder signature",
+        "tenderer signature",
+        "tenderer's signature",
+        "tenderers signature",
+        "authorized signature",
+        "authorised signature",
+        "signature of official responsible for completing assessment form",
+        "deponent signature",
+        "applicant signature",
+        "sign here",
+    }
+
+    WITNESS_1_ALLOWED_LABELS = {
+        "witness 1",
+        "witness1",
+        "first witness",
+        "signature of witness 1",
+        "signature of first witness",
+    }
+
+    WITNESS_2_ALLOWED_LABELS = {
+        "witness 2",
+        "witness2",
+        "second witness",
+        "signature of witness 2",
+        "signature of second witness",
+    }
+
+    BODY_TEXT_BLOCKERS = [
+        "all pages must be signed",
+        "signed where necessary",
+        "must be completed and signed",
+        "completed and signed bid document",
+        "signed copies",
+        "failure to complete and submit",
+        "signing of documents",
+        "period of validity",
+        "digitally signed",
+        "must remain valid",
+        "bids submitted are to hold good",
+        "the bid document must be completed",
+    ]
+
+    LINE_PATTERNS = [
+        r"\.{5,}",
+        r"_{5,}",
+        r"-{5,}",
+        r"={5,}",
+        r"~{5,}",
+    ]
+
+    def __init__(self, output_dir: str = "runtime/generated_forms") -> None:
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def fill_form(
         self,
         input_path: str,
         data: Dict[str, Any],
-        output_basename: Optional[str] = None,
-        profile_name: Optional[str] = None,
         signature_path: Optional[str] = None,
-        convert_to_pdf: bool = True,
+        witness_1_signature_path: Optional[str] = None,
+        witness_2_signature_path: Optional[str] = None,
+        handwriting_sample_path: Optional[str] = None,
+        enable_handwriting: bool = False,
+        convert_to_pdf: bool = False,
     ) -> Dict[str, Any]:
-        input_file = Path(input_path)
-        if not input_file.exists():
+        if not os.path.exists(input_path):
             raise UniversalFormFillerError(f"Input file not found: {input_path}")
 
-        ext = input_file.suffix.lower()
-        profile = self._load_profile(profile_name) if profile_name else None
+        output_path = str(self.output_dir / "filled_output.pdf")
 
-        safe_basename = output_basename or f"{input_file.stem}_filled_{uuid.uuid4().hex[:8]}"
-        safe_basename = self._sanitize_filename(safe_basename)
-
-        if ext == ".pdf":
-            filled_path = self.output_dir / f"{safe_basename}.pdf"
-            result = self._fill_pdf(
-                input_path=str(input_file),
-                output_path=str(filled_path),
-                data=data,
-                profile=profile,
-                signature_path=signature_path,
-            )
-            return {
-                "status": "success",
-                "input_path": str(input_file),
-                "output_path": str(filled_path),
-                "output_pdf_path": str(filled_path),
-                "details": result,
-            }
-
-        if ext == ".docx":
-            filled_docx_path = self.output_dir / f"{safe_basename}.docx"
-            self._fill_docx(
-                input_path=str(input_file),
-                output_path=str(filled_docx_path),
-                data=data,
-                profile=profile,
-                signature_path=signature_path,
-            )
-
-            output_pdf_path = None
-            if convert_to_pdf:
-                output_pdf_path = self._convert_office_to_pdf(str(filled_docx_path))
-
-            return {
-                "status": "success",
-                "input_path": str(input_file),
-                "output_path": str(filled_docx_path),
-                "output_pdf_path": output_pdf_path,
-                "details": {
-                    "type": "docx",
-                    "converted_to_pdf": bool(output_pdf_path),
-                },
-            }
-
-        if ext in {".xlsx", ".xlsm"}:
-            filled_xlsx_path = self.output_dir / f"{safe_basename}.xlsx"
-            self._fill_xlsx(
-                input_path=str(input_file),
-                output_path=str(filled_xlsx_path),
-                data=data,
-                profile=profile,
-                signature_path=signature_path,
-            )
-
-            output_pdf_path = None
-            if convert_to_pdf:
-                output_pdf_path = self._convert_office_to_pdf(str(filled_xlsx_path))
-
-            return {
-                "status": "success",
-                "input_path": str(input_file),
-                "output_path": str(filled_xlsx_path),
-                "output_pdf_path": output_pdf_path,
-                "details": {
-                    "type": "xlsx",
-                    "converted_to_pdf": bool(output_pdf_path),
-                },
-            }
-
-        raise UniversalFormFillerError(
-            f"Unsupported file type: {ext}. Supported: .pdf, .docx, .xlsx, .xlsm"
-        )
-
-    # ------------------------------------------------------------------
-    # Profile loading
-    # ------------------------------------------------------------------
-
-    def _load_profile(self, profile_name: str) -> FormProfile:
-        profile_path = self.profile_dir / profile_name
-        if not profile_path.exists():
-            raise UniversalFormFillerError(f"Profile not found: {profile_path}")
-
-        with open(profile_path, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-
-        pdf_coordinates: Dict[str, PDFFieldCoordinate] = {}
-        for key, value in raw.get("pdf_coordinates", {}).items():
-            pdf_coordinates[key] = PDFFieldCoordinate(
-                page=int(value["page"]),
-                x=float(value["x"]),
-                y=float(value["y"]),
-                width=float(value["width"]) if value.get("width") is not None else None,
-                height=float(value["height"]) if value.get("height") is not None else None,
-                font_size=int(value.get("font_size", 10)),
-                multiline=bool(value.get("multiline", False)),
-                whiteout=bool(value.get("whiteout", True)),
-                whiteout_padding=float(value.get("whiteout_padding", 2.0)),
-                max_lines=int(value["max_lines"]) if value.get("max_lines") is not None else None,
-                align=str(value.get("align", "left")),
-            )
-
-        anchor_rules: List[AnchorRule] = []
-        for item in raw.get("anchor_rules", []):
-            anchor_rules.append(
-                AnchorRule(
-                    field_name=item["field_name"],
-                    anchor_text=item["anchor_text"],
-                    page=int(item["page"]) if item.get("page") is not None else None,
-                    x_offset=float(item.get("x_offset", 0.0)),
-                    y_offset=float(item.get("y_offset", 0.0)),
-                    width=float(item["width"]) if item.get("width") is not None else None,
-                    height=float(item["height"]) if item.get("height") is not None else None,
-                    font_size=int(item.get("font_size", 10)),
-                    multiline=bool(item.get("multiline", False)),
-                    whiteout=bool(item.get("whiteout", True)),
-                    whiteout_padding=float(item.get("whiteout_padding", 2.0)),
-                    match_mode=str(item.get("match_mode", "contains")),
-                    max_lines=int(item["max_lines"]) if item.get("max_lines") is not None else None,
-                    align=str(item.get("align", "left")),
-                )
-            )
-
-        signature_coordinates = None
-        sig = raw.get("signature_coordinates")
-        if sig:
-            signature_coordinates = SignatureCoordinate(
-                page=int(sig["page"]),
-                x=float(sig["x"]),
-                y=float(sig["y"]),
-                width=float(sig["width"]),
-                height=float(sig["height"]),
-            )
-
-        return FormProfile(
-            name=raw["name"],
-            template_type=raw.get("template_type", "generic"),
-            field_aliases=raw.get("field_aliases", {}),
-            pdf_coordinates=pdf_coordinates,
-            anchor_rules=anchor_rules,
-            signature_coordinates=signature_coordinates,
-            docx_signature_placeholder=raw.get("docx_signature_placeholder"),
-            xlsx_signature_anchor=raw.get("xlsx_signature_anchor"),
-        )
-
-    # ------------------------------------------------------------------
-    # PDF filling
-    # ------------------------------------------------------------------
-
-    def _fill_pdf(
-        self,
-        input_path: str,
-        output_path: str,
-        data: Dict[str, Any],
-        profile: Optional[FormProfile] = None,
-        signature_path: Optional[str] = None,
-    ) -> Dict[str, Any]:
         reader = PdfReader(input_path)
-        fields = self._extract_pdf_fields(reader)
-
-        if fields:
-            return self._fill_editable_pdf(
-                reader=reader,
-                output_path=output_path,
-                fields=fields,
-                data=data,
-                profile=profile,
-                signature_path=signature_path,
-            )
-
-        if profile and profile.anchor_rules:
-            try:
-                return self._fill_anchor_pdf(
-                    reader=reader,
-                    output_path=output_path,
-                    data=data,
-                    profile=profile,
-                    signature_path=signature_path,
-                )
-            except UniversalFormFillerError:
-                pass
-
-        if profile and profile.pdf_coordinates:
-            return self._fill_coordinate_pdf(
-                reader=reader,
-                output_path=output_path,
-                data=data,
-                profile=profile,
-                signature_path=signature_path,
-            )
-
-        raise UniversalFormFillerError(
-            "PDF has no editable fields and no anchor_rules or pdf_coordinates were provided."
-        )
-
-    def _extract_pdf_fields(self, reader: PdfReader) -> Dict[str, Any]:
-        try:
-            return reader.get_fields() or {}
-        except Exception:
-            return {}
-
-    def _fill_editable_pdf(
-        self,
-        reader: PdfReader,
-        output_path: str,
-        fields: Dict[str, Any],
-        data: Dict[str, Any],
-        profile: Optional[FormProfile],
-        signature_path: Optional[str],
-    ) -> Dict[str, Any]:
         writer = PdfWriter()
-        resolved_field_map = self._build_pdf_field_map(fields, data, profile)
-
         for page in reader.pages:
             writer.add_page(page)
-
-        for page_num, page in enumerate(writer.pages):
-            page_updates = {}
-            for pdf_field_name, field_value in resolved_field_map.items():
-                field_pages = self._find_pdf_field_pages(reader, pdf_field_name)
-                if page_num in field_pages:
-                    page_updates[pdf_field_name] = str(field_value)
-
-            if page_updates:
-                writer.update_page_form_field_values(page, page_updates)
-
-        if "/AcroForm" in reader.trailer["/Root"]:
-            writer._root_object.update(
-                {NameObject("/AcroForm"): reader.trailer["/Root"]["/AcroForm"]}
-            )
-            try:
-                writer._root_object["/AcroForm"].update(
-                    {NameObject("/NeedAppearances"): BooleanObject(True)}
-                )
-            except Exception:
-                pass
 
         with open(output_path, "wb") as f:
             writer.write(f)
 
-        if signature_path and profile and profile.signature_coordinates:
-            self._stamp_signature_on_pdf(
-                input_pdf=output_path,
-                output_pdf=output_path,
-                signature_path=signature_path,
-                signature_coordinates=profile.signature_coordinates,
-            )
+        text_fill_count = self._fill_text_fields(
+            input_pdf_path=output_path,
+            output_pdf_path=output_path,
+            data=data,
+        )
 
-        return {
-            "type": "editable_pdf",
-            "field_count": len(fields),
-            "mapped_fields": resolved_field_map,
-        }
-
-    def _find_pdf_field_pages(self, reader: PdfReader, target_name: str) -> List[int]:
-        matches = []
-        for page_index, page in enumerate(reader.pages):
-            annotations = page.get("/Annots", [])
-            for annot_ref in annotations:
-                annot = annot_ref.get_object()
-                if annot.get("/T") == target_name:
-                    matches.append(page_index)
-        return matches
-
-    def _build_pdf_field_map(
-        self,
-        pdf_fields: Dict[str, Any],
-        data: Dict[str, Any],
-        profile: Optional[FormProfile],
-    ) -> Dict[str, Any]:
-        result = {}
-        aliases = profile.field_aliases if profile else {}
-        normalized_data = {self._normalize_key(k): v for k, v in data.items()}
-
-        for pdf_field_name in pdf_fields.keys():
-            normalized_pdf_field = self._normalize_key(pdf_field_name)
-            matched_value = None
-
-            if normalized_pdf_field in normalized_data:
-                matched_value = normalized_data[normalized_pdf_field]
-            else:
-                for data_key, alias_list in aliases.items():
-                    if normalized_pdf_field in [self._normalize_key(a) for a in alias_list]:
-                        data_key_norm = self._normalize_key(data_key)
-                        if data_key_norm in normalized_data:
-                            matched_value = normalized_data[data_key_norm]
-                            break
-
-            if matched_value is None:
-                best_key = self._best_key_match(normalized_pdf_field, list(normalized_data.keys()))
-                if best_key:
-                    matched_value = normalized_data[best_key]
-
-            if matched_value is not None:
-                result[pdf_field_name] = matched_value
-
-        return result
-
-    def _fill_anchor_pdf(
-        self,
-        reader: PdfReader,
-        output_path: str,
-        data: Dict[str, Any],
-        profile: FormProfile,
-        signature_path: Optional[str],
-    ) -> Dict[str, Any]:
-        text_map = self._extract_text_map(reader)
-        placements = self._resolve_anchor_placements(text_map=text_map, data=data, profile=profile)
-
-        if not placements and not (signature_path and profile.signature_coordinates):
-            raise UniversalFormFillerError("No anchor placements could be resolved from the PDF.")
-
-        self._merge_overlay(
-            base_reader=reader,
-            output_path=output_path,
-            placements=placements,
+        stamp_result = self._stamp_all_signatures(
+            input_pdf_path=output_path,
+            output_pdf_path=output_path,
             signature_path=signature_path,
-            signature_coordinates=profile.signature_coordinates,
+            witness_1_signature_path=witness_1_signature_path,
+            witness_2_signature_path=witness_2_signature_path,
         )
 
         return {
-            "type": "anchor_pdf",
-            "resolved_anchors": [p["field_name"] for p in placements],
+            "status": "success",
+            "output_path": output_path,
+            "text_fill_count": text_fill_count,
+            "relaxed_precision_mode": True,
+            **stamp_result,
         }
 
-    def _fill_coordinate_pdf(
+    # ------------------------------------------------------------------
+    # Text filling
+    # ------------------------------------------------------------------
+
+    def _fill_text_fields(
         self,
-        reader: PdfReader,
-        output_path: str,
+        input_pdf_path: str,
+        output_pdf_path: str,
         data: Dict[str, Any],
-        profile: FormProfile,
-        signature_path: Optional[str],
-    ) -> Dict[str, Any]:
-        placements = []
+    ) -> int:
+        reader = PdfReader(input_pdf_path)
+        text_map = self._extract_text_map(reader)
+        placements = self._detect_text_field_placements(text_map, data)
+        if not placements:
+            return 0
 
-        for field_name, coords in profile.pdf_coordinates.items():
-            if coords.page < 0 or coords.page >= len(reader.pages):
-                raise UniversalFormFillerError(
-                    f"Profile page index out of range for field '{field_name}': {coords.page}. "
-                    f"PDF has {len(reader.pages)} pages indexed 0 to {len(reader.pages) - 1}."
-                )
+        writer = PdfWriter()
+        fill_count = 0
 
-            value = self._resolve_data_value(field_name, data, profile)
-            if value is None:
+        for page_index, page in enumerate(reader.pages):
+            overlay_stream = io.BytesIO()
+            page_width = float(page.mediabox.width)
+            page_height = float(page.mediabox.height)
+            c = canvas.Canvas(overlay_stream, pagesize=(page_width, page_height))
+
+            page_has_content = False
+            for item in placements:
+                if item["page"] != page_index:
+                    continue
+                c.setFont("Helvetica", float(item.get("font_size", 9.0)))
+                c.drawString(float(item["x"]), float(item["y"]), str(item["value"]))
+                fill_count += 1
+                page_has_content = True
+
+            c.save()
+            overlay_stream.seek(0)
+            overlay_pdf = PdfReader(overlay_stream)
+            if page_has_content and overlay_pdf.pages:
+                page.merge_page(overlay_pdf.pages[0])
+
+            writer.add_page(page)
+
+        with open(output_pdf_path, "wb") as f:
+            writer.write(f)
+
+        return fill_count
+
+    def _detect_text_field_placements(
+        self,
+        text_map: List[Dict[str, Any]],
+        data: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        placements: List[Dict[str, Any]] = []
+        seen = set()
+
+        for item in text_map:
+            normalized = self._normalize_text(item["text"])
+            if not normalized:
                 continue
 
-            placements.append(
-                {
-                    "field_name": field_name,
-                    "page": coords.page,
-                    "x": coords.x,
-                    "y": coords.y,
-                    "width": coords.width,
-                    "height": coords.height,
-                    "font_size": coords.font_size,
-                    "multiline": coords.multiline,
-                    "whiteout": coords.whiteout,
-                    "whiteout_padding": coords.whiteout_padding,
-                    "value": str(value),
-                    "max_lines": coords.max_lines,
-                    "align": coords.align,
-                }
-            )
+            for label, data_keys in self.TEXT_FIELD_MAP.items():
+                if label not in normalized:
+                    continue
 
-        self._merge_overlay(
-            base_reader=reader,
-            output_path=output_path,
-            placements=placements,
-            signature_path=signature_path,
-            signature_coordinates=profile.signature_coordinates,
-        )
+                value = self._pick_value(data, data_keys)
+                if not value:
+                    continue
+
+                placement = self._build_text_placement(item, str(value))
+                key = (
+                    int(placement["page"]),
+                    int(round(placement["x"] / 8.0)),
+                    int(round(placement["y"] / 8.0)),
+                    label,
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                placements.append(placement)
+
+        return placements
+
+    def _pick_value(self, data: Dict[str, Any], keys: List[str]) -> str:
+        for key in keys:
+            value = data.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return ""
+
+    def _build_text_placement(self, anchor_item: Dict[str, Any], value: str) -> Dict[str, Any]:
+        page_width = float(anchor_item.get("page_width", 600.0))
+        page_height = float(anchor_item.get("page_height", 800.0))
+        anchor_x = float(anchor_item.get("x", 72.0))
+        anchor_y = float(anchor_item.get("y", 100.0))
+        label_text = str(anchor_item.get("text", ""))
+
+        est_label_width = min(max(len(label_text) * 4.6, 45.0), page_width * 0.40)
+        x = anchor_x + est_label_width + 10.0
+        y = anchor_y - 2.0
+
+        if x > page_width * 0.72:
+            x = max(24.0, min(anchor_x, page_width - 180.0))
+            y = anchor_y - 14.0
+
+        x = max(24.0, min(x, page_width - 180.0))
+        y = max(18.0, min(y, page_height - 18.0))
 
         return {
-            "type": "coordinate_pdf",
-            "mapped_coordinates": [p["field_name"] for p in placements],
+            "page": int(anchor_item["page"]),
+            "x": x,
+            "y": y,
+            "value": value,
+            "font_size": 9.0,
         }
 
-    def _merge_overlay(
+    # ------------------------------------------------------------------
+    # Signature stamping
+    # ------------------------------------------------------------------
+
+    def _stamp_all_signatures(
         self,
-        base_reader: PdfReader,
-        output_path: str,
-        placements: List[Dict[str, Any]],
+        input_pdf_path: str,
+        output_pdf_path: str,
         signature_path: Optional[str],
-        signature_coordinates: Optional[SignatureCoordinate],
-    ) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            overlay_path = os.path.join(tmpdir, "overlay.pdf")
-            self._build_pdf_overlay_from_placements(
-                base_reader=base_reader,
-                overlay_output=overlay_path,
-                placements=placements,
-                signature_path=signature_path,
-                signature_coordinates=signature_coordinates,
+        witness_1_signature_path: Optional[str],
+        witness_2_signature_path: Optional[str],
+    ) -> Dict[str, int]:
+        reader = PdfReader(input_pdf_path)
+
+        director_placements = self._detect_signature_placements(reader, signer_type="director")
+        witness_1_placements = self._detect_signature_placements(reader, signer_type="witness_1")
+        witness_2_placements = self._detect_signature_placements(reader, signer_type="witness_2")
+
+        writer = PdfWriter()
+        director_stamped = witness_1_stamped = witness_2_stamped = 0
+
+        for page_index, page in enumerate(reader.pages):
+            overlay_stream = io.BytesIO()
+            page_width = float(page.mediabox.width)
+            page_height = float(page.mediabox.height)
+            c = canvas.Canvas(overlay_stream, pagesize=(page_width, page_height))
+            drawn = False
+
+            if signature_path and os.path.exists(signature_path):
+                for placement in director_placements:
+                    if placement["page"] != page_index:
+                        continue
+                    c.drawImage(
+                        ImageReader(signature_path),
+                        placement["x"],
+                        placement["y"],
+                        width=placement["width"],
+                        height=placement["height"],
+                        preserveAspectRatio=True,
+                        mask="auto",
+                    )
+                    director_stamped += 1
+                    drawn = True
+
+            if witness_1_signature_path and os.path.exists(witness_1_signature_path):
+                for placement in witness_1_placements:
+                    if placement["page"] != page_index:
+                        continue
+                    c.drawImage(
+                        ImageReader(witness_1_signature_path),
+                        placement["x"],
+                        placement["y"],
+                        width=placement["width"],
+                        height=placement["height"],
+                        preserveAspectRatio=True,
+                        mask="auto",
+                    )
+                    witness_1_stamped += 1
+                    drawn = True
+
+            if witness_2_signature_path and os.path.exists(witness_2_signature_path):
+                for placement in witness_2_placements:
+                    if placement["page"] != page_index:
+                        continue
+                    c.drawImage(
+                        ImageReader(witness_2_signature_path),
+                        placement["x"],
+                        placement["y"],
+                        width=placement["width"],
+                        height=placement["height"],
+                        preserveAspectRatio=True,
+                        mask="auto",
+                    )
+                    witness_2_stamped += 1
+                    drawn = True
+
+            c.save()
+            overlay_stream.seek(0)
+            overlay_pdf = PdfReader(overlay_stream)
+            if drawn and overlay_pdf.pages:
+                page.merge_page(overlay_pdf.pages[0])
+
+            writer.add_page(page)
+
+        with open(output_pdf_path, "wb") as f:
+            writer.write(f)
+
+        return {
+            "director_detected_count": len(director_placements),
+            "witness_1_detected_count": len(witness_1_placements),
+            "witness_2_detected_count": len(witness_2_placements),
+            "director_stamped_count": director_stamped,
+            "witness_1_stamped_count": witness_1_stamped,
+            "witness_2_stamped_count": witness_2_stamped,
+        }
+
+    def _detect_signature_placements(
+        self,
+        reader: PdfReader,
+        signer_type: str,
+    ) -> List[Dict[str, float]]:
+        text_map = self._extract_text_map(reader)
+        page_lines = self._extract_page_text_lines(reader)
+
+        results: List[Dict[str, float]] = []
+        seen = set()
+
+        for item in text_map:
+            raw_text = str(item.get("text", "") or "").strip()
+            normalized = self._normalize_text(raw_text)
+            if not normalized:
+                continue
+
+            if any(blocker in normalized for blocker in self.BODY_TEXT_BLOCKERS):
+                continue
+
+            if signer_type == "director":
+                if normalized in self.WITNESS_1_ALLOWED_LABELS or normalized in self.WITNESS_2_ALLOWED_LABELS:
+                    continue
+                is_match = normalized in self.DIRECTOR_ALLOWED_LABELS
+            elif signer_type == "witness_1":
+                is_match = normalized in self.WITNESS_1_ALLOWED_LABELS
+            elif signer_type == "witness_2":
+                is_match = normalized in self.WITNESS_2_ALLOWED_LABELS
+            else:
+                is_match = False
+
+            if not is_match:
+                continue
+
+            line_item = self._find_line_near_anchor(item, page_lines, signer_type)
+            if line_item is None:
+                continue
+
+            placement = self._placement_from_line(item, line_item, signer_type)
+            key = (
+                int(placement["page"]),
+                int(round(placement["x"] / 8.0)),
+                int(round(placement["y"] / 8.0)),
+                int(round(placement["width"] / 8.0)),
+                int(round(placement["height"] / 8.0)),
             )
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(placement)
 
-            overlay_reader = PdfReader(overlay_path)
-            writer = PdfWriter()
+        return results
 
-            for page_index, base_page in enumerate(base_reader.pages):
-                new_page = base_page
-                if page_index < len(overlay_reader.pages):
-                    new_page.merge_page(overlay_reader.pages[page_index])
-                writer.add_page(new_page)
+    def _find_line_near_anchor(
+        self,
+        anchor_item: Dict[str, Any],
+        page_lines: Dict[int, List[Dict[str, Any]]],
+        signer_type: str,
+    ) -> Optional[Dict[str, float]]:
+        page_index = int(anchor_item["page"])
+        lines = page_lines.get(page_index, [])
+        if not lines:
+            return None
 
-            with open(output_path, "wb") as f:
-                writer.write(f)
+        anchor_y = float(anchor_item["y"])
+        anchor_x = float(anchor_item["x"])
+        anchor_text = self._normalize_text(anchor_item["text"])
+
+        best = None
+        best_score = float("inf")
+
+        # Primary pass: nearby explicit dotted/underscore lines
+        for row in lines:
+            row_text = str(row["text"] or "")
+            extracted = self._extract_line_from_text(row_text)
+            if extracted is None:
+                continue
+
+            prefix_len, line_len = extracted
+            row_y = float(row["y"])
+            row_x = float(row["x"])
+
+            delta_y = abs(row_y - anchor_y)
+            if delta_y > 70.0:
+                continue
+
+            line_x = row_x + (prefix_len * 5.0)
+            line_width = max(90.0, line_len * 6.0)
+
+            delta_x_penalty = 0.0
+            if line_x < anchor_x - 35.0:
+                delta_x_penalty = 70.0
+
+            score = delta_y + delta_x_penalty
+            if score < best_score:
+                best = {
+                    "x": line_x,
+                    "y": row_y,
+                    "line_width": line_width,
+                }
+                best_score = score
+
+        if best is not None:
+            return best
+
+        # Relaxed fallback for explicit short row labels / form rows
+        if anchor_text in {
+            "signature", "signature:", "signature of bidder", "signature of bidder:",
+            "signature of tenderer", "signature of tenderer:", "signature(s) of tenderer(s)",
+            "witness 1", "witness1", "witness 2", "witness2",
+        }:
+            width = 180.0 if signer_type == "director" else 145.0
+            return {
+                "x": anchor_x + 80.0,
+                "y": anchor_y,
+                "line_width": width,
+            }
+
+        # Relaxed centered-title fallback for labels printed underneath a dotted line
+        # e.g. "Signature" centered under the actual dotted line above it.
+        if anchor_text in {"signature", "date", "capacity", "name of bidder"}:
+            return {
+                "x": max(24.0, anchor_x - 85.0),
+                "y": anchor_y + 28.0,
+                "line_width": 170.0 if signer_type == "director" else 145.0,
+            }
+
+        return None
+
+    def _extract_line_from_text(self, text: str) -> Optional[Tuple[int, int]]:
+        matches = []
+        for pattern in self.LINE_PATTERNS:
+            matches.extend(list(re.finditer(pattern, text or "")))
+        if not matches:
+            return None
+        longest = max(matches, key=lambda m: len(m.group(0)))
+        return longest.start(), len(longest.group(0))
+
+    def _placement_from_line(
+        self,
+        anchor_item: Dict[str, Any],
+        line_item: Dict[str, float],
+        signer_type: str,
+    ) -> Dict[str, float]:
+        page_width = float(anchor_item.get("page_width", 600.0))
+        page_height = float(anchor_item.get("page_height", 800.0))
+
+        if signer_type == "director":
+            max_width = 175.0
+            sig_height = 56.0
+        else:
+            max_width = 145.0
+            sig_height = 44.0
+
+        line_x = float(line_item["x"])
+        line_y = float(line_item["y"])
+        line_width = float(line_item["line_width"])
+
+        width = min(max_width, max(110.0, line_width * 0.80))
+        x = max(24.0, min(line_x + 2.0, page_width - width - 24.0))
+
+        # relaxed placement: slightly above the line, but not floating far away
+        y = line_y - (sig_height * 0.32)
+        y = max(18.0, min(y, page_height - sig_height - 18.0))
+
+        return {
+            "page": int(anchor_item["page"]),
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": sig_height,
+        }
+
+    # ------------------------------------------------------------------
+    # Text extraction
+    # ------------------------------------------------------------------
 
     def _extract_text_map(self, reader: PdfReader) -> List[Dict[str, Any]]:
         text_map: List[Dict[str, Any]] = []
 
         for page_index, page in enumerate(reader.pages):
+            page_height = float(page.mediabox.height)
+            page_width = float(page.mediabox.width)
+            visitor_items: List[Dict[str, Any]] = []
+
+            try:
+                def visitor_text(text, cm, tm, font_dict, font_size):
+                    raw_text = str(text or "")
+                    cleaned = raw_text.strip()
+                    if not cleaned:
+                        return
+
+                    x = 72.0
+                    y = page_height - 72.0
+
+                    try:
+                        if tm and len(tm) >= 6:
+                            x = float(tm[4])
+                            y = float(tm[5])
+                    except Exception:
+                        pass
+
+                    if y < 0:
+                        y = page_height + y
+
+                    visitor_items.append(
+                        {
+                            "page": page_index,
+                            "text": cleaned,
+                            "x": max(10.0, float(x)),
+                            "y": max(10.0, float(y)),
+                            "page_width": page_width,
+                            "page_height": page_height,
+                        }
+                    )
+
+                page.extract_text(visitor_text=visitor_text)
+            except TypeError:
+                visitor_items = []
+            except Exception:
+                visitor_items = []
+
+            if visitor_items:
+                text_map.extend(self._merge_nearby_text_items(visitor_items))
+                continue
+
             try:
                 text = page.extract_text() or ""
             except Exception:
                 text = ""
 
-            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            page_height = float(page.mediabox.height)
-            page_width = float(page.mediabox.width)
-
-            total_lines = max(len(lines), 1)
-            start_y = page_height - 72
-            end_y = 72
-            usable_height = max(start_y - end_y, 1)
-            line_step = usable_height / total_lines
-
-            for i, line in enumerate(lines):
-                y = start_y - (i * line_step)
+            y = page_height - 72.0
+            for line in text.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
                 text_map.append(
                     {
                         "page": page_index,
@@ -567,508 +619,98 @@ class UniversalFormFiller:
                         "page_height": page_height,
                     }
                 )
+                y -= 15.0
 
         return text_map
 
-    def _resolve_anchor_placements(
-        self,
-        text_map: List[Dict[str, Any]],
-        data: Dict[str, Any],
-        profile: FormProfile,
-    ) -> List[Dict[str, Any]]:
-        placements: List[Dict[str, Any]] = []
+    def _extract_page_text_lines(self, reader: PdfReader) -> Dict[int, List[Dict[str, Any]]]:
+        page_lines: Dict[int, List[Dict[str, Any]]] = {}
+        for page_index, page in enumerate(reader.pages):
+            page_height = float(page.mediabox.height)
+            page_width = float(page.mediabox.width)
 
-        for rule in profile.anchor_rules:
-            value = self._resolve_data_value(rule.field_name, data, profile)
-            if value is None:
-                continue
+            try:
+                text = page.extract_text() or ""
+            except Exception:
+                text = ""
 
-            match = self._find_anchor_match(text_map=text_map, rule=rule)
-            if not match:
-                continue
+            lines: List[Dict[str, Any]] = []
+            y = page_height - 72.0
+            for line in text.split("\n"):
+                if line.strip():
+                    lines.append(
+                        {
+                            "text": line.rstrip(),
+                            "x": 72.0,
+                            "y": y,
+                            "page_width": page_width,
+                            "page_height": page_height,
+                        }
+                    )
+                y -= 15.0
 
-            placements.append(
-                {
-                    "field_name": rule.field_name,
-                    "page": match["page"],
-                    "x": match["x"] + rule.x_offset,
-                    "y": match["y"] + rule.y_offset,
-                    "width": rule.width,
-                    "height": rule.height,
-                    "font_size": rule.font_size,
-                    "multiline": rule.multiline,
-                    "whiteout": rule.whiteout,
-                    "whiteout_padding": rule.whiteout_padding,
-                    "value": str(value),
-                    "max_lines": rule.max_lines,
-                    "align": rule.align,
-                }
-            )
+            page_lines[page_index] = lines
+        return page_lines
 
-        return placements
+    def _merge_nearby_text_items(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not items:
+            return []
 
-    def _find_anchor_match(
-        self,
-        text_map: List[Dict[str, Any]],
-        rule: AnchorRule,
-    ) -> Optional[Dict[str, Any]]:
-        anchor_norm = self._normalize_text(rule.anchor_text)
-        candidates = []
+        grouped: Dict[Tuple[int, int], List[Dict[str, Any]]] = {}
+        for item in items:
+            key = (int(item["page"]), int(round(float(item["y"]) / 6.0)))
+            grouped.setdefault(key, []).append(item)
 
-        for item in text_map:
-            if rule.page is not None and item["page"] != rule.page:
-                continue
+        merged: List[Dict[str, Any]] = []
+        for _, row_items in grouped.items():
+            row_items.sort(key=lambda r: float(r["x"]))
+            current_parts: List[Dict[str, Any]] = []
 
-            item_text_norm = self._normalize_text(item["text"])
-
-            matched = False
-            if rule.match_mode == "exact":
-                matched = item_text_norm == anchor_norm
-            elif rule.match_mode == "startswith":
-                matched = item_text_norm.startswith(anchor_norm)
-            else:
-                matched = anchor_norm in item_text_norm
-
-            if matched:
-                candidates.append(item)
-
-        if not candidates:
-            return None
-
-        candidates.sort(key=lambda c: (c["page"], -c["y"]))
-        return candidates[0]
-
-    def _build_pdf_overlay_from_placements(
-        self,
-        base_reader: PdfReader,
-        overlay_output: str,
-        placements: List[Dict[str, Any]],
-        signature_path: Optional[str],
-        signature_coordinates: Optional[SignatureCoordinate],
-    ) -> None:
-        from reportlab.lib.utils import ImageReader
-
-        page_sizes: List[Tuple[float, float]] = []
-        for page in base_reader.pages:
-            mediabox = page.mediabox
-            page_sizes.append((float(mediabox.width), float(mediabox.height)))
-
-        packets = []
-        for page_index, (width, height) in enumerate(page_sizes):
-            packet_path = f"{overlay_output}.{page_index}.pdf"
-            c = canvas.Canvas(packet_path, pagesize=(width, height))
-
-            for placement in placements:
-                if placement["page"] != page_index:
+            for row_item in row_items:
+                if not current_parts:
+                    current_parts = [row_item]
                     continue
-                self._draw_overlay_value(c, placement)
 
-            if signature_path and signature_coordinates and os.path.exists(signature_path):
-                if signature_coordinates.page == page_index:
-                    c.drawImage(
-                        ImageReader(signature_path),
-                        signature_coordinates.x,
-                        signature_coordinates.y,
-                        width=signature_coordinates.width,
-                        height=signature_coordinates.height,
-                        preserveAspectRatio=True,
-                        mask="auto",
-                    )
+                previous = current_parts[-1]
+                previous_right = float(previous["x"]) + max(8.0, len(str(previous["text"])) * 4.5)
+                gap = float(row_item["x"]) - previous_right
 
-            c.showPage()
-            c.save()
-            packets.append(packet_path)
-
-        merged = PdfWriter()
-        for page_index, packet in enumerate(packets):
-            r = PdfReader(packet)
-            if len(r.pages) > 0:
-                merged.add_page(r.pages[0])
-            else:
-                width, height = page_sizes[page_index]
-                merged.add_blank_page(width=width, height=height)
-
-        with open(overlay_output, "wb") as f:
-            merged.write(f)
-
-    def _draw_overlay_value(self, c: canvas.Canvas, placement: Dict[str, Any]) -> None:
-        x = float(placement["x"])
-        y = float(placement["y"])
-        width = float(placement["width"]) if placement.get("width") is not None else 220.0
-        height = float(placement["height"]) if placement.get("height") is not None else 14.0
-        font_size = int(placement.get("font_size", 10))
-        multiline = bool(placement.get("multiline", False))
-        whiteout_enabled = bool(placement.get("whiteout", True))
-        whiteout_padding = float(placement.get("whiteout_padding", 2.0))
-        value = str(placement.get("value", ""))
-        max_lines = placement.get("max_lines")
-        align = str(placement.get("align", "left")).lower()
-
-        if whiteout_enabled:
-            c.setFillColor(white)
-            c.setStrokeColor(white)
-            c.rect(
-                x - whiteout_padding,
-                y - whiteout_padding,
-                width + (whiteout_padding * 2),
-                height + (whiteout_padding * 2),
-                stroke=1,
-                fill=1,
-            )
-
-        c.setFillColor(black)
-        c.setStrokeColor(black)
-        c.setFont("Helvetica", font_size)
-
-        if multiline:
-            self._draw_multiline_text(
-                c=c,
-                text=value,
-                x=x,
-                y=y,
-                max_width=width,
-                line_height=font_size + 2,
-                max_lines=max_lines,
-                align=align,
-            )
-        else:
-            if align == "center":
-                c.drawCentredString(x + (width / 2.0), y, value)
-            elif align == "right":
-                c.drawRightString(x + width, y, value)
-            else:
-                c.drawString(x, y, value)
-
-    def _stamp_signature_on_pdf(
-        self,
-        input_pdf: str,
-        output_pdf: str,
-        signature_path: str,
-        signature_coordinates: SignatureCoordinate,
-    ) -> None:
-        reader = PdfReader(input_pdf)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            overlay_path = os.path.join(tmpdir, "signature_overlay.pdf")
-            page_sizes = []
-            for page in reader.pages:
-                mediabox = page.mediabox
-                page_sizes.append((float(mediabox.width), float(mediabox.height)))
-
-            from reportlab.lib.utils import ImageReader
-
-            packets = []
-            for page_index, (width, height) in enumerate(page_sizes):
-                packet_path = f"{overlay_path}.{page_index}.pdf"
-                c = canvas.Canvas(packet_path, pagesize=(width, height))
-                if page_index == signature_coordinates.page and os.path.exists(signature_path):
-                    c.drawImage(
-                        ImageReader(signature_path),
-                        signature_coordinates.x,
-                        signature_coordinates.y,
-                        width=signature_coordinates.width,
-                        height=signature_coordinates.height,
-                        preserveAspectRatio=True,
-                        mask="auto",
-                    )
-                c.showPage()
-                c.save()
-                packets.append(packet_path)
-
-            overlay_writer = PdfWriter()
-            for page_index, packet in enumerate(packets):
-                r = PdfReader(packet)
-                if len(r.pages) > 0:
-                    overlay_writer.add_page(r.pages[0])
+                if gap <= 28.0:
+                    current_parts.append(row_item)
                 else:
-                    width, height = page_sizes[page_index]
-                    overlay_writer.add_blank_page(width=width, height=height)
+                    merged.append(self._combine_text_parts(current_parts))
+                    current_parts = [row_item]
 
-            with open(overlay_path, "wb") as f:
-                overlay_writer.write(f)
+            if current_parts:
+                merged.append(self._combine_text_parts(current_parts))
 
-            overlay_reader = PdfReader(overlay_path)
-            writer = PdfWriter()
+        merged.sort(key=lambda r: (r["page"], -float(r["y"]), float(r["x"])))
+        return merged
 
-            for idx, page in enumerate(reader.pages):
-                page.merge_page(overlay_reader.pages[idx])
-                writer.add_page(page)
+    def _combine_text_parts(self, parts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        if not parts:
+            return {}
 
-            with open(output_pdf, "wb") as f:
-                writer.write(f)
-
-    # ------------------------------------------------------------------
-    # DOCX filling
-    # ------------------------------------------------------------------
-
-    def _fill_docx(
-        self,
-        input_path: str,
-        output_path: str,
-        data: Dict[str, Any],
-        profile: Optional[FormProfile],
-        signature_path: Optional[str],
-    ) -> None:
-        doc = Document(input_path)
-
-        self._replace_docx_placeholders(doc, data)
-
-        if signature_path and os.path.exists(signature_path):
-            signature_placeholder = (
-                profile.docx_signature_placeholder
-                if profile and profile.docx_signature_placeholder
-                else "{{signature}}"
-            )
-            self._insert_signature_in_docx(doc, signature_placeholder, signature_path)
-
-        doc.save(output_path)
-
-    def _replace_docx_placeholders(self, doc: Document, data: Dict[str, Any]) -> None:
-        for paragraph in doc.paragraphs:
-            self._replace_text_in_paragraph(paragraph, data)
-
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        self._replace_text_in_paragraph(paragraph, data)
-
-    def _replace_text_in_paragraph(self, paragraph, data: Dict[str, Any]) -> None:
-        full_text = "".join(run.text for run in paragraph.runs)
-        if not full_text:
-            return
-
-        replaced_text = self._replace_placeholders_in_text(full_text, data)
-        if replaced_text != full_text:
-            for run in paragraph.runs:
-                run.text = ""
-            if paragraph.runs:
-                paragraph.runs[0].text = replaced_text
-            else:
-                paragraph.add_run(replaced_text)
-
-    def _insert_signature_in_docx(
-        self,
-        doc: Document,
-        signature_placeholder: str,
-        signature_path: str,
-    ) -> None:
-        for paragraph in doc.paragraphs:
-            if signature_placeholder in paragraph.text:
-                for run in paragraph.runs:
-                    if signature_placeholder in run.text:
-                        run.text = run.text.replace(signature_placeholder, "")
-                paragraph.add_run().add_picture(signature_path, width=Inches(1.6))
-
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        if signature_placeholder in paragraph.text:
-                            for run in paragraph.runs:
-                                if signature_placeholder in run.text:
-                                    run.text = run.text.replace(signature_placeholder, "")
-                            paragraph.add_run().add_picture(signature_path, width=Inches(1.6))
-
-    # ------------------------------------------------------------------
-    # XLSX filling
-    # ------------------------------------------------------------------
-
-    def _fill_xlsx(
-        self,
-        input_path: str,
-        output_path: str,
-        data: Dict[str, Any],
-        profile: Optional[FormProfile],
-        signature_path: Optional[str],
-    ) -> None:
-        wb = load_workbook(input_path)
-
-        for ws in wb.worksheets:
-            for row in ws.iter_rows():
-                for cell in row:
-                    if isinstance(cell.value, str):
-                        new_val = self._replace_placeholders_in_text(cell.value, data)
-                        if new_val != cell.value:
-                            cell.value = new_val
-
-        if signature_path and os.path.exists(signature_path):
-            anchor = profile.xlsx_signature_anchor if profile and profile.xlsx_signature_anchor else None
-            if anchor:
-                first_sheet = wb.worksheets[0]
-                img = XLImage(signature_path)
-                img.width = 160
-                img.height = 60
-                first_sheet.add_image(img, anchor)
-
-        wb.save(output_path)
-
-    # ------------------------------------------------------------------
-    # Placeholder helpers
-    # ------------------------------------------------------------------
-
-    def _replace_placeholders_in_text(self, text: str, data: Dict[str, Any]) -> str:
-        result = text
-        for key, value in data.items():
-            safe_val = "" if value is None else str(value)
-            result = result.replace(f"{{{{{key}}}}}", safe_val)
-            result = result.replace(f"[[{key}]]", safe_val)
-            result = result.replace(f"<<{key}>>", safe_val)
-        return result
-
-    def _resolve_data_value(
-        self,
-        field_name: str,
-        data: Dict[str, Any],
-        profile: Optional[FormProfile],
-    ) -> Optional[Any]:
-        normalized_data = {self._normalize_key(k): v for k, v in data.items()}
-        n_field = self._normalize_key(field_name)
-
-        if n_field in normalized_data:
-            return normalized_data[n_field]
-
-        if profile:
-            aliases = profile.field_aliases.get(field_name, [])
-            for alias in aliases:
-                n_alias = self._normalize_key(alias)
-                if n_alias in normalized_data:
-                    return normalized_data[n_alias]
-
-        best = self._best_key_match(n_field, list(normalized_data.keys()))
-        return normalized_data.get(best) if best else None
-
-    # ------------------------------------------------------------------
-    # Conversion
-    # ------------------------------------------------------------------
-
-    def _convert_office_to_pdf(self, input_path: str) -> Optional[str]:
-        input_file = Path(input_path)
-        if not input_file.exists():
-            raise UniversalFormFillerError(f"Cannot convert missing file: {input_path}")
-
-        output_dir = input_file.parent
-        cmd = [
-            self.libreoffice_binary,
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(output_dir),
-            str(input_file),
-        ]
-
-        try:
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-        except FileNotFoundError as exc:
-            raise UniversalFormFillerError(
-                "LibreOffice binary not found. Ensure 'soffice' is installed and on PATH."
-            ) from exc
-        except subprocess.CalledProcessError as exc:
-            raise UniversalFormFillerError(
-                f"LibreOffice conversion failed: {exc.stderr or exc.stdout}"
-            ) from exc
-
-        pdf_path = input_file.with_suffix(".pdf")
-        return str(pdf_path) if pdf_path.exists() else None
-
-    # ------------------------------------------------------------------
-    # Utilities
-    # ------------------------------------------------------------------
-
-    def _normalize_key(self, value: str) -> str:
-        value = value.strip().lower()
-        value = re.sub(r"[\s_\-/\.]+", "", value)
-        value = re.sub(r"[^a-z0-9]", "", value)
-        return value
+        text = " ".join(str(p["text"]).strip() for p in parts if str(p["text"]).strip())
+        first = parts[0]
+        return {
+            "page": int(first["page"]),
+            "text": text.strip(),
+            "x": float(min(float(p["x"]) for p in parts)),
+            "y": float(sum(float(p["y"]) for p in parts) / max(len(parts), 1)),
+            "page_width": float(first["page_width"]),
+            "page_height": float(first["page_height"]),
+        }
 
     def _normalize_text(self, text: str) -> str:
         text = (text or "").lower()
         text = text.replace("&", " and ")
-        text = text.replace("’", "'")
-        text = text.replace("‘", "'")
+        text = text.replace("’", "'").replace("‘", "'")
         text = re.sub(r"[\r\n\t]+", " ", text)
-        text = re.sub(r"[^a-z0-9\.\' ]+", " ", text)
+        text = re.sub(r"[^a-z0-9\.\' _\-\:\(\)~=]+", " ", text)
         text = re.sub(r"\s+", " ", text)
         return text.strip()
 
-    def _best_key_match(self, target: str, candidates: List[str]) -> Optional[str]:
-        if not target or not candidates:
-            return None
-
-        if target in candidates:
-            return target
-
-        partials = [c for c in candidates if target in c or c in target]
-        if partials:
-            return max(partials, key=len)
-
-        best_candidate = None
-        best_score = 0
-        for c in candidates:
-            score = 0
-            for ch in set(target):
-                if ch in c:
-                    score += 1
-            if score > best_score:
-                best_score = score
-                best_candidate = c
-
-        return best_candidate if best_score > 0 else None
-
-    def _draw_multiline_text(
-        self,
-        c: canvas.Canvas,
-        text: str,
-        x: float,
-        y: float,
-        max_width: float,
-        line_height: float,
-        max_lines: Optional[int] = None,
-        align: str = "left",
-    ) -> None:
-        words = str(text).split()
-        lines: List[str] = []
-        current_line = ""
-
-        for word in words:
-            test_line = f"{current_line} {word}".strip()
-            if c.stringWidth(test_line, "Helvetica", c._fontsize) <= max_width:
-                current_line = test_line
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
-
-        if current_line:
-            lines.append(current_line)
-
-        if max_lines is not None:
-            lines = lines[:max_lines]
-
-        current_y = y
-        for line in lines:
-            if align == "center":
-                c.drawCentredString(x + (max_width / 2.0), current_y, line)
-            elif align == "right":
-                c.drawRightString(x + max_width, current_y, line)
-            else:
-                c.drawString(x, current_y, line)
-            current_y -= line_height
-
-    def _sanitize_filename(self, name: str) -> str:
-        name = re.sub(r"[^\w\-\.]+", "_", name.strip())
-        return name[:180] if len(name) > 180 else name
-
-
-# ------------------------------------------------------------------
-# LMCP defaults
-# ------------------------------------------------------------------
 
 def build_lmcp_default_form_data(
     tender_data: Optional[Dict[str, Any]] = None,
@@ -1080,46 +722,35 @@ def build_lmcp_default_form_data(
     director_data = director_data or {}
 
     merged = {
-        "company_name": company_data.get("company_name", "Lechesa Manaba Consulting and Projects (Pty) Ltd"),
-        "trading_name": company_data.get("trading_name", "LMCP"),
-        "registration_number": company_data.get("registration_number", ""),
-        "vat_number": company_data.get("vat_number", ""),
-        "tax_number": company_data.get("tax_number", ""),
-        "csd_number": company_data.get("csd_number", ""),
-        "cidb_grade": company_data.get("cidb_grade", ""),
-        "company_email": company_data.get("company_email", ""),
-        "company_phone": company_data.get("company_phone", ""),
-        "company_address": company_data.get("company_address", ""),
-        "postal_address": company_data.get("postal_address", ""),
-        "bank_name": company_data.get("bank_name", ""),
-        "bank_account_number": company_data.get("bank_account_number", ""),
-        "bank_branch_code": company_data.get("bank_branch_code", ""),
-        "director_name": director_data.get("director_name", "Lechesa Manaba"),
-        "director_capacity": director_data.get("director_capacity", "Managing Director"),
-        "director_id_number": director_data.get("director_id_number", ""),
-        "director_email": director_data.get("director_email", ""),
-        "director_phone": director_data.get("director_phone", ""),
-        "signatory_name": director_data.get("signatory_name", "Lechesa Manaba"),
-        "signatory_capacity": director_data.get("signatory_capacity", "Managing Director"),
+        "client_name": tender_data.get("client_name", "LMCP"),
         "date_signed": tender_data.get("date_signed", ""),
-        "tender_number": tender_data.get("tender_number", ""),
-        "tender_title": tender_data.get("tender_title", ""),
         "rfq_number": tender_data.get("rfq_number", ""),
-        "client_name": tender_data.get("client_name", ""),
-        "submission_date": tender_data.get("submission_date", ""),
-        "quote_amount": tender_data.get("quote_amount", ""),
-        "quote_amount_words": tender_data.get("quote_amount_words", ""),
-        "contact_person": tender_data.get("contact_person", ""),
-        "contact_email": tender_data.get("contact_email", ""),
-        "contact_phone": tender_data.get("contact_phone", ""),
-        "project_name": tender_data.get("project_name", ""),
-        "project_location": tender_data.get("project_location", ""),
-        "name_of_bidder": company_data.get("company_name", "Lechesa Manaba Consulting and Projects (Pty) Ltd"),
-        "position": director_data.get("director_capacity", "Managing Director"),
-        "signature": "",
+        "name_of_bidder": tender_data.get("name_of_bidder", tender_data.get("client_name", "LMCP")),
+        "bidder_name": tender_data.get("bidder_name", tender_data.get("client_name", "LMCP")),
+        "company_name": company_data.get("company_name", tender_data.get("client_name", "LMCP")),
+        "director_name": director_data.get("director_name", "Lechesa Manaba"),
+        "signatory_name": director_data.get("signatory_name", "Lechesa Manaba"),
+        "surname_and_name": tender_data.get("surname_and_name", "Lechesa Manaba"),
+        "designation": tender_data.get("designation", "Director"),
+        "capacity": tender_data.get("capacity", "Director"),
+        "position": tender_data.get("position", "Director"),
+        "address": tender_data.get("address", ""),
+        "street_address": tender_data.get("street_address", tender_data.get("address", "")),
+        "postal_address": tender_data.get("postal_address", tender_data.get("address", "")),
+        "telephone": tender_data.get("telephone", ""),
+        "phone": tender_data.get("phone", tender_data.get("telephone", "")),
+        "cellphone_number": tender_data.get("cellphone_number", tender_data.get("telephone", "")),
+        "email": tender_data.get("email", ""),
+        "email_address": tender_data.get("email_address", tender_data.get("email", "")),
+        "tax_reference_number": tender_data.get("tax_reference_number", ""),
+        "tcs_pin": tender_data.get("tcs_pin", ""),
+        "csd_number": tender_data.get("csd_number", ""),
+        "csd_registration_number": tender_data.get("csd_registration_number", ""),
+        "signed_place": tender_data.get("signed_place", ""),
     }
 
     merged.update(company_data)
     merged.update(director_data)
     merged.update(tender_data)
     return merged
+

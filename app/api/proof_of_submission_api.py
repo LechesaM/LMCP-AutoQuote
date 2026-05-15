@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Query
+
+from app.services.proof_of_submission_service import (
+    generate_all_proofs,
+    generate_latest_proof,
+    generate_proof,
+    get_proof_status,
+)
+
+router = APIRouter(
+    prefix="/submission-proof",
+    tags=["Submission Proof"],
+)
+
+
+@router.get("/status")
+def status():
+    return get_proof_status()
+
+
+@router.post("/latest")
+def latest():
+    return generate_latest_proof()
+
+
+@router.post("/generate")
+def generate(
+    buyer_rfq_number: str = Query(default=""),
+    quote_number: str = Query(default=""),
+    submitted_at: str = Query(default=""),
+    submission_record_json: str = Query(default=""),
+):
+    return generate_proof(
+        buyer_rfq_number=buyer_rfq_number,
+        quote_number=quote_number,
+        submitted_at=submitted_at,
+        submission_record_json=submission_record_json,
+    )
+
+
+@router.post("/generate-all")
+def generate_all(limit: int = Query(default=100, ge=1, le=1000)):
+    return generate_all_proofs(limit=limit)

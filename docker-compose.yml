@@ -4,65 +4,432 @@ services:
     container_name: lmcp-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: autoquote
-      POSTGRES_PASSWORD: autoquote
-      POSTGRES_DB: autoquote
+      POSTGRES_USER: ${POSTGRES_USER:-lmcp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lmcp123}
+      POSTGRES_DB: ${POSTGRES_DB:-lmcp_autoquote}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lmcp} -d ${POSTGRES_DB:-lmcp_autoquote}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   redis:
     image: redis:7
     container_name: lmcp-redis
     restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
 
   api:
-    build: .
-    environment:
-      - TENDER_RADAR_MAX_TOTAL=1000
-      - TENDER_RADAR_MAX_PER_SOURCE=50
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: lmcp-api
     restart: unless-stopped
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      - ./:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file:
+      - .env
+    environment:
+      ENV: ${ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lmcp:lmcp123@db:5432/lmcp_autoquote}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      CELERY_WORKER_POOL: ${CELERY_WORKER_POOL:-prefork}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      MAX_TASKS_PER_CHILD: ${MAX_TASKS_PER_CHILD:-100}
+      PREFETCH_MULTIPLIER: ${PREFETCH_MULTIPLIER:-1}
+      QUEUE_WORKER_COUNT: ${QUEUE_WORKER_COUNT:-1}
+      ACQUISITION_WORKER_CONCURRENCY: ${ACQUISITION_WORKER_CONCURRENCY:-4}
+      PARSING_WORKER_CONCURRENCY: ${PARSING_WORKER_CONCURRENCY:-3}
+      PRICING_WORKER_CONCURRENCY: ${PRICING_WORKER_CONCURRENCY:-2}
+      PROOF_WORKER_CONCURRENCY: ${PROOF_WORKER_CONCURRENCY:-2}
+      RETRY_WORKER_CONCURRENCY: ${RETRY_WORKER_CONCURRENCY:-2}
+      ACQUISITION_QUEUE_WORKER_COUNT: ${ACQUISITION_QUEUE_WORKER_COUNT:-1}
+      PARSING_QUEUE_WORKER_COUNT: ${PARSING_QUEUE_WORKER_COUNT:-1}
+      PRICING_QUEUE_WORKER_COUNT: ${PRICING_QUEUE_WORKER_COUNT:-1}
+      PROOF_QUEUE_WORKER_COUNT: ${PROOF_QUEUE_WORKER_COUNT:-1}
+      RETRY_QUEUE_WORKER_COUNT: ${RETRY_QUEUE_WORKER_COUNT:-1}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
     ports:
       - "8000:8000"
-    env_file:
-      - .env
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          python -c 'import urllib.request;
+          urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=5).read();
+          print("ok")'
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - ./:/app
+      - ./runtime:/app/runtime
+      - ./monthly_quotes:/app/monthly_quotes
+    working_dir: /app
 
   lmcp-worker:
-    build: .
-    environment:
-      - TENDER_RADAR_MAX_TOTAL=1000
-      - TENDER_RADAR_MAX_PER_SOURCE=50
-    container_name: lmcp-worker
-    command: "celery -A app.celery_app:celery worker --loglevel=info"
-    depends_on:
-      - redis
-      - db
-    volumes:
-      - ./:/app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      --pool=${CELERY_WORKER_POOL:-prefork}
+      --queues=default
+      --hostname=default@%h
+      --concurrency=${WORKER_CONCURRENCY:-2}
+      --max-tasks-per-child=${MAX_TASKS_PER_CHILD:-100}
+      --prefetch-multiplier=${PREFETCH_MULTIPLIER:-1}
     env_file:
       - .env
+    environment:
+      ENV: ${ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lmcp:lmcp123@db:5432/lmcp_autoquote}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      CELERY_WORKER_POOL: ${CELERY_WORKER_POOL:-prefork}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      MAX_TASKS_PER_CHILD: ${MAX_TASKS_PER_CHILD:-100}
+      PREFETCH_MULTIPLIER: ${PREFETCH_MULTIPLIER:-1}
+      QUEUE_WORKER_COUNT: ${QUEUE_WORKER_COUNT:-1}
+      ACQUISITION_WORKER_CONCURRENCY: ${ACQUISITION_WORKER_CONCURRENCY:-4}
+      PARSING_WORKER_CONCURRENCY: ${PARSING_WORKER_CONCURRENCY:-3}
+      PRICING_WORKER_CONCURRENCY: ${PRICING_WORKER_CONCURRENCY:-2}
+      PROOF_WORKER_CONCURRENCY: ${PROOF_WORKER_CONCURRENCY:-2}
+      RETRY_WORKER_CONCURRENCY: ${RETRY_WORKER_CONCURRENCY:-2}
+      ACQUISITION_QUEUE_WORKER_COUNT: ${ACQUISITION_QUEUE_WORKER_COUNT:-1}
+      PARSING_QUEUE_WORKER_COUNT: ${PARSING_QUEUE_WORKER_COUNT:-1}
+      PRICING_QUEUE_WORKER_COUNT: ${PRICING_QUEUE_WORKER_COUNT:-1}
+      PROOF_QUEUE_WORKER_COUNT: ${PROOF_QUEUE_WORKER_COUNT:-1}
+      RETRY_QUEUE_WORKER_COUNT: ${RETRY_QUEUE_WORKER_COUNT:-1}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - ./runtime:/app/runtime
+      - ./monthly_quotes:/app/monthly_quotes
+    working_dir: /app
+
+  lmcp-acquisition-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      --pool=${CELERY_WORKER_POOL:-prefork}
+      --queues=acquisition_queue
+      --hostname=acquisition@%h
+      --concurrency=${ACQUISITION_WORKER_CONCURRENCY:-4}
+      --max-tasks-per-child=${MAX_TASKS_PER_CHILD:-100}
+      --prefetch-multiplier=${PREFETCH_MULTIPLIER:-1}
+    env_file:
+      - .env
+    environment:
+      ENV: ${ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lmcp:lmcp123@db:5432/lmcp_autoquote}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      CELERY_WORKER_POOL: ${CELERY_WORKER_POOL:-prefork}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      MAX_TASKS_PER_CHILD: ${MAX_TASKS_PER_CHILD:-100}
+      PREFETCH_MULTIPLIER: ${PREFETCH_MULTIPLIER:-1}
+      QUEUE_WORKER_COUNT: ${QUEUE_WORKER_COUNT:-1}
+      ACQUISITION_WORKER_CONCURRENCY: ${ACQUISITION_WORKER_CONCURRENCY:-4}
+      PARSING_WORKER_CONCURRENCY: ${PARSING_WORKER_CONCURRENCY:-3}
+      PRICING_WORKER_CONCURRENCY: ${PRICING_WORKER_CONCURRENCY:-2}
+      PROOF_WORKER_CONCURRENCY: ${PROOF_WORKER_CONCURRENCY:-2}
+      RETRY_WORKER_CONCURRENCY: ${RETRY_WORKER_CONCURRENCY:-2}
+      ACQUISITION_QUEUE_WORKER_COUNT: ${ACQUISITION_QUEUE_WORKER_COUNT:-1}
+      PARSING_QUEUE_WORKER_COUNT: ${PARSING_QUEUE_WORKER_COUNT:-1}
+      PRICING_QUEUE_WORKER_COUNT: ${PRICING_QUEUE_WORKER_COUNT:-1}
+      PROOF_QUEUE_WORKER_COUNT: ${PROOF_QUEUE_WORKER_COUNT:-1}
+      RETRY_QUEUE_WORKER_COUNT: ${RETRY_QUEUE_WORKER_COUNT:-1}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - ./runtime:/app/runtime
+      - ./monthly_quotes:/app/monthly_quotes
+    working_dir: /app
+    deploy:
+      replicas: ${ACQUISITION_QUEUE_WORKER_COUNT:-1}
+
+  lmcp-parsing-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      --pool=${CELERY_WORKER_POOL:-prefork}
+      --queues=parsing_queue
+      --hostname=parsing@%h
+      --concurrency=${PARSING_WORKER_CONCURRENCY:-3}
+      --max-tasks-per-child=${MAX_TASKS_PER_CHILD:-100}
+      --prefetch-multiplier=${PREFETCH_MULTIPLIER:-1}
+    env_file:
+      - .env
+    environment:
+      ENV: ${ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lmcp:lmcp123@db:5432/lmcp_autoquote}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      CELERY_WORKER_POOL: ${CELERY_WORKER_POOL:-prefork}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      MAX_TASKS_PER_CHILD: ${MAX_TASKS_PER_CHILD:-100}
+      PREFETCH_MULTIPLIER: ${PREFETCH_MULTIPLIER:-1}
+      ACQUISITION_WORKER_CONCURRENCY: ${ACQUISITION_WORKER_CONCURRENCY:-4}
+      PARSING_WORKER_CONCURRENCY: ${PARSING_WORKER_CONCURRENCY:-3}
+      PRICING_WORKER_CONCURRENCY: ${PRICING_WORKER_CONCURRENCY:-2}
+      PROOF_WORKER_CONCURRENCY: ${PROOF_WORKER_CONCURRENCY:-2}
+      RETRY_WORKER_CONCURRENCY: ${RETRY_WORKER_CONCURRENCY:-2}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - ./runtime:/app/runtime
+      - ./monthly_quotes:/app/monthly_quotes
+    working_dir: /app
+    deploy:
+      replicas: ${PARSING_QUEUE_WORKER_COUNT:-1}
+
+  lmcp-pricing-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      --pool=${CELERY_WORKER_POOL:-prefork}
+      --queues=pricing_queue
+      --hostname=pricing@%h
+      --concurrency=${PRICING_WORKER_CONCURRENCY:-2}
+      --max-tasks-per-child=${MAX_TASKS_PER_CHILD:-100}
+      --prefetch-multiplier=${PREFETCH_MULTIPLIER:-1}
+    env_file:
+      - .env
+    environment:
+      ENV: ${ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lmcp:lmcp123@db:5432/lmcp_autoquote}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      CELERY_WORKER_POOL: ${CELERY_WORKER_POOL:-prefork}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      MAX_TASKS_PER_CHILD: ${MAX_TASKS_PER_CHILD:-100}
+      PREFETCH_MULTIPLIER: ${PREFETCH_MULTIPLIER:-1}
+      ACQUISITION_WORKER_CONCURRENCY: ${ACQUISITION_WORKER_CONCURRENCY:-4}
+      PARSING_WORKER_CONCURRENCY: ${PARSING_WORKER_CONCURRENCY:-3}
+      PRICING_WORKER_CONCURRENCY: ${PRICING_WORKER_CONCURRENCY:-2}
+      PROOF_WORKER_CONCURRENCY: ${PROOF_WORKER_CONCURRENCY:-2}
+      RETRY_WORKER_CONCURRENCY: ${RETRY_WORKER_CONCURRENCY:-2}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - ./runtime:/app/runtime
+      - ./monthly_quotes:/app/monthly_quotes
+    working_dir: /app
+    deploy:
+      replicas: ${PRICING_QUEUE_WORKER_COUNT:-1}
+
+  lmcp-proof-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      --pool=${CELERY_WORKER_POOL:-prefork}
+      --queues=proof_queue
+      --hostname=proof@%h
+      --concurrency=${PROOF_WORKER_CONCURRENCY:-2}
+      --max-tasks-per-child=${MAX_TASKS_PER_CHILD:-100}
+      --prefetch-multiplier=${PREFETCH_MULTIPLIER:-1}
+    env_file:
+      - .env
+    environment:
+      ENV: ${ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lmcp:lmcp123@db:5432/lmcp_autoquote}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      CELERY_WORKER_POOL: ${CELERY_WORKER_POOL:-prefork}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      MAX_TASKS_PER_CHILD: ${MAX_TASKS_PER_CHILD:-100}
+      PREFETCH_MULTIPLIER: ${PREFETCH_MULTIPLIER:-1}
+      ACQUISITION_WORKER_CONCURRENCY: ${ACQUISITION_WORKER_CONCURRENCY:-4}
+      PARSING_WORKER_CONCURRENCY: ${PARSING_WORKER_CONCURRENCY:-3}
+      PRICING_WORKER_CONCURRENCY: ${PRICING_WORKER_CONCURRENCY:-2}
+      PROOF_WORKER_CONCURRENCY: ${PROOF_WORKER_CONCURRENCY:-2}
+      RETRY_WORKER_CONCURRENCY: ${RETRY_WORKER_CONCURRENCY:-2}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - ./runtime:/app/runtime
+      - ./monthly_quotes:/app/monthly_quotes
+    working_dir: /app
+    deploy:
+      replicas: ${PROOF_QUEUE_WORKER_COUNT:-1}
+
+  lmcp-retry-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: >
+      celery -A app.celery_app.celery_app worker
+      --loglevel=info
+      --pool=${CELERY_WORKER_POOL:-prefork}
+      --queues=retry_queue
+      --hostname=retry@%h
+      --concurrency=${RETRY_WORKER_CONCURRENCY:-2}
+      --max-tasks-per-child=${MAX_TASKS_PER_CHILD:-100}
+      --prefetch-multiplier=${PREFETCH_MULTIPLIER:-1}
+    env_file:
+      - .env
+    environment:
+      ENV: ${ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lmcp:lmcp123@db:5432/lmcp_autoquote}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      CELERY_WORKER_POOL: ${CELERY_WORKER_POOL:-prefork}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      MAX_TASKS_PER_CHILD: ${MAX_TASKS_PER_CHILD:-100}
+      PREFETCH_MULTIPLIER: ${PREFETCH_MULTIPLIER:-1}
+      ACQUISITION_WORKER_CONCURRENCY: ${ACQUISITION_WORKER_CONCURRENCY:-4}
+      PARSING_WORKER_CONCURRENCY: ${PARSING_WORKER_CONCURRENCY:-3}
+      PRICING_WORKER_CONCURRENCY: ${PRICING_WORKER_CONCURRENCY:-2}
+      PROOF_WORKER_CONCURRENCY: ${PROOF_WORKER_CONCURRENCY:-2}
+      RETRY_WORKER_CONCURRENCY: ${RETRY_WORKER_CONCURRENCY:-2}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./:/app
+      - ./runtime:/app/runtime
+      - ./monthly_quotes:/app/monthly_quotes
+    working_dir: /app
+    deploy:
+      replicas: ${RETRY_QUEUE_WORKER_COUNT:-1}
 
   lmcp-beat:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: lmcp-beat
-    command: "celery -A app.celery_app:celery beat --loglevel=info"
-    depends_on:
-      - redis
-      - db
-    volumes:
-      - ./:/app
+    restart: unless-stopped
+    command: celery -A app.celery_app.celery_app beat --loglevel=info
     env_file:
       - .env
+    environment:
+      ENV: ${ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://lmcp:lmcp123@db:5432/lmcp_autoquote}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      PYTHONPATH: /app
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      lmcp-worker:
+        condition: service_started
+    volumes:
+      - ./:/app
+      - ./runtime:/app/runtime
+      - ./monthly_quotes:/app/monthly_quotes
+    working_dir: /app
 
 volumes:
   postgres_data:
+  redis_data:

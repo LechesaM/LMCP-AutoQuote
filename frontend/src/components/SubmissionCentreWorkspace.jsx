@@ -654,8 +654,8 @@ function scoreTone(score) {
 
 function statusTone(status) {
   const lower = safeText(status).toLowerCase();
-  if (lower.includes("ready") || lower.includes("compatible") || lower.includes("submitted")) return "green";
-  if (lower.includes("review") || lower.includes("pending") || lower.includes("dry") || lower.includes("hold")) return "amber";
+  if (lower.includes("ready") || lower.includes("compatible") || lower.includes("submitted") || lower.includes("verified") || lower.includes("available") || lower.includes("allowed") || lower.includes("complete") || lower.includes("ok")) return "green";
+  if (lower.includes("review") || lower.includes("pending") || lower.includes("dry") || lower.includes("hold") || lower.includes("warning") || lower.includes("unknown") || lower.includes("locked")) return "amber";
   if (lower.includes("blocked") || lower.includes("missing") || lower.includes("fail") || lower.includes("reject")) return "red";
   return "neutral";
 }
@@ -870,6 +870,22 @@ function submissionPrintableReportHtmlPath(packId, rfqReference) {
   return `/quote-compilation/submission-gate/${encodedPack}/printable-report.html${query ? `?${query}` : ""}`;
 }
 
+function submissionEvidenceSnapshotPath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/evidence-snapshot${query ? `?${query}` : ""}`;
+}
+
+function submissionEvidenceSnapshotExportPath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/evidence-snapshot.json${query ? `?${query}` : ""}`;
+}
+
 function manualCompletionFormFromRecord(record) {
   return {
     submitted_by: safeText(record?.submitted_by),
@@ -899,6 +915,9 @@ function parsePrintableReportPreview(html) {
       automated_submit_disabled: true,
       audit_event_count: 0,
       audit_warning_count: 0,
+      evidence_snapshot_verification_status: "unknown",
+      evidence_snapshot_hash: "",
+      evidence_snapshot_generated_at: "",
     };
   }
   try {
@@ -911,6 +930,9 @@ function parsePrintableReportPreview(html) {
       automated_submit_disabled: meta("lmcp-report-automated-submit-disabled") !== "false",
       audit_event_count: normalizeNumber(meta("lmcp-report-audit-event-count"), 0),
       audit_warning_count: normalizeNumber(meta("lmcp-report-audit-warning-count"), 0),
+      evidence_snapshot_verification_status: meta("lmcp-report-snapshot-status") || "unknown",
+      evidence_snapshot_hash: meta("lmcp-report-snapshot-hash"),
+      evidence_snapshot_generated_at: meta("lmcp-report-snapshot-generated-at"),
     };
   } catch {
     return {
@@ -920,6 +942,9 @@ function parsePrintableReportPreview(html) {
       automated_submit_disabled: true,
       audit_event_count: 0,
       audit_warning_count: 0,
+      evidence_snapshot_verification_status: "unknown",
+      evidence_snapshot_hash: "",
+      evidence_snapshot_generated_at: "",
     };
   }
 }
@@ -934,6 +959,7 @@ function SubmissionGateCard({
   evidenceState,
   evidenceBundleState,
   submissionPrintableReportState,
+  submissionEvidenceSnapshotState,
   manualCompletionState,
   manualCompletionForm,
   onManualCompletionChange,
@@ -947,6 +973,7 @@ function SubmissionGateCard({
   onReadinessChecklistRequest,
   onEvidenceRequest,
   onEvidenceBundleRequest,
+  onEvidenceSnapshotRequest,
 }) {
   const gate = gateState.data;
   const summary = summaryState.data;
@@ -980,6 +1007,8 @@ function SubmissionGateCard({
   const evidenceBundleManualPresent = Boolean(evidenceBundle?.manual_completion_record);
   const evidenceBundleFinalLocked = evidenceBundle?.final_submit_locked !== false;
   const evidenceBundleAutomatedDisabled = evidenceBundle?.automated_submit_disabled !== false;
+  const evidenceBundleSnapshotStatus = safeText(evidenceBundle?.evidence_snapshot_verification_status, "unknown");
+  const evidenceBundleSnapshotHash = safeText(evidenceBundle?.evidence_snapshot_hash, "Not loaded");
   const printableReportReference = gate?.rfq_reference || readinessChecklist?.rfq_reference || summary?.rfq_reference || "";
   const printableReportUrl = packId ? `${API_BASE}${submissionPrintableReportPath(packId, printableReportReference)}` : "";
   const printableReportHtmlUrl = packId ? `${API_BASE}${submissionPrintableReportHtmlPath(packId, printableReportReference)}` : "";
@@ -990,6 +1019,17 @@ function SubmissionGateCard({
   const printableReportAutomatedDisabled = printableReportPreview ? printableReportPreview.automated_submit_disabled !== false : true;
   const printableReportAuditCount = normalizeNumber(printableReportPreview?.audit_event_count, 0);
   const printableReportWarningCount = normalizeNumber(printableReportPreview?.audit_warning_count, 0);
+  const printableReportSnapshotStatus = safeText(printableReportPreview?.evidence_snapshot_verification_status, "unknown");
+  const printableReportSnapshotHash = safeText(printableReportPreview?.evidence_snapshot_hash, "Not loaded");
+  const printableReportSnapshotGeneratedAt = safeText(printableReportPreview?.evidence_snapshot_generated_at, "Not loaded");
+  const evidenceSnapshot = submissionEvidenceSnapshotState?.data || null;
+  const evidenceSnapshotStatus = safeText(evidenceSnapshot?.verification_status, "unknown");
+  const evidenceSnapshotGeneratedAt = safeText(evidenceSnapshot?.generated_at, "Not loaded");
+  const evidenceSnapshotHash = safeText(evidenceSnapshot?.evidence_bundle_hash, "Not loaded");
+  const evidenceSnapshotReadinessHash = safeText(evidenceSnapshot?.readiness_checklist_hash, "Not loaded");
+  const evidenceSnapshotAuditHash = safeText(evidenceSnapshot?.audit_trail_hash, "Not loaded");
+  const evidenceSnapshotManualHash = safeText(evidenceSnapshot?.manual_completion_hash, "Not loaded");
+  const evidenceSnapshotWarningCount = asArray(evidenceSnapshot?.warnings).length;
   const checklistPreview =
     safeText(checklist?.checklist_text) ||
     [
@@ -1007,6 +1047,7 @@ function SubmissionGateCard({
   const auditTrailJsonDownloadUrl = packId ? `${API_BASE}${submissionAuditTrailExportPath(packId)}` : "";
   const readinessChecklistJsonDownloadUrl = packId ? `${API_BASE}${submissionReadinessChecklistExportPath(packId, gate?.rfq_reference || readinessChecklist?.rfq_reference)}` : "";
   const evidenceBundleJsonDownloadUrl = packId ? `${API_BASE}${submissionEvidenceBundleExportPath(packId, gate?.rfq_reference || readinessChecklist?.rfq_reference || "")}` : "";
+  const evidenceSnapshotJsonDownloadUrl = packId ? `${API_BASE}${submissionEvidenceSnapshotExportPath(packId, gate?.rfq_reference || readinessChecklist?.rfq_reference || "")}` : "";
   const evidenceReference = gate?.rfq_reference || evidence?.rfq_reference || auditReference;
   const evidenceManifestDownloadUrl = packId ? `${API_BASE}${submissionEvidenceManifestExportPath(packId, evidenceReference)}` : "";
   const summaryReference = summary?.rfq_reference || gate?.rfq_reference || evidenceReference;
@@ -1557,6 +1598,8 @@ function SubmissionGateCard({
                   <div><span>Warning Count</span><b>{evidenceBundleWarningCount}</b></div>
                   <div><span>Final Submit Locked</span><b>{evidenceBundleFinalLocked ? "Yes" : "No"}</b></div>
                   <div><span>Automated Submit Disabled</span><b>{evidenceBundleAutomatedDisabled ? "Yes" : "No"}</b></div>
+                  <div><span>Snapshot Status</span><b>{evidenceBundleSnapshotStatus.replaceAll("_", " ")}</b></div>
+                  <div><span>Snapshot Hash</span><b>{evidenceBundleSnapshotHash}</b></div>
                 </div>
                 <div className="submission-gate-bundle-columns">
                   <div>
@@ -1605,6 +1648,9 @@ function SubmissionGateCard({
               <div><span>Automated Submit Disabled</span><b>{printableReportAutomatedDisabled ? "Yes" : "No"}</b></div>
               <div><span>Audit Events</span><b>{printableReportAuditCount}</b></div>
               <div><span>Warning Count</span><b>{printableReportWarningCount}</b></div>
+              <div><span>Snapshot Status</span><b>{printableReportSnapshotStatus.replaceAll("_", " ")}</b></div>
+              <div><span>Snapshot Hash</span><b>{printableReportSnapshotHash}</b></div>
+              <div><span>Snapshot Generated</span><b>{printableReportSnapshotGeneratedAt}</b></div>
             </div>
             <div className="submission-gate-printable-columns">
               <div>
@@ -1617,6 +1663,56 @@ function SubmissionGateCard({
                 <h4>Print Notes</h4>
                 <div className="submission-risk-list">
                   <p className="submission-risk warning">Report content is read-only and safe for print-to-PDF.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="submission-gate-snapshot-card">
+            <div className="submission-gate-snapshot-head">
+              <div>
+                <h3>Evidence Verification Snapshot</h3>
+                <p>Pack-local hashes used to verify the evidence bundle, checklist, audit trail, and manual completion record.</p>
+              </div>
+              <div className="submission-gate-snapshot-actions">
+                <span className={`submission-gate-snapshot-badge ${statusTone(evidenceSnapshotStatus)}`}>
+                  <FileArchive size={13} />
+                  {safeText(evidenceSnapshotStatus, "unknown").replaceAll("_", " ")}
+                </span>
+                <button type="button" onClick={onEvidenceSnapshotRequest} disabled={!packId || submissionEvidenceSnapshotState.loading}>
+                  <Clock3 size={15} />
+                  {submissionEvidenceSnapshotState.loading ? "Loading" : "Load Snapshot"}
+                </button>
+                {evidenceSnapshotJsonDownloadUrl ? (
+                  <a href={evidenceSnapshotJsonDownloadUrl} download>
+                    <FileText size={15} />
+                    Download Snapshot JSON
+                  </a>
+                ) : null}
+              </div>
+            </div>
+            {submissionEvidenceSnapshotState.error ? <div className="submission-gate-warning"><AlertTriangle size={15} />{submissionEvidenceSnapshotState.error}</div> : null}
+            <div className="submission-gate-snapshot-summary">
+              <div><span>Generated At</span><b>{evidenceSnapshotGeneratedAt}</b></div>
+              <div><span>Verification Status</span><b>{evidenceSnapshotStatus.replaceAll("_", " ")}</b></div>
+              <div><span>Warnings</span><b>{evidenceSnapshotWarningCount}</b></div>
+              <div><span>Evidence Bundle Hash</span><b>{evidenceSnapshotHash}</b></div>
+              <div><span>Readiness Checklist Hash</span><b>{evidenceSnapshotReadinessHash}</b></div>
+              <div><span>Audit Trail Hash</span><b>{evidenceSnapshotAuditHash}</b></div>
+              <div><span>Manual Completion Hash</span><b>{evidenceSnapshotManualHash}</b></div>
+            </div>
+            <div className="submission-gate-snapshot-columns">
+              <div>
+                <h4>Snapshot Warnings</h4>
+                <div className="submission-risk-list">
+                  {(asArray(evidenceSnapshot?.warnings).length ? asArray(evidenceSnapshot?.warnings) : ["No snapshot warnings reported."]).map((item, index) => (
+                    <p className="submission-risk warning" key={`snapshot-warning-${item}-${index}`}>{safeText(item)}</p>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h4>Verification Notes</h4>
+                <div className="submission-risk-list">
+                  <p className="submission-risk warning">Hashes are pack-local evidence markers only. Final submit remains locked.</p>
                 </div>
               </div>
             </div>
@@ -1972,6 +2068,7 @@ export default function SubmissionCentreWorkspace() {
   const [submissionEvidenceState, setSubmissionEvidenceState] = useState({ loading: false, data: null, error: "" });
   const [submissionEvidenceBundleState, setSubmissionEvidenceBundleState] = useState({ loading: false, data: null, error: "" });
   const [submissionPrintableReportState, setSubmissionPrintableReportState] = useState({ loading: false, data: null, error: "" });
+  const [submissionEvidenceSnapshotState, setSubmissionEvidenceSnapshotState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionState, setManualCompletionState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionForm, setManualCompletionForm] = useState(manualCompletionFormFromRecord({}));
 
@@ -2075,6 +2172,7 @@ export default function SubmissionCentreWorkspace() {
         setSubmissionEvidenceState({ loading: false, data: null, error: "" });
         setSubmissionEvidenceBundleState({ loading: false, data: null, error: "" });
         setSubmissionPrintableReportState({ loading: false, data: null, error: "" });
+        setSubmissionEvidenceSnapshotState({ loading: false, data: null, error: "" });
         setManualCompletionState({ loading: false, data: null, error: "" });
         setManualCompletionForm(manualCompletionFormFromRecord({}));
         return;
@@ -2088,8 +2186,9 @@ export default function SubmissionCentreWorkspace() {
       setSubmissionEvidenceState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionEvidenceBundleState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionPrintableReportState((prev) => ({ ...prev, loading: true, error: "" }));
+      setSubmissionEvidenceSnapshotState((prev) => ({ ...prev, loading: true, error: "" }));
       setManualCompletionState((prev) => ({ ...prev, loading: true, error: "" }));
-      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, evidenceBundleResult, manualCompletionResult] = await Promise.all([
+      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, evidenceBundleResult, evidenceSnapshotResult, manualCompletionResult] = await Promise.all([
         fetchEndpoint(submissionGatePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionGateSummaryPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionChecklistPath(gatePackId, gateRfqReference)),
@@ -2098,6 +2197,7 @@ export default function SubmissionCentreWorkspace() {
         fetchEndpoint(submissionReadinessChecklistPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionEvidenceManifestPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionEvidenceBundlePath(gatePackId, gateRfqReference)),
+        fetchEndpoint(submissionEvidenceSnapshotPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionManualCompletionPath(gatePackId)),
       ]);
       if (cancelled) return;
@@ -2142,6 +2242,11 @@ export default function SubmissionCentreWorkspace() {
         error: evidenceBundleResult.ok ? "" : evidenceBundleResult.error || "Evidence bundle endpoint did not respond.",
       });
       setSubmissionPrintableReportState({ loading: false, data: null, error: "" });
+      setSubmissionEvidenceSnapshotState({
+        loading: false,
+        data: evidenceSnapshotResult.ok ? evidenceSnapshotResult.data : null,
+        error: evidenceSnapshotResult.ok ? "" : evidenceSnapshotResult.error || "Evidence snapshot endpoint did not respond.",
+      });
       const manualCompletionData = manualCompletionResult.ok ? manualCompletionResult.data : null;
       setManualCompletionState({
         loading: false,
@@ -2268,6 +2373,17 @@ export default function SubmissionCentreWorkspace() {
     });
   }
 
+  async function refreshEvidenceSnapshot() {
+    if (!gatePackId) return;
+    setSubmissionEvidenceSnapshotState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await fetchEndpoint(submissionEvidenceSnapshotPath(gatePackId, gateRfqReference));
+    setSubmissionEvidenceSnapshotState({
+      loading: false,
+      data: result.ok ? result.data : null,
+      error: result.ok ? "" : result.error || "Evidence snapshot endpoint did not respond.",
+    });
+  }
+
   function openPrintableReport(path) {
     if (!gatePackId) return;
     window.open(`${API_BASE}${path}`, "_blank", "noopener,noreferrer");
@@ -2301,7 +2417,7 @@ export default function SubmissionCentreWorkspace() {
     if (manualCompletionData?.manual_completion) {
       setManualCompletionForm(manualCompletionFormFromRecord(manualCompletionData.manual_completion));
     }
-    await Promise.all([refreshSubmissionGate(), refreshAuditTrail(), refreshReadinessChecklist(), refreshEvidenceBundle()]);
+    await Promise.all([refreshSubmissionGate(), refreshAuditTrail(), refreshReadinessChecklist(), refreshEvidenceBundle(), refreshEvidenceSnapshot()]);
   }
 
   return (
@@ -2363,6 +2479,7 @@ export default function SubmissionCentreWorkspace() {
         evidenceState={submissionEvidenceState}
         evidenceBundleState={submissionEvidenceBundleState}
         submissionPrintableReportState={submissionPrintableReportState}
+        submissionEvidenceSnapshotState={submissionEvidenceSnapshotState}
         manualCompletionState={manualCompletionState}
         manualCompletionForm={manualCompletionForm}
         onManualCompletionChange={onManualCompletionChange}
@@ -2376,6 +2493,7 @@ export default function SubmissionCentreWorkspace() {
         onReadinessChecklistRequest={refreshReadinessChecklist}
         onEvidenceRequest={refreshEvidenceManifest}
         onEvidenceBundleRequest={refreshEvidenceBundle}
+        onEvidenceSnapshotRequest={refreshEvidenceSnapshot}
       />
 
       <div className="submission-table-card card">

@@ -185,6 +185,33 @@ def submission_gate_evidence_bundle_json(pack_id: str, rfq_reference: Optional[s
     )
 
 
+@router.get("/submission-gate/{pack_id}/evidence-snapshot")
+def submission_gate_evidence_snapshot(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> Dict[str, Any]:
+    return service().evidence_snapshot(pack_id, rfq_reference=rfq_reference)
+
+
+@router.get("/submission-gate/{pack_id}/evidence-snapshot.json")
+def submission_gate_evidence_snapshot_json(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> JSONResponse:
+    snapshot = service().evidence_snapshot(pack_id, rfq_reference=rfq_reference)
+    append_pack_audit_event(
+        snapshot.get("pack_id") or pack_id,
+        "evidence_snapshot_json_export",
+        {
+            "verification_status": snapshot.get("verification_status"),
+            "evidence_bundle_hash": snapshot.get("evidence_bundle_hash"),
+            "readiness_checklist_hash": snapshot.get("readiness_checklist_hash"),
+            "audit_trail_hash": snapshot.get("audit_trail_hash"),
+            "manual_completion_hash": snapshot.get("manual_completion_hash"),
+            "warning_count": len(snapshot.get("warnings") or []),
+        },
+    )
+    filename = _safe_download_filename(f"{snapshot.get('pack_id') or pack_id}-evidence-snapshot", "json")
+    return JSONResponse(
+        content=snapshot,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/submission-gate/{pack_id}/printable-report")
 def submission_gate_printable_report(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> HTMLResponse:
     report = service().printable_report(pack_id, rfq_reference=rfq_reference)

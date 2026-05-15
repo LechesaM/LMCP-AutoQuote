@@ -716,6 +716,25 @@
 .submission-gate-printable-summary b{display:block;margin-top:4px;color:#eef7ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .submission-gate-printable-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
 .submission-gate-printable-columns h4{margin:0 0 8px;color:#eef7ff;font-size:13px}
+.submission-gate-snapshot-card{border:1px solid rgba(214,234,255,.12);background:rgba(214,234,255,.03);border-radius:14px;padding:12px;display:grid;gap:10px}
+.submission-gate-snapshot-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.submission-gate-snapshot-head h3{margin:0;font-size:14px}
+.submission-gate-snapshot-head p{margin:4px 0 0;color:#9fb2c8;font-size:12px;line-height:1.35}
+.submission-gate-snapshot-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.submission-gate-snapshot-actions button,.submission-gate-snapshot-actions a,.submission-gate-snapshot-badge{display:inline-flex;align-items:center;gap:7px;border-radius:11px;padding:8px 10px;font:inherit;font-size:11px;font-weight:900;white-space:nowrap;text-decoration:none}
+.submission-gate-snapshot-actions button{border:1px solid rgba(214,234,255,.28);background:rgba(214,234,255,.1);color:#dbe8ff;cursor:pointer}
+.submission-gate-snapshot-actions a{border:1px solid rgba(24,230,166,.3);background:rgba(24,230,166,.1);color:#bfffe9}
+.submission-gate-snapshot-actions button:disabled{opacity:.55;cursor:not-allowed}
+.submission-gate-snapshot-badge{border:1px solid rgba(214,234,255,.22);background:rgba(214,234,255,.08);color:#dbe8ff;text-transform:uppercase;letter-spacing:.04em}
+.submission-gate-snapshot-badge.green{border-color:rgba(24,230,166,.28);background:rgba(24,230,166,.08);color:#bfffe9}
+.submission-gate-snapshot-badge.amber{border-color:rgba(255,211,106,.28);background:rgba(255,211,106,.08);color:#ffe29a}
+.submission-gate-snapshot-badge.red{border-color:rgba(255,112,112,.32);background:rgba(255,112,112,.08);color:#ffb0b0}
+.submission-gate-snapshot-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.submission-gate-snapshot-summary div{min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:12px;padding:9px}
+.submission-gate-snapshot-summary span{display:block;color:#9fb2c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.submission-gate-snapshot-summary b{display:block;margin-top:4px;color:#eef7ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.submission-gate-snapshot-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+.submission-gate-snapshot-columns h4{margin:0 0 8px;color:#eef7ff;font-size:13px}
 
 @media(max-width:1240px){
   .submission-toolbar{grid-template-columns:1fr 1fr}
@@ -727,12 +746,13 @@
 @media(max-width:720px){
   .submission-safety-banner,.submission-hero,.submission-binder-section-head,.submission-binder-headline,.submission-gate-head,.submission-gate-pack-summary-head,.submission-gate-checklist-head,.submission-gate-audit-head,.submission-gate-audit-trail-head,.submission-gate-readiness-head,.submission-gate-bundle-head,.submission-gate-evidence-head{align-items:flex-start;flex-direction:column}
   .submission-endpoint-status{justify-items:start}
-  .submission-toolbar,.submission-summary-grid,.submission-detail-grid,.submission-panels,.submission-lock-grid,.submission-binder-summary,.submission-binder-flags,.submission-gate-metrics,.submission-gate-pack-summary-grid,.submission-gate-checklist-grid,.submission-gate-audit-summary,.submission-gate-audit-event,.submission-gate-audit-trail-summary,.submission-gate-audit-trail-event,.submission-gate-readiness-summary,.submission-gate-readiness-meta,.submission-gate-readiness-columns,.submission-gate-evidence-summary,.submission-gate-evidence-file,.submission-gate-bundle-summary,.submission-gate-bundle-meta{grid-template-columns:1fr}
+  .submission-toolbar,.submission-summary-grid,.submission-detail-grid,.submission-panels,.submission-lock-grid,.submission-binder-summary,.submission-binder-flags,.submission-gate-metrics,.submission-gate-pack-summary-grid,.submission-gate-checklist-grid,.submission-gate-audit-summary,.submission-gate-audit-event,.submission-gate-audit-trail-summary,.submission-gate-audit-trail-event,.submission-gate-readiness-summary,.submission-gate-readiness-meta,.submission-gate-readiness-columns,.submission-gate-evidence-summary,.submission-gate-evidence-file,.submission-gate-bundle-summary,.submission-gate-bundle-meta,.submission-gate-snapshot-summary{grid-template-columns:1fr}
   .submission-gate-audit-event p{grid-column:auto}
   .submission-gate-audit-trail-event p{grid-column:auto}
+  .submission-gate-snapshot-columns{grid-template-columns:1fr}
   .submission-drawer{width:100vw}
   .submission-operator-actions button,.submission-binder-actions button,.submission-gate-pack-summary-actions button,.submission-gate-pack-summary-actions a,.submission-gate-checklist-actions button,.submission-gate-checklist-actions a,.submission-gate-audit-actions button,.submission-gate-audit-actions a,.submission-gate-evidence-actions button,.submission-gate-evidence-actions a,.submission-gate-manual-actions button,.submission-gate-manual-actions a,.submission-gate-locked-badge{width:100%;justify-content:center}
-  .submission-gate-readiness-actions button,.submission-gate-readiness-actions a,.submission-gate-readiness-badge,.submission-gate-bundle-actions button,.submission-gate-bundle-actions a,.submission-gate-bundle-badge{width:100%;justify-content:center}
+  .submission-gate-readiness-actions button,.submission-gate-readiness-actions a,.submission-gate-readiness-badge,.submission-gate-bundle-actions button,.submission-gate-bundle-actions a,.submission-gate-bundle-badge,.submission-gate-snapshot-actions button,.submission-gate-snapshot-actions a,.submission-gate-snapshot-badge{width:100%;justify-content:center}
 }
 
 .proof-audit-workspace{display:grid;gap:12px;min-width:0}

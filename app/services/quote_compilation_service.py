@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import csv
 import json
 import os
@@ -434,6 +435,106 @@ def _printable_events_table(events: List[Dict[str, Any]]) -> str:
     )
 
 
+def _canonical_json_text(value: Any) -> str:
+    return json.dumps(_sanitize_audit_payload(value), sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+
+
+def _sha256_hex(value: Any) -> str:
+    return hashlib.sha256(_canonical_json_text(value).encode("utf-8")).hexdigest()
+
+
+def _evidence_snapshot_path(workspace: Path) -> Path:
+    return workspace / "evidence_snapshot.json"
+
+
+def _evidence_snapshot_verification_status(
+    workspace: Optional[Path],
+    manual_completion_validation: Dict[str, Any],
+    audit_trail: Dict[str, Any],
+    warnings: List[str],
+) -> str:
+    if not workspace:
+        return "unknown"
+    if manual_completion_validation.get("status") in {"missing", "invalid"} or not manual_completion_validation.get("allowed"):
+        return "blocked"
+    if int(audit_trail.get("warning_count") or 0) > 0 or warnings:
+        return "warning"
+    return "verified"
+
+
+def _build_evidence_snapshot_payload(
+    pack_id: str,
+    rfq_reference: str | None = None,
+    *,
+    gate: Optional[Dict[str, Any]] = None,
+    readiness_checklist: Optional[Dict[str, Any]] = None,
+    evidence_bundle: Optional[Dict[str, Any]] = None,
+    audit_trail: Optional[Dict[str, Any]] = None,
+    manual_completion_validation: Optional[Dict[str, Any]] = None,
+    persist: bool = True,
+) -> Dict[str, Any]:
+    safe_pack_id = _safe_text(pack_id, 220)
+    workspace = _safe_quote_pack_dir(safe_pack_id)
+    generated_at = _now_iso()
+
+    gate = gate or get_submission_binder_gate(safe_pack_id, rfq_reference)
+    manual_completion_validation = manual_completion_validation or (
+        _manual_completion_gate(workspace) if workspace else {
+            "status": "missing",
+            "allowed": False,
+            "blocked_reason": "Manual completion record is required before final submission.",
+        }
+    )
+    audit_trail = audit_trail or (
+        _read_pack_audit_trail(workspace) if workspace else {
+            "status": "ok",
+            "pack_id": safe_pack_id,
+            "audit_trail_path": _relative(_audit_trail_path(OUTPUT_ROOT / safe_pack_id)),
+            "events": [],
+            "warning_count": 0,
+            "count": 0,
+            "read_only": True,
+            "timestamp": generated_at,
+        }
+    )
+    readiness_checklist = readiness_checklist or _readiness_checklist_payload(gate, audit_trail, manual_completion_validation)
+    evidence_bundle = evidence_bundle or _evidence_bundle_payload(gate, readiness_checklist, manual_completion_validation, audit_trail)
+
+    warnings: List[str] = []
+    manual_status = _safe_text(manual_completion_validation.get("status"), 40)
+    if manual_status == "missing":
+        warnings.append("Manual completion record is missing.")
+    elif manual_status == "invalid":
+        warnings.append(_safe_text(manual_completion_validation.get("blocked_reason"), 260) or "Manual completion record is invalid.")
+    audit_warning_count = int(audit_trail.get("warning_count") or 0)
+    if audit_warning_count:
+        warnings.append(f"Audit trail contains {audit_warning_count} invalid line(s) that were skipped.")
+    if not gate.get("can_prepare_submission"):
+        warnings.append("Submission binder is not ready for manual submission evidence packaging.")
+    if manual_completion_validation.get("allowed") is False and manual_completion_validation.get("status") not in {"missing", "invalid"}:
+        warnings.append(_safe_text(manual_completion_validation.get("blocked_reason"), 260))
+
+    warnings = _dedupe_preserve_order([warning for warning in warnings if warning])
+    verification_status = _evidence_snapshot_verification_status(workspace, manual_completion_validation, audit_trail, warnings)
+    snapshot = {
+        "status": verification_status,
+        "pack_id": safe_pack_id,
+        "generated_at": generated_at,
+        "evidence_bundle_hash": _sha256_hex(evidence_bundle),
+        "readiness_checklist_hash": _sha256_hex(readiness_checklist),
+        "audit_trail_hash": _sha256_hex(audit_trail),
+        "manual_completion_hash": _sha256_hex(manual_completion_validation.get("manual_completion")),
+        "verification_status": verification_status,
+        "warnings": warnings,
+    }
+    if persist and workspace:
+        try:
+            _write_json(_evidence_snapshot_path(workspace), snapshot)
+        except OSError:
+            pass
+    return snapshot
+
+
 def _printable_section(title: str, body: str, section_class: str = "") -> str:
     extra_class = f" {section_class}" if section_class else ""
     return f"""
@@ -452,6 +553,7 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
     compliance_summary = report.get("compliance_summary") if isinstance(report.get("compliance_summary"), dict) else {}
     readiness_checklist = report.get("readiness_checklist") if isinstance(report.get("readiness_checklist"), dict) else {}
     evidence_bundle = report.get("evidence_bundle") if isinstance(report.get("evidence_bundle"), dict) else {}
+    evidence_snapshot = report.get("evidence_snapshot") if isinstance(report.get("evidence_snapshot"), dict) else {}
     audit_summary = report.get("audit_summary") if isinstance(report.get("audit_summary"), dict) else {}
     audit_events = report.get("latest_audit_events") if isinstance(report.get("latest_audit_events"), list) else []
 
@@ -463,6 +565,9 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
         "lmcp-report-automated-submit-disabled": report.get("automated_submit_disabled"),
         "lmcp-report-audit-event-count": report.get("audit_event_count"),
         "lmcp-report-audit-warning-count": report.get("audit_warning_count"),
+        "lmcp-report-snapshot-status": evidence_snapshot.get("verification_status"),
+        "lmcp-report-snapshot-hash": evidence_snapshot.get("evidence_bundle_hash"),
+        "lmcp-report-snapshot-generated-at": evidence_snapshot.get("generated_at"),
     }
     meta_tags = "".join(
         f'<meta name="{_printable_text(key)}" content="{_printable_text(value)}" />'
@@ -609,6 +714,44 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
         ),
     )
 
+    snapshot_section = _printable_section(
+        "Evidence Verification Snapshot",
+        """
+          <div class="grid-two">
+            <div class="panel">
+              <table class="printable-table">
+                <tbody>
+                  {snapshot_rows}
+                </tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <h3>Snapshot Warnings</h3>
+              {snapshot_warnings_html}
+              <h3 style="margin-top:12px;">Snapshot Hashes</h3>
+              <table class="printable-table">
+                <tbody>
+                  {snapshot_hash_rows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        """.format(
+            snapshot_rows=_printable_rows([
+                ("Verification Status", evidence_snapshot.get("verification_status")),
+                ("Generated At", evidence_snapshot.get("generated_at")),
+                ("Pack ID", evidence_snapshot.get("pack_id")),
+            ]),
+            snapshot_warnings_html=_printable_list(evidence_snapshot.get("warnings"), "No snapshot warnings reported."),
+            snapshot_hash_rows=_printable_rows([
+                ("Evidence Bundle Hash", evidence_snapshot.get("evidence_bundle_hash")),
+                ("Readiness Checklist Hash", evidence_snapshot.get("readiness_checklist_hash")),
+                ("Audit Trail Hash", evidence_snapshot.get("audit_trail_hash")),
+                ("Manual Completion Hash", evidence_snapshot.get("manual_completion_hash")),
+            ]),
+        ),
+    )
+
     audit_section = _printable_section(
         "Audit Trail Summary",
         """
@@ -707,6 +850,7 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
         f"{compliance_section}"
         f"{readiness_section}"
         f"{evidence_section}"
+        f"{snapshot_section}"
         f"{audit_section}"
         '<p class="notes">This report is generated locally from pack evidence only. No portal was contacted, no upload was performed, and final submit remains locked.</p>'
         "</main>"
@@ -739,6 +883,16 @@ def build_printable_compliance_report(pack_id: str, rfq_reference: str | None = 
         "read_only": True,
         "timestamp": generated_at,
     }
+    evidence_snapshot = _build_evidence_snapshot_payload(
+        safe_pack_id,
+        rfq_reference,
+        gate=get_submission_binder_gate(safe_pack_id, rfq_reference),
+        readiness_checklist=readiness_checklist,
+        evidence_bundle=evidence_bundle,
+        audit_trail=audit_trail,
+        manual_completion_validation=manual_completion_validation,
+        persist=True,
+    )
 
     append_pack_audit_event(
         safe_pack_id,
@@ -766,6 +920,7 @@ def build_printable_compliance_report(pack_id: str, rfq_reference: str | None = 
         "compliance_summary": compliance_summary,
         "readiness_checklist": readiness_checklist,
         "evidence_bundle": evidence_bundle,
+        "evidence_snapshot": evidence_snapshot,
         "manual_completion_record": _sanitize_audit_payload(manual_completion_validation.get("manual_completion")) if isinstance(manual_completion_validation.get("manual_completion"), dict) else None,
         "audit_summary": {
             "count": int(audit_trail.get("count") or 0),
@@ -922,6 +1077,7 @@ def _evidence_bundle_payload(
     readiness_checklist: Dict[str, Any],
     manual_completion_validation: Dict[str, Any],
     audit_trail: Dict[str, Any],
+    evidence_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     audit_events = audit_trail.get("events") if isinstance(audit_trail.get("events"), list) else []
     latest_audit_event = audit_events[-1] if audit_events else None
@@ -949,6 +1105,19 @@ def _evidence_bundle_payload(
         "safety_flags": dict(BINDER_SAFETY_FLAGS),
         "message": "Submission evidence bundle is read-only. Manual submission only.",
     }
+    evidence_snapshot = evidence_snapshot or _build_evidence_snapshot_payload(
+        gate.get("pack_id") or _safe_text(gate.get("pack_id"), 220),
+        gate.get("rfq_reference"),
+        gate=gate,
+        readiness_checklist=readiness_checklist,
+        evidence_bundle=bundle,
+        audit_trail=audit_trail,
+        manual_completion_validation=manual_completion_validation,
+        persist=True,
+    )
+    bundle["evidence_snapshot_hash"] = _safe_text(evidence_snapshot.get("evidence_bundle_hash"), 80)
+    bundle["evidence_snapshot_verification_status"] = _safe_text(evidence_snapshot.get("verification_status"), 40)
+    bundle["evidence_snapshot_generated_at"] = _safe_text(evidence_snapshot.get("generated_at"), 80)
     return _sanitize_audit_payload(bundle)
 
 
@@ -1074,6 +1243,64 @@ def get_submission_binder_evidence_bundle(
     return bundle
 
 
+def get_submission_binder_evidence_snapshot(
+    pack_id: str,
+    rfq_reference: str | None = None,
+) -> Dict[str, Any]:
+    safe_pack_id = _safe_text(pack_id, 220)
+    workspace = _safe_quote_pack_dir(safe_pack_id)
+    generated_at = _now_iso()
+
+    if not workspace:
+        return _sanitize_audit_payload(
+            {
+                "status": "not_found",
+                "pack_id": safe_pack_id,
+                "generated_at": generated_at,
+                "evidence_bundle_hash": "",
+                "readiness_checklist_hash": "",
+                "audit_trail_hash": "",
+                "manual_completion_hash": "",
+                "verification_status": "unknown",
+                "warnings": ["No local quote compilation pack matched the requested pack_id."],
+                "message": "No local quote compilation pack matched the requested pack_id.",
+            }
+        )
+
+    gate = get_submission_binder_gate(safe_pack_id, rfq_reference)
+    manual_completion_validation = _manual_completion_gate(workspace)
+    audit_trail = _read_pack_audit_trail(workspace)
+    readiness_checklist = _readiness_checklist_payload(gate, audit_trail, manual_completion_validation)
+    evidence_bundle = _evidence_bundle_payload(gate, readiness_checklist, manual_completion_validation, audit_trail)
+    snapshot = _build_evidence_snapshot_payload(
+        safe_pack_id,
+        rfq_reference,
+        gate=gate,
+        readiness_checklist=readiness_checklist,
+        evidence_bundle=evidence_bundle,
+        audit_trail=audit_trail,
+        manual_completion_validation=manual_completion_validation,
+        persist=True,
+    )
+    append_pack_audit_event(
+        workspace.name,
+        "evidence_snapshot_generated",
+        {
+            "verification_status": snapshot.get("verification_status"),
+            "evidence_bundle_hash": snapshot.get("evidence_bundle_hash"),
+            "readiness_checklist_hash": snapshot.get("readiness_checklist_hash"),
+            "audit_trail_hash": snapshot.get("audit_trail_hash"),
+            "manual_completion_hash": snapshot.get("manual_completion_hash"),
+            "warning_count": len(snapshot.get("warnings") or []),
+        },
+    )
+    return {
+        **snapshot,
+        "read_only": True,
+        "timestamp": _now_iso(),
+    }
+
+
 def _compliance_summary_blockers(
     gate: Dict[str, Any],
     readiness_checklist: Dict[str, Any],
@@ -1193,6 +1420,16 @@ def get_submission_binder_compliance_summary(
     manual_completion_present = bool(manual_completion.get("status") == "ok")
     manual_completion_allowed = bool(manual_completion.get("allowed"))
     can_submit_final = bool(gate.get("can_submit_final") and readiness_available and evidence_available)
+    evidence_snapshot = _build_evidence_snapshot_payload(
+        safe_pack_id,
+        rfq_reference,
+        gate=gate,
+        readiness_checklist=readiness_checklist,
+        evidence_bundle=evidence_bundle,
+        audit_trail=audit_trail,
+        manual_completion_validation=manual_completion,
+        persist=True,
+    )
     blockers = _compliance_summary_blockers(gate, readiness_checklist, evidence_bundle, manual_completion, workspace)
     warnings = _compliance_summary_warnings(readiness_checklist, evidence_bundle, audit_trail, manual_completion)
     latest_event = audit_trail.get("events")[-1] if isinstance(audit_trail.get("events"), list) and audit_trail.get("events") else None
@@ -1206,6 +1443,10 @@ def get_submission_binder_compliance_summary(
         "manual_completion_allowed": manual_completion_allowed,
         "readiness_checklist_available": readiness_available,
         "evidence_bundle_available": evidence_available,
+        "evidence_snapshot_available": True,
+        "evidence_snapshot_verification_status": evidence_snapshot.get("verification_status"),
+        "evidence_snapshot_hash": evidence_snapshot.get("evidence_bundle_hash"),
+        "evidence_snapshot_generated_at": evidence_snapshot.get("generated_at"),
         "audit_event_count": int(audit_trail.get("count") or 0),
         "audit_warning_count": int(audit_trail.get("warning_count") or 0),
         "final_submit_locked": True,
@@ -1213,6 +1454,7 @@ def get_submission_binder_compliance_summary(
         "can_submit_final": can_submit_final,
         "blockers": blockers,
         "warnings": warnings,
+        "snapshot_warnings": evidence_snapshot.get("warnings", []),
         "latest_audit_event_summary": _audit_event_summary(latest_event),
         "safety_flags": dict(BINDER_SAFETY_FLAGS),
         "message": "Submission compliance summary is read-only. Manual submission remains locked.",
@@ -3499,6 +3741,14 @@ class QuoteCompilationService:
         bundle = get_submission_binder_evidence_bundle(pack_id, rfq_reference)
         return {
             **bundle,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def evidence_snapshot(self, pack_id: str, rfq_reference: Optional[str] = None) -> Dict[str, Any]:
+        snapshot = get_submission_binder_evidence_snapshot(pack_id, rfq_reference)
+        return {
+            **snapshot,
             "read_only": True,
             "timestamp": _now_iso(),
         }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Archive,
   Ban,
   CheckCircle2,
   Clock3,
@@ -886,6 +887,26 @@ function submissionEvidenceSnapshotExportPath(packId, rfqReference) {
   return `/quote-compilation/submission-gate/${encodedPack}/evidence-snapshot.json${query ? `?${query}` : ""}`;
 }
 
+function submissionComplianceArchivePath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/compliance-archive${query ? `?${query}` : ""}`;
+}
+
+function submissionComplianceArchivesPath(packId) {
+  return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/compliance-archives`;
+}
+
+function submissionComplianceArchiveLatestZipPath(packId) {
+  return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/compliance-archive/latest/bundle.zip`;
+}
+
+function submissionComplianceArchiveZipPath(packId, archiveId) {
+  return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/compliance-archive/${encodeURIComponent(archiveId)}/bundle.zip`;
+}
+
 function manualCompletionFormFromRecord(record) {
   return {
     submitted_by: safeText(record?.submitted_by),
@@ -960,6 +981,7 @@ function SubmissionGateCard({
   evidenceBundleState,
   submissionPrintableReportState,
   submissionEvidenceSnapshotState,
+  submissionComplianceArchiveState,
   manualCompletionState,
   manualCompletionForm,
   onManualCompletionChange,
@@ -974,6 +996,8 @@ function SubmissionGateCard({
   onEvidenceRequest,
   onEvidenceBundleRequest,
   onEvidenceSnapshotRequest,
+  onComplianceArchiveCreateRequest,
+  onComplianceArchivesRequest,
 }) {
   const gate = gateState.data;
   const summary = summaryState.data;
@@ -1023,6 +1047,13 @@ function SubmissionGateCard({
   const printableReportSnapshotHash = safeText(printableReportPreview?.evidence_snapshot_hash, "Not loaded");
   const printableReportSnapshotGeneratedAt = safeText(printableReportPreview?.evidence_snapshot_generated_at, "Not loaded");
   const evidenceSnapshot = submissionEvidenceSnapshotState?.data || null;
+  const archives = asArray(submissionComplianceArchiveState?.data?.archives);
+  const latestArchive = archives[0] || null;
+  const archiveCount = normalizeNumber(submissionComplianceArchiveState?.data?.count, archives.length);
+  const archiveWarningCount = asArray(submissionComplianceArchiveState?.data?.warnings).length;
+  const latestArchiveWarnings = asArray(latestArchive?.warnings);
+  const latestArchiveZipUrl = packId ? `${API_BASE}${submissionComplianceArchiveLatestZipPath(packId)}` : "";
+  const archiveBadgeStatus = latestArchive?.verification_status || (archives.length ? submissionComplianceArchiveState.data?.status : "unknown") || "unknown";
   const evidenceSnapshotStatus = safeText(evidenceSnapshot?.verification_status, "unknown");
   const evidenceSnapshotGeneratedAt = safeText(evidenceSnapshot?.generated_at, "Not loaded");
   const evidenceSnapshotHash = safeText(evidenceSnapshot?.evidence_bundle_hash, "Not loaded");
@@ -1700,28 +1731,95 @@ function SubmissionGateCard({
               <div><span>Audit Trail Hash</span><b>{evidenceSnapshotAuditHash}</b></div>
               <div><span>Manual Completion Hash</span><b>{evidenceSnapshotManualHash}</b></div>
             </div>
-            <div className="submission-gate-snapshot-columns">
-              <div>
-                <h4>Snapshot Warnings</h4>
-                <div className="submission-risk-list">
-                  {(asArray(evidenceSnapshot?.warnings).length ? asArray(evidenceSnapshot?.warnings) : ["No snapshot warnings reported."]).map((item, index) => (
-                    <p className="submission-risk warning" key={`snapshot-warning-${item}-${index}`}>{safeText(item)}</p>
-                  ))}
-                </div>
+          <div className="submission-gate-snapshot-columns">
+            <div>
+              <h4>Snapshot Warnings</h4>
+              <div className="submission-risk-list">
+                {(asArray(evidenceSnapshot?.warnings).length ? asArray(evidenceSnapshot?.warnings) : ["No snapshot warnings reported."]).map((item, index) => (
+                  <p className="submission-risk warning" key={`snapshot-warning-${item}-${index}`}>{safeText(item)}</p>
+                ))}
               </div>
-              <div>
-                <h4>Verification Notes</h4>
-                <div className="submission-risk-list">
-                  <p className="submission-risk warning">Hashes are pack-local evidence markers only. Final submit remains locked.</p>
-                </div>
+            </div>
+            <div>
+              <h4>Verification Notes</h4>
+              <div className="submission-risk-list">
+                <p className="submission-risk warning">Hashes are pack-local evidence markers only. Final submit remains locked.</p>
               </div>
             </div>
           </div>
-        </>
-      ) : (
-        <div className="submission-gate-empty">No gate data available. Final submission remains locked.</div>
-      )}
-    </div>
+        </div>
+        <div className="submission-gate-archive-card">
+          <div className="submission-gate-archive-head">
+            <div>
+              <h3>Compliance Archive</h3>
+              <p>Immutable pack-local archive of the current compliance evidence set.</p>
+            </div>
+            <div className="submission-gate-archive-actions">
+              <span className={`submission-gate-archive-badge ${statusTone(archiveBadgeStatus)}`}>
+                <Archive size={13} />
+                {safeText(archiveBadgeStatus, "unknown").replaceAll("_", " ")}
+              </span>
+              <button type="button" onClick={onComplianceArchiveCreateRequest} disabled={!packId || submissionComplianceArchiveState.loading}>
+                <Clock3 size={15} />
+                {submissionComplianceArchiveState.loading ? "Working" : "Create Archive"}
+              </button>
+              <button type="button" onClick={onComplianceArchivesRequest} disabled={!packId || submissionComplianceArchiveState.loading}>
+                <Clock3 size={15} />
+                {submissionComplianceArchiveState.loading ? "Loading" : "Load Archives"}
+              </button>
+              <a href={latestArchiveZipUrl || undefined} download={latestArchiveZipUrl ? "" : undefined} onClick={(event) => (!latestArchiveZipUrl ? event.preventDefault() : null)} className={latestArchiveZipUrl ? "" : "is-disabled"}>
+                <FileDown size={15} />
+                Download Latest ZIP
+              </a>
+            </div>
+          </div>
+          {submissionComplianceArchiveState.error ? <div className="submission-gate-warning"><AlertTriangle size={15} />{submissionComplianceArchiveState.error}</div> : null}
+          <div className="submission-gate-archive-summary">
+            <div><span>Archive ID</span><b>{safeText(latestArchive?.archive_id, "Not loaded")}</b></div>
+            <div><span>Created At</span><b>{safeText(latestArchive?.created_at, "Not loaded")}</b></div>
+            <div><span>Archive Hash</span><b>{safeText(latestArchive?.archive_hash, "Not loaded")}</b></div>
+            <div><span>Verification Status</span><b>{safeText(latestArchive?.verification_status, "unknown").replaceAll("_", " ")}</b></div>
+            <div><span>File Count</span><b>{normalizeNumber(latestArchive?.file_count, 0)}</b></div>
+            <div><span>Warnings</span><b>{normalizeNumber(latestArchive?.warnings?.length, archiveWarningCount)}</b></div>
+          </div>
+          <div className="submission-gate-archive-columns">
+            <div>
+              <h4>Latest Archive</h4>
+              <div className="submission-risk-list">
+                <p className={`submission-risk ${latestArchive ? "ok" : "warning"}`}>{latestArchive ? "Latest archive loaded locally." : "Load or create an archive to see the latest record."}</p>
+                <p className="submission-risk warning">Final submit remains locked. Archives are evidence only.</p>
+                <p className="submission-risk warning">Archive warning count: {archiveWarningCount}.</p>
+                {latestArchiveWarnings.length ? latestArchiveWarnings.slice(0, 3).map((item, index) => (
+                  <p className="submission-risk warning" key={`archive-warning-${index}`}>{safeText(item)}</p>
+                )) : null}
+              </div>
+            </div>
+            <div>
+              <h4>Latest 5 Archives ({archiveCount})</h4>
+              <div className="submission-gate-archive-list">
+                {(archives.slice(0, 5).length ? archives.slice(0, 5) : []).map((item) => (
+                  <div className="submission-gate-archive-item" key={safeText(item?.archive_id) || `archive-${safeText(item?.created_at)}`}>
+                    <b>{safeText(item?.archive_id, "Archive")}</b>
+                    <span>{safeText(item?.created_at, "Not loaded")} · {safeText(item?.verification_status, "unknown").replaceAll("_", " ")}</span>
+                    <small>{safeText(item?.archive_hash, "Not loaded")}</small>
+                    {packId && item?.archive_id ? (
+                      <a href={`${API_BASE}${submissionComplianceArchiveZipPath(packId, item.archive_id)}`} download>
+                        <FileDown size={13} />
+                        Download ZIP
+                      </a>
+                    ) : null}
+                  </div>
+                ))}
+                {!archives.length ? <p className="submission-risk warning">No archives loaded yet.</p> : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    ) : (
+      <div className="submission-gate-empty">No gate data available. Final submission remains locked.</div>
+    )}
+  </div>
   );
 }
 
@@ -2069,6 +2167,7 @@ export default function SubmissionCentreWorkspace() {
   const [submissionEvidenceBundleState, setSubmissionEvidenceBundleState] = useState({ loading: false, data: null, error: "" });
   const [submissionPrintableReportState, setSubmissionPrintableReportState] = useState({ loading: false, data: null, error: "" });
   const [submissionEvidenceSnapshotState, setSubmissionEvidenceSnapshotState] = useState({ loading: false, data: null, error: "" });
+  const [submissionComplianceArchiveState, setSubmissionComplianceArchiveState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionState, setManualCompletionState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionForm, setManualCompletionForm] = useState(manualCompletionFormFromRecord({}));
 
@@ -2173,6 +2272,7 @@ export default function SubmissionCentreWorkspace() {
         setSubmissionEvidenceBundleState({ loading: false, data: null, error: "" });
         setSubmissionPrintableReportState({ loading: false, data: null, error: "" });
         setSubmissionEvidenceSnapshotState({ loading: false, data: null, error: "" });
+        setSubmissionComplianceArchiveState({ loading: false, data: null, error: "" });
         setManualCompletionState({ loading: false, data: null, error: "" });
         setManualCompletionForm(manualCompletionFormFromRecord({}));
         return;
@@ -2187,8 +2287,9 @@ export default function SubmissionCentreWorkspace() {
       setSubmissionEvidenceBundleState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionPrintableReportState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionEvidenceSnapshotState((prev) => ({ ...prev, loading: true, error: "" }));
+      setSubmissionComplianceArchiveState((prev) => ({ ...prev, loading: true, error: "" }));
       setManualCompletionState((prev) => ({ ...prev, loading: true, error: "" }));
-      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, evidenceBundleResult, evidenceSnapshotResult, manualCompletionResult] = await Promise.all([
+      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, evidenceBundleResult, evidenceSnapshotResult, archiveListResult, manualCompletionResult] = await Promise.all([
         fetchEndpoint(submissionGatePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionGateSummaryPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionChecklistPath(gatePackId, gateRfqReference)),
@@ -2198,6 +2299,7 @@ export default function SubmissionCentreWorkspace() {
         fetchEndpoint(submissionEvidenceManifestPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionEvidenceBundlePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionEvidenceSnapshotPath(gatePackId, gateRfqReference)),
+        fetchEndpoint(submissionComplianceArchivesPath(gatePackId)),
         fetchEndpoint(submissionManualCompletionPath(gatePackId)),
       ]);
       if (cancelled) return;
@@ -2246,6 +2348,11 @@ export default function SubmissionCentreWorkspace() {
         loading: false,
         data: evidenceSnapshotResult.ok ? evidenceSnapshotResult.data : null,
         error: evidenceSnapshotResult.ok ? "" : evidenceSnapshotResult.error || "Evidence snapshot endpoint did not respond.",
+      });
+      setSubmissionComplianceArchiveState({
+        loading: false,
+        data: archiveListResult.ok ? archiveListResult.data : null,
+        error: archiveListResult.ok ? "" : archiveListResult.error || "Compliance archives endpoint did not respond.",
       });
       const manualCompletionData = manualCompletionResult.ok ? manualCompletionResult.data : null;
       setManualCompletionState({
@@ -2384,6 +2491,28 @@ export default function SubmissionCentreWorkspace() {
     });
   }
 
+  async function refreshComplianceArchives() {
+    if (!gatePackId) return;
+    setSubmissionComplianceArchiveState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await fetchEndpoint(submissionComplianceArchivesPath(gatePackId));
+    setSubmissionComplianceArchiveState({
+      loading: false,
+      data: result.ok ? result.data : null,
+      error: result.ok ? "" : result.error || "Compliance archives endpoint did not respond.",
+    });
+  }
+
+  async function createComplianceArchive() {
+    if (!gatePackId) return;
+    setSubmissionComplianceArchiveState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await postEndpoint(submissionComplianceArchivePath(gatePackId, gateRfqReference), {});
+    if (!result.ok) {
+      setSubmissionComplianceArchiveState({ loading: false, data: null, error: result.error || "Compliance archive could not be created." });
+      return;
+    }
+    await refreshComplianceArchives();
+  }
+
   function openPrintableReport(path) {
     if (!gatePackId) return;
     window.open(`${API_BASE}${path}`, "_blank", "noopener,noreferrer");
@@ -2480,6 +2609,7 @@ export default function SubmissionCentreWorkspace() {
         evidenceBundleState={submissionEvidenceBundleState}
         submissionPrintableReportState={submissionPrintableReportState}
         submissionEvidenceSnapshotState={submissionEvidenceSnapshotState}
+        submissionComplianceArchiveState={submissionComplianceArchiveState}
         manualCompletionState={manualCompletionState}
         manualCompletionForm={manualCompletionForm}
         onManualCompletionChange={onManualCompletionChange}
@@ -2494,6 +2624,8 @@ export default function SubmissionCentreWorkspace() {
         onEvidenceRequest={refreshEvidenceManifest}
         onEvidenceBundleRequest={refreshEvidenceBundle}
         onEvidenceSnapshotRequest={refreshEvidenceSnapshot}
+        onComplianceArchiveCreateRequest={createComplianceArchive}
+        onComplianceArchivesRequest={refreshComplianceArchives}
       />
 
       <div className="submission-table-card card">

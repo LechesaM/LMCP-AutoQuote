@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
 from app.services.quote_compilation_service import QuoteCompilationService, append_pack_audit_event
 
@@ -209,6 +209,50 @@ def submission_gate_evidence_snapshot_json(pack_id: str, rfq_reference: Optional
     return JSONResponse(
         content=snapshot,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/submission-gate/{pack_id}/compliance-archive")
+def submission_gate_compliance_archive(
+    pack_id: str,
+    rfq_reference: Optional[str] = Query(default=None),
+) -> Dict[str, Any]:
+    return service().create_compliance_archive(pack_id, rfq_reference=rfq_reference)
+
+
+@router.get("/submission-gate/{pack_id}/compliance-archives")
+def submission_gate_compliance_archives(pack_id: str) -> Dict[str, Any]:
+    return service().read_compliance_archives(pack_id)
+
+
+@router.get("/submission-gate/{pack_id}/compliance-archive/{archive_id}/bundle.zip")
+def submission_gate_compliance_archive_bundle_zip(
+    pack_id: str,
+    archive_id: str,
+) -> FileResponse:
+    bundle = service().build_compliance_bundle_zip(pack_id, archive_id=archive_id)
+    zip_path = bundle.get("zip_file_path") if isinstance(bundle, dict) else ""
+    if bundle.get("status") != "ok" or not zip_path:
+        raise HTTPException(status_code=404, detail=bundle.get("message") or "Compliance archive bundle was not found.")
+    filename = _safe_download_filename(f"{bundle.get('pack_id') or pack_id}-{bundle.get('archive_id') or archive_id}-compliance-archive", "zip")
+    return FileResponse(
+        path=str(zip_path),
+        media_type="application/zip",
+        filename=filename,
+    )
+
+
+@router.get("/submission-gate/{pack_id}/compliance-archive/latest/bundle.zip")
+def submission_gate_compliance_archive_latest_bundle_zip(pack_id: str) -> FileResponse:
+    bundle = service().build_compliance_bundle_zip(pack_id)
+    zip_path = bundle.get("zip_file_path") if isinstance(bundle, dict) else ""
+    if bundle.get("status") != "ok" or not zip_path:
+        raise HTTPException(status_code=404, detail=bundle.get("message") or "Compliance archive bundle was not found.")
+    filename = _safe_download_filename(f"{bundle.get('pack_id') or pack_id}-latest-compliance-archive", "zip")
+    return FileResponse(
+        path=str(zip_path),
+        media_type="application/zip",
+        filename=filename,
     )
 
 

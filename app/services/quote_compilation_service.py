@@ -7,6 +7,7 @@ import json
 import os
 import re
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -19,6 +20,15 @@ OUTPUT_ROOT = RUNTIME_DIR / "quote_compilation"
 RFQ_STATE_FILE = RUNTIME_DIR / "rfq_lifecycle" / "rfqs.json"
 MANUAL_COMPLETION_FILENAME = "manual_completion.json"
 AUDIT_TRAIL_FILENAME = "audit_trail.jsonl"
+COMPLIANCE_ARCHIVES_DIRNAME = "archives"
+COMPLIANCE_ARCHIVE_MANIFEST_FILENAME = "archive_manifest.json"
+COMPLIANCE_ARCHIVE_BUNDLE_FILENAME = "bundle.zip"
+COMPLIANCE_ARCHIVE_EXPORTS_DIRNAME = "exports"
+COMPLIANCE_ARCHIVE_EVIDENCE_BUNDLE_FILENAME = "evidence_bundle.json"
+COMPLIANCE_ARCHIVE_READINESS_CHECKLIST_FILENAME = "readiness_checklist.json"
+COMPLIANCE_ARCHIVE_AUDIT_TRAIL_FILENAME = "audit_trail.json"
+COMPLIANCE_ARCHIVE_EVIDENCE_SNAPSHOT_FILENAME = "evidence_snapshot.json"
+COMPLIANCE_ARCHIVE_PRINTABLE_REPORT_FILENAME = "printable_report.html"
 
 MAX_JSON_BYTES = 10 * 1024 * 1024
 MAX_SCAN_FILES_PER_DIR = 2500
@@ -445,6 +455,71 @@ def _sha256_hex(value: Any) -> str:
 
 def _evidence_snapshot_path(workspace: Path) -> Path:
     return workspace / "evidence_snapshot.json"
+
+
+def _compliance_archives_root(workspace: Path) -> Path:
+    return workspace / COMPLIANCE_ARCHIVES_DIRNAME
+
+
+def _compliance_archive_path(workspace: Path, archive_id: str) -> Path:
+    return _compliance_archives_root(workspace) / archive_id
+
+
+def _compliance_archive_exports_root(archive_workspace: Path) -> Path:
+    return archive_workspace / COMPLIANCE_ARCHIVE_EXPORTS_DIRNAME
+
+
+def _compliance_archive_manifest_path(archive_workspace: Path) -> Path:
+    return archive_workspace / COMPLIANCE_ARCHIVE_MANIFEST_FILENAME
+
+
+def _compliance_archive_export_path(archive_workspace: Path, archive_id: str) -> Path:
+    exports_root = _compliance_archive_exports_root(archive_workspace)
+    exports_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    filename = _safe_text(f"{archive_id}-{timestamp}", 160)
+    filename = re.sub(r"[^A-Za-z0-9._-]+", "-", filename).strip("-") or archive_id
+    candidate = exports_root / f"{filename}.zip"
+    suffix = 1
+    while candidate.exists():
+        candidate = exports_root / f"{filename}-{suffix}.zip"
+        suffix += 1
+    return candidate
+
+
+def _compliance_archive_file_hash(path: Path) -> str:
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(8192), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return ""
+
+
+def _next_compliance_archive_id(workspace: Path) -> str:
+    base = datetime.now(timezone.utc).strftime("archive-%Y%m%dT%H%M%SZ")
+    suffix = uuid.uuid4().hex[:8]
+    candidate = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{base}-{suffix}").strip("-")
+    archives_root = _compliance_archives_root(workspace)
+    while _compliance_archive_path(workspace, candidate).exists():
+        candidate = re.sub(r"[^A-Za-z0-9._-]+", "-", f"{base}-{suffix}-{uuid.uuid4().hex[:4]}").strip("-")
+    return candidate
+
+
+def _compliance_archive_latest_manifest(workspace: Path) -> Optional[Dict[str, Any]]:
+    archives_root = _compliance_archives_root(workspace)
+    if not archives_root.exists() or not archives_root.is_dir():
+        return None
+    manifests: List[Dict[str, Any]] = []
+    for archive_dir in sorted([path for path in archives_root.iterdir() if path.is_dir()], key=lambda path: _modified_at(path), reverse=True):
+        manifest = _read_json(_compliance_archive_manifest_path(archive_dir))
+        if isinstance(manifest, dict):
+            manifest.setdefault("archive_id", archive_dir.name)
+            manifest.setdefault("archive_path", _relative(archive_dir))
+            manifests.append(manifest)
+    return manifests[0] if manifests else None
 
 
 def _evidence_snapshot_verification_status(
@@ -1296,6 +1371,383 @@ def get_submission_binder_evidence_snapshot(
     )
     return {
         **snapshot,
+        "read_only": True,
+        "timestamp": _now_iso(),
+    }
+
+
+def _compliance_archive_verification_status(
+    manual_completion_validation: Dict[str, Any],
+    evidence_snapshot: Dict[str, Any],
+    warnings: List[str],
+) -> str:
+    manual_status = _safe_text(manual_completion_validation.get("status"), 40)
+    if manual_status in {"missing", "invalid"} or not manual_completion_validation.get("allowed"):
+        return "warning"
+    if warnings:
+        return "warning"
+    if _safe_text(evidence_snapshot.get("verification_status"), 40) not in {"verified", "ok", "warning"}:
+        return "warning"
+    return "verified"
+
+
+def _compliance_archive_manifest_hash(manifest_payload: Dict[str, Any]) -> str:
+    payload = dict(manifest_payload)
+    payload.pop("archive_hash", None)
+    return _sha256_hex(payload)
+
+
+def _write_compliance_archive_file(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(payload, str):
+        path.write_text(payload, encoding="utf-8")
+    else:
+        _write_json(path, _sanitize_audit_payload(payload))
+
+
+def create_compliance_archive(
+    pack_id: str,
+    rfq_reference: str | None = None,
+) -> Dict[str, Any]:
+    safe_pack_id = _safe_text(pack_id, 220)
+    workspace = _safe_quote_pack_dir(safe_pack_id)
+    created_at = _now_iso()
+    if not workspace:
+        return _sanitize_audit_payload(
+            {
+                "status": "not_found",
+                "pack_id": safe_pack_id,
+                "created_at": created_at,
+                "message": "No local quote compilation pack matched the requested pack_id.",
+                "warnings": ["No local quote compilation pack matched the requested pack_id."],
+            }
+        )
+
+    gate = get_submission_binder_gate(safe_pack_id, rfq_reference)
+    manual_completion_validation = _manual_completion_gate(workspace)
+    audit_trail = _read_pack_audit_trail(workspace)
+    readiness_checklist = _readiness_checklist_payload(gate, audit_trail, manual_completion_validation)
+    evidence_bundle = _evidence_bundle_payload(
+        gate,
+        readiness_checklist,
+        manual_completion_validation,
+        audit_trail,
+    )
+    evidence_snapshot = _build_evidence_snapshot_payload(
+        safe_pack_id,
+        rfq_reference,
+        gate=gate,
+        readiness_checklist=readiness_checklist,
+        evidence_bundle=evidence_bundle,
+        audit_trail=audit_trail,
+        manual_completion_validation=manual_completion_validation,
+        persist=True,
+    )
+
+    report_blockers = _compliance_summary_blockers(gate, readiness_checklist, evidence_bundle, manual_completion_validation, workspace)
+    report_warnings = _compliance_summary_warnings(readiness_checklist, evidence_bundle, audit_trail, manual_completion_validation)
+    report_status = _compliance_summary_status(gate, readiness_checklist, evidence_bundle, manual_completion_validation, report_blockers)
+    compliance_summary = {
+        "status": report_status,
+        "pack_id": workspace.name,
+        "generated_at": created_at,
+        "manual_completion_present": bool(manual_completion_validation.get("status") == "ok"),
+        "manual_completion_allowed": bool(manual_completion_validation.get("allowed")),
+        "readiness_checklist_available": True,
+        "evidence_bundle_available": True,
+        "evidence_snapshot_available": True,
+        "evidence_snapshot_verification_status": evidence_snapshot.get("verification_status"),
+        "evidence_snapshot_hash": evidence_snapshot.get("evidence_bundle_hash"),
+        "evidence_snapshot_generated_at": evidence_snapshot.get("generated_at"),
+        "audit_event_count": int(audit_trail.get("count") or 0),
+        "audit_warning_count": int(audit_trail.get("warning_count") or 0),
+        "final_submit_locked": True,
+        "automated_submit_disabled": True,
+        "can_submit_final": bool(gate.get("can_submit_final") and readiness_checklist.get("can_submit_final") and manual_completion_validation.get("allowed")),
+        "blockers": report_blockers,
+        "warnings": report_warnings,
+        "snapshot_warnings": evidence_snapshot.get("warnings", []),
+        "latest_audit_event_summary": _audit_event_summary((audit_trail.get("events") or [])[-1] if isinstance(audit_trail.get("events"), list) and audit_trail.get("events") else None),
+        "safety_flags": dict(BINDER_SAFETY_FLAGS),
+        "message": "Submission compliance summary is read-only. Manual submission remains locked.",
+    }
+
+    report = {
+        "status": report_status,
+        "pack_id": workspace.name,
+        "generated_at": created_at,
+        "final_submit_locked": True,
+        "automated_submit_disabled": True,
+        "manual_completion_present": bool(manual_completion_validation.get("status") == "ok"),
+        "manual_completion_allowed": bool(manual_completion_validation.get("allowed")),
+        "submission_status": report_status,
+        "compliance_summary": compliance_summary,
+        "readiness_checklist": readiness_checklist,
+        "evidence_bundle": evidence_bundle,
+        "evidence_snapshot": evidence_snapshot,
+        "manual_completion_record": _sanitize_audit_payload(manual_completion_validation.get("manual_completion")) if isinstance(manual_completion_validation.get("manual_completion"), dict) else None,
+        "audit_summary": {
+            "count": int(audit_trail.get("count") or 0),
+            "warning_count": int(audit_trail.get("warning_count") or 0),
+            "audit_trail_path": audit_trail.get("audit_trail_path"),
+            "latest_audit_event_summary": _audit_event_summary((audit_trail.get("events") or [])[-1] if isinstance(audit_trail.get("events"), list) and audit_trail.get("events") else None),
+        },
+        "latest_audit_events": _sanitize_audit_payload((audit_trail.get("events") or [])[-10:] if isinstance(audit_trail.get("events"), list) else []),
+        "blockers": _sanitize_audit_payload(report_blockers),
+        "warnings": _sanitize_audit_payload(report_warnings),
+        "html": "",
+        "message": "Printable compliance report is read-only. Manual submission remains locked.",
+    }
+    report["html"] = _printable_compliance_report_html(report)
+
+    archives_root = _compliance_archives_root(workspace)
+    archives_root.mkdir(parents=True, exist_ok=True)
+    archive_id = _next_compliance_archive_id(workspace)
+    archive_workspace = _compliance_archive_path(workspace, archive_id)
+    suffix = 1
+    while archive_workspace.exists():
+        archive_id = f"{archive_id}-{suffix}"
+        archive_workspace = _compliance_archive_path(workspace, archive_id)
+        suffix += 1
+    archive_workspace.mkdir(parents=True, exist_ok=False)
+
+    content_paths: Dict[str, Path] = {}
+    manifest_warnings = _dedupe_preserve_order([
+        *report.get("warnings", []),
+        *evidence_snapshot.get("warnings", []),
+        *evidence_bundle.get("bundle_warnings", []),
+        *readiness_checklist.get("warnings", []),
+    ])
+
+    bundle_path = archive_workspace / COMPLIANCE_ARCHIVE_EVIDENCE_BUNDLE_FILENAME
+    readiness_path = archive_workspace / COMPLIANCE_ARCHIVE_READINESS_CHECKLIST_FILENAME
+    audit_path = archive_workspace / COMPLIANCE_ARCHIVE_AUDIT_TRAIL_FILENAME
+    snapshot_path = archive_workspace / COMPLIANCE_ARCHIVE_EVIDENCE_SNAPSHOT_FILENAME
+    report_path = archive_workspace / COMPLIANCE_ARCHIVE_PRINTABLE_REPORT_FILENAME
+    bundle_content = _sanitize_audit_payload(evidence_bundle)
+    readiness_content = _sanitize_audit_payload(readiness_checklist)
+    audit_content = _sanitize_audit_payload(audit_trail)
+    snapshot_content = _sanitize_audit_payload(evidence_snapshot)
+    manual_completion_record = report["manual_completion_record"]
+
+    _write_compliance_archive_file(bundle_path, bundle_content)
+    _write_compliance_archive_file(readiness_path, readiness_content)
+    _write_compliance_archive_file(audit_path, audit_content)
+    _write_compliance_archive_file(snapshot_path, snapshot_content)
+    report_path.write_text(report["html"], encoding="utf-8")
+    content_paths[COMPLIANCE_ARCHIVE_EVIDENCE_BUNDLE_FILENAME] = bundle_path
+    content_paths[COMPLIANCE_ARCHIVE_READINESS_CHECKLIST_FILENAME] = readiness_path
+    content_paths[COMPLIANCE_ARCHIVE_AUDIT_TRAIL_FILENAME] = audit_path
+    content_paths[COMPLIANCE_ARCHIVE_EVIDENCE_SNAPSHOT_FILENAME] = snapshot_path
+    content_paths[COMPLIANCE_ARCHIVE_PRINTABLE_REPORT_FILENAME] = report_path
+
+    if isinstance(manual_completion_record, dict):
+        manual_path = archive_workspace / MANUAL_COMPLETION_FILENAME
+        _write_compliance_archive_file(manual_path, manual_completion_record)
+        content_paths[MANUAL_COMPLETION_FILENAME] = manual_path
+    elif isinstance(manual_completion_validation.get("manual_completion"), dict) and manual_completion_validation.get("allowed"):
+        manual_path = archive_workspace / MANUAL_COMPLETION_FILENAME
+        _write_compliance_archive_file(manual_path, manual_completion_validation.get("manual_completion"))
+        content_paths[MANUAL_COMPLETION_FILENAME] = manual_path
+
+    file_hashes = {
+        filename: _compliance_archive_file_hash(path)
+        for filename, path in sorted(content_paths.items())
+        if path.exists()
+    }
+    verification_status = _compliance_archive_verification_status(manual_completion_validation, evidence_snapshot, manifest_warnings)
+    manifest_payload = {
+        "archive_id": archive_id,
+        "pack_id": workspace.name,
+        "created_at": created_at,
+        "file_count": len(file_hashes) + 1,
+        "file_hashes": file_hashes,
+        "archive_hash": "",
+        "verification_status": verification_status,
+        "warnings": manifest_warnings,
+        "final_submit_locked": True,
+        "automated_submit_disabled": True,
+        "archive_path": _relative(archive_workspace),
+        "message": "Immutable compliance archive created locally.",
+    }
+    manifest_payload["archive_hash"] = _compliance_archive_manifest_hash(manifest_payload)
+    _write_json(_compliance_archive_manifest_path(archive_workspace), manifest_payload)
+
+    append_pack_audit_event(
+        workspace.name,
+        "compliance_archive_created",
+        {
+            "archive_id": archive_id,
+            "file_count": manifest_payload["file_count"],
+            "archive_hash": manifest_payload["archive_hash"],
+            "verification_status": verification_status,
+            "warning_count": len(manifest_warnings),
+        },
+    )
+
+    return {
+        "status": "ok",
+        "pack_id": workspace.name,
+        "created_at": created_at,
+        "archive": _sanitize_audit_payload(manifest_payload),
+        "archive_path": _relative(archive_workspace),
+        "message": "Compliance archive created locally.",
+        "read_only": True,
+        "timestamp": _now_iso(),
+    }
+
+
+def read_compliance_archives(pack_id: str) -> Dict[str, Any]:
+    safe_pack_id = _safe_text(pack_id, 220)
+    workspace = _safe_quote_pack_dir(safe_pack_id)
+    generated_at = _now_iso()
+    if not workspace:
+        return _sanitize_audit_payload(
+            {
+                "status": "not_found",
+                "pack_id": safe_pack_id,
+                "generated_at": generated_at,
+                "archives": [],
+                "count": 0,
+                "latest_archive_id": "",
+                "warnings": ["No local quote compilation pack matched the requested pack_id."],
+                "message": "No local quote compilation pack matched the requested pack_id.",
+            }
+        )
+
+    archives_root = _compliance_archives_root(workspace)
+    archives: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    if archives_root.exists() and archives_root.is_dir():
+        for archive_dir in sorted([path for path in archives_root.iterdir() if path.is_dir()], key=lambda path: _modified_at(path), reverse=True):
+            manifest = _read_json(_compliance_archive_manifest_path(archive_dir))
+            if isinstance(manifest, dict):
+                manifest.setdefault("archive_id", archive_dir.name)
+                manifest.setdefault("archive_path", _relative(archive_dir))
+                archives.append(_sanitize_audit_payload(manifest))
+            else:
+                warnings.append(f"Invalid compliance archive manifest skipped: {archive_dir.name}")
+
+    archive_count = len(archives)
+    latest_archive_id = archives[0].get("archive_id") if archives else ""
+    append_pack_audit_event(
+        workspace.name,
+        "compliance_archives_listed",
+        {
+            "archive_count": archive_count,
+            "latest_archive_id": latest_archive_id,
+            "warning_count": len(warnings),
+        },
+    )
+    return _sanitize_audit_payload(
+        {
+            "status": "ok",
+            "pack_id": workspace.name,
+            "generated_at": generated_at,
+            "archives": archives,
+            "count": archive_count,
+            "latest_archive_id": latest_archive_id,
+            "warnings": warnings,
+            "message": "Compliance archives listed locally.",
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+    )
+
+
+def build_compliance_bundle_zip(pack_id: str, archive_id: str | None = None) -> Dict[str, Any]:
+    safe_pack_id = _safe_text(pack_id, 220)
+    workspace = _safe_quote_pack_dir(safe_pack_id)
+    generated_at = _now_iso()
+    if not workspace:
+        return _sanitize_audit_payload(
+            {
+                "status": "not_found",
+                "pack_id": safe_pack_id,
+                "generated_at": generated_at,
+                "message": "No local quote compilation pack matched the requested pack_id.",
+                "warnings": ["No local quote compilation pack matched the requested pack_id."],
+            }
+        )
+
+    archive_manifest: Optional[Dict[str, Any]] = None
+    archive_workspace: Optional[Path] = None
+    if archive_id:
+        candidate = _compliance_archive_path(workspace, _safe_text(archive_id, 160))
+        manifest = _read_json(_compliance_archive_manifest_path(candidate))
+        if isinstance(manifest, dict):
+            archive_workspace = candidate
+            archive_manifest = manifest
+    else:
+        archive_manifest = _compliance_archive_latest_manifest(workspace)
+        if archive_manifest:
+            archive_workspace = _compliance_archive_path(workspace, _safe_text(archive_manifest.get("archive_id"), 160))
+
+    if not archive_workspace or not archive_workspace.exists():
+        if archive_id:
+            return _sanitize_audit_payload(
+                {
+                    "status": "not_found",
+                    "pack_id": workspace.name,
+                    "generated_at": generated_at,
+                    "archive_id": _safe_text(archive_id, 160),
+                    "message": "Compliance archive not found.",
+                    "warnings": ["Compliance archive not found."],
+                }
+            )
+        created = create_compliance_archive(pack_id)
+        if created.get("status") != "ok":
+            return _sanitize_audit_payload(created)
+        archive_manifest = created.get("archive") if isinstance(created.get("archive"), dict) else None
+        archive_workspace = _compliance_archive_path(workspace, _safe_text(created.get("archive", {}).get("archive_id") if isinstance(created.get("archive"), dict) else "", 160))
+
+    if not archive_manifest and archive_workspace:
+        archive_manifest = _read_json(_compliance_archive_manifest_path(archive_workspace))
+    if not archive_manifest or not archive_workspace:
+        return _sanitize_audit_payload(
+            {
+                "status": "not_found",
+                "pack_id": workspace.name,
+                "generated_at": generated_at,
+                "message": "Compliance archive not found.",
+                "warnings": ["Compliance archive not found."],
+            }
+        )
+
+    archive_id_safe = _safe_text(archive_manifest.get("archive_id") or archive_workspace.name, 160)
+    export_path = _compliance_archive_export_path(archive_workspace, archive_id_safe)
+    with zipfile.ZipFile(export_path, "w", compression=zipfile.ZIP_DEFLATED) as archive_zip:
+        for current, dirs, files in os.walk(archive_workspace):
+            current_path = Path(current)
+            dirs[:] = [name for name in dirs if name != COMPLIANCE_ARCHIVE_EXPORTS_DIRNAME]
+            for filename in sorted(files):
+                if filename.endswith(".zip"):
+                    continue
+                path = current_path / filename
+                if not path.is_file():
+                    continue
+                archive_zip.write(path, arcname=str(path.relative_to(archive_workspace)))
+
+    append_pack_audit_event(
+        workspace.name,
+        "compliance_archive_zip_exported",
+        {
+            "archive_id": archive_id_safe,
+            "zip_path": _relative(export_path),
+            "file_count": int(archive_manifest.get("file_count") or 0),
+        },
+    )
+    return {
+        "status": "ok",
+        "pack_id": workspace.name,
+        "generated_at": generated_at,
+        "archive_id": archive_id_safe,
+        "archive_path": _relative(archive_workspace),
+        "zip_path": _relative(export_path),
+        "zip_file_path": str(export_path),
+        "file_count": int(archive_manifest.get("file_count") or 0),
+        "archive": _sanitize_audit_payload(archive_manifest),
+        "message": "Compliance archive bundle created locally.",
         "read_only": True,
         "timestamp": _now_iso(),
     }
@@ -3749,6 +4201,30 @@ class QuoteCompilationService:
         snapshot = get_submission_binder_evidence_snapshot(pack_id, rfq_reference)
         return {
             **snapshot,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def create_compliance_archive(self, pack_id: str, rfq_reference: Optional[str] = None) -> Dict[str, Any]:
+        archive = create_compliance_archive(pack_id, rfq_reference=rfq_reference)
+        return {
+            **archive,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def read_compliance_archives(self, pack_id: str) -> Dict[str, Any]:
+        archives = read_compliance_archives(pack_id)
+        return {
+            **archives,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def build_compliance_bundle_zip(self, pack_id: str, archive_id: Optional[str] = None) -> Dict[str, Any]:
+        bundle = build_compliance_bundle_zip(pack_id, archive_id=archive_id)
+        return {
+            **bundle,
             "read_only": True,
             "timestamp": _now_iso(),
         }

@@ -8,3 +8,38 @@ monthly_quotes/
 output/quotes/
 frontend/dist/
 frontend/node_modules/
+
+# Runtime
+*.log
+*.pid
+celerybeat-schedule
+
+# macOS
+.DS_Store
+
+# Environment files
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Generated artifacts
+app/generated_submission_packs/
+supplier_quotes/
+recovery_freeze/
+*.tar.gz
+*.zip
+
+# Images / PDF outputs
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Backup and patch artifacts
+*.bak
+*.backup
+*.FINAL_PASS
+*.FINAL_LOCK_CLEAN
+*.FINAL_LOCK_OK

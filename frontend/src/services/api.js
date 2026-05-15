@@ -1,6 +1,25 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const OPERATOR_ROLES = ["preparer", "reviewer", "submitter", "admin"];
 
 const REQUEST_TIMEOUT_MS = 9000;
+
+function sanitizeOperatorName(value) {
+  return String(value ?? "").trim().replace(/\s+/g, " ").slice(0, 160);
+}
+
+function normalizeOperatorRole(value) {
+  const role = String(value ?? "").trim().toLowerCase();
+  return OPERATOR_ROLES.includes(role) ? role : "";
+}
+
+function buildOperatorHeaders(role, name) {
+  const headers = {};
+  const normalizedRole = normalizeOperatorRole(role);
+  const operatorName = sanitizeOperatorName(name);
+  if (normalizedRole) headers["X-LMCP-Operator-Role"] = normalizedRole;
+  if (operatorName) headers["X-LMCP-Operator-Name"] = operatorName;
+  return headers;
+}
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
@@ -301,4 +320,4 @@ export async function getQuoteCompilationComplianceSummary(packId) {
   );
 }
 
-export { API_BASE };
+export { API_BASE, OPERATOR_ROLES, buildOperatorHeaders, normalizeOperatorRole };

@@ -735,6 +735,19 @@
 .submission-gate-snapshot-summary b{display:block;margin-top:4px;color:#eef7ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .submission-gate-snapshot-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
 .submission-gate-snapshot-columns h4{margin:0 0 8px;color:#eef7ff;font-size:13px}
+.submission-gate-operator-panel{border:1px solid rgba(24,230,166,.18);background:rgba(24,230,166,.045);border-radius:14px;padding:12px;display:grid;gap:10px}
+.submission-gate-operator-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.submission-gate-operator-head h3{margin:0;font-size:14px}
+.submission-gate-operator-head p{margin:4px 0 0;color:#9fb2c8;font-size:12px;line-height:1.35}
+.submission-gate-operator-badge{display:inline-flex;align-items:center;gap:7px;border-radius:11px;border:1px solid rgba(24,230,166,.24);background:rgba(24,230,166,.08);color:#bfffe9;padding:8px 10px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
+.submission-gate-operator-badge.amber{border-color:rgba(255,211,106,.28);background:rgba(255,211,106,.08);color:#ffe29a}
+.submission-gate-operator-badge.green{border-color:rgba(24,230,166,.28);background:rgba(24,230,166,.08);color:#bfffe9}
+.submission-gate-operator-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.submission-gate-operator-fields label{display:grid;gap:6px;min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:12px;padding:9px}
+.submission-gate-operator-fields span{display:block;color:#9fb2c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.submission-gate-operator-fields input,.submission-gate-operator-fields select{width:100%;min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(6,16,25,.7);color:#eef7ff;border-radius:10px;padding:9px 10px;font:inherit;font-size:12px;line-height:1.35}
+.submission-gate-operator-fields select option{background:#081421;color:#eef7ff}
+.submission-gate-operator-status{display:grid;gap:8px}
 .submission-gate-archive-card{border:1px solid rgba(214,234,255,.12);background:rgba(214,234,255,.035);border-radius:14px;padding:12px;display:grid;gap:10px}
 .submission-gate-archive-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .submission-gate-archive-head h3{margin:0;font-size:14px}
@@ -759,7 +772,9 @@
 .submission-gate-archive-item b{color:#eef7ff;font-size:13px}
 .submission-gate-archive-item span{margin-top:4px;color:#9fb2c8;font-size:11px}
 .submission-gate-archive-item small{margin-top:4px;color:#dbe8ff;font-size:11px}
-.submission-gate-archive-item a{display:inline-flex;align-items:center;gap:6px;width:max-content;margin-top:8px;border:1px solid rgba(24,230,166,.3);background:rgba(24,230,166,.1);color:#bfffe9;border-radius:10px;padding:6px 8px;font:inherit;font-size:11px;font-weight:900;text-decoration:none}
+.submission-gate-archive-item a,.submission-gate-archive-item button{display:inline-flex;align-items:center;gap:6px;width:max-content;margin-top:8px;border:1px solid rgba(24,230,166,.3);background:rgba(24,230,166,.1);color:#bfffe9;border-radius:10px;padding:6px 8px;font:inherit;font-size:11px;font-weight:900;text-decoration:none}
+.submission-gate-archive-item button{cursor:pointer}
+.submission-gate-archive-item button:disabled{opacity:.55;cursor:not-allowed}
 .submission-gate-proof-card{border:1px solid rgba(214,234,255,.12);background:rgba(214,234,255,.03);border-radius:14px;padding:12px;display:grid;gap:10px}
 .submission-gate-proof-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .submission-gate-proof-head h3{margin:0;font-size:14px}
@@ -786,7 +801,7 @@
   .submission-toolbar{grid-template-columns:1fr 1fr}
   .submission-panels{grid-template-columns:1fr 1fr}
   .submission-lock-grid{grid-template-columns:1fr 1fr}
-  .submission-binder-columns,.submission-gate-columns,.submission-gate-pack-summary-columns,.submission-gate-evidence-columns,.submission-gate-manual-form,.submission-gate-manual-summary,.submission-gate-manual-meta,.submission-gate-bundle-summary,.submission-gate-bundle-meta,.submission-gate-archive-summary,.submission-gate-proof-form,.submission-gate-proof-summary,.submission-gate-proof-meta{grid-template-columns:1fr}
+  .submission-binder-columns,.submission-gate-columns,.submission-gate-pack-summary-columns,.submission-gate-evidence-columns,.submission-gate-manual-form,.submission-gate-manual-summary,.submission-gate-manual-meta,.submission-gate-bundle-summary,.submission-gate-bundle-meta,.submission-gate-archive-summary,.submission-gate-proof-form,.submission-gate-proof-summary,.submission-gate-proof-meta,.submission-gate-operator-fields{grid-template-columns:1fr}
 }
 
 @media(max-width:720px){

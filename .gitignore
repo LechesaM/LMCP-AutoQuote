@@ -1,0 +1,10 @@
+.DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+runtime/
+monthly_quotes/
+output/quotes/
+frontend/dist/
+frontend/node_modules/

@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import JSONResponse, PlainTextResponse
 
-from app.services.quote_compilation_service import QuoteCompilationService
+from app.services.quote_compilation_service import QuoteCompilationService, append_pack_audit_event
 
 
 router = APIRouter(prefix="/quote-compilation", tags=["Quote Compilation"])
@@ -151,9 +151,35 @@ def submission_gate_manual_completion_get(pack_id: str) -> Dict[str, Any]:
 def submission_gate_manual_completion_json(pack_id: str) -> JSONResponse:
     manual_completion = service().manual_completion(pack_id)
     filename = _safe_download_filename(f"{manual_completion.get('pack_id') or pack_id}-manual-completion", "json")
-    content = manual_completion.get("manual_completion") if isinstance(manual_completion.get("manual_completion"), dict) else manual_completion
+    record = manual_completion.get("manual_completion") if isinstance(manual_completion.get("manual_completion"), dict) else None
+    content = record if isinstance(record, dict) else manual_completion
+    if isinstance(record, dict) and manual_completion.get("status") == "ok":
+        append_pack_audit_event(
+            manual_completion.get("pack_id") or pack_id,
+            "manual_completion_json_export",
+            {
+                "status": manual_completion.get("status"),
+                "validation_status": manual_completion.get("validation", {}).get("status") if isinstance(manual_completion.get("validation"), dict) else None,
+                "manual_completion_allowed": bool(manual_completion.get("validation", {}).get("allowed")) if isinstance(manual_completion.get("validation"), dict) else None,
+            },
+        )
     return JSONResponse(
         content=content,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/submission-gate/{pack_id}/audit-trail")
+def submission_gate_audit_trail(pack_id: str) -> Dict[str, Any]:
+    return service().audit_trail(pack_id)
+
+
+@router.get("/submission-gate/{pack_id}/audit-trail.json")
+def submission_gate_audit_trail_json(pack_id: str) -> JSONResponse:
+    trail = service().audit_trail(pack_id)
+    filename = _safe_download_filename(f"{trail.get('pack_id') or pack_id}-audit-trail", "json")
+    return JSONResponse(
+        content=trail,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

@@ -610,6 +610,28 @@
 .submission-gate-manual-summary b,.submission-gate-manual-meta b{display:block;margin-top:4px;color:#eef7ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .submission-gate-manual-meta{display:grid;grid-template-columns:1.2fr .8fr;gap:8px}
 .submission-gate-manual-notes{max-height:200px;overflow:auto;margin:0;border:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.22);border-radius:12px;padding:10px;color:#d7e8f8;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;white-space:pre-wrap}
+.submission-gate-audit-trail-card{border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:14px;padding:12px;display:grid;gap:10px}
+.submission-gate-audit-trail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.submission-gate-audit-trail-head h3{margin:0;font-size:14px}
+.submission-gate-audit-trail-head p{margin:4px 0 0;color:#9fb2c8;font-size:12px;line-height:1.35}
+.submission-gate-audit-trail-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.submission-gate-audit-trail-actions button,.submission-gate-audit-trail-actions a{display:inline-flex;align-items:center;gap:7px;border-radius:11px;padding:8px 10px;font:inherit;font-size:11px;font-weight:900;white-space:nowrap;text-decoration:none}
+.submission-gate-audit-trail-actions button{border:1px solid rgba(118,167,255,.28);background:rgba(118,167,255,.1);color:#dbe8ff;cursor:pointer}
+.submission-gate-audit-trail-actions a{border:1px solid rgba(24,230,166,.3);background:rgba(24,230,166,.1);color:#bfffe9}
+.submission-gate-audit-trail-actions button:disabled{opacity:.55;cursor:not-allowed}
+.submission-gate-audit-trail-summary{display:grid;grid-template-columns:1fr .6fr 1.6fr;gap:8px}
+.submission-gate-audit-trail-summary div{min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:12px;padding:9px}
+.submission-gate-audit-trail-summary span{display:block;color:#9fb2c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.submission-gate-audit-trail-summary b{display:block;margin-top:4px;color:#eef7ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.submission-gate-audit-trail-events{display:grid;gap:8px;max-height:280px;overflow:auto;padding-right:2px}
+.submission-gate-audit-trail-event{display:grid;grid-template-columns:140px 1fr auto;gap:8px;align-items:start;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:12px;padding:10px}
+.submission-gate-audit-trail-event time{color:#8fa6bd;font-size:10px}
+.submission-gate-audit-trail-event b{color:#eef7ff;font-size:12px;text-transform:capitalize}
+.submission-gate-audit-trail-event span{border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.055);color:#c8d8e8;padding:4px 7px;font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.submission-gate-audit-trail-event p{grid-column:2/-1;margin:0;color:#b8c8d9;font-size:12px;line-height:1.4}
+.submission-gate-audit-trail-event.ok span,.submission-gate-audit-trail-event.allowed span{border-color:rgba(24,230,166,.32);background:rgba(24,230,166,.1);color:#8dffd8}
+.submission-gate-audit-trail-event.blocked span,.submission-gate-audit-trail-event.missing span,.submission-gate-audit-trail-event.invalid span{border-color:rgba(255,112,112,.36);background:rgba(255,112,112,.1);color:#ffb0b0}
+.submission-gate-audit-trail-event.pending span,.submission-gate-audit-trail-event.unavailable span{border-color:rgba(255,211,106,.32);background:rgba(255,211,106,.08);color:#ffe29a}
 
 @media(max-width:1240px){
   .submission-toolbar{grid-template-columns:1fr 1fr}
@@ -619,10 +641,11 @@
 }
 
 @media(max-width:720px){
-  .submission-safety-banner,.submission-hero,.submission-binder-section-head,.submission-binder-headline,.submission-gate-head,.submission-gate-pack-summary-head,.submission-gate-checklist-head,.submission-gate-audit-head,.submission-gate-evidence-head{align-items:flex-start;flex-direction:column}
+  .submission-safety-banner,.submission-hero,.submission-binder-section-head,.submission-binder-headline,.submission-gate-head,.submission-gate-pack-summary-head,.submission-gate-checklist-head,.submission-gate-audit-head,.submission-gate-audit-trail-head,.submission-gate-evidence-head{align-items:flex-start;flex-direction:column}
   .submission-endpoint-status{justify-items:start}
-  .submission-toolbar,.submission-summary-grid,.submission-detail-grid,.submission-panels,.submission-lock-grid,.submission-binder-summary,.submission-binder-flags,.submission-gate-metrics,.submission-gate-pack-summary-grid,.submission-gate-checklist-grid,.submission-gate-audit-summary,.submission-gate-audit-event,.submission-gate-evidence-summary,.submission-gate-evidence-file{grid-template-columns:1fr}
+  .submission-toolbar,.submission-summary-grid,.submission-detail-grid,.submission-panels,.submission-lock-grid,.submission-binder-summary,.submission-binder-flags,.submission-gate-metrics,.submission-gate-pack-summary-grid,.submission-gate-checklist-grid,.submission-gate-audit-summary,.submission-gate-audit-event,.submission-gate-audit-trail-summary,.submission-gate-audit-trail-event,.submission-gate-evidence-summary,.submission-gate-evidence-file{grid-template-columns:1fr}
   .submission-gate-audit-event p{grid-column:auto}
+  .submission-gate-audit-trail-event p{grid-column:auto}
   .submission-drawer{width:100vw}
   .submission-operator-actions button,.submission-binder-actions button,.submission-gate-pack-summary-actions button,.submission-gate-pack-summary-actions a,.submission-gate-checklist-actions button,.submission-gate-checklist-actions a,.submission-gate-audit-actions button,.submission-gate-audit-actions a,.submission-gate-evidence-actions button,.submission-gate-evidence-actions a,.submission-gate-manual-actions button,.submission-gate-manual-actions a,.submission-gate-locked-badge{width:100%;justify-content:center}
 }

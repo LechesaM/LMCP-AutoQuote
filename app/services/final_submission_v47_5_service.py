@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.services.quote_compilation_service import _manual_completion_gate, _safe_quote_pack_dir
+from app.services.quote_compilation_service import _manual_completion_gate, _safe_quote_pack_dir, append_pack_audit_event
 
 RUNTIME_DIR = Path("runtime")
 FINAL_DIR = RUNTIME_DIR / "final_submission_v47_5"
@@ -4195,6 +4195,20 @@ async def guarded_final_submission(
 ):
     if payload is None:
         payload = {}
+    audit_pack_id = _safe_str(pack_id or payload.get("pack_id") or payload.get("_locked_pack_id"), "")
+    if audit_pack_id:
+        append_pack_audit_event(
+            audit_pack_id,
+            "guarded_final_submit_attempt",
+            {
+                "dry_run": bool(dry_run),
+                "execute_final_submit": bool(execute_final_submit),
+                "capture_screenshots": bool(capture_screenshots),
+                "wait_after_click_ms": int(wait_after_click_ms),
+                "attachments_count": len(attachments or payload.get("attachments") or payload.get("upload_files") or []),
+                "portal_url_present": bool(payload.get("portal_url") or payload.get("submission_url") or payload.get("url")),
+            },
+        )
 
     # Load autofill plan metadata so guarded final submission receives
     # buyer_rfq_number, quote_number, portal_url, upload_files, and form_values.
@@ -4250,4 +4264,17 @@ async def guarded_final_submission(
         },
     })
 
-    return await run_final_submission(payload)
+    result = await run_final_submission(payload)
+    if audit_pack_id and isinstance(result, dict) and not result.get("submitted"):
+        append_pack_audit_event(
+            audit_pack_id,
+            "guarded_final_submit_blocked",
+            {
+                "status": result.get("status"),
+                "reason": result.get("blocked_reason") or result.get("final_block_reason") or result.get("reason"),
+                "blocked_reason": result.get("blocked_reason") or result.get("final_block_reason") or result.get("reason"),
+                "manual_completion_allowed": result.get("manual_completion_allowed"),
+                "manual_completion_reason_code": result.get("manual_completion_gate", {}).get("reason_code") if isinstance(result.get("manual_completion_gate"), dict) else None,
+            },
+        )
+    return result

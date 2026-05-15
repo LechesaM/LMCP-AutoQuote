@@ -4,6 +4,7 @@ import csv
 import json
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -15,6 +16,7 @@ RUNTIME_DIR = BASE_DIR / "runtime"
 OUTPUT_ROOT = RUNTIME_DIR / "quote_compilation"
 RFQ_STATE_FILE = RUNTIME_DIR / "rfq_lifecycle" / "rfqs.json"
 MANUAL_COMPLETION_FILENAME = "manual_completion.json"
+AUDIT_TRAIL_FILENAME = "audit_trail.jsonl"
 
 MAX_JSON_BYTES = 10 * 1024 * 1024
 MAX_SCAN_FILES_PER_DIR = 2500
@@ -101,6 +103,44 @@ FORBIDDEN_MANUAL_COMPLETION_KEYWORDS = (
     "pin",
 )
 
+AUDIT_TRAIL_REDACTION_KEYS = (
+    "password",
+    "passcode",
+    "otp",
+    "captcha",
+    "credential",
+    "credentials",
+    "secret",
+    "token",
+    "access_token",
+    "refresh_token",
+    "api_key",
+    "apikey",
+    "cookie",
+    "session",
+    "session_id",
+    "sessionid",
+    "bearer",
+    "authorization",
+    "csrf",
+)
+
+AUDIT_TRAIL_REDACTION_VALUES = (
+    "password",
+    "passcode",
+    "otp",
+    "captcha",
+    "credential",
+    "credentials",
+    "secret",
+    "token",
+    "cookie",
+    "session",
+    "api key",
+    "apikey",
+    "bearer",
+)
+
 MANUAL_COMPLETION_REQUIRED_FIELDS = (
     "submitted_by",
     "submitted_at",
@@ -150,6 +190,164 @@ def _strict_text(value: Any, max_length: int, field_name: str) -> str:
 
 def _manual_completion_path(workspace: Path) -> Path:
     return workspace / MANUAL_COMPLETION_FILENAME
+
+
+def _audit_trail_path(workspace: Path) -> Path:
+    return workspace / AUDIT_TRAIL_FILENAME
+
+
+def _pack_audit_workspace(pack_id: str, create: bool = False) -> Optional[Path]:
+    if not pack_id:
+        return None
+    try:
+        root = OUTPUT_ROOT.resolve()
+        candidate = (OUTPUT_ROOT / pack_id).resolve()
+        if root not in candidate.parents and candidate != root:
+            return None
+        if _contains_sensitive_marker(candidate):
+            return None
+        if create:
+            candidate.mkdir(parents=True, exist_ok=True)
+        return candidate
+    except OSError:
+        return None
+
+
+def _audit_trail_field_is_sensitive(field_name: Any) -> bool:
+    lowered = _safe_text(field_name, 120).lower()
+    return any(keyword in lowered for keyword in AUDIT_TRAIL_REDACTION_KEYS)
+
+
+def _audit_trail_value_is_sensitive(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return False
+    text = _safe_text(value, 2000).lower()
+    return any(keyword in text for keyword in AUDIT_TRAIL_REDACTION_VALUES)
+
+
+def _sanitize_audit_payload(value: Any, depth: int = 0) -> Any:
+    if depth > 6:
+        return "[REDACTED]"
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        if _audit_trail_value_is_sensitive(value):
+            return "[REDACTED]"
+        return _safe_text(value, 2000)
+    if isinstance(value, dict):
+        sanitized: Dict[str, Any] = {}
+        for key, item in value.items():
+            if _audit_trail_field_is_sensitive(key) or _audit_trail_value_is_sensitive(item):
+                sanitized[str(key)] = "[REDACTED]"
+            else:
+                sanitized[str(key)] = _sanitize_audit_payload(item, depth + 1)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize_audit_payload(item, depth + 1) for item in value[:200]]
+    if isinstance(value, tuple):
+        return [_sanitize_audit_payload(item, depth + 1) for item in list(value)[:200]]
+    return _safe_text(value, 2000)
+
+
+def _read_pack_audit_trail(workspace: Path) -> Dict[str, Any]:
+    path = _audit_trail_path(workspace)
+    events: List[Dict[str, Any]] = []
+    warning_count = 0
+
+    if not path.exists() or not path.is_file():
+        return {
+            "status": "ok",
+            "pack_id": workspace.name,
+            "audit_trail_path": _relative(path),
+            "events": events,
+            "warning_count": warning_count,
+            "count": 0,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {
+            "status": "ok",
+            "pack_id": workspace.name,
+            "audit_trail_path": _relative(path),
+            "events": events,
+            "warning_count": 1,
+            "count": 0,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    for line in lines:
+        text = line.strip()
+        if not text:
+            continue
+        try:
+            event = json.loads(text)
+        except json.JSONDecodeError:
+            warning_count += 1
+            continue
+        if not isinstance(event, dict):
+            warning_count += 1
+            continue
+        event_id = _safe_text(event.get("event_id"), 120)
+        timestamp = _safe_text(event.get("timestamp"), 120)
+        event_type = _safe_text(event.get("event_type"), 160)
+        pack_id = _safe_text(event.get("pack_id"), 160)
+        payload = _sanitize_audit_payload(event.get("payload"))
+        if not event_id or not timestamp or not event_type or not pack_id:
+            warning_count += 1
+            continue
+        events.append(
+            {
+                "event_id": event_id,
+                "timestamp": timestamp,
+                "pack_id": pack_id,
+                "event_type": event_type,
+                "payload": payload if payload is not None else {},
+            }
+        )
+
+    return {
+        "status": "ok",
+        "pack_id": workspace.name,
+        "audit_trail_path": _relative(path),
+        "events": events,
+        "warning_count": warning_count,
+        "count": len(events),
+        "read_only": True,
+        "timestamp": _now_iso(),
+    }
+
+
+def append_pack_audit_event(pack_id: str, event_type: str, payload: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+    workspace = _pack_audit_workspace(pack_id, create=True)
+    if not workspace:
+        return None
+
+    event = {
+        "event_id": uuid.uuid4().hex,
+        "timestamp": _now_iso(),
+        "pack_id": workspace.name,
+        "event_type": _safe_text(event_type, 160) or "event",
+        "payload": _sanitize_audit_payload(payload or {}),
+    }
+
+    path = _audit_trail_path(workspace)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, sort_keys=True, separators=(",", ":")))
+            handle.write("\n")
+    except OSError:
+        return event
+    return event
 
 
 def _manual_completion_has_forbidden_fields(payload: Dict[str, Any]) -> bool:
@@ -2301,6 +2499,32 @@ class QuoteCompilationService:
 
     def submission_gate(self, pack_id: str, rfq_reference: Optional[str] = None) -> Dict[str, Any]:
         gate = get_submission_binder_gate(pack_id, rfq_reference)
+        if gate.get("pack_id"):
+            append_pack_audit_event(
+                gate.get("pack_id") or pack_id,
+                "submission_gate_readiness_check",
+                {
+                    "allowed": bool(gate.get("can_submit_final")),
+                    "can_prepare_submission": bool(gate.get("can_prepare_submission")),
+                    "manual_completion_allowed": bool(gate.get("manual_completion_allowed")),
+                    "manual_completion_blocked_reason": gate.get("manual_completion_blocked_reason"),
+                    "readiness_status": gate.get("readiness_status"),
+                    "reason_code": gate.get("manual_completion", {}).get("reason_code") if isinstance(gate.get("manual_completion"), dict) else None,
+                },
+            )
+            manual_completion = gate.get("manual_completion") if isinstance(gate.get("manual_completion"), dict) else {}
+            if manual_completion and manual_completion.get("allowed") is False:
+                append_pack_audit_event(
+                    gate.get("pack_id") or pack_id,
+                    "submission_gate_blocked_invalid_manual_completion" if manual_completion.get("reason_code") == "manual_completion_invalid_json" or str(manual_completion.get("reason_code") or "").startswith("manual_completion_invalid") or manual_completion.get("reason_code") == "manual_completion_credential_like_content" else "submission_gate_blocked_missing_manual_completion",
+                    {
+                        "blocked_reason": manual_completion.get("blocked_reason"),
+                        "reason_code": manual_completion.get("reason_code"),
+                        "missing_fields": manual_completion.get("missing_fields", []),
+                        "forbidden_fields": manual_completion.get("forbidden_fields", []),
+                        "manual_completion_path": manual_completion.get("manual_completion_path"),
+                    },
+                )
         return {
             **gate,
             "read_only": True,
@@ -2359,6 +2583,16 @@ class QuoteCompilationService:
                 "timestamp": _now_iso(),
             }
         validation = _manual_completion_gate(workspace)
+        append_pack_audit_event(
+            workspace.name,
+            "manual_completion_get",
+            {
+                "allowed": bool(validation.get("allowed")),
+                "reason_code": validation.get("reason_code"),
+                "blocked_reason": validation.get("blocked_reason"),
+                "saved_at": validation.get("manual_completion", {}).get("saved_at") if isinstance(validation.get("manual_completion"), dict) else None,
+            },
+        )
         return {
             **_manual_completion_detail(workspace),
             "validation": validation,
@@ -2377,9 +2611,33 @@ class QuoteCompilationService:
                 "timestamp": _now_iso(),
             }
 
-        manual_completion = _normalize_manual_completion_payload(workspace, payload or {})
+        try:
+            manual_completion = _normalize_manual_completion_payload(workspace, payload or {})
+        except ValueError as exc:
+            append_pack_audit_event(
+                pack_id,
+                "manual_completion_validation_failure",
+                {
+                    "error": str(exc),
+                    "field_names": list((payload or {}).keys()) if isinstance(payload, dict) else [],
+                },
+            )
+            raise
         manual_completion_path = _manual_completion_path(workspace)
         _write_json(manual_completion_path, manual_completion)
+        append_pack_audit_event(
+            workspace.name,
+            "manual_completion_save_success",
+            {
+                "submitted_by": manual_completion.get("submitted_by"),
+                "submitted_at": manual_completion.get("submitted_at"),
+                "portal_name": manual_completion.get("portal_name"),
+                "portal_reference": manual_completion.get("portal_reference"),
+                "uploaded_file_count": len(manual_completion.get("uploaded_file_names") or []),
+                "notes_present": bool(manual_completion.get("notes")),
+                "saved_at": manual_completion.get("saved_at"),
+            },
+        )
 
         return {
             "status": "ok",
@@ -2391,6 +2649,22 @@ class QuoteCompilationService:
             "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
             "timestamp": _now_iso(),
         }
+
+    def audit_trail(self, pack_id: str) -> Dict[str, Any]:
+        workspace = _pack_audit_workspace(pack_id, create=False)
+        if not workspace:
+            return {
+                "status": "ok",
+                "pack_id": _safe_text(pack_id, 160),
+                "audit_trail_path": _relative(_audit_trail_path(OUTPUT_ROOT / _safe_text(pack_id, 160))),
+                "events": [],
+                "warning_count": 0,
+                "count": 0,
+                "read_only": True,
+                "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+                "timestamp": _now_iso(),
+            }
+        return _read_pack_audit_trail(workspace)
 
     def pack(self, pack_id: str) -> Dict[str, Any]:
         workspace = _safe_quote_pack_dir(pack_id)

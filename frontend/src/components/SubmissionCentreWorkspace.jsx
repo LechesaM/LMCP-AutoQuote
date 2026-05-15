@@ -800,6 +800,14 @@ function submissionManualCompletionExportPath(packId) {
   return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/manual-completion.json`;
 }
 
+function submissionAuditTrailPath(packId) {
+  return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/audit-trail`;
+}
+
+function submissionAuditTrailExportPath(packId) {
+  return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/audit-trail.json`;
+}
+
 function manualCompletionFormFromRecord(record) {
   return {
     submitted_by: safeText(record?.submitted_by),
@@ -825,6 +833,7 @@ function SubmissionGateCard({
   summaryState,
   checklistState,
   auditState,
+  auditTrailState,
   evidenceState,
   manualCompletionState,
   manualCompletionForm,
@@ -834,12 +843,14 @@ function SubmissionGateCard({
   onSummaryRequest,
   onChecklistRequest,
   onAuditRequest,
+  onAuditTrailRequest,
   onEvidenceRequest,
 }) {
   const gate = gateState.data;
   const summary = summaryState.data;
   const checklist = checklistState.data;
   const audit = auditState.data;
+  const auditTrail = auditTrailState.data;
   const evidence = evidenceState.data;
   const manualCompletion = manualCompletionState.data?.manual_completion || (manualCompletionState.data?.status === "ok" ? manualCompletionState.data : null);
   const manualCompletionGate = gate?.manual_completion && typeof gate.manual_completion === "object" ? gate.manual_completion : {};
@@ -853,6 +864,7 @@ function SubmissionGateCard({
   const blockers = asArray(gate?.blockers);
   const missingReturnables = asArray(gate?.missing_returnables);
   const auditEvents = asArray(audit?.events);
+  const auditTrailEvents = asArray(auditTrail?.events);
   const evidenceFiles = asArray(evidence?.evidence_files);
   const evidenceBlockers = asArray(evidence?.blockers);
   const evidenceMissingReturnables = asArray(evidence?.missing_returnables);
@@ -870,6 +882,7 @@ function SubmissionGateCard({
   const auditReference = gate?.rfq_reference || audit?.rfq_reference || checklist?.rfq_reference;
   const auditJsonDownloadUrl = packId ? `${API_BASE}${submissionAuditExportPath(packId, auditReference, "json")}` : "";
   const auditTxtDownloadUrl = packId ? `${API_BASE}${submissionAuditExportPath(packId, auditReference, "txt")}` : "";
+  const auditTrailJsonDownloadUrl = packId ? `${API_BASE}${submissionAuditTrailExportPath(packId)}` : "";
   const evidenceReference = gate?.rfq_reference || evidence?.rfq_reference || auditReference;
   const evidenceManifestDownloadUrl = packId ? `${API_BASE}${submissionEvidenceManifestExportPath(packId, evidenceReference)}` : "";
   const summaryReference = summary?.rfq_reference || gate?.rfq_reference || evidenceReference;
@@ -877,6 +890,21 @@ function SubmissionGateCard({
   const summarySteps = asArray(summary?.operator_next_steps);
   const summaryBlockers = asArray(summary?.blockers);
   const summaryMissingReturnables = asArray(summary?.missing_returnables);
+  const auditTrailLatestEvents = auditTrailEvents.slice(-10).reverse();
+  const auditTrailWarningCount = normalizeNumber(auditTrail?.warning_count, 0);
+
+  function auditTrailEventSummary(event) {
+    const payload = event && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
+    const parts = [];
+    if (safeText(payload.reason_code)) parts.push(safeText(payload.reason_code, "").replaceAll("_", " "));
+    if (Object.prototype.hasOwnProperty.call(payload, "allowed")) parts.push(payload.allowed ? "allowed" : "blocked");
+    if (safeText(payload.blocked_reason)) parts.push(safeText(payload.blocked_reason, 180));
+    if (safeText(payload.status)) parts.push(`status: ${safeText(payload.status, 40)}`);
+    if (Object.prototype.hasOwnProperty.call(payload, "warning_count")) parts.push(`warnings: ${safeText(payload.warning_count)}`);
+    if (Object.prototype.hasOwnProperty.call(payload, "count")) parts.push(`count: ${safeText(payload.count)}`);
+    if (Object.prototype.hasOwnProperty.call(payload, "uploaded_file_count")) parts.push(`files: ${safeText(payload.uploaded_file_count)}`);
+    return parts.length ? parts.join(" · ") : "Audit event recorded locally.";
+  }
 
   return (
     <div className="submission-gate-card card">
@@ -1249,6 +1277,44 @@ function SubmissionGateCard({
               <div className="submission-gate-empty">No manual completion record has been saved for this pack yet.</div>
             )}
           </div>
+          <div className="submission-gate-audit-trail-card">
+            <div className="submission-gate-audit-trail-head">
+              <div>
+                <h3>Audit Trail</h3>
+                <p>Pack-local JSONL event history for submission-gate actions.</p>
+              </div>
+              <div className="submission-gate-audit-trail-actions">
+                <button type="button" onClick={onAuditTrailRequest} disabled={!packId || auditTrailState.loading}>
+                  <Clock3 size={15} />
+                  {auditTrailState.loading ? "Loading" : "Load Audit Trail"}
+                </button>
+                {auditTrailJsonDownloadUrl ? (
+                  <a href={auditTrailJsonDownloadUrl} download>
+                    <FileText size={15} />
+                    Download Audit Trail JSON
+                  </a>
+                ) : null}
+              </div>
+            </div>
+            {auditTrailState.error ? <div className="submission-gate-warning"><AlertTriangle size={15} />{auditTrailState.error}</div> : null}
+            {auditTrail ? (
+              <div className="submission-gate-audit-trail-summary">
+                <div><span>Events</span><b>{auditTrailEvents.length}</b></div>
+                <div><span>Warnings</span><b>{auditTrailWarningCount}</b></div>
+                <div><span>Path</span><b>{safeText(auditTrail.audit_trail_path, "runtime/quote_compilation/.../audit_trail.jsonl")}</b></div>
+              </div>
+            ) : null}
+            <div className="submission-gate-audit-trail-events">
+              {(auditTrailLatestEvents.length ? auditTrailLatestEvents : [{ event_type: "audit_trail_pending", timestamp: "", payload: {}, status: "pending" }]).map((event, index) => (
+                <div className={`submission-gate-audit-trail-event ${safeText(event.status || event.event_type, "neutral").toLowerCase()}`} key={`${event.event_id || event.event_type || "audit-trail"}-${index}`}>
+                  <time>{formatDateTime(event.timestamp)}</time>
+                  <b>{safeText(event.event_type, "event").replaceAll("_", " ")}</b>
+                  <span>{safeText(event.event_id, "event")}</span>
+                  <p>{auditTrailEventSummary(event)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </>
       ) : (
         <div className="submission-gate-empty">No gate data available. Final submission remains locked.</div>
@@ -1595,6 +1661,7 @@ export default function SubmissionCentreWorkspace() {
   const [submissionGateSummaryState, setSubmissionGateSummaryState] = useState({ loading: false, data: null, error: "" });
   const [submissionChecklistState, setSubmissionChecklistState] = useState({ loading: false, data: null, error: "" });
   const [submissionAuditState, setSubmissionAuditState] = useState({ loading: false, data: null, error: "" });
+  const [submissionAuditTrailState, setSubmissionAuditTrailState] = useState({ loading: false, data: null, error: "" });
   const [submissionEvidenceState, setSubmissionEvidenceState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionState, setManualCompletionState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionForm, setManualCompletionForm] = useState(manualCompletionFormFromRecord({}));
@@ -1694,6 +1761,7 @@ export default function SubmissionCentreWorkspace() {
         setSubmissionGateSummaryState({ loading: false, data: null, error: "" });
         setSubmissionChecklistState({ loading: false, data: null, error: "" });
         setSubmissionAuditState({ loading: false, data: null, error: "" });
+        setSubmissionAuditTrailState({ loading: false, data: null, error: "" });
         setSubmissionEvidenceState({ loading: false, data: null, error: "" });
         setManualCompletionState({ loading: false, data: null, error: "" });
         setManualCompletionForm(manualCompletionFormFromRecord({}));
@@ -1703,13 +1771,15 @@ export default function SubmissionCentreWorkspace() {
       setSubmissionGateSummaryState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionChecklistState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionAuditState((prev) => ({ ...prev, loading: true, error: "" }));
+      setSubmissionAuditTrailState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionEvidenceState((prev) => ({ ...prev, loading: true, error: "" }));
       setManualCompletionState((prev) => ({ ...prev, loading: true, error: "" }));
-      const [result, summaryResult, checklistResult, auditResult, evidenceResult, manualCompletionResult] = await Promise.all([
+      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, evidenceResult, manualCompletionResult] = await Promise.all([
         fetchEndpoint(submissionGatePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionGateSummaryPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionChecklistPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionAuditLogPath(gatePackId, gateRfqReference)),
+        fetchEndpoint(submissionAuditTrailPath(gatePackId)),
         fetchEndpoint(submissionEvidenceManifestPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionManualCompletionPath(gatePackId)),
       ]);
@@ -1733,6 +1803,11 @@ export default function SubmissionCentreWorkspace() {
         loading: false,
         data: auditResult.ok ? auditResult.data : null,
         error: auditResult.ok ? "" : auditResult.error || "Audit log endpoint did not respond.",
+      });
+      setSubmissionAuditTrailState({
+        loading: false,
+        data: auditTrailResult.ok ? auditTrailResult.data : null,
+        error: auditTrailResult.ok ? "" : auditTrailResult.error || "Audit trail endpoint did not respond.",
       });
       setSubmissionEvidenceState({
         loading: false,
@@ -1776,6 +1851,17 @@ export default function SubmissionCentreWorkspace() {
     });
   }
 
+  async function refreshSubmissionGate() {
+    if (!gatePackId) return;
+    setSubmissionGateState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await fetchEndpoint(submissionGatePath(gatePackId, gateRfqReference));
+    setSubmissionGateState({
+      loading: false,
+      data: result.ok ? result.data : null,
+      error: result.ok ? "" : result.error || "Submission gate endpoint did not respond.",
+    });
+  }
+
   async function refreshSubmissionPackSummary() {
     if (!gatePackId) return;
     setSubmissionGateSummaryState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -1795,6 +1881,17 @@ export default function SubmissionCentreWorkspace() {
       loading: false,
       data: result.ok ? result.data : null,
       error: result.ok ? "" : result.error || "Audit log endpoint did not respond.",
+    });
+  }
+
+  async function refreshAuditTrail() {
+    if (!gatePackId) return;
+    setSubmissionAuditTrailState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await fetchEndpoint(submissionAuditTrailPath(gatePackId));
+    setSubmissionAuditTrailState({
+      loading: false,
+      data: result.ok ? result.data : null,
+      error: result.ok ? "" : result.error || "Audit trail endpoint did not respond.",
     });
   }
 
@@ -1837,6 +1934,7 @@ export default function SubmissionCentreWorkspace() {
     if (manualCompletionData?.manual_completion) {
       setManualCompletionForm(manualCompletionFormFromRecord(manualCompletionData.manual_completion));
     }
+    await Promise.all([refreshSubmissionGate(), refreshAuditTrail()]);
   }
 
   return (
@@ -1893,6 +1991,7 @@ export default function SubmissionCentreWorkspace() {
         summaryState={submissionGateSummaryState}
         checklistState={submissionChecklistState}
         auditState={submissionAuditState}
+        auditTrailState={submissionAuditTrailState}
         evidenceState={submissionEvidenceState}
         manualCompletionState={manualCompletionState}
         manualCompletionForm={manualCompletionForm}
@@ -1902,6 +2001,7 @@ export default function SubmissionCentreWorkspace() {
         onSummaryRequest={refreshSubmissionPackSummary}
         onChecklistRequest={refreshManualChecklist}
         onAuditRequest={refreshAuditLog}
+        onAuditTrailRequest={refreshAuditTrail}
         onEvidenceRequest={refreshEvidenceManifest}
       />
 

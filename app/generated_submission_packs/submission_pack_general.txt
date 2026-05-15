@@ -1,7 +1,0 @@
-LMCP SUBMISSION PACK
-====================
-Opportunity ID: None
-Generated At: 2026-03-26T16:33:07.179360
-
-Status: Placeholder submission pack created successfully.
-Next step: connect this builder to real quote, SBD, and compliance documents.

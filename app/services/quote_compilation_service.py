@@ -19,6 +19,7 @@ RUNTIME_DIR = BASE_DIR / "runtime"
 OUTPUT_ROOT = RUNTIME_DIR / "quote_compilation"
 RFQ_STATE_FILE = RUNTIME_DIR / "rfq_lifecycle" / "rfqs.json"
 MANUAL_COMPLETION_FILENAME = "manual_completion.json"
+SUBMISSION_PROOF_FILENAME = "submission_proof.json"
 AUDIT_TRAIL_FILENAME = "audit_trail.jsonl"
 COMPLIANCE_ARCHIVES_DIRNAME = "archives"
 COMPLIANCE_ARCHIVE_MANIFEST_FILENAME = "archive_manifest.json"
@@ -103,6 +104,19 @@ MANUAL_COMPLETION_LIMITS = {
     "uploaded_file_names_count": 50,
 }
 
+SUBMISSION_PROOF_LIMITS = {
+    "submitted_by": 160,
+    "submission_timestamp": 80,
+    "portal_name": 160,
+    "portal_reference": 240,
+    "proof_notes": 2000,
+    "buyer_reference": 240,
+    "uploaded_file_name": 220,
+    "uploaded_files_count": 50,
+    "confirmation_message": 2000,
+    "screenshot_notes": 1000,
+}
+
 FORBIDDEN_MANUAL_COMPLETION_KEYWORDS = (
     "password",
     "passcode",
@@ -162,6 +176,28 @@ MANUAL_COMPLETION_REQUIRED_FIELDS = (
     "uploaded_file_names",
 )
 
+SUBMISSION_PROOF_REQUIRED_FIELDS = (
+    "submitted_by",
+    "submission_timestamp",
+    "portal_name",
+    "portal_reference",
+    "proof_notes",
+)
+
+SUBMISSION_PROOF_OPTIONAL_FIELDS = (
+    "buyer_reference",
+    "uploaded_files",
+    "confirmation_message",
+    "screenshot_notes",
+)
+
+SUBMISSION_PROOF_INTERNAL_FIELDS = (
+    "pack_id",
+    "saved_at",
+    "safety",
+    "proof_safety",
+)
+
 MANUAL_COMPLETION_REVIEW_FIELDS = (
     "submitted_by",
     "submitted_at",
@@ -170,6 +206,17 @@ MANUAL_COMPLETION_REVIEW_FIELDS = (
     "notes",
     "saved_by",
     "completed_by",
+)
+
+SUBMISSION_PROOF_REVIEW_FIELDS = (
+    "submitted_by",
+    "submission_timestamp",
+    "portal_name",
+    "portal_reference",
+    "proof_notes",
+    "buyer_reference",
+    "confirmation_message",
+    "screenshot_notes",
 )
 
 RETURNABLE_STATUSES = {"missing", "available", "completed", "not_applicable", "needs_review"}
@@ -219,6 +266,10 @@ def _strict_text(value: Any, max_length: int, field_name: str) -> str:
 
 def _manual_completion_path(workspace: Path) -> Path:
     return workspace / MANUAL_COMPLETION_FILENAME
+
+
+def _submission_proof_path(workspace: Path) -> Path:
+    return workspace / SUBMISSION_PROOF_FILENAME
 
 
 def _audit_trail_path(workspace: Path) -> Path:
@@ -574,6 +625,12 @@ def _build_evidence_snapshot_payload(
     )
     readiness_checklist = readiness_checklist or _readiness_checklist_payload(gate, audit_trail, manual_completion_validation)
     evidence_bundle = evidence_bundle or _evidence_bundle_payload(gate, readiness_checklist, manual_completion_validation, audit_trail)
+    submission_proof_validation = _submission_proof_gate(workspace) if workspace else {
+        "status": "missing",
+        "allowed": False,
+        "blocked_reason": "Submission proof record has not been saved yet.",
+        "submission_proof": None,
+    }
 
     warnings: List[str] = []
     manual_status = _safe_text(manual_completion_validation.get("status"), 40)
@@ -588,9 +645,12 @@ def _build_evidence_snapshot_payload(
         warnings.append("Submission binder is not ready for manual submission evidence packaging.")
     if manual_completion_validation.get("allowed") is False and manual_completion_validation.get("status") not in {"missing", "invalid"}:
         warnings.append(_safe_text(manual_completion_validation.get("blocked_reason"), 260))
+    if submission_proof_validation.get("status") == "invalid":
+        warnings.append(_safe_text(submission_proof_validation.get("blocked_reason"), 260) or "Submission proof record is invalid.")
 
     warnings = _dedupe_preserve_order([warning for warning in warnings if warning])
     verification_status = _evidence_snapshot_verification_status(workspace, manual_completion_validation, audit_trail, warnings)
+    submission_proof_record = submission_proof_validation.get("submission_proof") if submission_proof_validation.get("allowed") else None
     snapshot = {
         "status": verification_status,
         "pack_id": safe_pack_id,
@@ -599,6 +659,9 @@ def _build_evidence_snapshot_payload(
         "readiness_checklist_hash": _sha256_hex(readiness_checklist),
         "audit_trail_hash": _sha256_hex(audit_trail),
         "manual_completion_hash": _sha256_hex(manual_completion_validation.get("manual_completion")),
+        "submission_proof_hash": _sha256_hex(submission_proof_record),
+        "submission_proof_status": _safe_text(submission_proof_validation.get("status"), 40),
+        "submission_proof_present": bool(submission_proof_validation.get("status") == "ok"),
         "verification_status": verification_status,
         "warnings": warnings,
     }
@@ -629,6 +692,7 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
     readiness_checklist = report.get("readiness_checklist") if isinstance(report.get("readiness_checklist"), dict) else {}
     evidence_bundle = report.get("evidence_bundle") if isinstance(report.get("evidence_bundle"), dict) else {}
     evidence_snapshot = report.get("evidence_snapshot") if isinstance(report.get("evidence_snapshot"), dict) else {}
+    submission_proof = report.get("submission_proof_record") if isinstance(report.get("submission_proof_record"), dict) else {}
     audit_summary = report.get("audit_summary") if isinstance(report.get("audit_summary"), dict) else {}
     audit_events = report.get("latest_audit_events") if isinstance(report.get("latest_audit_events"), list) else []
 
@@ -643,6 +707,9 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
         "lmcp-report-snapshot-status": evidence_snapshot.get("verification_status"),
         "lmcp-report-snapshot-hash": evidence_snapshot.get("evidence_bundle_hash"),
         "lmcp-report-snapshot-generated-at": evidence_snapshot.get("generated_at"),
+        "lmcp-report-proof-status": report.get("submission_proof_present") and "present" or "missing",
+        "lmcp-report-proof-hash": evidence_snapshot.get("submission_proof_hash"),
+        "lmcp-report-proof-saved-at": submission_proof.get("saved_at"),
     }
     meta_tags = "".join(
         f'<meta name="{_printable_text(key)}" content="{_printable_text(value)}" />'
@@ -663,6 +730,22 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
     bundle_warnings = evidence_bundle.get("bundle_warnings") if isinstance(evidence_bundle.get("bundle_warnings"), list) else []
 
     evidence_manual = evidence_bundle.get("manual_completion_record") if isinstance(evidence_bundle.get("manual_completion_record"), dict) else None
+    submission_proof = report.get("submission_proof_record") if isinstance(report.get("submission_proof_record"), dict) else {}
+    proof_present = bool(report.get("submission_proof_record"))
+    proof_rows = [
+        ("Present", _printable_bool(proof_present)),
+        ("Status", report.get("submission_proof_present") and "Present" or "Missing"),
+        ("Saved At", _safe_text(submission_proof.get("saved_at"), 80)),
+        ("Submitted By", submission_proof.get("submitted_by")),
+        ("Submission Timestamp", submission_proof.get("submission_timestamp")),
+        ("Portal Name", submission_proof.get("portal_name")),
+        ("Portal Reference", submission_proof.get("portal_reference")),
+        ("Buyer Reference", submission_proof.get("buyer_reference")),
+        ("Uploaded Files", len(submission_proof.get("uploaded_files") or [])),
+        ("Confirmation Message", submission_proof.get("confirmation_message")),
+        ("Screenshot Notes", submission_proof.get("screenshot_notes")),
+        ("Proof Notes", submission_proof.get("proof_notes")),
+    ]
     evidence_manual_rows = [
         ("Present", _printable_bool(evidence_manual is not None)),
         ("Final Submit Locked", _printable_bool(evidence_bundle.get("final_submit_locked"))),
@@ -703,6 +786,8 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
                 ("Can Submit Final", _printable_bool(compliance_summary.get("can_submit_final"))),
                 ("Manual Completion Present", _printable_bool(compliance_summary.get("manual_completion_present"))),
                 ("Manual Completion Allowed", _printable_bool(compliance_summary.get("manual_completion_allowed"))),
+                ("Submission Proof Present", _printable_bool(compliance_summary.get("submission_proof_present"))),
+                ("Submission Proof Allowed", _printable_bool(compliance_summary.get("submission_proof_allowed"))),
                 ("Final Submit Locked", _printable_bool(compliance_summary.get("final_submit_locked"))),
                 ("Automated Submit Disabled", _printable_bool(compliance_summary.get("automated_submit_disabled"))),
                 ("Audit Event Count", compliance_summary.get("audit_event_count", 0)),
@@ -745,6 +830,8 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
                 ("Manual Completion Status", manual_status),
                 ("Manual Completion Present", _printable_bool(readiness_checklist.get("manual_completion_present"))),
                 ("Manual Completion Allowed", _printable_bool(readiness_checklist.get("manual_completion_allowed"))),
+                ("Submission Proof Status", readiness_checklist.get("submission_proof_status")),
+                ("Submission Proof Present", _printable_bool(readiness_checklist.get("submission_proof_present"))),
                 ("Can Submit Final", _printable_bool(readiness_checklist.get("can_submit_final"))),
                 ("Final Submit Locked", _printable_bool(final_submit_locked)),
                 ("Automated Submit Disabled", _printable_bool(automated_submit_disabled)),
@@ -789,6 +876,40 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
         ),
     )
 
+    proof_section = _printable_section(
+        "Submission Proof Capture",
+        """
+          <div class="grid-two">
+            <div class="panel">
+              <table class="printable-table">
+                <tbody>
+                  {proof_rows}
+                </tbody>
+              </table>
+            </div>
+            <div class="panel">
+              <h3>Proof Notes</h3>
+              <p>{proof_notes}</p>
+              <h3 style="margin-top:12px;">Proof Status</h3>
+              <table class="printable-table">
+                <tbody>
+                  {proof_status_rows}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        """.format(
+            proof_rows=_printable_rows(proof_rows),
+            proof_notes=_printable_text(submission_proof.get("proof_notes"), "No submission proof has been saved yet."),
+            proof_status_rows=_printable_rows([
+                ("Submission Proof Present", _printable_bool(proof_present)),
+                ("Final Submit Locked", _printable_bool(report.get("final_submit_locked"))),
+                ("Automated Submit Disabled", _printable_bool(report.get("automated_submit_disabled"))),
+                ("Proof Hash", evidence_snapshot.get("submission_proof_hash")),
+            ]),
+        ),
+    )
+
     snapshot_section = _printable_section(
         "Evidence Verification Snapshot",
         """
@@ -823,6 +944,7 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
                 ("Readiness Checklist Hash", evidence_snapshot.get("readiness_checklist_hash")),
                 ("Audit Trail Hash", evidence_snapshot.get("audit_trail_hash")),
                 ("Manual Completion Hash", evidence_snapshot.get("manual_completion_hash")),
+                ("Submission Proof Hash", evidence_snapshot.get("submission_proof_hash")),
             ]),
         ),
     )
@@ -925,6 +1047,7 @@ def _printable_compliance_report_html(report: Dict[str, Any]) -> str:
         f"{compliance_section}"
         f"{readiness_section}"
         f"{evidence_section}"
+        f"{proof_section}"
         f"{snapshot_section}"
         f"{audit_section}"
         '<p class="notes">This report is generated locally from pack evidence only. No portal was contacted, no upload was performed, and final submit remains locked.</p>'
@@ -947,6 +1070,11 @@ def build_printable_compliance_report(pack_id: str, rfq_reference: str | None = 
         "status": "missing",
         "allowed": False,
         "blocked_reason": "Manual completion record is required before final submission.",
+    }
+    submission_proof_validation = _submission_proof_gate(workspace) if workspace else {
+        "status": "missing",
+        "allowed": False,
+        "blocked_reason": "Submission proof record has not been saved yet.",
     }
     audit_trail = _read_pack_audit_trail(workspace) if workspace else {
         "status": "ok",
@@ -991,12 +1119,16 @@ def build_printable_compliance_report(pack_id: str, rfq_reference: str | None = 
         "automated_submit_disabled": bool(compliance_summary.get("automated_submit_disabled", True)),
         "manual_completion_present": bool(compliance_summary.get("manual_completion_present")),
         "manual_completion_allowed": bool(compliance_summary.get("manual_completion_allowed")),
+        "submission_proof_present": bool(submission_proof_validation.get("status") == "ok"),
+        "submission_proof_allowed": bool(submission_proof_validation.get("allowed")),
+        "submission_proof_saved_at": _safe_text(submission_proof_validation.get("submission_proof", {}).get("saved_at") if isinstance(submission_proof_validation.get("submission_proof"), dict) else "", 80),
         "submission_status": _safe_text(compliance_summary.get("status"), 40),
         "compliance_summary": compliance_summary,
         "readiness_checklist": readiness_checklist,
         "evidence_bundle": evidence_bundle,
         "evidence_snapshot": evidence_snapshot,
         "manual_completion_record": _sanitize_audit_payload(manual_completion_validation.get("manual_completion")) if isinstance(manual_completion_validation.get("manual_completion"), dict) else None,
+        "submission_proof_record": _sanitize_audit_payload(submission_proof_validation.get("submission_proof")) if isinstance(submission_proof_validation.get("submission_proof"), dict) else None,
         "audit_summary": {
             "count": int(audit_trail.get("count") or 0),
             "warning_count": int(audit_trail.get("warning_count") or 0),
@@ -1045,11 +1177,19 @@ def _readiness_checklist_warnings(
     audit_trail: Dict[str, Any],
 ) -> List[str]:
     warnings: List[str] = []
+    workspace = _safe_quote_pack_dir(gate.get("pack_id") or "")
+    submission_proof_validation = _submission_proof_gate(workspace) if workspace else {
+        "status": "missing",
+        "allowed": False,
+        "blocked_reason": "Submission proof record has not been saved yet.",
+    }
     audit_warning_count = int(audit_trail.get("warning_count") or 0)
     if audit_warning_count:
         warnings.append(f"Audit trail contains {audit_warning_count} invalid line(s) that were skipped.")
     if manual_completion.get("status") == "invalid":
         warnings.append(_safe_text(manual_completion.get("blocked_reason"), 260) or "Manual completion record is invalid and should be resaved.")
+    if submission_proof_validation.get("status") == "invalid":
+        warnings.append(_safe_text(submission_proof_validation.get("blocked_reason"), 260) or "Submission proof record is invalid and should be resaved.")
     if gate.get("can_prepare_submission") and manual_completion.get("allowed") is False:
         warnings.append("Submission binder is ready, but manual completion is still required.")
     if gate.get("can_prepare_submission") is False and gate.get("matched_binder"):
@@ -1062,11 +1202,21 @@ def _readiness_checklist_payload(
     audit_trail: Dict[str, Any],
     manual_completion: Dict[str, Any],
 ) -> Dict[str, Any]:
+    workspace = _safe_quote_pack_dir(gate.get("pack_id") or "")
+    submission_proof_validation = _submission_proof_gate(workspace) if workspace else {
+        "status": "missing",
+        "allowed": False,
+        "blocked_reason": "Submission proof record has not been saved yet.",
+        "submission_proof": None,
+    }
     latest_event = audit_trail.get("events")[-1] if isinstance(audit_trail.get("events"), list) and audit_trail.get("events") else None
     latest_event_summary = _audit_event_summary(latest_event)
     audit_event_count = int(audit_trail.get("count") or 0)
     manual_completion_present = bool(manual_completion.get("status") and manual_completion.get("status") != "missing")
     manual_completion_allowed = bool(manual_completion.get("allowed"))
+    submission_proof_present = bool(submission_proof_validation.get("status") == "ok")
+    submission_proof_allowed = bool(submission_proof_validation.get("allowed"))
+    submission_proof_saved_at = _safe_text(submission_proof_validation.get("submission_proof", {}).get("saved_at") if isinstance(submission_proof_validation.get("submission_proof"), dict) else "", 80)
     can_submit_final = bool(gate.get("can_prepare_submission") and manual_completion_allowed)
     readiness_status = _submission_gate_readiness_status(gate)
     if manual_completion.get("status") == "invalid":
@@ -1075,6 +1225,8 @@ def _readiness_checklist_payload(
         readiness_status = "ready_for_manual_submission"
     elif not manual_completion_present:
         readiness_status = "manual_completion_required"
+    elif submission_proof_validation.get("status") == "invalid":
+        readiness_status = "submission_proof_invalid"
 
     binder_summary = {
         "status": _safe_text(gate.get("status"), 80),
@@ -1101,6 +1253,11 @@ def _readiness_checklist_payload(
         "manual_completion_status": manual_completion.get("status", "missing"),
         "manual_completion_allowed": manual_completion_allowed,
         "manual_completion_blocked_reason": _safe_text(manual_completion.get("blocked_reason"), 500),
+        "submission_proof_present": submission_proof_present,
+        "submission_proof_status": submission_proof_validation.get("status", "missing"),
+        "submission_proof_allowed": submission_proof_allowed,
+        "submission_proof_blocked_reason": _safe_text(submission_proof_validation.get("blocked_reason"), 500),
+        "submission_proof_saved_at": submission_proof_saved_at,
         "can_submit_final": can_submit_final,
         "final_submit_locked": True,
         "automated_submit_disabled": True,
@@ -1125,6 +1282,12 @@ def _evidence_bundle_warnings(
     audit_trail: Dict[str, Any],
 ) -> List[str]:
     warnings: List[str] = []
+    workspace = _safe_quote_pack_dir(gate.get("pack_id") or "")
+    submission_proof_validation = _submission_proof_gate(workspace) if workspace else {
+        "status": "missing",
+        "allowed": False,
+        "blocked_reason": "Submission proof record has not been saved yet.",
+    }
 
     manual_status = _safe_text(manual_completion_validation.get("status"), 40)
     manual_reason = _safe_text(manual_completion_validation.get("blocked_reason"), 260)
@@ -1141,6 +1304,9 @@ def _evidence_bundle_warnings(
     if isinstance(readiness_warnings, list):
         warnings.extend(_safe_text(item, 260) for item in readiness_warnings if _safe_text(item, 260))
 
+    if submission_proof_validation.get("status") == "invalid":
+        warnings.append(_safe_text(submission_proof_validation.get("blocked_reason"), 260) or "Submission proof record is invalid and should be resaved.")
+
     if not gate.get("can_prepare_submission"):
         warnings.append("Submission binder is not ready for manual completion evidence packaging.")
 
@@ -1156,12 +1322,25 @@ def _evidence_bundle_payload(
 ) -> Dict[str, Any]:
     audit_events = audit_trail.get("events") if isinstance(audit_trail.get("events"), list) else []
     latest_audit_event = audit_events[-1] if audit_events else None
+    submission_proof_validation = _submission_proof_gate(_safe_quote_pack_dir(gate.get("pack_id") or "")) if _safe_quote_pack_dir(gate.get("pack_id") or "") else {
+        "status": "missing",
+        "allowed": False,
+        "blocked_reason": "Submission proof record has not been saved yet.",
+        "submission_proof": None,
+    }
     manual_completion_record = (
         _sanitize_audit_payload(manual_completion_validation.get("manual_completion"))
         if manual_completion_validation.get("allowed") and isinstance(manual_completion_validation.get("manual_completion"), dict)
         else None
     )
+    submission_proof_record = (
+        _sanitize_audit_payload(submission_proof_validation.get("submission_proof"))
+        if submission_proof_validation.get("allowed") and isinstance(submission_proof_validation.get("submission_proof"), dict)
+        else None
+    )
     bundle_warnings = _evidence_bundle_warnings(gate, readiness_checklist, manual_completion_validation, audit_trail)
+    if submission_proof_validation.get("status") == "invalid":
+        bundle_warnings.append(_safe_text(submission_proof_validation.get("blocked_reason"), 260) or "Submission proof record is invalid.")
     bundle = {
         "status": gate.get("status") or "ok",
         "pack_id": gate.get("pack_id"),
@@ -1169,6 +1348,10 @@ def _evidence_bundle_payload(
         "submission_gate_state": _sanitize_audit_payload(gate),
         "readiness_checklist": _sanitize_audit_payload(readiness_checklist),
         "manual_completion_record": manual_completion_record,
+        "submission_proof_record": submission_proof_record,
+        "submission_proof_status": _safe_text(submission_proof_validation.get("status"), 40),
+        "submission_proof_present": bool(submission_proof_validation.get("status") == "ok"),
+        "submission_proof_saved_at": _safe_text(submission_proof_record.get("saved_at") if isinstance(submission_proof_record, dict) else "", 80),
         "audit_trail": _sanitize_audit_payload(audit_events),
         "audit_event_count": len(audit_events),
         "audit_warning_count": int(audit_trail.get("warning_count") or 0),
@@ -1193,6 +1376,7 @@ def _evidence_bundle_payload(
     bundle["evidence_snapshot_hash"] = _safe_text(evidence_snapshot.get("evidence_bundle_hash"), 80)
     bundle["evidence_snapshot_verification_status"] = _safe_text(evidence_snapshot.get("verification_status"), 40)
     bundle["evidence_snapshot_generated_at"] = _safe_text(evidence_snapshot.get("generated_at"), 80)
+    bundle["submission_proof_hash"] = _safe_text(evidence_snapshot.get("submission_proof_hash"), 80)
     return _sanitize_audit_payload(bundle)
 
 
@@ -1378,11 +1562,15 @@ def get_submission_binder_evidence_snapshot(
 
 def _compliance_archive_verification_status(
     manual_completion_validation: Dict[str, Any],
+    submission_proof_validation: Dict[str, Any],
     evidence_snapshot: Dict[str, Any],
     warnings: List[str],
 ) -> str:
     manual_status = _safe_text(manual_completion_validation.get("status"), 40)
+    proof_status = _safe_text(submission_proof_validation.get("status"), 40)
     if manual_status in {"missing", "invalid"} or not manual_completion_validation.get("allowed"):
+        return "warning"
+    if proof_status == "invalid":
         return "warning"
     if warnings:
         return "warning"
@@ -1425,6 +1613,7 @@ def create_compliance_archive(
 
     gate = get_submission_binder_gate(safe_pack_id, rfq_reference)
     manual_completion_validation = _manual_completion_gate(workspace)
+    submission_proof_validation = _submission_proof_gate(workspace)
     audit_trail = _read_pack_audit_trail(workspace)
     readiness_checklist = _readiness_checklist_payload(gate, audit_trail, manual_completion_validation)
     evidence_bundle = _evidence_bundle_payload(
@@ -1446,6 +1635,8 @@ def create_compliance_archive(
 
     report_blockers = _compliance_summary_blockers(gate, readiness_checklist, evidence_bundle, manual_completion_validation, workspace)
     report_warnings = _compliance_summary_warnings(readiness_checklist, evidence_bundle, audit_trail, manual_completion_validation)
+    if submission_proof_validation.get("status") == "invalid":
+        report_warnings.append(_safe_text(submission_proof_validation.get("blocked_reason"), 260) or "Submission proof record is invalid and should be resaved.")
     report_status = _compliance_summary_status(gate, readiness_checklist, evidence_bundle, manual_completion_validation, report_blockers)
     compliance_summary = {
         "status": report_status,
@@ -1453,6 +1644,9 @@ def create_compliance_archive(
         "generated_at": created_at,
         "manual_completion_present": bool(manual_completion_validation.get("status") == "ok"),
         "manual_completion_allowed": bool(manual_completion_validation.get("allowed")),
+        "submission_proof_present": bool(submission_proof_validation.get("status") == "ok"),
+        "submission_proof_allowed": bool(submission_proof_validation.get("allowed")),
+        "submission_proof_status": submission_proof_validation.get("status"),
         "readiness_checklist_available": True,
         "evidence_bundle_available": True,
         "evidence_snapshot_available": True,
@@ -1480,12 +1674,15 @@ def create_compliance_archive(
         "automated_submit_disabled": True,
         "manual_completion_present": bool(manual_completion_validation.get("status") == "ok"),
         "manual_completion_allowed": bool(manual_completion_validation.get("allowed")),
+        "submission_proof_present": bool(submission_proof_validation.get("status") == "ok"),
+        "submission_proof_allowed": bool(submission_proof_validation.get("allowed")),
         "submission_status": report_status,
         "compliance_summary": compliance_summary,
         "readiness_checklist": readiness_checklist,
         "evidence_bundle": evidence_bundle,
         "evidence_snapshot": evidence_snapshot,
         "manual_completion_record": _sanitize_audit_payload(manual_completion_validation.get("manual_completion")) if isinstance(manual_completion_validation.get("manual_completion"), dict) else None,
+        "submission_proof_record": _sanitize_audit_payload(submission_proof_validation.get("submission_proof")) if isinstance(submission_proof_validation.get("submission_proof"), dict) else None,
         "audit_summary": {
             "count": int(audit_trail.get("count") or 0),
             "warning_count": int(audit_trail.get("warning_count") or 0),
@@ -1529,6 +1726,7 @@ def create_compliance_archive(
     audit_content = _sanitize_audit_payload(audit_trail)
     snapshot_content = _sanitize_audit_payload(evidence_snapshot)
     manual_completion_record = report["manual_completion_record"]
+    submission_proof_record = report["submission_proof_record"]
 
     _write_compliance_archive_file(bundle_path, bundle_content)
     _write_compliance_archive_file(readiness_path, readiness_content)
@@ -1550,12 +1748,17 @@ def create_compliance_archive(
         _write_compliance_archive_file(manual_path, manual_completion_validation.get("manual_completion"))
         content_paths[MANUAL_COMPLETION_FILENAME] = manual_path
 
+    if isinstance(submission_proof_record, dict):
+        proof_path = archive_workspace / SUBMISSION_PROOF_FILENAME
+        _write_compliance_archive_file(proof_path, submission_proof_record)
+        content_paths[SUBMISSION_PROOF_FILENAME] = proof_path
+
     file_hashes = {
         filename: _compliance_archive_file_hash(path)
         for filename, path in sorted(content_paths.items())
         if path.exists()
     }
-    verification_status = _compliance_archive_verification_status(manual_completion_validation, evidence_snapshot, manifest_warnings)
+    verification_status = _compliance_archive_verification_status(manual_completion_validation, submission_proof_validation, evidence_snapshot, manifest_warnings)
     manifest_payload = {
         "archive_id": archive_id,
         "pack_id": workspace.name,
@@ -1567,6 +1770,8 @@ def create_compliance_archive(
         "warnings": manifest_warnings,
         "final_submit_locked": True,
         "automated_submit_disabled": True,
+        "submission_proof_present": bool(submission_proof_record),
+        "submission_proof_hash": file_hashes.get(SUBMISSION_PROOF_FILENAME, ""),
         "archive_path": _relative(archive_workspace),
         "message": "Immutable compliance archive created locally.",
     }
@@ -1791,6 +1996,12 @@ def _compliance_summary_warnings(
     manual_completion: Dict[str, Any],
 ) -> List[str]:
     warnings: List[str] = []
+    workspace = _safe_quote_pack_dir(readiness_checklist.get("pack_id") or evidence_bundle.get("pack_id") or "")
+    submission_proof = _submission_proof_gate(workspace) if workspace else {
+        "status": "missing",
+        "allowed": False,
+        "blocked_reason": "Submission proof record has not been saved yet.",
+    }
     audit_warning_count = int(audit_trail.get("warning_count") or 0)
     if audit_warning_count:
         warnings.append(f"Audit trail contains {audit_warning_count} invalid line(s) that were skipped.")
@@ -1805,6 +2016,8 @@ def _compliance_summary_warnings(
 
     if manual_completion.get("status") == "invalid":
         warnings.append(_safe_text(manual_completion.get("blocked_reason"), 260) or "Manual completion record is invalid and should be resaved.")
+    if submission_proof.get("status") == "invalid":
+        warnings.append(_safe_text(submission_proof.get("blocked_reason"), 260) or "Submission proof record is invalid and should be resaved.")
 
     return _dedupe_preserve_order(warnings)
 
@@ -1845,6 +2058,10 @@ def get_submission_binder_compliance_summary(
                 "generated_at": generated_at,
                 "manual_completion_present": False,
                 "manual_completion_allowed": False,
+                "submission_proof_present": False,
+                "submission_proof_allowed": False,
+                "submission_proof_status": "missing",
+                "submission_proof_saved_at": "",
                 "readiness_checklist_available": False,
                 "evidence_bundle_available": False,
                 "audit_event_count": 0,
@@ -1863,6 +2080,7 @@ def get_submission_binder_compliance_summary(
 
     gate = get_submission_binder_gate(safe_pack_id, rfq_reference)
     manual_completion = _manual_completion_gate(workspace)
+    submission_proof = _submission_proof_gate(workspace)
     audit_trail = _read_pack_audit_trail(workspace)
     readiness_checklist = _readiness_checklist_payload(gate, audit_trail, manual_completion)
     evidence_bundle = _evidence_bundle_payload(gate, readiness_checklist, manual_completion, audit_trail)
@@ -1871,6 +2089,8 @@ def get_submission_binder_compliance_summary(
     evidence_available = evidence_bundle.get("status") != "not_found"
     manual_completion_present = bool(manual_completion.get("status") == "ok")
     manual_completion_allowed = bool(manual_completion.get("allowed"))
+    submission_proof_present = bool(submission_proof.get("status") == "ok")
+    submission_proof_allowed = bool(submission_proof.get("allowed"))
     can_submit_final = bool(gate.get("can_submit_final") and readiness_available and evidence_available)
     evidence_snapshot = _build_evidence_snapshot_payload(
         safe_pack_id,
@@ -1893,6 +2113,11 @@ def get_submission_binder_compliance_summary(
         "generated_at": generated_at,
         "manual_completion_present": manual_completion_present,
         "manual_completion_allowed": manual_completion_allowed,
+        "submission_proof_present": submission_proof_present,
+        "submission_proof_allowed": submission_proof_allowed,
+        "submission_proof_status": submission_proof.get("status"),
+        "submission_proof_blocked_reason": submission_proof.get("blocked_reason"),
+        "submission_proof_saved_at": _safe_text(submission_proof.get("submission_proof", {}).get("saved_at") if isinstance(submission_proof.get("submission_proof"), dict) else "", 80),
         "readiness_checklist_available": readiness_available,
         "evidence_bundle_available": evidence_available,
         "evidence_snapshot_available": True,
@@ -1918,6 +2143,9 @@ def get_submission_binder_compliance_summary(
             "status": status,
             "manual_completion_present": manual_completion_present,
             "manual_completion_allowed": manual_completion_allowed,
+            "submission_proof_present": submission_proof_present,
+            "submission_proof_allowed": submission_proof_allowed,
+            "submission_proof_saved_at": summary["submission_proof_saved_at"],
             "readiness_checklist_available": readiness_available,
             "evidence_bundle_available": evidence_available,
             "audit_event_count": summary["audit_event_count"],
@@ -2140,6 +2368,229 @@ def _manual_completion_gate(workspace: Path) -> Dict[str, Any]:
     path = _manual_completion_path(workspace)
     raw = _read_json(path)
     return _manual_completion_validation_result(workspace, raw)
+
+
+def _submission_proof_has_forbidden_fields(payload: Dict[str, Any]) -> bool:
+    return bool(_submission_proof_forbidden_field_hits(payload))
+
+
+def _submission_proof_forbidden_field_hits(payload: Dict[str, Any], fields: Optional[Iterable[str]] = None) -> List[str]:
+    if not isinstance(payload, dict):
+        return []
+    target_fields = list(fields or payload.keys())
+    hits: List[str] = []
+    for field in target_fields:
+        if field not in payload:
+            continue
+        value = payload.get(field)
+        if value in (None, ""):
+            continue
+        haystack = f"{field} {_safe_text(value, 2000)}".lower()
+        if any(re.search(rf"\b{re.escape(keyword)}\b", haystack) for keyword in FORBIDDEN_MANUAL_COMPLETION_KEYWORDS):
+            hits.append(str(field))
+    return hits
+
+
+def _normalize_submission_proof_files(value: Any) -> List[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, list):
+        values = value
+    else:
+        raise ValueError("uploaded_files must be a list of strings.")
+
+    file_names: List[str] = []
+    for item in values[: SUBMISSION_PROOF_LIMITS["uploaded_files_count"]]:
+        if item is None:
+            continue
+        text = str(item).replace("\n", " ").replace("\r", " ").strip()
+        if not text:
+            continue
+        if len(text) > SUBMISSION_PROOF_LIMITS["uploaded_file_name"]:
+            raise ValueError("Each uploaded file name must be 220 characters or fewer.")
+        file_names.append(text)
+    return file_names
+
+
+def validate_submission_proof(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise ValueError("Submission proof payload must be a JSON object.")
+    if len(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")) > 64 * 1024:
+        raise ValueError("Submission proof payload exceeds the maximum allowed size.")
+
+    allowed_fields = set(SUBMISSION_PROOF_REQUIRED_FIELDS) | set(SUBMISSION_PROOF_OPTIONAL_FIELDS)
+    extra_fields = [key for key in payload.keys() if key not in allowed_fields]
+    if extra_fields:
+        raise ValueError(f"Unsupported field(s): {', '.join(sorted(str(field) for field in extra_fields))}.")
+
+    if _submission_proof_has_forbidden_fields(payload):
+        raise ValueError("Submission proof records must not include passwords, OTPs, CAPTCHA values, tokens, cookies, API keys, session IDs, or portal credentials.")
+
+    submitted_by = _strict_text(payload.get("submitted_by"), SUBMISSION_PROOF_LIMITS["submitted_by"], "submitted_by")
+    submission_timestamp = _strict_text(payload.get("submission_timestamp"), SUBMISSION_PROOF_LIMITS["submission_timestamp"], "submission_timestamp")
+    portal_name = _strict_text(payload.get("portal_name"), SUBMISSION_PROOF_LIMITS["portal_name"], "portal_name")
+    portal_reference = _strict_text(payload.get("portal_reference"), SUBMISSION_PROOF_LIMITS["portal_reference"], "portal_reference")
+    proof_notes = _strict_text(payload.get("proof_notes"), SUBMISSION_PROOF_LIMITS["proof_notes"], "proof_notes")
+
+    buyer_reference = payload.get("buyer_reference")
+    if buyer_reference in (None, ""):
+        buyer_reference_text = ""
+    else:
+        buyer_reference_text = _strict_text(buyer_reference, SUBMISSION_PROOF_LIMITS["buyer_reference"], "buyer_reference")
+
+    confirmation_message = payload.get("confirmation_message")
+    if confirmation_message in (None, ""):
+        confirmation_message_text = ""
+    else:
+        confirmation_message_text = _strict_text(confirmation_message, SUBMISSION_PROOF_LIMITS["confirmation_message"], "confirmation_message")
+
+    screenshot_notes = payload.get("screenshot_notes")
+    if screenshot_notes in (None, ""):
+        screenshot_notes_text = ""
+    else:
+        screenshot_notes_text = _strict_text(screenshot_notes, SUBMISSION_PROOF_LIMITS["screenshot_notes"], "screenshot_notes")
+
+    uploaded_files = _normalize_submission_proof_files(payload.get("uploaded_files"))
+
+    proof = {
+        "submitted_by": submitted_by,
+        "submission_timestamp": submission_timestamp,
+        "portal_name": portal_name,
+        "portal_reference": portal_reference,
+        "proof_notes": proof_notes,
+        "uploaded_files": uploaded_files,
+        "saved_at": _now_iso(),
+        "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+        "proof_safety": {
+            "local_only": True,
+            "no_credentials": True,
+            "no_portal_calls": True,
+            "no_final_submit": True,
+            "no_upload": True,
+            "no_email": True,
+        },
+    }
+    if buyer_reference_text:
+        proof["buyer_reference"] = buyer_reference_text
+    if confirmation_message_text:
+        proof["confirmation_message"] = confirmation_message_text
+    if screenshot_notes_text:
+        proof["screenshot_notes"] = screenshot_notes_text
+    return proof
+
+
+def _submission_proof_validation_result(workspace: Path, payload: Optional[Any]) -> Dict[str, Any]:
+    path = _submission_proof_path(workspace)
+    missing_reason = "Submission proof record is optional but not yet saved for this pack."
+    base_result = {
+        "required": False,
+        "allowed": False,
+        "blocked_reason": missing_reason,
+        "reason_code": "submission_proof_missing",
+        "status": "missing",
+        "pack_id": workspace.name,
+        "submission_proof": None,
+        "submission_proof_path": _relative(path),
+        "required_fields": list(SUBMISSION_PROOF_REQUIRED_FIELDS),
+        "missing_fields": list(SUBMISSION_PROOF_REQUIRED_FIELDS),
+        "forbidden_fields": [],
+        "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+    }
+
+    if not path.exists() or not path.is_file():
+        return base_result
+
+    if not isinstance(payload, dict):
+        return {
+            **base_result,
+            "reason_code": "submission_proof_invalid_json",
+            "status": "invalid",
+            "blocked_reason": "Submission proof record is invalid JSON or unreadable.",
+        }
+
+    missing_fields = [field for field in SUBMISSION_PROOF_REQUIRED_FIELDS if field not in payload]
+    if missing_fields:
+        return {
+            **base_result,
+            "reason_code": "submission_proof_missing_fields",
+            "status": "invalid",
+            "blocked_reason": f"Submission proof record is incomplete: missing {', '.join(missing_fields)}.",
+            "missing_fields": missing_fields,
+        }
+
+    extra_fields = [key for key in payload.keys() if key not in set(SUBMISSION_PROOF_REQUIRED_FIELDS) | set(SUBMISSION_PROOF_OPTIONAL_FIELDS) | set(SUBMISSION_PROOF_INTERNAL_FIELDS)]
+    if extra_fields:
+        return {
+            **base_result,
+            "reason_code": "submission_proof_invalid_fields",
+            "status": "invalid",
+            "blocked_reason": f"Submission proof record contains unsupported field(s): {', '.join(sorted(str(field) for field in extra_fields))}.",
+        }
+
+    try:
+        proof = validate_submission_proof({key: payload.get(key) for key in list(SUBMISSION_PROOF_REQUIRED_FIELDS) + list(SUBMISSION_PROOF_OPTIONAL_FIELDS)})
+    except ValueError as exc:
+        reason_text = str(exc)
+        return {
+            **base_result,
+            "reason_code": "submission_proof_invalid_fields",
+            "status": "invalid",
+            "blocked_reason": reason_text,
+            "forbidden_fields": _submission_proof_forbidden_field_hits(payload, SUBMISSION_PROOF_REVIEW_FIELDS),
+        }
+
+    proof["pack_id"] = workspace.name
+    proof["saved_at"] = _safe_text(payload.get("saved_at"), 80) or proof.get("saved_at")
+    proof["safety"] = dict(MANUAL_COMPLETION_SAFETY_FLAGS)
+    proof["proof_safety"] = {
+        "local_only": True,
+        "no_credentials": True,
+        "no_portal_calls": True,
+        "no_final_submit": True,
+        "no_upload": True,
+        "no_email": True,
+    }
+
+    return {
+        **base_result,
+        "allowed": True,
+        "blocked_reason": "",
+        "reason_code": "submission_proof_valid",
+        "status": "ok",
+        "missing_fields": [],
+        "forbidden_fields": [],
+        "submission_proof": proof,
+    }
+
+
+def _submission_proof_gate(workspace: Path) -> Dict[str, Any]:
+    path = _submission_proof_path(workspace)
+    raw = _read_json(path)
+    return _submission_proof_validation_result(workspace, raw)
+
+
+def _submission_proof_detail(workspace: Path) -> Dict[str, Any]:
+    data = _safe_read_pack_json(workspace, SUBMISSION_PROOF_FILENAME)
+    if not isinstance(data, dict):
+        return {
+            "status": "not_found",
+            "message": "No submission proof record has been saved for this pack.",
+            "pack_id": workspace.name,
+            "submission_proof": None,
+            "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+        }
+    validation = _submission_proof_validation_result(workspace, data)
+    proof_record = validation.get("submission_proof") if validation.get("allowed") else None
+    return {
+        "status": validation.get("status", "ok"),
+        "pack_id": workspace.name,
+        "submission_proof": proof_record,
+        "saved_at": _safe_text(data.get("saved_at"), 80),
+        "validation": validation,
+        "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+    }
 
 
 def _safe_name(value: Any, fallback: str = "RFQ") -> str:
@@ -2693,6 +3144,7 @@ def _pack_files(workspace: Path) -> List[Dict[str, Any]]:
         "operator_submission_binder_review.txt": "operator_submission_binder_review",
         "operator_next_steps.txt": "operator_next_steps",
         MANUAL_COMPLETION_FILENAME: "manual_completion",
+        SUBMISSION_PROOF_FILENAME: "submission_proof",
     }
     files: List[Dict[str, Any]] = []
     try:
@@ -4237,6 +4689,52 @@ class QuoteCompilationService:
             "timestamp": _now_iso(),
         }
 
+    def validate_submission_proof(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return validate_submission_proof(payload)
+
+    def load_submission_proof(self, pack_id: str) -> Dict[str, Any]:
+        workspace = _safe_quote_pack_dir(pack_id)
+        if not workspace:
+            return {
+                "status": "not_found",
+                "message": "No local quote compilation pack matched the requested pack_id.",
+                "pack_id": _safe_text(pack_id, 160),
+                "read_only": True,
+                "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+                "timestamp": _now_iso(),
+            }
+        validation = _submission_proof_gate(workspace)
+        append_pack_audit_event(
+            workspace.name,
+            "submission_proof_viewed",
+            {
+                "allowed": bool(validation.get("allowed")),
+                "reason_code": validation.get("reason_code"),
+                "blocked_reason": validation.get("blocked_reason"),
+                "saved_at": validation.get("submission_proof", {}).get("saved_at") if isinstance(validation.get("submission_proof"), dict) else None,
+            },
+        )
+        return {
+            **_submission_proof_detail(workspace),
+            "validation": validation,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def export_submission_proof(self, pack_id: str) -> Dict[str, Any]:
+        proof = self.load_submission_proof(pack_id)
+        if proof.get("status") in {"ok", "invalid"}:
+            append_pack_audit_event(
+                proof.get("pack_id") or _safe_text(pack_id, 160),
+                "submission_proof_exported",
+                {
+                    "status": proof.get("status"),
+                    "validation_status": proof.get("validation", {}).get("status") if isinstance(proof.get("validation"), dict) else None,
+                    "submission_proof_allowed": bool(proof.get("validation", {}).get("allowed")) if isinstance(proof.get("validation"), dict) else None,
+                },
+            )
+        return proof
+
     def manual_completion(self, pack_id: str) -> Dict[str, Any]:
         workspace = _safe_quote_pack_dir(pack_id)
         if not workspace:
@@ -4262,6 +4760,58 @@ class QuoteCompilationService:
         return {
             **_manual_completion_detail(workspace),
             "validation": validation,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def save_submission_proof(self, pack_id: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        workspace = _safe_quote_pack_dir(pack_id)
+        if not workspace:
+            return {
+                "status": "not_found",
+                "message": "No local quote compilation pack matched the requested pack_id.",
+                "pack_id": _safe_text(pack_id, 160),
+                "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+                "timestamp": _now_iso(),
+            }
+
+        try:
+            submission_proof = validate_submission_proof(payload or {})
+        except ValueError as exc:
+            append_pack_audit_event(
+                pack_id,
+                "submission_proof_validation_failure",
+                {
+                    "error": str(exc),
+                    "field_names": list((payload or {}).keys()) if isinstance(payload, dict) else [],
+                },
+            )
+            raise
+
+        submission_proof["pack_id"] = workspace.name
+        submission_proof_path = _submission_proof_path(workspace)
+        _write_json(submission_proof_path, submission_proof)
+        append_pack_audit_event(
+            workspace.name,
+            "submission_proof_save_success",
+            {
+                "submitted_by": submission_proof.get("submitted_by"),
+                "submission_timestamp": submission_proof.get("submission_timestamp"),
+                "portal_name": submission_proof.get("portal_name"),
+                "portal_reference": submission_proof.get("portal_reference"),
+                "uploaded_file_count": len(submission_proof.get("uploaded_files") or []),
+                "saved_at": submission_proof.get("saved_at"),
+            },
+        )
+
+        return {
+            "status": "ok",
+            "message": "Submission proof record saved locally. No portal action was performed.",
+            "submission_proof": submission_proof,
+            "files": [
+                _pack_file_entry(submission_proof_path, "submission_proof"),
+            ],
+            "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
             "read_only": True,
             "timestamp": _now_iso(),
         }

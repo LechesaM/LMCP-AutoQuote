@@ -815,6 +815,14 @@ function submissionManualCompletionExportPath(packId) {
   return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/manual-completion.json`;
 }
 
+function submissionProofPath(packId) {
+  return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/submission-proof`;
+}
+
+function submissionProofExportPath(packId) {
+  return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/submission-proof.json`;
+}
+
 function submissionAuditTrailPath(packId) {
   return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/audit-trail`;
 }
@@ -918,6 +926,20 @@ function manualCompletionFormFromRecord(record) {
   };
 }
 
+function submissionProofFormFromRecord(record) {
+  return {
+    submitted_by: safeText(record?.submitted_by),
+    submission_timestamp: safeText(record?.submission_timestamp),
+    portal_name: safeText(record?.portal_name),
+    portal_reference: safeText(record?.portal_reference),
+    proof_notes: safeText(record?.proof_notes),
+    buyer_reference: safeText(record?.buyer_reference),
+    uploaded_files: asArray(record?.uploaded_files).map((item) => safeText(item)).filter(Boolean).join("\n"),
+    confirmation_message: safeText(record?.confirmation_message),
+    screenshot_notes: safeText(record?.screenshot_notes),
+  };
+}
+
 function ScoreChip({ label, score }) {
   return (
     <span className={`submission-score-chip ${scoreTone(score)}`}>
@@ -939,6 +961,9 @@ function parsePrintableReportPreview(html) {
       evidence_snapshot_verification_status: "unknown",
       evidence_snapshot_hash: "",
       evidence_snapshot_generated_at: "",
+      submission_proof_status: "unknown",
+      submission_proof_hash: "",
+      submission_proof_saved_at: "",
     };
   }
   try {
@@ -954,6 +979,9 @@ function parsePrintableReportPreview(html) {
       evidence_snapshot_verification_status: meta("lmcp-report-snapshot-status") || "unknown",
       evidence_snapshot_hash: meta("lmcp-report-snapshot-hash"),
       evidence_snapshot_generated_at: meta("lmcp-report-snapshot-generated-at"),
+      submission_proof_status: meta("lmcp-report-proof-status") || "unknown",
+      submission_proof_hash: meta("lmcp-report-proof-hash"),
+      submission_proof_saved_at: meta("lmcp-report-proof-saved-at"),
     };
   } catch {
     return {
@@ -966,6 +994,9 @@ function parsePrintableReportPreview(html) {
       evidence_snapshot_verification_status: "unknown",
       evidence_snapshot_hash: "",
       evidence_snapshot_generated_at: "",
+      submission_proof_status: "unknown",
+      submission_proof_hash: "",
+      submission_proof_saved_at: "",
     };
   }
 }
@@ -982,6 +1013,11 @@ function SubmissionGateCard({
   submissionPrintableReportState,
   submissionEvidenceSnapshotState,
   submissionComplianceArchiveState,
+  submissionProofState,
+  submissionProofForm,
+  onSubmissionProofChange,
+  onSubmissionProofSave,
+  onSubmissionProofRequest,
   manualCompletionState,
   manualCompletionForm,
   onManualCompletionChange,
@@ -1061,6 +1097,13 @@ function SubmissionGateCard({
   const evidenceSnapshotAuditHash = safeText(evidenceSnapshot?.audit_trail_hash, "Not loaded");
   const evidenceSnapshotManualHash = safeText(evidenceSnapshot?.manual_completion_hash, "Not loaded");
   const evidenceSnapshotWarningCount = asArray(evidenceSnapshot?.warnings).length;
+  const submissionProofStatus = safeText(submissionProofState?.data?.validation?.status || submissionProofState?.data?.status, "missing");
+  const submissionProofSavedStatus = submissionProofState?.data?.status === "ok" || submissionProofState?.data?.status === "invalid" ? "Saved" : "Missing";
+  const submissionProof = submissionProofState?.data?.validation?.allowed === true
+    ? (submissionProofState?.data?.submission_proof || null)
+    : null;
+  const submissionProofLastUpdated = safeText(submissionProof?.saved_at || submissionProofState?.data?.saved_at || submissionProofState?.data?.validation?.submission_proof?.saved_at, "Not loaded");
+  const submissionProofDownloadUrl = packId && submissionProof ? `${API_BASE}${submissionProofExportPath(packId)}` : "";
   const checklistPreview =
     safeText(checklist?.checklist_text) ||
     [
@@ -1625,12 +1668,14 @@ function SubmissionGateCard({
                 <div className="submission-gate-bundle-summary">
                   <div><span>Generated At</span><b>{evidenceBundleGeneratedAt}</b></div>
                   <div><span>Manual Completion</span><b>{evidenceBundleManualPresent ? "Present" : "Missing"}</b></div>
+                  <div><span>Submission Proof</span><b>{submissionProof ? "Present" : "Missing"}</b></div>
                   <div><span>Audit Events</span><b>{evidenceBundleAuditCount}</b></div>
                   <div><span>Warning Count</span><b>{evidenceBundleWarningCount}</b></div>
                   <div><span>Final Submit Locked</span><b>{evidenceBundleFinalLocked ? "Yes" : "No"}</b></div>
                   <div><span>Automated Submit Disabled</span><b>{evidenceBundleAutomatedDisabled ? "Yes" : "No"}</b></div>
                   <div><span>Snapshot Status</span><b>{evidenceBundleSnapshotStatus.replaceAll("_", " ")}</b></div>
                   <div><span>Snapshot Hash</span><b>{evidenceBundleSnapshotHash}</b></div>
+                  <div><span>Proof Status</span><b>{safeText(submissionProofStatus, "missing").replaceAll("_", " ")}</b></div>
                 </div>
                 <div className="submission-gate-bundle-columns">
                   <div>
@@ -1679,6 +1724,9 @@ function SubmissionGateCard({
               <div><span>Automated Submit Disabled</span><b>{printableReportAutomatedDisabled ? "Yes" : "No"}</b></div>
               <div><span>Audit Events</span><b>{printableReportAuditCount}</b></div>
               <div><span>Warning Count</span><b>{printableReportWarningCount}</b></div>
+              <div><span>Proof Status</span><b>{safeText(printableReportPreview?.submission_proof_status, "unknown").replaceAll("_", " ")}</b></div>
+              <div><span>Proof Hash</span><b>{safeText(printableReportPreview?.submission_proof_hash, "Not loaded")}</b></div>
+              <div><span>Proof Saved</span><b>{safeText(printableReportPreview?.submission_proof_saved_at, "Not loaded")}</b></div>
               <div><span>Snapshot Status</span><b>{printableReportSnapshotStatus.replaceAll("_", " ")}</b></div>
               <div><span>Snapshot Hash</span><b>{printableReportSnapshotHash}</b></div>
               <div><span>Snapshot Generated</span><b>{printableReportSnapshotGeneratedAt}</b></div>
@@ -1813,6 +1861,91 @@ function SubmissionGateCard({
                 {!archives.length ? <p className="submission-risk warning">No archives loaded yet.</p> : null}
               </div>
             </div>
+          </div>
+          <div className="submission-gate-proof-card">
+            <div className="submission-gate-proof-head">
+              <div>
+                <h3>Submission Proof Capture</h3>
+                <p>Save a local proof record after the portal submission is completed outside this system.</p>
+              </div>
+              <div className="submission-gate-proof-actions">
+                <button type="button" onClick={onSubmissionProofSave} disabled={!packId || submissionProofState.loading}>
+                  <Save size={15} />
+                  {submissionProofState.loading ? "Saving" : "Save Proof"}
+                </button>
+                <button type="button" onClick={onSubmissionProofRequest} disabled={!packId || submissionProofState.loading}>
+                  <Clock3 size={15} />
+                  {submissionProofState.loading ? "Loading" : "Load Proof"}
+                </button>
+                {submissionProofDownloadUrl ? (
+                  <a href={submissionProofDownloadUrl} download>
+                    <FileDown size={15} />
+                    Download Proof JSON
+                  </a>
+                ) : null}
+              </div>
+            </div>
+            {submissionProofState.error ? <div className="submission-gate-warning"><AlertTriangle size={15} />{submissionProofState.error}</div> : null}
+            {submissionProofState.data?.validation?.status === "invalid" ? (
+              <div className="submission-gate-warning"><AlertTriangle size={15} />{safeText(submissionProofState.data?.validation?.blocked_reason, "Submission proof record is invalid.")}</div>
+            ) : null}
+            <div className="submission-gate-proof-form">
+              <label>
+                <span>Submitted By</span>
+                <input value={submissionProofForm.submitted_by} onChange={(event) => onSubmissionProofChange("submitted_by", event.target.value)} placeholder="Operator name" />
+              </label>
+              <label>
+                <span>Submission Timestamp</span>
+                <input value={submissionProofForm.submission_timestamp} onChange={(event) => onSubmissionProofChange("submission_timestamp", event.target.value)} placeholder="2026-05-15T09:30:00+02:00" />
+              </label>
+              <label>
+                <span>Portal Name</span>
+                <input value={submissionProofForm.portal_name} onChange={(event) => onSubmissionProofChange("portal_name", event.target.value)} placeholder="Buyer portal" />
+              </label>
+              <label>
+                <span>Portal Reference</span>
+                <input value={submissionProofForm.portal_reference} onChange={(event) => onSubmissionProofChange("portal_reference", event.target.value)} placeholder="Confirmation / receipt / reference number" />
+              </label>
+              <label className="wide">
+                <span>Proof Notes</span>
+                <textarea value={submissionProofForm.proof_notes} onChange={(event) => onSubmissionProofChange("proof_notes", event.target.value)} placeholder="Short note about the external submission proof." rows={4} />
+              </label>
+              <label>
+                <span>Buyer Reference</span>
+                <input value={submissionProofForm.buyer_reference} onChange={(event) => onSubmissionProofChange("buyer_reference", event.target.value)} placeholder="Optional buyer reference" />
+              </label>
+              <label>
+                <span>Confirmation Message</span>
+                <input value={submissionProofForm.confirmation_message} onChange={(event) => onSubmissionProofChange("confirmation_message", event.target.value)} placeholder="Optional confirmation text" />
+              </label>
+              <label className="wide">
+                <span>Screenshot Notes</span>
+                <textarea value={submissionProofForm.screenshot_notes} onChange={(event) => onSubmissionProofChange("screenshot_notes", event.target.value)} placeholder="Optional notes about attached screenshots" rows={3} />
+              </label>
+              <label className="wide">
+                <span>Uploaded Files</span>
+                <textarea value={submissionProofForm.uploaded_files} onChange={(event) => onSubmissionProofChange("uploaded_files", event.target.value)} placeholder="One file name per line" rows={3} />
+              </label>
+            </div>
+            {submissionProof ? (
+              <>
+                <div className="submission-gate-proof-summary">
+                  <div><span>Proof Saved</span><b>{submissionProofSavedStatus}</b></div>
+                  <div><span>Last Updated</span><b>{submissionProofLastUpdated}</b></div>
+                  <div><span>Status</span><b>{submissionProofStatus.replaceAll("_", " ")}</b></div>
+                  <div><span>Uploaded Files</span><b>{asArray(submissionProof.uploaded_files).length}</b></div>
+                </div>
+                <div className="submission-gate-proof-meta">
+                  <div><span>Submitted By</span><b>{safeText(submissionProof.submitted_by, "Unknown")}</b></div>
+                  <div><span>Portal</span><b>{safeText(submissionProof.portal_name, "Unknown")}</b></div>
+                  <div><span>Reference</span><b>{safeText(submissionProof.portal_reference, "No reference saved")}</b></div>
+                  <div><span>Submission Timestamp</span><b>{formatDateTime(submissionProof.submission_timestamp)}</b></div>
+                </div>
+                {submissionProof.proof_notes ? <pre className="submission-gate-proof-notes">{safeText(submissionProof.proof_notes)}</pre> : null}
+              </>
+            ) : (
+              <div className="submission-gate-empty">No submission proof has been saved for this pack yet. Final submit remains locked.</div>
+            )}
           </div>
         </div>
       </>
@@ -2168,6 +2301,8 @@ export default function SubmissionCentreWorkspace() {
   const [submissionPrintableReportState, setSubmissionPrintableReportState] = useState({ loading: false, data: null, error: "" });
   const [submissionEvidenceSnapshotState, setSubmissionEvidenceSnapshotState] = useState({ loading: false, data: null, error: "" });
   const [submissionComplianceArchiveState, setSubmissionComplianceArchiveState] = useState({ loading: false, data: null, error: "" });
+  const [submissionProofState, setSubmissionProofState] = useState({ loading: false, data: null, error: "" });
+  const [submissionProofForm, setSubmissionProofForm] = useState(submissionProofFormFromRecord({}));
   const [manualCompletionState, setManualCompletionState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionForm, setManualCompletionForm] = useState(manualCompletionFormFromRecord({}));
 
@@ -2273,6 +2408,8 @@ export default function SubmissionCentreWorkspace() {
         setSubmissionPrintableReportState({ loading: false, data: null, error: "" });
         setSubmissionEvidenceSnapshotState({ loading: false, data: null, error: "" });
         setSubmissionComplianceArchiveState({ loading: false, data: null, error: "" });
+        setSubmissionProofState({ loading: false, data: null, error: "" });
+        setSubmissionProofForm(submissionProofFormFromRecord({}));
         setManualCompletionState({ loading: false, data: null, error: "" });
         setManualCompletionForm(manualCompletionFormFromRecord({}));
         return;
@@ -2288,8 +2425,9 @@ export default function SubmissionCentreWorkspace() {
       setSubmissionPrintableReportState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionEvidenceSnapshotState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionComplianceArchiveState((prev) => ({ ...prev, loading: true, error: "" }));
+      setSubmissionProofState((prev) => ({ ...prev, loading: true, error: "" }));
       setManualCompletionState((prev) => ({ ...prev, loading: true, error: "" }));
-      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, evidenceBundleResult, evidenceSnapshotResult, archiveListResult, manualCompletionResult] = await Promise.all([
+      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, evidenceBundleResult, evidenceSnapshotResult, archiveListResult, proofResult, manualCompletionResult] = await Promise.all([
         fetchEndpoint(submissionGatePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionGateSummaryPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionChecklistPath(gatePackId, gateRfqReference)),
@@ -2300,6 +2438,7 @@ export default function SubmissionCentreWorkspace() {
         fetchEndpoint(submissionEvidenceBundlePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionEvidenceSnapshotPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionComplianceArchivesPath(gatePackId)),
+        fetchEndpoint(submissionProofPath(gatePackId)),
         fetchEndpoint(submissionManualCompletionPath(gatePackId)),
       ]);
       if (cancelled) return;
@@ -2354,6 +2493,15 @@ export default function SubmissionCentreWorkspace() {
         data: archiveListResult.ok ? archiveListResult.data : null,
         error: archiveListResult.ok ? "" : archiveListResult.error || "Compliance archives endpoint did not respond.",
       });
+      const proofData = proofResult.ok ? proofResult.data : null;
+      setSubmissionProofState({
+        loading: false,
+        data: proofData,
+        error: proofResult.ok ? "" : proofResult.error || "Submission proof endpoint did not respond.",
+      });
+      if (proofData?.status === "ok" && proofData?.submission_proof) {
+        setSubmissionProofForm(submissionProofFormFromRecord(proofData.submission_proof));
+      }
       const manualCompletionData = manualCompletionResult.ok ? manualCompletionResult.data : null;
       setManualCompletionState({
         loading: false,
@@ -2411,6 +2559,21 @@ export default function SubmissionCentreWorkspace() {
       data: result.ok ? result.data : null,
       error: result.ok ? "" : result.error || "Submission pack summary endpoint did not respond.",
     });
+  }
+
+  async function refreshSubmissionProof() {
+    if (!gatePackId) return;
+    setSubmissionProofState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await fetchEndpoint(submissionProofPath(gatePackId));
+    const proofData = result.ok ? result.data : null;
+    setSubmissionProofState({
+      loading: false,
+      data: proofData,
+      error: result.ok ? "" : result.error || "Submission proof endpoint did not respond.",
+    });
+    if (proofData?.status === "ok" && proofData?.submission_proof) {
+      setSubmissionProofForm(submissionProofFormFromRecord(proofData.submission_proof));
+    }
   }
 
   async function refreshAuditLog() {
@@ -2502,6 +2665,45 @@ export default function SubmissionCentreWorkspace() {
     });
   }
 
+  async function saveSubmissionProofRecord() {
+    if (!gatePackId) return;
+    setSubmissionProofState((prev) => ({ ...prev, loading: true, error: "" }));
+    const payload = {
+      submitted_by: submissionProofForm.submitted_by,
+      submission_timestamp: submissionProofForm.submission_timestamp,
+      portal_name: submissionProofForm.portal_name,
+      portal_reference: submissionProofForm.portal_reference,
+      proof_notes: submissionProofForm.proof_notes,
+      buyer_reference: submissionProofForm.buyer_reference,
+      uploaded_files: submissionProofForm.uploaded_files
+        .split(/\n|;|\|/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+      confirmation_message: submissionProofForm.confirmation_message,
+      screenshot_notes: submissionProofForm.screenshot_notes,
+    };
+    const result = await postEndpoint(submissionProofPath(gatePackId), payload);
+    if (!result.ok) {
+      setSubmissionProofState({ loading: false, data: null, error: result.error || "Submission proof could not be saved." });
+      return;
+    }
+    const proofData = result.data || null;
+    setSubmissionProofState({ loading: false, data: proofData, error: "" });
+    if (proofData?.submission_proof) {
+      setSubmissionProofForm(submissionProofFormFromRecord(proofData.submission_proof));
+    }
+    await Promise.all([
+      refreshSubmissionGate(),
+      refreshSubmissionPackSummary(),
+      refreshAuditTrail(),
+      refreshReadinessChecklist(),
+      refreshEvidenceManifest(),
+      refreshEvidenceBundle(),
+      refreshPrintableReport(),
+      refreshEvidenceSnapshot(),
+    ]);
+  }
+
   async function createComplianceArchive() {
     if (!gatePackId) return;
     setSubmissionComplianceArchiveState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -2520,6 +2722,10 @@ export default function SubmissionCentreWorkspace() {
 
   function onManualCompletionChange(field, value) {
     setManualCompletionForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function onSubmissionProofChange(field, value) {
+    setSubmissionProofForm((prev) => ({ ...prev, [field]: value }));
   }
 
   async function saveManualCompletionRecord() {
@@ -2610,6 +2816,11 @@ export default function SubmissionCentreWorkspace() {
         submissionPrintableReportState={submissionPrintableReportState}
         submissionEvidenceSnapshotState={submissionEvidenceSnapshotState}
         submissionComplianceArchiveState={submissionComplianceArchiveState}
+        submissionProofState={submissionProofState}
+        submissionProofForm={submissionProofForm}
+        onSubmissionProofChange={onSubmissionProofChange}
+        onSubmissionProofSave={saveSubmissionProofRecord}
+        onSubmissionProofRequest={refreshSubmissionProof}
         manualCompletionState={manualCompletionState}
         manualCompletionForm={manualCompletionForm}
         onManualCompletionChange={onManualCompletionChange}

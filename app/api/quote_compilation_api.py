@@ -332,6 +332,34 @@ def submission_gate_manual_completion_json(pack_id: str) -> JSONResponse:
     )
 
 
+@router.post("/submission-gate/{pack_id}/submission-proof")
+def submission_gate_submission_proof(
+    pack_id: str,
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+) -> Dict[str, Any]:
+    try:
+        return service().save_submission_proof(pack_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/submission-gate/{pack_id}/submission-proof")
+def submission_gate_submission_proof_get(pack_id: str) -> Dict[str, Any]:
+    return service().load_submission_proof(pack_id)
+
+
+@router.get("/submission-gate/{pack_id}/submission-proof.json")
+def submission_gate_submission_proof_json(pack_id: str) -> JSONResponse:
+    submission_proof = service().export_submission_proof(pack_id)
+    filename = _safe_download_filename(f"{submission_proof.get('pack_id') or pack_id}-submission-proof", "json")
+    record = submission_proof.get("submission_proof") if isinstance(submission_proof.get("submission_proof"), dict) else None
+    content = record if isinstance(record, dict) else submission_proof
+    return JSONResponse(
+        content=content,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/submission-gate/{pack_id}/audit-trail")
 def submission_gate_audit_trail(pack_id: str) -> Dict[str, Any]:
     return service().audit_trail(pack_id)

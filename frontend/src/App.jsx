@@ -150,6 +150,7 @@ function ComplianceStatusPanel({
   const summaryStatus = text(summary?.status, "unknown");
   const statusClass = summaryStatus === "ready_manual_only" ? "good" : summaryStatus === "blocked" ? "bad" : "gold";
   const manualCompletionLabel = summary ? (summary.manual_completion_present ? "Present" : "Missing") : "Not loaded";
+  const proofCompletionLabel = summary ? text(summary?.submission_proof_status || (summary.submission_proof_present ? "ok" : "missing"), summary.submission_proof_present ? "present" : "missing") : "Not loaded";
   const readinessLabel = summary ? (summary.readiness_checklist_available ? "Available" : "Unavailable") : "Not loaded";
   const evidenceLabel = summary ? (summary.evidence_bundle_available ? "Available" : "Unavailable") : "Not loaded";
   const snapshotLabel = summary ? (summary.evidence_snapshot_available ? text(summary.evidence_snapshot_verification_status, "Available") : "Unavailable") : "Not loaded";
@@ -203,6 +204,7 @@ function ComplianceStatusPanel({
       <div className="dashboard-compliance-grid">
         <div><span>Status</span><b>{summaryStatus.replaceAll("_", " ")}</b></div>
         <div><span>Manual Completion</span><b>{manualCompletionLabel}</b></div>
+        <div><span>Submission Proof</span><b>{proofCompletionLabel}</b></div>
         <div><span>Readiness Checklist</span><b>{readinessLabel}</b></div>
         <div><span>Evidence Bundle</span><b>{evidenceLabel}</b></div>
         <div><span>Evidence Snapshot</span><b>{snapshotLabel}</b></div>
@@ -216,6 +218,7 @@ function ComplianceStatusPanel({
 
       <div className="dashboard-compliance-meta">
         <div><span>Generated</span><b>{summary?.generated_at || "Not loaded"}</b></div>
+        <div><span>Submission Proof Saved</span><b>{summary?.submission_proof_saved_at || "Not loaded"}</b></div>
         <div><span>Snapshot Generated</span><b>{summary?.evidence_snapshot_generated_at || "Not loaded"}</b></div>
         <div><span>Latest audit</span><b>{summary?.latest_audit_event_summary || "None"}</b></div>
       </div>

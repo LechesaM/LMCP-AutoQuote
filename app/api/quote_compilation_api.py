@@ -155,6 +155,31 @@ def submission_gate_readiness_checklist_json(pack_id: str, rfq_reference: Option
     )
 
 
+@router.get("/submission-gate/{pack_id}/evidence-bundle")
+def submission_gate_evidence_bundle(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> Dict[str, Any]:
+    return service().evidence_bundle(pack_id, rfq_reference=rfq_reference)
+
+
+@router.get("/submission-gate/{pack_id}/evidence-bundle.json")
+def submission_gate_evidence_bundle_json(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> JSONResponse:
+    bundle = service().evidence_bundle(pack_id, rfq_reference=rfq_reference)
+    append_pack_audit_event(
+        bundle.get("pack_id") or pack_id,
+        "evidence_bundle_json_export",
+        {
+            "final_submit_locked": bool(bundle.get("final_submit_locked")),
+            "automated_submit_disabled": bool(bundle.get("automated_submit_disabled")),
+            "audit_warning_count": bundle.get("audit_warning_count", 0),
+            "bundle_warning_count": len(bundle.get("bundle_warnings") or []),
+        },
+    )
+    filename = _safe_download_filename(f"{bundle.get('pack_id') or pack_id}-evidence-bundle", "json")
+    return JSONResponse(
+        content=bundle,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/submission-gate/{pack_id}/manual-completion")
 def submission_gate_manual_completion(
     pack_id: str,

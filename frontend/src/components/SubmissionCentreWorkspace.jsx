@@ -824,6 +824,22 @@ function submissionReadinessChecklistExportPath(packId, rfqReference) {
   return `/quote-compilation/submission-gate/${encodedPack}/readiness-checklist.json${query ? `?${query}` : ""}`;
 }
 
+function submissionEvidenceBundlePath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/evidence-bundle${query ? `?${query}` : ""}`;
+}
+
+function submissionEvidenceBundleExportPath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/evidence-bundle.json${query ? `?${query}` : ""}`;
+}
+
 function manualCompletionFormFromRecord(record) {
   return {
     submitted_by: safeText(record?.submitted_by),
@@ -852,6 +868,7 @@ function SubmissionGateCard({
   auditTrailState,
   readinessChecklistState,
   evidenceState,
+  evidenceBundleState,
   manualCompletionState,
   manualCompletionForm,
   onManualCompletionChange,
@@ -863,6 +880,7 @@ function SubmissionGateCard({
   onAuditTrailRequest,
   onReadinessChecklistRequest,
   onEvidenceRequest,
+  onEvidenceBundleRequest,
 }) {
   const gate = gateState.data;
   const summary = summaryState.data;
@@ -871,6 +889,7 @@ function SubmissionGateCard({
   const auditTrail = auditTrailState.data;
   const readinessChecklist = readinessChecklistState.data;
   const evidence = evidenceState.data;
+  const evidenceBundle = evidenceBundleState.data;
   const manualCompletion = manualCompletionState.data?.manual_completion || (manualCompletionState.data?.status === "ok" ? manualCompletionState.data : null);
   const manualCompletionGate = gate?.manual_completion && typeof gate.manual_completion === "object" ? gate.manual_completion : {};
   const manualCompletionAllowed = manualCompletionGate.allowed === true;
@@ -887,6 +906,14 @@ function SubmissionGateCard({
   const evidenceFiles = asArray(evidence?.evidence_files);
   const evidenceBlockers = asArray(evidence?.blockers);
   const evidenceMissingReturnables = asArray(evidence?.missing_returnables);
+  const evidenceBundleWarnings = asArray(evidenceBundle?.bundle_warnings);
+  const evidenceBundleAuditTrail = asArray(evidenceBundle?.audit_trail);
+  const evidenceBundleAuditCount = normalizeNumber(evidenceBundle?.audit_event_count, evidenceBundleAuditTrail.length);
+  const evidenceBundleWarningCount = normalizeNumber(evidenceBundle?.audit_warning_count, 0);
+  const evidenceBundleGeneratedAt = safeText(evidenceBundle?.generated_at, "Not loaded");
+  const evidenceBundleManualPresent = Boolean(evidenceBundle?.manual_completion_record);
+  const evidenceBundleFinalLocked = evidenceBundle?.final_submit_locked !== false;
+  const evidenceBundleAutomatedDisabled = evidenceBundle?.automated_submit_disabled !== false;
   const checklistPreview =
     safeText(checklist?.checklist_text) ||
     [
@@ -903,6 +930,7 @@ function SubmissionGateCard({
   const auditTxtDownloadUrl = packId ? `${API_BASE}${submissionAuditExportPath(packId, auditReference, "txt")}` : "";
   const auditTrailJsonDownloadUrl = packId ? `${API_BASE}${submissionAuditTrailExportPath(packId)}` : "";
   const readinessChecklistJsonDownloadUrl = packId ? `${API_BASE}${submissionReadinessChecklistExportPath(packId, gate?.rfq_reference || readinessChecklist?.rfq_reference)}` : "";
+  const evidenceBundleJsonDownloadUrl = packId ? `${API_BASE}${submissionEvidenceBundleExportPath(packId, gate?.rfq_reference || readinessChecklist?.rfq_reference || "")}` : "";
   const evidenceReference = gate?.rfq_reference || evidence?.rfq_reference || auditReference;
   const evidenceManifestDownloadUrl = packId ? `${API_BASE}${submissionEvidenceManifestExportPath(packId, evidenceReference)}` : "";
   const summaryReference = summary?.rfq_reference || gate?.rfq_reference || evidenceReference;
@@ -938,6 +966,10 @@ function SubmissionGateCard({
     if (Object.prototype.hasOwnProperty.call(payload, "count")) parts.push(`count: ${safeText(payload.count)}`);
     if (Object.prototype.hasOwnProperty.call(payload, "uploaded_file_count")) parts.push(`files: ${safeText(payload.uploaded_file_count)}`);
     return parts.length ? parts.join(" · ") : "Audit event recorded locally.";
+  }
+
+  function evidenceBundleStatusLabel(value) {
+    return value ? "Locked" : "Unlocked";
   }
 
   return (
@@ -1411,6 +1443,55 @@ function SubmissionGateCard({
               <div className="submission-gate-empty">Readiness checklist has not been loaded yet. Final submit remains locked.</div>
             )}
           </div>
+          <div className="submission-gate-bundle-card">
+            <div className="submission-gate-bundle-head">
+              <div>
+                <h3>Evidence Bundle</h3>
+                <p>Single JSON bundle combining the pack-local submission evidence records.</p>
+              </div>
+              <div className="submission-gate-bundle-actions">
+                <span className="submission-gate-bundle-badge">
+                  <FileArchive size={13} />
+                  {evidenceBundleStatusLabel(evidenceBundleFinalLocked)}
+                </span>
+                <button type="button" onClick={onEvidenceBundleRequest} disabled={!packId || evidenceBundleState.loading}>
+                  <FileDown size={15} />
+                  {evidenceBundleState.loading ? "Loading" : "Load Bundle"}
+                </button>
+                {evidenceBundle ? (
+                  <a href={evidenceBundleJsonDownloadUrl} download>
+                    <FileText size={15} />
+                    Download Evidence Bundle JSON
+                  </a>
+                ) : null}
+              </div>
+            </div>
+            {evidenceBundleState.error ? <div className="submission-gate-warning"><AlertTriangle size={15} />{evidenceBundleState.error}</div> : null}
+            {evidenceBundle ? (
+              <>
+                <div className="submission-gate-bundle-summary">
+                  <div><span>Generated At</span><b>{evidenceBundleGeneratedAt}</b></div>
+                  <div><span>Manual Completion</span><b>{evidenceBundleManualPresent ? "Present" : "Missing"}</b></div>
+                  <div><span>Audit Events</span><b>{evidenceBundleAuditCount}</b></div>
+                  <div><span>Warning Count</span><b>{evidenceBundleWarningCount}</b></div>
+                  <div><span>Final Submit Locked</span><b>{evidenceBundleFinalLocked ? "Yes" : "No"}</b></div>
+                  <div><span>Automated Submit Disabled</span><b>{evidenceBundleAutomatedDisabled ? "Yes" : "No"}</b></div>
+                </div>
+                <div className="submission-gate-bundle-columns">
+                  <div>
+                    <h4>Bundle Warnings</h4>
+                    <div className="submission-risk-list">
+                      {(evidenceBundleWarnings.length ? evidenceBundleWarnings : ["No bundle warnings reported."]).map((item, index) => (
+                        <p className="submission-risk warning" key={`bundle-warning-${item}-${index}`}>{safeText(item)}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="submission-gate-empty">Evidence bundle has not been loaded yet. Final submit remains locked.</div>
+            )}
+          </div>
         </>
       ) : (
         <div className="submission-gate-empty">No gate data available. Final submission remains locked.</div>
@@ -1760,6 +1841,7 @@ export default function SubmissionCentreWorkspace() {
   const [submissionAuditTrailState, setSubmissionAuditTrailState] = useState({ loading: false, data: null, error: "" });
   const [readinessChecklistState, setReadinessChecklistState] = useState({ loading: false, data: null, error: "" });
   const [submissionEvidenceState, setSubmissionEvidenceState] = useState({ loading: false, data: null, error: "" });
+  const [submissionEvidenceBundleState, setSubmissionEvidenceBundleState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionState, setManualCompletionState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionForm, setManualCompletionForm] = useState(manualCompletionFormFromRecord({}));
 
@@ -1861,6 +1943,7 @@ export default function SubmissionCentreWorkspace() {
         setSubmissionAuditTrailState({ loading: false, data: null, error: "" });
         setReadinessChecklistState({ loading: false, data: null, error: "" });
         setSubmissionEvidenceState({ loading: false, data: null, error: "" });
+        setSubmissionEvidenceBundleState({ loading: false, data: null, error: "" });
         setManualCompletionState({ loading: false, data: null, error: "" });
         setManualCompletionForm(manualCompletionFormFromRecord({}));
         return;
@@ -1872,8 +1955,9 @@ export default function SubmissionCentreWorkspace() {
       setSubmissionAuditTrailState((prev) => ({ ...prev, loading: true, error: "" }));
       setReadinessChecklistState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionEvidenceState((prev) => ({ ...prev, loading: true, error: "" }));
+      setSubmissionEvidenceBundleState((prev) => ({ ...prev, loading: true, error: "" }));
       setManualCompletionState((prev) => ({ ...prev, loading: true, error: "" }));
-      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, manualCompletionResult] = await Promise.all([
+      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, evidenceBundleResult, manualCompletionResult] = await Promise.all([
         fetchEndpoint(submissionGatePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionGateSummaryPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionChecklistPath(gatePackId, gateRfqReference)),
@@ -1881,6 +1965,7 @@ export default function SubmissionCentreWorkspace() {
         fetchEndpoint(submissionAuditTrailPath(gatePackId)),
         fetchEndpoint(submissionReadinessChecklistPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionEvidenceManifestPath(gatePackId, gateRfqReference)),
+        fetchEndpoint(submissionEvidenceBundlePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionManualCompletionPath(gatePackId)),
       ]);
       if (cancelled) return;
@@ -1918,6 +2003,11 @@ export default function SubmissionCentreWorkspace() {
         loading: false,
         data: evidenceResult.ok ? evidenceResult.data : null,
         error: evidenceResult.ok ? "" : evidenceResult.error || "Evidence manifest endpoint did not respond.",
+      });
+      setSubmissionEvidenceBundleState({
+        loading: false,
+        data: evidenceBundleResult.ok ? evidenceBundleResult.data : null,
+        error: evidenceBundleResult.ok ? "" : evidenceBundleResult.error || "Evidence bundle endpoint did not respond.",
       });
       const manualCompletionData = manualCompletionResult.ok ? manualCompletionResult.data : null;
       setManualCompletionState({
@@ -2022,6 +2112,17 @@ export default function SubmissionCentreWorkspace() {
     });
   }
 
+  async function refreshEvidenceBundle() {
+    if (!gatePackId) return;
+    setSubmissionEvidenceBundleState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await fetchEndpoint(submissionEvidenceBundlePath(gatePackId, gateRfqReference));
+    setSubmissionEvidenceBundleState({
+      loading: false,
+      data: result.ok ? result.data : null,
+      error: result.ok ? "" : result.error || "Evidence bundle endpoint did not respond.",
+    });
+  }
+
   function onManualCompletionChange(field, value) {
     setManualCompletionForm((prev) => ({ ...prev, [field]: value }));
   }
@@ -2050,7 +2151,7 @@ export default function SubmissionCentreWorkspace() {
     if (manualCompletionData?.manual_completion) {
       setManualCompletionForm(manualCompletionFormFromRecord(manualCompletionData.manual_completion));
     }
-    await Promise.all([refreshSubmissionGate(), refreshAuditTrail(), refreshReadinessChecklist()]);
+    await Promise.all([refreshSubmissionGate(), refreshAuditTrail(), refreshReadinessChecklist(), refreshEvidenceBundle()]);
   }
 
   return (
@@ -2110,6 +2211,7 @@ export default function SubmissionCentreWorkspace() {
         auditTrailState={submissionAuditTrailState}
         readinessChecklistState={readinessChecklistState}
         evidenceState={submissionEvidenceState}
+        evidenceBundleState={submissionEvidenceBundleState}
         manualCompletionState={manualCompletionState}
         manualCompletionForm={manualCompletionForm}
         onManualCompletionChange={onManualCompletionChange}
@@ -2121,6 +2223,7 @@ export default function SubmissionCentreWorkspace() {
         onAuditTrailRequest={refreshAuditTrail}
         onReadinessChecklistRequest={refreshReadinessChecklist}
         onEvidenceRequest={refreshEvidenceManifest}
+        onEvidenceBundleRequest={refreshEvidenceBundle}
       />
 
       <div className="submission-table-card card">

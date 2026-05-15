@@ -649,23 +649,40 @@
 .submission-gate-readiness-meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .submission-gate-readiness-columns{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
 .submission-gate-readiness-columns h4{margin:0 0 8px;color:#eef7ff;font-size:13px}
+.submission-gate-bundle-card{border:1px solid rgba(255,211,106,.18);background:rgba(255,211,106,.04);border-radius:14px;padding:12px;display:grid;gap:10px}
+.submission-gate-bundle-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.submission-gate-bundle-head h3{margin:0;font-size:14px}
+.submission-gate-bundle-head p{margin:4px 0 0;color:#9fb2c8;font-size:12px;line-height:1.35}
+.submission-gate-bundle-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.submission-gate-bundle-actions button,.submission-gate-bundle-actions a,.submission-gate-bundle-badge{display:inline-flex;align-items:center;gap:7px;border-radius:11px;padding:8px 10px;font:inherit;font-size:11px;font-weight:900;white-space:nowrap;text-decoration:none}
+.submission-gate-bundle-actions button{border:1px solid rgba(255,211,106,.28);background:rgba(255,211,106,.1);color:#ffe29a;cursor:pointer}
+.submission-gate-bundle-actions a{border:1px solid rgba(24,230,166,.3);background:rgba(24,230,166,.1);color:#bfffe9}
+.submission-gate-bundle-actions button:disabled{opacity:.55;cursor:not-allowed}
+.submission-gate-bundle-badge{border:1px solid rgba(255,211,106,.28);background:rgba(255,211,106,.08);color:#ffe29a;text-transform:uppercase;letter-spacing:.04em}
+.submission-gate-bundle-summary{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}
+.submission-gate-bundle-summary div,.submission-gate-bundle-meta div{min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:12px;padding:9px}
+.submission-gate-bundle-summary span,.submission-gate-bundle-meta span{display:block;color:#9fb2c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
+.submission-gate-bundle-summary b,.submission-gate-bundle-meta b{display:block;margin-top:4px;color:#eef7ff;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.submission-gate-bundle-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.submission-gate-bundle-columns{display:grid;grid-template-columns:1fr;gap:12px;align-items:start}
+.submission-gate-bundle-columns h4{margin:0 0 8px;color:#eef7ff;font-size:13px}
 
 @media(max-width:1240px){
   .submission-toolbar{grid-template-columns:1fr 1fr}
   .submission-panels{grid-template-columns:1fr 1fr}
   .submission-lock-grid{grid-template-columns:1fr 1fr}
-  .submission-binder-columns,.submission-gate-columns,.submission-gate-pack-summary-columns,.submission-gate-evidence-columns,.submission-gate-manual-form,.submission-gate-manual-summary,.submission-gate-manual-meta{grid-template-columns:1fr}
+  .submission-binder-columns,.submission-gate-columns,.submission-gate-pack-summary-columns,.submission-gate-evidence-columns,.submission-gate-manual-form,.submission-gate-manual-summary,.submission-gate-manual-meta,.submission-gate-bundle-summary,.submission-gate-bundle-meta{grid-template-columns:1fr}
 }
 
 @media(max-width:720px){
-  .submission-safety-banner,.submission-hero,.submission-binder-section-head,.submission-binder-headline,.submission-gate-head,.submission-gate-pack-summary-head,.submission-gate-checklist-head,.submission-gate-audit-head,.submission-gate-audit-trail-head,.submission-gate-readiness-head,.submission-gate-evidence-head{align-items:flex-start;flex-direction:column}
+  .submission-safety-banner,.submission-hero,.submission-binder-section-head,.submission-binder-headline,.submission-gate-head,.submission-gate-pack-summary-head,.submission-gate-checklist-head,.submission-gate-audit-head,.submission-gate-audit-trail-head,.submission-gate-readiness-head,.submission-gate-bundle-head,.submission-gate-evidence-head{align-items:flex-start;flex-direction:column}
   .submission-endpoint-status{justify-items:start}
-  .submission-toolbar,.submission-summary-grid,.submission-detail-grid,.submission-panels,.submission-lock-grid,.submission-binder-summary,.submission-binder-flags,.submission-gate-metrics,.submission-gate-pack-summary-grid,.submission-gate-checklist-grid,.submission-gate-audit-summary,.submission-gate-audit-event,.submission-gate-audit-trail-summary,.submission-gate-audit-trail-event,.submission-gate-readiness-summary,.submission-gate-readiness-meta,.submission-gate-readiness-columns,.submission-gate-evidence-summary,.submission-gate-evidence-file{grid-template-columns:1fr}
+  .submission-toolbar,.submission-summary-grid,.submission-detail-grid,.submission-panels,.submission-lock-grid,.submission-binder-summary,.submission-binder-flags,.submission-gate-metrics,.submission-gate-pack-summary-grid,.submission-gate-checklist-grid,.submission-gate-audit-summary,.submission-gate-audit-event,.submission-gate-audit-trail-summary,.submission-gate-audit-trail-event,.submission-gate-readiness-summary,.submission-gate-readiness-meta,.submission-gate-readiness-columns,.submission-gate-evidence-summary,.submission-gate-evidence-file,.submission-gate-bundle-summary,.submission-gate-bundle-meta{grid-template-columns:1fr}
   .submission-gate-audit-event p{grid-column:auto}
   .submission-gate-audit-trail-event p{grid-column:auto}
   .submission-drawer{width:100vw}
   .submission-operator-actions button,.submission-binder-actions button,.submission-gate-pack-summary-actions button,.submission-gate-pack-summary-actions a,.submission-gate-checklist-actions button,.submission-gate-checklist-actions a,.submission-gate-audit-actions button,.submission-gate-audit-actions a,.submission-gate-evidence-actions button,.submission-gate-evidence-actions a,.submission-gate-manual-actions button,.submission-gate-manual-actions a,.submission-gate-locked-badge{width:100%;justify-content:center}
-  .submission-gate-readiness-actions button,.submission-gate-readiness-actions a,.submission-gate-readiness-badge{width:100%;justify-content:center}
+  .submission-gate-readiness-actions button,.submission-gate-readiness-actions a,.submission-gate-readiness-badge,.submission-gate-bundle-actions button,.submission-gate-bundle-actions a,.submission-gate-bundle-badge{width:100%;justify-content:center}
 }
 
 .proof-audit-workspace{display:grid;gap:12px;min-width:0}

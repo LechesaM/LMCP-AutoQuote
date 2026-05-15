@@ -466,6 +466,70 @@ def _readiness_checklist_payload(
     return _sanitize_audit_payload(payload)
 
 
+def _evidence_bundle_warnings(
+    gate: Dict[str, Any],
+    readiness_checklist: Dict[str, Any],
+    manual_completion_validation: Dict[str, Any],
+    audit_trail: Dict[str, Any],
+) -> List[str]:
+    warnings: List[str] = []
+
+    manual_status = _safe_text(manual_completion_validation.get("status"), 40)
+    manual_reason = _safe_text(manual_completion_validation.get("blocked_reason"), 260)
+    if manual_status == "missing":
+        warnings.append("Manual completion record is missing. Final submission remains blocked.")
+    elif manual_status == "invalid":
+        warnings.append(manual_reason or "Manual completion record is invalid and cannot be used.")
+
+    audit_warning_count = int(audit_trail.get("warning_count") or 0)
+    if audit_warning_count:
+        warnings.append(f"Audit trail contains {audit_warning_count} invalid line(s) that were skipped.")
+
+    readiness_warnings = readiness_checklist.get("warnings")
+    if isinstance(readiness_warnings, list):
+        warnings.extend(_safe_text(item, 260) for item in readiness_warnings if _safe_text(item, 260))
+
+    if not gate.get("can_prepare_submission"):
+        warnings.append("Submission binder is not ready for manual completion evidence packaging.")
+
+    return _dedupe_preserve_order(warnings)
+
+
+def _evidence_bundle_payload(
+    gate: Dict[str, Any],
+    readiness_checklist: Dict[str, Any],
+    manual_completion_validation: Dict[str, Any],
+    audit_trail: Dict[str, Any],
+) -> Dict[str, Any]:
+    audit_events = audit_trail.get("events") if isinstance(audit_trail.get("events"), list) else []
+    latest_audit_event = audit_events[-1] if audit_events else None
+    manual_completion_record = (
+        _sanitize_audit_payload(manual_completion_validation.get("manual_completion"))
+        if manual_completion_validation.get("allowed") and isinstance(manual_completion_validation.get("manual_completion"), dict)
+        else None
+    )
+    bundle_warnings = _evidence_bundle_warnings(gate, readiness_checklist, manual_completion_validation, audit_trail)
+    bundle = {
+        "status": gate.get("status") or "ok",
+        "pack_id": gate.get("pack_id"),
+        "generated_at": _now_iso(),
+        "submission_gate_state": _sanitize_audit_payload(gate),
+        "readiness_checklist": _sanitize_audit_payload(readiness_checklist),
+        "manual_completion_record": manual_completion_record,
+        "audit_trail": _sanitize_audit_payload(audit_events),
+        "audit_event_count": len(audit_events),
+        "audit_warning_count": int(audit_trail.get("warning_count") or 0),
+        "bundle_warnings": bundle_warnings,
+        "final_submit_locked": True,
+        "automated_submit_disabled": True,
+        "latest_audit_event_summary": _audit_event_summary(latest_audit_event),
+        "latest_audit_event": _sanitize_audit_payload(latest_audit_event) if latest_audit_event else None,
+        "safety_flags": dict(BINDER_SAFETY_FLAGS),
+        "message": "Submission evidence bundle is read-only. Manual submission only.",
+    }
+    return _sanitize_audit_payload(bundle)
+
+
 def get_submission_binder_readiness_checklist(
     pack_id: str,
     rfq_reference: str | None = None,
@@ -521,6 +585,71 @@ def get_submission_binder_readiness_checklist(
         },
     )
     return checklist
+
+
+def get_submission_binder_evidence_bundle(
+    pack_id: str,
+    rfq_reference: str | None = None,
+) -> Dict[str, Any]:
+    workspace = _safe_quote_pack_dir(pack_id)
+    if not workspace:
+        return _sanitize_audit_payload(
+            {
+                "status": "not_found",
+                "pack_id": _safe_text(pack_id, 220),
+                "generated_at": _now_iso(),
+                "submission_gate_state": {
+                    "status": "not_found",
+                    "pack_id": _safe_text(pack_id, 220),
+                    "rfq_reference": _safe_text(rfq_reference, 220),
+                    "can_prepare_submission": False,
+                    "can_submit_final": False,
+                    "final_submit_locked": True,
+                    "automated_submit_disabled": True,
+                },
+                "readiness_checklist": {
+                    "status": "not_found",
+                    "pack_id": _safe_text(pack_id, 220),
+                    "manual_completion_required": True,
+                    "manual_completion_present": False,
+                    "manual_completion_status": "missing",
+                    "manual_completion_allowed": False,
+                    "manual_completion_blocked_reason": "Manual completion record is required before final submission.",
+                    "can_submit_final": False,
+                    "final_submit_locked": True,
+                    "automated_submit_disabled": True,
+                    "blockers": ["No local quote compilation pack matched the requested pack_id."],
+                    "warnings": [],
+                    "audit_event_count": 0,
+                    "audit_warning_count": 0,
+                },
+                "manual_completion_record": None,
+                "audit_trail": [],
+                "audit_warning_count": 0,
+                "bundle_warnings": ["No local quote compilation pack matched the requested pack_id."],
+                "final_submit_locked": True,
+                "automated_submit_disabled": True,
+                "safety_flags": dict(BINDER_SAFETY_FLAGS),
+                "message": "No local quote compilation pack matched the requested pack_id.",
+            }
+        )
+
+    audit_trail = _read_pack_audit_trail(workspace)
+    gate = get_submission_binder_gate(pack_id, rfq_reference)
+    manual_completion_validation = _manual_completion_gate(workspace)
+    readiness_checklist = get_submission_binder_readiness_checklist(pack_id, rfq_reference)
+    bundle = _evidence_bundle_payload(gate, readiness_checklist, manual_completion_validation, audit_trail)
+    append_pack_audit_event(
+        workspace.name,
+        "evidence_bundle_generated",
+        {
+            "manual_completion_status": manual_completion_validation.get("status"),
+            "audit_event_count": int(audit_trail.get("count") or 0),
+            "bundle_warning_count": len(bundle.get("bundle_warnings") or []),
+            "final_submit_locked": True,
+        },
+    )
+    return bundle
 
 
 def append_pack_audit_event(pack_id: str, event_type: str, payload: Optional[Any] = None) -> Optional[Dict[str, Any]]:
@@ -2772,6 +2901,14 @@ class QuoteCompilationService:
         checklist = get_submission_binder_readiness_checklist(pack_id, rfq_reference)
         return {
             **checklist,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def evidence_bundle(self, pack_id: str, rfq_reference: Optional[str] = None) -> Dict[str, Any]:
+        bundle = get_submission_binder_evidence_bundle(pack_id, rfq_reference)
+        return {
+            **bundle,
             "read_only": True,
             "timestamp": _now_iso(),
         }

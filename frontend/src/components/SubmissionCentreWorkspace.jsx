@@ -842,6 +842,11 @@ function SubmissionGateCard({
   const audit = auditState.data;
   const evidence = evidenceState.data;
   const manualCompletion = manualCompletionState.data?.manual_completion || (manualCompletionState.data?.status === "ok" ? manualCompletionState.data : null);
+  const manualCompletionGate = gate?.manual_completion && typeof gate.manual_completion === "object" ? gate.manual_completion : {};
+  const manualCompletionAllowed = manualCompletionGate.allowed === true;
+  const finalSubmitBlockerMessage = manualCompletionAllowed
+    ? "Final submission remains locked in this workspace."
+    : safeText(manualCompletionGate.blocked_reason, "Final submission is blocked until a valid manual completion record has been saved.");
   const safetyFlags = gate?.safety_flags && typeof gate.safety_flags === "object" ? Object.entries(gate.safety_flags) : [];
   const evidenceSafetyFlags = evidence?.safety_flags && typeof evidence.safety_flags === "object" ? Object.entries(evidence.safety_flags) : safetyFlags;
   const manualDownloadUrl = packId && manualCompletion ? `${API_BASE}${submissionManualCompletionExportPath(packId)}` : "";
@@ -876,11 +881,11 @@ function SubmissionGateCard({
   return (
     <div className="submission-gate-card card">
       <div className="submission-gate-head">
-        <div>
-          <p className="eyebrow">Submission Gate</p>
-          <h2>Read-Only Binder Gate</h2>
-          <p className="muted">Final submission is blocked by design. Manual upload only.</p>
-        </div>
+          <div>
+            <p className="eyebrow">Submission Gate</p>
+            <h2>Read-Only Binder Gate</h2>
+            <p className="muted">Final submission is blocked by design. Manual upload only.</p>
+          </div>
         <button type="button" disabled>
           <Ban size={15} />
           Final Submit Locked
@@ -895,6 +900,14 @@ function SubmissionGateCard({
         <div className="submission-gate-warning"><AlertTriangle size={15} />{gateState.error}</div>
       ) : gate ? (
         <>
+          {!manualCompletionAllowed ? (
+            <div className="submission-gate-warning">
+              <AlertTriangle size={15} />
+              {finalSubmitBlockerMessage}
+            </div>
+          ) : (
+            <p className="submission-gate-message">Manual completion record saved. Final submission remains locked in this workspace.</p>
+          )}
           <div className="submission-gate-pack-summary-card">
             <div className="submission-gate-pack-summary-head">
               <div>
@@ -921,6 +934,7 @@ function SubmissionGateCard({
                   <div><span>Readiness</span><b>{safeText(summary.readiness_status, "Unknown")}</b></div>
                   <div><span>Binder Score</span><b>{summary.binder_score ?? 0}</b></div>
                   <div><span>Evidence Files</span><b>{summary.evidence_files_count ?? 0}</b></div>
+                  <div><span>Manual Completion</span><b>{summary.manual_completion_allowed ? "Saved" : "Required"}</b></div>
                   <div><span>Final Submit</span><b>{summary.final_submit_locked ? "Locked" : "Blocked"}</b></div>
                 </div>
                 <div className="submission-gate-pack-summary-counts">
@@ -957,13 +971,14 @@ function SubmissionGateCard({
               <div className="submission-gate-empty">Submission pack summary has not loaded yet. Final submission remains locked.</div>
             )}
           </div>
-          <div className="submission-gate-metrics">
-            <div><span>Pack</span><b>{gate.pack_id || packId}</b></div>
-            <div><span>Binder Score</span><b>{gate.binder_score ?? 0}</b></div>
-            <div><span>Prepare</span><b>{gate.can_prepare_submission ? "Allowed" : "Blocked"}</b></div>
-            <div><span>Final Submit</span><b>Blocked</b></div>
-          </div>
-          <p className="submission-gate-message">{gate.message || "Final submission is blocked by design. Manual upload only."}</p>
+            <div className="submission-gate-metrics">
+              <div><span>Pack</span><b>{gate.pack_id || packId}</b></div>
+              <div><span>Binder Score</span><b>{gate.binder_score ?? 0}</b></div>
+              <div><span>Prepare</span><b>{gate.can_prepare_submission ? "Allowed" : "Blocked"}</b></div>
+              <div><span>Manual Completion</span><b>{manualCompletionAllowed ? "Saved" : "Required"}</b></div>
+              <div><span>Final Submit</span><b>{gate.can_submit_final ? "Allowed" : "Blocked"}</b></div>
+            </div>
+          <p className="submission-gate-message">{gate.message || finalSubmitBlockerMessage}</p>
           <div className="submission-gate-columns">
             <div>
               <h3>Blockers</h3>

@@ -101,6 +101,25 @@ FORBIDDEN_MANUAL_COMPLETION_KEYWORDS = (
     "pin",
 )
 
+MANUAL_COMPLETION_REQUIRED_FIELDS = (
+    "submitted_by",
+    "submitted_at",
+    "portal_name",
+    "portal_reference",
+    "notes",
+    "uploaded_file_names",
+)
+
+MANUAL_COMPLETION_REVIEW_FIELDS = (
+    "submitted_by",
+    "submitted_at",
+    "portal_name",
+    "portal_reference",
+    "notes",
+    "saved_by",
+    "completed_by",
+)
+
 RETURNABLE_STATUSES = {"missing", "available", "completed", "not_applicable", "needs_review"}
 SBD_FORM_NAMES = ("SBD 1", "SBD 4", "SBD 6.1", "SBD 8", "SBD 9")
 
@@ -134,10 +153,24 @@ def _manual_completion_path(workspace: Path) -> Path:
 
 
 def _manual_completion_has_forbidden_fields(payload: Dict[str, Any]) -> bool:
-    keys = " ".join(str(key).lower() for key in payload.keys())
-    values = " ".join(_safe_text(value, 2000).lower() for value in payload.values())
-    haystack = f"{keys} {values}"
-    return any(re.search(rf"\b{re.escape(keyword)}\b", haystack) for keyword in FORBIDDEN_MANUAL_COMPLETION_KEYWORDS)
+    return bool(_manual_completion_forbidden_field_hits(payload))
+
+
+def _manual_completion_forbidden_field_hits(payload: Dict[str, Any], fields: Optional[Iterable[str]] = None) -> List[str]:
+    if not isinstance(payload, dict):
+        return []
+    target_fields = list(fields or payload.keys())
+    hits: List[str] = []
+    for field in target_fields:
+        if field not in payload:
+            continue
+        value = payload.get(field)
+        if value in (None, ""):
+            continue
+        haystack = f"{field} {_safe_text(value, 2000)}".lower()
+        if any(re.search(rf"\b{re.escape(keyword)}\b", haystack) for keyword in FORBIDDEN_MANUAL_COMPLETION_KEYWORDS):
+            hits.append(str(field))
+    return hits
 
 
 def _normalize_manual_completion_file_names(value: Any) -> List[str]:
@@ -203,6 +236,110 @@ def _normalize_manual_completion_payload(workspace: Path, payload: Optional[Dict
         "saved_at": _now_iso(),
         "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
     }
+
+
+def _manual_completion_validation_result(workspace: Path, payload: Optional[Any]) -> Dict[str, Any]:
+    path = _manual_completion_path(workspace)
+    missing_reason = "Manual completion record is required before final submission."
+    base_result = {
+        "required": True,
+        "allowed": False,
+        "blocked_reason": missing_reason,
+        "reason_code": "manual_completion_missing",
+        "status": "missing",
+        "pack_id": workspace.name,
+        "manual_completion": None,
+        "manual_completion_path": _relative(path),
+        "required_fields": list(MANUAL_COMPLETION_REQUIRED_FIELDS),
+        "missing_fields": list(MANUAL_COMPLETION_REQUIRED_FIELDS),
+        "forbidden_fields": [],
+        "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+    }
+
+    if not path.exists() or not path.is_file():
+        return base_result
+
+    if not isinstance(payload, dict):
+        return {
+            **base_result,
+            "reason_code": "manual_completion_invalid_json",
+            "status": "invalid",
+            "blocked_reason": "Manual completion record is invalid JSON or unreadable.",
+        }
+
+    missing_fields = [field for field in MANUAL_COMPLETION_REQUIRED_FIELDS if field not in payload]
+    if missing_fields:
+        return {
+            **base_result,
+            "reason_code": "manual_completion_missing_fields",
+            "status": "invalid",
+            "blocked_reason": f"Manual completion record is incomplete: missing {', '.join(missing_fields)}.",
+            "missing_fields": missing_fields,
+        }
+
+    try:
+        submitted_by = _strict_text(payload.get("submitted_by"), MANUAL_COMPLETION_LIMITS["submitted_by"], "submitted_by")
+        submitted_at = _strict_text(payload.get("submitted_at"), MANUAL_COMPLETION_LIMITS["submitted_at"], "submitted_at")
+        portal_name = _strict_text(payload.get("portal_name"), MANUAL_COMPLETION_LIMITS["portal_name"], "portal_name")
+        portal_reference = _strict_text(payload.get("portal_reference"), MANUAL_COMPLETION_LIMITS["portal_reference"], "portal_reference")
+        notes_raw = payload.get("notes")
+        notes = "" if notes_raw in (None, "") else _strict_text(notes_raw, MANUAL_COMPLETION_LIMITS["notes"], "notes")
+        uploaded_raw = payload.get("uploaded_file_names")
+        if uploaded_raw is None:
+            raise ValueError("uploaded_file_names is required.")
+        if not isinstance(uploaded_raw, list):
+            raise ValueError("uploaded_file_names must be a list of strings.")
+        uploaded_file_names = _normalize_manual_completion_file_names(uploaded_raw)
+    except ValueError as exc:
+        return {
+            **base_result,
+            "reason_code": "manual_completion_invalid_fields",
+            "status": "invalid",
+            "blocked_reason": str(exc),
+        }
+
+    forbidden_fields = _manual_completion_forbidden_field_hits(payload, MANUAL_COMPLETION_REVIEW_FIELDS)
+    if forbidden_fields:
+        return {
+            **base_result,
+            "reason_code": "manual_completion_credential_like_content",
+            "status": "invalid",
+            "blocked_reason": "Manual completion record contains credential-like content and cannot be used for final submission.",
+            "forbidden_fields": forbidden_fields,
+        }
+
+    manual_completion = {
+        "pack_id": workspace.name,
+        "submitted_by": submitted_by,
+        "submitted_at": submitted_at,
+        "portal_name": portal_name,
+        "portal_reference": portal_reference,
+        "notes": notes,
+        "uploaded_file_names": uploaded_file_names,
+        "saved_at": _safe_text(payload.get("saved_at"), 80) or _now_iso(),
+        "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+    }
+    if payload.get("saved_by") not in (None, ""):
+        manual_completion["saved_by"] = _safe_text(payload.get("saved_by"), MANUAL_COMPLETION_LIMITS["submitted_by"])
+    if payload.get("completed_by") not in (None, ""):
+        manual_completion["completed_by"] = _safe_text(payload.get("completed_by"), MANUAL_COMPLETION_LIMITS["submitted_by"])
+
+    return {
+        **base_result,
+        "allowed": True,
+        "blocked_reason": "",
+        "reason_code": "manual_completion_valid",
+        "status": "ok",
+        "missing_fields": [],
+        "forbidden_fields": [],
+        "manual_completion": manual_completion,
+    }
+
+
+def _manual_completion_gate(workspace: Path) -> Dict[str, Any]:
+    path = _manual_completion_path(workspace)
+    raw = _read_json(path)
+    return _manual_completion_validation_result(workspace, raw)
 
 
 def _safe_name(value: Any, fallback: str = "RFQ") -> str:
@@ -1513,7 +1650,13 @@ def _submission_binder_gate_message(
     can_prepare_submission: bool,
     blockers: List[str],
     missing_returnables: List[str],
+    manual_completion: Optional[Dict[str, Any]] = None,
 ) -> str:
+    if isinstance(manual_completion, dict) and not manual_completion.get("allowed", False):
+        return _safe_text(
+            manual_completion.get("blocked_reason"),
+            500,
+        ) or "Manual completion record is required before final submission."
     if not matched_binder:
         return "No generated local submission binder matched this pack. Final submission is blocked by design. Manual upload only."
     if can_prepare_submission:
@@ -1528,9 +1671,19 @@ def get_submission_binder_gate(pack_id: str, rfq_reference: str | None = None) -
     requested_reference = _safe_text(rfq_reference, 220)
     workspace = _safe_quote_pack_dir(safe_pack_id)
     matched_binder: Optional[Dict[str, Any]] = None
+    manual_completion: Dict[str, Any] = {
+        "required": True,
+        "allowed": False,
+        "blocked_reason": "Manual completion record is required before final submission.",
+        "reason_code": "manual_completion_missing",
+        "status": "missing",
+        "manual_completion": None,
+        "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
+    }
 
     if workspace:
         matched_binder = _submission_binder_list_item(workspace)
+        manual_completion = _manual_completion_gate(workspace)
 
     if not matched_binder and requested_reference:
         reference_slug = _slug(requested_reference)
@@ -1539,6 +1692,7 @@ def get_submission_binder_gate(pack_id: str, rfq_reference: str | None = None) -
             if item and reference_slug and _slug(item.get("rfq_reference")) == reference_slug:
                 matched_binder = item
                 workspace = candidate
+                manual_completion = _manual_completion_gate(candidate)
                 break
 
     if matched_binder and requested_reference:
@@ -1561,13 +1715,17 @@ def get_submission_binder_gate(pack_id: str, rfq_reference: str | None = None) -
         "pack_id": (workspace.name if workspace else safe_pack_id),
         "rfq_reference": _safe_text((matched_binder or {}).get("rfq_reference") or requested_reference, 220),
         "can_prepare_submission": can_prepare_submission,
-        "can_submit_final": False,
+        "can_submit_final": bool(can_prepare_submission and manual_completion.get("allowed")),
+        "manual_completion_required": True,
+        "manual_completion": manual_completion,
+        "manual_completion_allowed": bool(manual_completion.get("allowed")),
+        "manual_completion_blocked_reason": _safe_text(manual_completion.get("blocked_reason"), 500),
         "binder_score": binder_score,
         "blockers": blockers,
         "missing_returnables": missing_returnables,
         "safety_flags": dict(BINDER_SAFETY_FLAGS),
         "matched_binder": matched_binder,
-        "message": _submission_binder_gate_message(matched_binder, can_prepare_submission, blockers, missing_returnables),
+        "message": _submission_binder_gate_message(matched_binder, can_prepare_submission, blockers, missing_returnables, manual_completion),
     }
 
 
@@ -1584,6 +1742,7 @@ def _manual_upload_steps(gate: Dict[str, Any]) -> List[str]:
 
 
 def _submission_gate_checklist_text(checklist: Dict[str, Any]) -> str:
+    manual_completion = checklist.get("manual_completion") if isinstance(checklist.get("manual_completion"), dict) else {}
     lines = [
         "MANUAL SUBMISSION CHECKLIST",
         "READ ONLY - LOCAL BINDER REVIEW - FINAL SUBMIT LOCKED",
@@ -1591,6 +1750,8 @@ def _submission_gate_checklist_text(checklist: Dict[str, Any]) -> str:
         f"Pack ID: {checklist.get('pack_id') or ''}",
         f"RFQ Reference: {checklist.get('rfq_reference') or ''}",
         f"Binder Score: {checklist.get('binder_score')}",
+        f"Manual Completion: {manual_completion.get('status') or 'missing'}",
+        f"Manual Completion Allowed: {manual_completion.get('allowed')}",
         "",
         "Missing returnables:",
     ]
@@ -1636,10 +1797,14 @@ def get_submission_binder_gate_checklist(
         "missing_returnables": gate.get("missing_returnables", []),
         "blockers": gate.get("blockers", []),
         "safety_flags": gate.get("safety_flags", dict(BINDER_SAFETY_FLAGS)),
+        "manual_completion_required": True,
+        "manual_completion": gate.get("manual_completion"),
+        "manual_completion_allowed": gate.get("manual_completion_allowed", False),
+        "manual_completion_blocked_reason": gate.get("manual_completion_blocked_reason", ""),
         "manual_upload_steps": _manual_upload_steps(gate),
-        "final_submit_warning": final_submit_warning,
+        "final_submit_warning": gate.get("manual_completion_blocked_reason") or final_submit_warning,
         "can_submit_final": False,
-        "message": gate.get("message") or final_submit_warning,
+        "message": gate.get("message") or gate.get("manual_completion_blocked_reason") or final_submit_warning,
     }
     if include_text:
         checklist["checklist_text"] = _submission_gate_checklist_text(checklist)
@@ -1647,6 +1812,13 @@ def get_submission_binder_gate_checklist(
 
 
 def _submission_gate_readiness_status(gate: Dict[str, Any]) -> str:
+    manual_completion = gate.get("manual_completion") if isinstance(gate.get("manual_completion"), dict) else {}
+    if manual_completion and manual_completion.get("allowed") is False:
+        return "manual_completion_required"
+    if manual_completion and manual_completion.get("allowed") is True:
+        if gate.get("can_prepare_submission") is True:
+            return "ready_for_manual_submission"
+        return "manual_completion_recorded"
     if gate.get("status") != "ok":
         return "binder_not_found"
     if gate.get("can_prepare_submission") is True:
@@ -1701,9 +1873,9 @@ def _submission_gate_audit_events(gate: Dict[str, Any], checklist: Dict[str, Any
                     key,
                     "ok" if complete else "missing",
                     message if complete else f"{message} Status requires review.",
-                    {"value": complete},
-                )
+                {"value": complete},
             )
+        )
     else:
         events.append(
             _submission_gate_audit_event(
@@ -1711,6 +1883,23 @@ def _submission_gate_audit_events(gate: Dict[str, Any], checklist: Dict[str, Any
                 "binder_not_found",
                 "blocked",
                 "No local submission binder metadata matched this pack.",
+            )
+        )
+
+    manual_completion = gate.get("manual_completion") if isinstance(gate.get("manual_completion"), dict) else {}
+    if manual_completion:
+        events.append(
+            _submission_gate_audit_event(
+                _safe_text(manual_completion.get("saved_at"), 80) or generated_at,
+                "manual_completion_gate",
+                "ok" if manual_completion.get("allowed") else "blocked",
+                manual_completion.get("blocked_reason") or "Manual completion record validated.",
+                {
+                    "allowed": bool(manual_completion.get("allowed")),
+                    "reason_code": manual_completion.get("reason_code"),
+                    "missing_fields": manual_completion.get("missing_fields", []),
+                    "forbidden_fields": manual_completion.get("forbidden_fields", []),
+                },
             )
         )
 
@@ -1776,6 +1965,10 @@ def get_submission_binder_gate_audit_log(
         "readiness_status": readiness_status,
         "blockers": gate.get("blockers", []),
         "missing_returnables": gate.get("missing_returnables", []),
+        "manual_completion_required": True,
+        "manual_completion": gate.get("manual_completion"),
+        "manual_completion_allowed": gate.get("manual_completion_allowed", False),
+        "manual_completion_blocked_reason": gate.get("manual_completion_blocked_reason", ""),
         "safety_flags": gate.get("safety_flags", dict(BINDER_SAFETY_FLAGS)),
         "checklist_download_available": bool(checklist.get("checklist_text")),
         "final_submit_locked": True,
@@ -1897,6 +2090,10 @@ def get_submission_binder_evidence_manifest(
         "evidence_files": _submission_gate_evidence_files(matched_binder),
         "missing_returnables": gate.get("missing_returnables", []),
         "blockers": gate.get("blockers", []),
+        "manual_completion_required": True,
+        "manual_completion": gate.get("manual_completion"),
+        "manual_completion_allowed": gate.get("manual_completion_allowed", False),
+        "manual_completion_blocked_reason": gate.get("manual_completion_blocked_reason", ""),
         "safety_flags": gate.get("safety_flags", dict(BINDER_SAFETY_FLAGS)),
         "final_submit_locked": True,
     }
@@ -1931,6 +2128,10 @@ def get_submission_binder_pack_summary(
         "readiness_status": audit_log.get("readiness_status") or evidence_manifest.get("readiness_status") or _submission_gate_readiness_status(gate),
         "missing_returnables": gate.get("missing_returnables", []),
         "blockers": gate.get("blockers", []),
+        "manual_completion_required": True,
+        "manual_completion": gate.get("manual_completion"),
+        "manual_completion_allowed": gate.get("manual_completion_allowed", False),
+        "manual_completion_blocked_reason": gate.get("manual_completion_blocked_reason", ""),
         "safety_flags": gate.get("safety_flags", dict(BINDER_SAFETY_FLAGS)),
         "evidence_files_count": len(evidence_manifest.get("evidence_files") or []),
         "final_submit_locked": True,
@@ -2157,8 +2358,10 @@ class QuoteCompilationService:
                 "safety": dict(MANUAL_COMPLETION_SAFETY_FLAGS),
                 "timestamp": _now_iso(),
             }
+        validation = _manual_completion_gate(workspace)
         return {
             **_manual_completion_detail(workspace),
+            "validation": validation,
             "read_only": True,
             "timestamp": _now_iso(),
         }

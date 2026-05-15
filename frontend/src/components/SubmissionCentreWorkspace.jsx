@@ -808,6 +808,22 @@ function submissionAuditTrailExportPath(packId) {
   return `/quote-compilation/submission-gate/${encodeURIComponent(packId)}/audit-trail.json`;
 }
 
+function submissionReadinessChecklistPath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/readiness-checklist${query ? `?${query}` : ""}`;
+}
+
+function submissionReadinessChecklistExportPath(packId, rfqReference) {
+  const encodedPack = encodeURIComponent(packId);
+  const params = new URLSearchParams();
+  if (safeText(rfqReference)) params.set("rfq_reference", rfqReference);
+  const query = params.toString();
+  return `/quote-compilation/submission-gate/${encodedPack}/readiness-checklist.json${query ? `?${query}` : ""}`;
+}
+
 function manualCompletionFormFromRecord(record) {
   return {
     submitted_by: safeText(record?.submitted_by),
@@ -834,6 +850,7 @@ function SubmissionGateCard({
   checklistState,
   auditState,
   auditTrailState,
+  readinessChecklistState,
   evidenceState,
   manualCompletionState,
   manualCompletionForm,
@@ -844,6 +861,7 @@ function SubmissionGateCard({
   onChecklistRequest,
   onAuditRequest,
   onAuditTrailRequest,
+  onReadinessChecklistRequest,
   onEvidenceRequest,
 }) {
   const gate = gateState.data;
@@ -851,6 +869,7 @@ function SubmissionGateCard({
   const checklist = checklistState.data;
   const audit = auditState.data;
   const auditTrail = auditTrailState.data;
+  const readinessChecklist = readinessChecklistState.data;
   const evidence = evidenceState.data;
   const manualCompletion = manualCompletionState.data?.manual_completion || (manualCompletionState.data?.status === "ok" ? manualCompletionState.data : null);
   const manualCompletionGate = gate?.manual_completion && typeof gate.manual_completion === "object" ? gate.manual_completion : {};
@@ -883,6 +902,7 @@ function SubmissionGateCard({
   const auditJsonDownloadUrl = packId ? `${API_BASE}${submissionAuditExportPath(packId, auditReference, "json")}` : "";
   const auditTxtDownloadUrl = packId ? `${API_BASE}${submissionAuditExportPath(packId, auditReference, "txt")}` : "";
   const auditTrailJsonDownloadUrl = packId ? `${API_BASE}${submissionAuditTrailExportPath(packId)}` : "";
+  const readinessChecklistJsonDownloadUrl = packId ? `${API_BASE}${submissionReadinessChecklistExportPath(packId, gate?.rfq_reference || readinessChecklist?.rfq_reference)}` : "";
   const evidenceReference = gate?.rfq_reference || evidence?.rfq_reference || auditReference;
   const evidenceManifestDownloadUrl = packId ? `${API_BASE}${submissionEvidenceManifestExportPath(packId, evidenceReference)}` : "";
   const summaryReference = summary?.rfq_reference || gate?.rfq_reference || evidenceReference;
@@ -892,6 +912,20 @@ function SubmissionGateCard({
   const summaryMissingReturnables = asArray(summary?.missing_returnables);
   const auditTrailLatestEvents = auditTrailEvents.slice(-10).reverse();
   const auditTrailWarningCount = normalizeNumber(auditTrail?.warning_count, 0);
+  const readinessBlockers = asArray(readinessChecklist?.blockers);
+  const readinessWarnings = asArray(readinessChecklist?.warnings);
+  const readinessFinalStatus = safeText(readinessChecklist?.final_status, "blocked");
+  const readinessManualStatus = safeText(readinessChecklist?.manual_completion_status, "missing");
+  const readinessAuditCount = normalizeNumber(readinessChecklist?.audit_event_count, 0);
+  const readinessAuditWarningCount = normalizeNumber(readinessChecklist?.audit_warning_count, 0);
+  const readinessLatestAuditSummary = safeText(readinessChecklist?.latest_audit_event_summary, "No audit events recorded yet.");
+
+  function readinessFinalLabel(value) {
+    const lower = safeText(value, "blocked").toLowerCase();
+    if (lower.includes("ready")) return "Ready for manual submission";
+    if (lower.includes("blocked")) return "Blocked";
+    return safeText(value, "Blocked").replaceAll("_", " ");
+  }
 
   function auditTrailEventSummary(event) {
     const payload = event && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
@@ -1315,6 +1349,68 @@ function SubmissionGateCard({
               ))}
             </div>
           </div>
+          <div className="submission-gate-readiness-card">
+            <div className="submission-gate-readiness-head">
+              <div>
+                <h3>Readiness Checklist</h3>
+                <p>Pack-local readiness report for manual submission review and evidence capture.</p>
+              </div>
+              <div className="submission-gate-readiness-actions">
+                <span className="submission-gate-readiness-badge">
+                  <ShieldCheck size={13} />
+                  {readinessFinalLabel(readinessFinalStatus)}
+                </span>
+                <button type="button" onClick={onReadinessChecklistRequest} disabled={!packId || readinessChecklistState.loading}>
+                  <FileCheck2 size={15} />
+                  {readinessChecklistState.loading ? "Loading" : "Load Checklist"}
+                </button>
+                {readinessChecklistJsonDownloadUrl ? (
+                  <a href={readinessChecklistJsonDownloadUrl} download>
+                    <FileText size={15} />
+                    Download Checklist JSON
+                  </a>
+                ) : null}
+              </div>
+            </div>
+            {readinessChecklistState.error ? <div className="submission-gate-warning"><AlertTriangle size={15} />{readinessChecklistState.error}</div> : null}
+            {readinessChecklist ? (
+              <>
+                <div className="submission-gate-readiness-summary">
+                  <div><span>Manual Completion Status</span><b>{readinessManualStatus.replaceAll("_", " ")}</b></div>
+                  <div><span>Manual Completion Present</span><b>{readinessChecklist.manual_completion_present ? "Yes" : "No"}</b></div>
+                  <div><span>Allowed</span><b>{readinessChecklist.manual_completion_allowed ? "Yes" : "No"}</b></div>
+                  <div><span>Can Submit Final</span><b>{readinessChecklist.can_submit_final ? "True" : "False"}</b></div>
+                  <div><span>Audit Events</span><b>{readinessAuditCount}</b></div>
+                </div>
+                <div className="submission-gate-readiness-meta">
+                  <div><span>Automated Submit</span><b>{readinessChecklist.automated_submit_disabled ? "Disabled" : "Enabled"}</b></div>
+                  <div><span>Audit Warnings</span><b>{readinessAuditWarningCount}</b></div>
+                  <div><span>Latest Audit Event</span><b>{readinessLatestAuditSummary}</b></div>
+                  <div><span>Pack ID</span><b>{safeText(readinessChecklist.pack_id || packId, "Unknown")}</b></div>
+                </div>
+                <div className="submission-gate-readiness-columns">
+                  <div>
+                    <h4>Blockers</h4>
+                    <div className="submission-risk-list">
+                      {(readinessBlockers.length ? readinessBlockers : ["No readiness blockers reported."]).map((item, index) => (
+                        <p className="submission-risk blocker" key={`readiness-blocker-${item}-${index}`}>{safeText(item)}</p>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h4>Warnings</h4>
+                    <div className="submission-risk-list">
+                      {(readinessWarnings.length ? readinessWarnings : ["No readiness warnings reported."]).map((item, index) => (
+                        <p className="submission-risk warning" key={`readiness-warning-${item}-${index}`}>{safeText(item)}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="submission-gate-empty">Readiness checklist has not been loaded yet. Final submit remains locked.</div>
+            )}
+          </div>
         </>
       ) : (
         <div className="submission-gate-empty">No gate data available. Final submission remains locked.</div>
@@ -1662,6 +1758,7 @@ export default function SubmissionCentreWorkspace() {
   const [submissionChecklistState, setSubmissionChecklistState] = useState({ loading: false, data: null, error: "" });
   const [submissionAuditState, setSubmissionAuditState] = useState({ loading: false, data: null, error: "" });
   const [submissionAuditTrailState, setSubmissionAuditTrailState] = useState({ loading: false, data: null, error: "" });
+  const [readinessChecklistState, setReadinessChecklistState] = useState({ loading: false, data: null, error: "" });
   const [submissionEvidenceState, setSubmissionEvidenceState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionState, setManualCompletionState] = useState({ loading: false, data: null, error: "" });
   const [manualCompletionForm, setManualCompletionForm] = useState(manualCompletionFormFromRecord({}));
@@ -1762,6 +1859,7 @@ export default function SubmissionCentreWorkspace() {
         setSubmissionChecklistState({ loading: false, data: null, error: "" });
         setSubmissionAuditState({ loading: false, data: null, error: "" });
         setSubmissionAuditTrailState({ loading: false, data: null, error: "" });
+        setReadinessChecklistState({ loading: false, data: null, error: "" });
         setSubmissionEvidenceState({ loading: false, data: null, error: "" });
         setManualCompletionState({ loading: false, data: null, error: "" });
         setManualCompletionForm(manualCompletionFormFromRecord({}));
@@ -1772,14 +1870,16 @@ export default function SubmissionCentreWorkspace() {
       setSubmissionChecklistState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionAuditState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionAuditTrailState((prev) => ({ ...prev, loading: true, error: "" }));
+      setReadinessChecklistState((prev) => ({ ...prev, loading: true, error: "" }));
       setSubmissionEvidenceState((prev) => ({ ...prev, loading: true, error: "" }));
       setManualCompletionState((prev) => ({ ...prev, loading: true, error: "" }));
-      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, evidenceResult, manualCompletionResult] = await Promise.all([
+      const [result, summaryResult, checklistResult, auditResult, auditTrailResult, readinessChecklistResult, evidenceResult, manualCompletionResult] = await Promise.all([
         fetchEndpoint(submissionGatePath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionGateSummaryPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionChecklistPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionAuditLogPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionAuditTrailPath(gatePackId)),
+        fetchEndpoint(submissionReadinessChecklistPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionEvidenceManifestPath(gatePackId, gateRfqReference)),
         fetchEndpoint(submissionManualCompletionPath(gatePackId)),
       ]);
@@ -1808,6 +1908,11 @@ export default function SubmissionCentreWorkspace() {
         loading: false,
         data: auditTrailResult.ok ? auditTrailResult.data : null,
         error: auditTrailResult.ok ? "" : auditTrailResult.error || "Audit trail endpoint did not respond.",
+      });
+      setReadinessChecklistState({
+        loading: false,
+        data: readinessChecklistResult.ok ? readinessChecklistResult.data : null,
+        error: readinessChecklistResult.ok ? "" : readinessChecklistResult.error || "Readiness checklist endpoint did not respond.",
       });
       setSubmissionEvidenceState({
         loading: false,
@@ -1895,6 +2000,17 @@ export default function SubmissionCentreWorkspace() {
     });
   }
 
+  async function refreshReadinessChecklist() {
+    if (!gatePackId) return;
+    setReadinessChecklistState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await fetchEndpoint(submissionReadinessChecklistPath(gatePackId, gateRfqReference));
+    setReadinessChecklistState({
+      loading: false,
+      data: result.ok ? result.data : null,
+      error: result.ok ? "" : result.error || "Readiness checklist endpoint did not respond.",
+    });
+  }
+
   async function refreshEvidenceManifest() {
     if (!gatePackId) return;
     setSubmissionEvidenceState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -1934,7 +2050,7 @@ export default function SubmissionCentreWorkspace() {
     if (manualCompletionData?.manual_completion) {
       setManualCompletionForm(manualCompletionFormFromRecord(manualCompletionData.manual_completion));
     }
-    await Promise.all([refreshSubmissionGate(), refreshAuditTrail()]);
+    await Promise.all([refreshSubmissionGate(), refreshAuditTrail(), refreshReadinessChecklist()]);
   }
 
   return (
@@ -1992,6 +2108,7 @@ export default function SubmissionCentreWorkspace() {
         checklistState={submissionChecklistState}
         auditState={submissionAuditState}
         auditTrailState={submissionAuditTrailState}
+        readinessChecklistState={readinessChecklistState}
         evidenceState={submissionEvidenceState}
         manualCompletionState={manualCompletionState}
         manualCompletionForm={manualCompletionForm}
@@ -2002,6 +2119,7 @@ export default function SubmissionCentreWorkspace() {
         onChecklistRequest={refreshManualChecklist}
         onAuditRequest={refreshAuditLog}
         onAuditTrailRequest={refreshAuditTrail}
+        onReadinessChecklistRequest={refreshReadinessChecklist}
         onEvidenceRequest={refreshEvidenceManifest}
       />
 

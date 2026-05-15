@@ -177,6 +177,18 @@ def _safe_text(value: Any, max_length: int = 500) -> str:
     return text
 
 
+def _dedupe_preserve_order(items: Iterable[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for item in items:
+        text = _safe_text(item, 500)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
+
+
 def _strict_text(value: Any, max_length: int, field_name: str) -> str:
     if value is None:
         raise ValueError(f"{field_name} is required.")
@@ -324,6 +336,191 @@ def _read_pack_audit_trail(workspace: Path) -> Dict[str, Any]:
         "read_only": True,
         "timestamp": _now_iso(),
     }
+
+
+def _audit_event_summary(event: Any) -> str:
+    if not isinstance(event, dict):
+        return ""
+    event_type = _safe_text(event.get("event_type"), 120)
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    parts = [event_type.replace("_", " ").strip()] if event_type else []
+    reason_code = _safe_text(payload.get("reason_code"), 120)
+    status = _safe_text(payload.get("status"), 80)
+    blocked_reason = _safe_text(payload.get("blocked_reason"), 200)
+    allowed = payload.get("allowed")
+    if reason_code:
+        parts.append(reason_code.replace("_", " "))
+    if status:
+        parts.append(status.replace("_", " "))
+    if blocked_reason:
+        parts.append(blocked_reason)
+    elif allowed is True:
+        parts.append("allowed")
+    elif allowed is False:
+        parts.append("blocked")
+    return " · ".join(part for part in parts if part)
+
+
+def _readiness_checklist_blockers(gate: Dict[str, Any], manual_completion: Dict[str, Any]) -> List[str]:
+    blockers: List[str] = []
+    gate_blockers = [
+        _safe_text(item, 260)
+        for item in gate.get("blockers") or []
+        if _safe_text(item, 260)
+    ]
+    blockers.extend(gate_blockers)
+
+    missing_returnables = [
+        _safe_text(item, 220)
+        for item in gate.get("missing_returnables") or []
+        if _safe_text(item, 220)
+    ]
+    blockers.extend(missing_returnables)
+
+    manual_reason = _safe_text(manual_completion.get("blocked_reason"), 500)
+    if manual_reason and not manual_completion.get("allowed", False):
+        blockers.append(manual_reason)
+
+    if not gate.get("matched_binder"):
+        blockers.append("No local submission binder metadata matched this pack.")
+
+    return _dedupe_preserve_order(blockers)
+
+
+def _readiness_checklist_warnings(
+    gate: Dict[str, Any],
+    manual_completion: Dict[str, Any],
+    audit_trail: Dict[str, Any],
+) -> List[str]:
+    warnings: List[str] = []
+    audit_warning_count = int(audit_trail.get("warning_count") or 0)
+    if audit_warning_count:
+        warnings.append(f"Audit trail contains {audit_warning_count} invalid line(s) that were skipped.")
+    if manual_completion.get("status") == "invalid":
+        warnings.append(_safe_text(manual_completion.get("blocked_reason"), 260) or "Manual completion record is invalid and should be resaved.")
+    if gate.get("can_prepare_submission") and manual_completion.get("allowed") is False:
+        warnings.append("Submission binder is ready, but manual completion is still required.")
+    if gate.get("can_prepare_submission") is False and gate.get("matched_binder"):
+        warnings.append("Binder requires review before manual submission can proceed.")
+    return _dedupe_preserve_order([warning for warning in warnings if warning])
+
+
+def _readiness_checklist_payload(
+    gate: Dict[str, Any],
+    audit_trail: Dict[str, Any],
+    manual_completion: Dict[str, Any],
+) -> Dict[str, Any]:
+    latest_event = audit_trail.get("events")[-1] if isinstance(audit_trail.get("events"), list) and audit_trail.get("events") else None
+    latest_event_summary = _audit_event_summary(latest_event)
+    audit_event_count = int(audit_trail.get("count") or 0)
+    manual_completion_present = bool(manual_completion.get("status") and manual_completion.get("status") != "missing")
+    manual_completion_allowed = bool(manual_completion.get("allowed"))
+    can_submit_final = bool(gate.get("can_prepare_submission") and manual_completion_allowed)
+    readiness_status = _submission_gate_readiness_status(gate)
+    if manual_completion.get("status") == "invalid":
+        readiness_status = "manual_completion_invalid"
+    elif manual_completion_allowed and can_submit_final:
+        readiness_status = "ready_for_manual_submission"
+    elif not manual_completion_present:
+        readiness_status = "manual_completion_required"
+
+    binder_summary = {
+        "status": _safe_text(gate.get("status"), 80),
+        "binder_score": int(gate.get("binder_score") or 0),
+        "can_prepare_submission": bool(gate.get("can_prepare_submission")),
+        "blocker_count": len(gate.get("blockers") or []),
+        "missing_returnable_count": len(gate.get("missing_returnables") or []),
+        "message": _safe_text(gate.get("message"), 500),
+    }
+    final_status = "ready_for_manual_submission" if can_submit_final else "blocked"
+    if not manual_completion_allowed:
+        final_status = "blocked"
+    elif can_submit_final:
+        final_status = "ready_for_manual_submission"
+
+    payload = {
+        "status": gate.get("status") or "ok",
+        "pack_id": gate.get("pack_id"),
+        "generated_at": _now_iso(),
+        "readiness_status": readiness_status,
+        "binder_readiness_summary": binder_summary,
+        "manual_completion_required": True,
+        "manual_completion_present": manual_completion_present,
+        "manual_completion_status": manual_completion.get("status", "missing"),
+        "manual_completion_allowed": manual_completion_allowed,
+        "manual_completion_blocked_reason": _safe_text(manual_completion.get("blocked_reason"), 500),
+        "can_submit_final": can_submit_final,
+        "final_submit_locked": True,
+        "automated_submit_disabled": True,
+        "final_status": final_status,
+        "blockers": _readiness_checklist_blockers(gate, manual_completion),
+        "warnings": _readiness_checklist_warnings(gate, manual_completion, audit_trail),
+        "audit_event_count": audit_event_count,
+        "audit_warning_count": int(audit_trail.get("warning_count") or 0),
+        "latest_audit_event_summary": latest_event_summary,
+        "latest_audit_event": _sanitize_audit_payload(latest_event) if latest_event else None,
+        "audit_trail_path": audit_trail.get("audit_trail_path"),
+        "safety_flags": dict(BINDER_SAFETY_FLAGS),
+        "message": _safe_text(gate.get("message"), 500),
+    }
+    return _sanitize_audit_payload(payload)
+
+
+def get_submission_binder_readiness_checklist(
+    pack_id: str,
+    rfq_reference: str | None = None,
+) -> Dict[str, Any]:
+    gate = get_submission_binder_gate(pack_id, rfq_reference)
+    workspace = _safe_quote_pack_dir(gate.get("pack_id") or pack_id)
+    if not workspace:
+        return _sanitize_audit_payload(
+            {
+                "status": "not_found",
+                "pack_id": _safe_text(pack_id, 220),
+                "generated_at": _now_iso(),
+                "readiness_status": "binder_not_found",
+                "binder_readiness_summary": {
+                    "status": "not_found",
+                    "binder_score": 0,
+                    "can_prepare_submission": False,
+                    "blocker_count": 1,
+                    "missing_returnable_count": 0,
+                    "message": "No local quote compilation pack matched the requested pack_id.",
+                },
+                "manual_completion_required": True,
+                "manual_completion_present": False,
+                "manual_completion_status": "missing",
+                "manual_completion_allowed": False,
+                "manual_completion_blocked_reason": "Manual completion record is required before final submission.",
+                "can_submit_final": False,
+                "final_submit_locked": True,
+                "automated_submit_disabled": True,
+                "final_status": "blocked",
+                "blockers": ["No local quote compilation pack matched the requested pack_id."],
+                "warnings": [],
+                "audit_event_count": 0,
+                "audit_warning_count": 0,
+                "latest_audit_event_summary": "",
+                "latest_audit_event": None,
+                "audit_trail_path": _relative(_audit_trail_path(OUTPUT_ROOT / _safe_text(pack_id, 160))),
+                "safety_flags": dict(BINDER_SAFETY_FLAGS),
+                "message": "No local quote compilation pack matched the requested pack_id.",
+            }
+        )
+
+    manual_completion = _manual_completion_gate(workspace)
+    audit_trail = _read_pack_audit_trail(workspace)
+    checklist = _readiness_checklist_payload(gate, audit_trail, manual_completion)
+    append_pack_audit_event(
+        workspace.name,
+        "readiness_checklist_generated",
+        {
+            "can_submit_final": bool(gate.get("can_submit_final")),
+            "manual_completion_status": manual_completion.get("status"),
+            "final_status": "ready_for_manual_submission" if bool(gate.get("can_submit_final")) else "blocked",
+        },
+    )
+    return checklist
 
 
 def append_pack_audit_event(pack_id: str, event_type: str, payload: Optional[Any] = None) -> Optional[Dict[str, Any]]:
@@ -2567,6 +2764,14 @@ class QuoteCompilationService:
         summary = get_submission_binder_pack_summary(pack_id, rfq_reference)
         return {
             **summary,
+            "read_only": True,
+            "timestamp": _now_iso(),
+        }
+
+    def readiness_checklist(self, pack_id: str, rfq_reference: Optional[str] = None) -> Dict[str, Any]:
+        checklist = get_submission_binder_readiness_checklist(pack_id, rfq_reference)
+        return {
+            **checklist,
             "read_only": True,
             "timestamp": _now_iso(),
         }

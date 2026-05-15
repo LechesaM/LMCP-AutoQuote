@@ -131,6 +131,30 @@ def submission_gate_summary_json(pack_id: str, rfq_reference: Optional[str] = Qu
     )
 
 
+@router.get("/submission-gate/{pack_id}/readiness-checklist")
+def submission_gate_readiness_checklist(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> Dict[str, Any]:
+    return service().readiness_checklist(pack_id, rfq_reference=rfq_reference)
+
+
+@router.get("/submission-gate/{pack_id}/readiness-checklist.json")
+def submission_gate_readiness_checklist_json(pack_id: str, rfq_reference: Optional[str] = Query(default=None)) -> JSONResponse:
+    checklist = service().readiness_checklist(pack_id, rfq_reference=rfq_reference)
+    append_pack_audit_event(
+        checklist.get("pack_id") or pack_id,
+        "readiness_checklist_json_export",
+        {
+            "final_status": checklist.get("final_status"),
+            "can_submit_final": bool(checklist.get("can_submit_final")),
+            "audit_event_count": checklist.get("audit_event_count", 0),
+        },
+    )
+    filename = _safe_download_filename(f"{checklist.get('pack_id') or pack_id}-readiness-checklist", "json")
+    return JSONResponse(
+        content=checklist,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/submission-gate/{pack_id}/manual-completion")
 def submission_gate_manual_completion(
     pack_id: str,

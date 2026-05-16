@@ -19,6 +19,7 @@ import {
 import {
   API_BASE,
   getAutonomousStatus,
+  getOperatorSession,
   getDashboardSummary,
   getHealth,
   getOpportunities,
@@ -36,6 +37,9 @@ import {
   getRfqLifecycleTelemetry,
   updatePolicy,
   runAutonomousOnce,
+  bootstrapOperatorAdmin,
+  loginOperator,
+  logoutOperator,
 } from "./services/api";
 import "./App.css";
 import LiveSubmissionFeedPanel from "./components/LiveSubmissionFeedPanel";
@@ -336,6 +340,7 @@ export default function App() {
   const [state, setState] = useState({ loading: true, lastUpdated: null });
   const [busy, setBusy] = useState(false);
   const [activeWorkspace, setActiveWorkspace] = useState("dashboard");
+  const [operatorAuthState, setOperatorAuthState] = useState({ loading: true, session: null, error: "" });
   const [complianceCatalog, setComplianceCatalog] = useState({ loading: true, items: [], error: "" });
   const [compliancePackId, setCompliancePackId] = useState("");
   const [complianceSummaryState, setComplianceSummaryState] = useState({ loading: false, data: null, error: "", loadedPackId: "" });
@@ -358,6 +363,51 @@ export default function App() {
       error: "",
       loadedPackId: safePackId,
     });
+  }
+
+  async function refreshOperatorSession() {
+    setOperatorAuthState((prev) => ({ ...prev, loading: true }));
+    const result = await getOperatorSession();
+    if (result?.authenticated) {
+      setOperatorAuthState({ loading: false, session: result, error: "" });
+      return result;
+    }
+    const error = result?.error || result?.detail || result?.message || "";
+    setOperatorAuthState({ loading: false, session: null, error });
+    return null;
+  }
+
+  async function handleOperatorLogin(payload) {
+    setOperatorAuthState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await loginOperator(payload);
+    if (result?.authenticated) {
+      setOperatorAuthState({ loading: false, session: result, error: "" });
+      return result;
+    }
+    setOperatorAuthState({ loading: false, session: null, error: result?.error || result?.detail || result?.message || "Login failed." });
+    return result;
+  }
+
+  async function handleOperatorLogout() {
+    setOperatorAuthState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await logoutOperator();
+    if (result?.status === "ok") {
+      setOperatorAuthState({ loading: false, session: null, error: "" });
+      return result;
+    }
+    setOperatorAuthState((prev) => ({ ...prev, loading: false, error: result?.error || result?.detail || result?.message || "Logout failed." }));
+    return result;
+  }
+
+  async function handleBootstrapOperatorAdmin(payload) {
+    setOperatorAuthState((prev) => ({ ...prev, loading: true, error: "" }));
+    const result = await bootstrapOperatorAdmin(payload);
+    if (result?.status === "ok") {
+      setOperatorAuthState((prev) => ({ ...prev, loading: false, error: "" }));
+      return result;
+    }
+    setOperatorAuthState((prev) => ({ ...prev, loading: false, error: result?.error || result?.detail || result?.message || "Bootstrap admin failed." }));
+    return result;
   }
 
   useEffect(() => {
@@ -401,6 +451,10 @@ export default function App() {
     load();
     const id = setInterval(load, REFRESH_MS);
     return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    refreshOperatorSession();
   }, []);
 
   const opps = state.opps || [];
@@ -557,6 +611,10 @@ export default function App() {
           <span>Backend</span>
           <b>{backendStatus}</b>
         </div>
+        <div className="sidebar-status">
+          <span>Operator</span>
+          <b>{operatorAuthState.session?.operator?.display_name || (operatorAuthState.loading ? "loading" : "guest")}</b>
+        </div>
       </aside>
 
       <main className="dashboard-shell dashboard-view">
@@ -568,7 +626,13 @@ export default function App() {
         ) : activeWorkspace === "proof-audit-centre" ? (
           <ProofAuditCentreWorkspace />
         ) : activeWorkspace === "submission-centre" ? (
-          <SubmissionCentreWorkspace />
+          <SubmissionCentreWorkspace
+            authState={operatorAuthState}
+            onRefreshAuth={refreshOperatorSession}
+            onLogin={handleOperatorLogin}
+            onLogout={handleOperatorLogout}
+            onBootstrapAdmin={handleBootstrapOperatorAdmin}
+          />
         ) : activeWorkspace === "quote-pack-engine" ? (
           <QuotePackEngineWorkspace />
         ) : activeWorkspace === "rfq-operations" ? (

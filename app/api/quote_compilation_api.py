@@ -5,7 +5,8 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
-from app.services.quote_compilation_service import QuoteCompilationAccessError, QuoteCompilationService, append_pack_audit_event
+from app.services.operator_auth_service import OperatorAuthError, audit_identity_from_request, resolve_request_operator
+from app.services.quote_compilation_service import QuoteCompilationService, append_pack_audit_event
 
 
 router = APIRouter(prefix="/quote-compilation", tags=["Quote Compilation"])
@@ -22,22 +23,13 @@ def _safe_download_filename(value: str, extension: str = "txt") -> str:
     return f"{safe[:140] or 'submission-export'}.{safe_extension}"
 
 
-def _operator_headers(request: Request) -> Dict[str, Optional[str]]:
-    return {
-        "operator_role": request.headers.get("X-LMCP-Operator-Role"),
-        "operator_name": request.headers.get("X-LMCP-Operator-Name"),
-    }
-
-
 def _audit_operator_access_denied(pack_id: str, event_type: str, request: Request, detail: str) -> None:
-    headers = _operator_headers(request)
     append_pack_audit_event(
         pack_id,
         event_type,
         {
-            "operator_role": headers.get("operator_role"),
-            "operator_name": headers.get("operator_name"),
             "blocked_reason": detail,
+            **audit_identity_from_request(request),
         },
     )
 
@@ -239,10 +231,11 @@ def submission_gate_compliance_archive(
     rfq_reference: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
     try:
-        return service().create_compliance_archive(pack_id, rfq_reference=rfq_reference, **_operator_headers(request))
-    except QuoteCompilationAccessError as exc:
+        operator = resolve_request_operator(request, "compliance_archive_create")
+        return service().create_compliance_archive(pack_id, rfq_reference=rfq_reference, operator=operator)
+    except OperatorAuthError as exc:
         _audit_operator_access_denied(pack_id, "compliance_archive_access_denied", request, str(exc))
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/submission-gate/{pack_id}/compliance-archives")
@@ -257,10 +250,11 @@ def submission_gate_compliance_archive_bundle_zip(
     request: Request,
 ) -> FileResponse:
     try:
-        bundle = service().build_compliance_bundle_zip(pack_id, archive_id=archive_id, **_operator_headers(request))
-    except QuoteCompilationAccessError as exc:
+        operator = resolve_request_operator(request, "compliance_archive_zip_export")
+        bundle = service().build_compliance_bundle_zip(pack_id, archive_id=archive_id, operator=operator)
+    except OperatorAuthError as exc:
         _audit_operator_access_denied(pack_id, "compliance_archive_zip_access_denied", request, str(exc))
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     zip_path = bundle.get("zip_file_path") if isinstance(bundle, dict) else ""
     if bundle.get("status") != "ok" or not zip_path:
         raise HTTPException(status_code=404, detail=bundle.get("message") or "Compliance archive bundle was not found.")
@@ -275,10 +269,11 @@ def submission_gate_compliance_archive_bundle_zip(
 @router.get("/submission-gate/{pack_id}/compliance-archive/latest/bundle.zip")
 def submission_gate_compliance_archive_latest_bundle_zip(pack_id: str, request: Request) -> FileResponse:
     try:
-        bundle = service().build_compliance_bundle_zip(pack_id, **_operator_headers(request))
-    except QuoteCompilationAccessError as exc:
+        operator = resolve_request_operator(request, "compliance_archive_zip_export")
+        bundle = service().build_compliance_bundle_zip(pack_id, operator=operator)
+    except OperatorAuthError as exc:
         _audit_operator_access_denied(pack_id, "compliance_archive_zip_access_denied", request, str(exc))
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     zip_path = bundle.get("zip_file_path") if isinstance(bundle, dict) else ""
     if bundle.get("status") != "ok" or not zip_path:
         raise HTTPException(status_code=404, detail=bundle.get("message") or "Compliance archive bundle was not found.")
@@ -373,10 +368,11 @@ def submission_gate_submission_proof(
     payload: Optional[Dict[str, Any]] = Body(default=None),
 ) -> Dict[str, Any]:
     try:
-        return service().save_submission_proof(pack_id, payload, **_operator_headers(request))
-    except QuoteCompilationAccessError as exc:
+        operator = resolve_request_operator(request, "submission_proof_save")
+        return service().save_submission_proof(pack_id, payload, operator=operator)
+    except OperatorAuthError as exc:
         _audit_operator_access_denied(pack_id, "submission_proof_access_denied", request, str(exc))
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -384,19 +380,21 @@ def submission_gate_submission_proof(
 @router.get("/submission-gate/{pack_id}/submission-proof")
 def submission_gate_submission_proof_get(pack_id: str, request: Request) -> Dict[str, Any]:
     try:
-        return service().load_submission_proof(pack_id, **_operator_headers(request))
-    except QuoteCompilationAccessError as exc:
+        operator = resolve_request_operator(request, "submission_proof_load")
+        return service().load_submission_proof(pack_id, operator=operator)
+    except OperatorAuthError as exc:
         _audit_operator_access_denied(pack_id, "submission_proof_access_denied", request, str(exc))
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
 @router.get("/submission-gate/{pack_id}/submission-proof.json")
 def submission_gate_submission_proof_json(pack_id: str, request: Request) -> JSONResponse:
     try:
-        submission_proof = service().export_submission_proof(pack_id, **_operator_headers(request))
-    except QuoteCompilationAccessError as exc:
+        operator = resolve_request_operator(request, "submission_proof_export")
+        submission_proof = service().export_submission_proof(pack_id, operator=operator)
+    except OperatorAuthError as exc:
         _audit_operator_access_denied(pack_id, "submission_proof_export_access_denied", request, str(exc))
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     filename = _safe_download_filename(f"{submission_proof.get('pack_id') or pack_id}-submission-proof", "json")
     record = submission_proof.get("submission_proof") if isinstance(submission_proof.get("submission_proof"), dict) else None
     content = record if isinstance(record, dict) else submission_proof

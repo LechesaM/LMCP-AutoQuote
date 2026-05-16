@@ -747,6 +747,10 @@
 .submission-gate-operator-fields span{display:block;color:#9fb2c8;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
 .submission-gate-operator-fields input,.submission-gate-operator-fields select{width:100%;min-width:0;border:1px solid rgba(255,255,255,.09);background:rgba(6,16,25,.7);color:#eef7ff;border-radius:10px;padding:9px 10px;font:inherit;font-size:12px;line-height:1.35}
 .submission-gate-operator-fields select option{background:#081421;color:#eef7ff}
+.submission-gate-auth-layout{display:grid;gap:10px}
+.submission-gate-auth-actions{display:flex;flex-wrap:wrap;gap:8px}
+.submission-gate-auth-actions button{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid rgba(214,234,255,.28);background:rgba(214,234,255,.1);color:#dbe8ff;border-radius:11px;padding:8px 10px;font:inherit;font-size:11px;font-weight:900;cursor:pointer}
+.submission-gate-auth-actions button:disabled{opacity:.55;cursor:not-allowed}
 .submission-gate-operator-status{display:grid;gap:8px}
 .submission-gate-archive-card{border:1px solid rgba(214,234,255,.12);background:rgba(214,234,255,.035);border-radius:14px;padding:12px;display:grid;gap:10px}
 .submission-gate-archive-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}

@@ -158,6 +158,7 @@ OPTIONAL_ROUTERS: List[Tuple[str, str, str]] = [
     ("ws_live_router", "app.api.ws_live", "router"),
     ("decision_intelligence_router", "app.api.decision_intelligence_api", "router"),
     ("operator_actions_router", "app.api.operator_actions_api", "router"),
+    ("operator_auth_router", "app.api.operator_auth_api", "router"),
     ("audit_trail_router", "app.api.audit_trail_api", "router"),
     ("go_live_guard_router", "app.api.go_live_guard_api", "router"),
     ("pipeline_enforcement_router", "app.api.pipeline_enforcement_api", "router"),

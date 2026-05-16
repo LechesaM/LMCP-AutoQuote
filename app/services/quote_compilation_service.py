@@ -8,10 +8,11 @@ import os
 import re
 import uuid
 import zipfile
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from app.services.operator_auth_service import OperatorContext, operator_audit_payload, require_operator_access
 
 
 SERVICE_VERSION = "QUOTE_COMPILATION_LOCAL_SAFE_V1"
@@ -199,22 +200,6 @@ SUBMISSION_PROOF_INTERNAL_FIELDS = (
     "proof_safety",
 )
 
-ALLOWED_OPERATOR_ROLES = ("preparer", "reviewer", "submitter", "admin")
-OPERATOR_ACTION_ALLOWED_ROLES: Dict[str, Tuple[str, ...]] = {
-    "submission_proof_save": ("submitter", "admin"),
-    "submission_proof_load": ("submitter", "admin"),
-    "submission_proof_export": ("submitter", "admin"),
-    "compliance_archive_create": ("admin",),
-    "compliance_archive_zip_export": ("admin",),
-}
-OPERATOR_ACTION_LABELS: Dict[str, str] = {
-    "submission_proof_save": "save manual submission proof",
-    "submission_proof_load": "load manual submission proof",
-    "submission_proof_export": "export manual submission proof",
-    "compliance_archive_create": "create compliance archives",
-    "compliance_archive_zip_export": "export compliance archive ZIP files",
-}
-
 MANUAL_COMPLETION_REVIEW_FIELDS = (
     "submitted_by",
     "submitted_at",
@@ -238,16 +223,6 @@ SUBMISSION_PROOF_REVIEW_FIELDS = (
 
 RETURNABLE_STATUSES = {"missing", "available", "completed", "not_applicable", "needs_review"}
 SBD_FORM_NAMES = ("SBD 1", "SBD 4", "SBD 6.1", "SBD 8", "SBD 9")
-
-
-class QuoteCompilationAccessError(PermissionError):
-    pass
-
-
-@dataclass(frozen=True)
-class OperatorContext:
-    role: str
-    name: str
 
 
 def _now_iso() -> str:
@@ -291,38 +266,11 @@ def _strict_text(value: Any, max_length: int, field_name: str) -> str:
     return text
 
 
-def _normalize_operator_role(value: Any) -> str:
-    return _safe_text(value, 40).lower()
-
-
-def _operator_audit_payload(operator: OperatorContext) -> Dict[str, str]:
-    return {
-        "operator_role": operator.role,
-        "operator_name": operator.name,
-    }
-
-
 def _with_operator_audit_payload(payload: Optional[Any], operator: Optional[OperatorContext]) -> Dict[str, Any]:
     base = dict(payload) if isinstance(payload, dict) else {}
     if operator:
-        base.update(_operator_audit_payload(operator))
+        base.update(operator_audit_payload(operator))
     return base
-
-
-def require_operator_access(action: str, role: Any, name: Any) -> OperatorContext:
-    normalized_role = _normalize_operator_role(role)
-    operator_name = _safe_text(name, 160)
-    if normalized_role not in ALLOWED_OPERATOR_ROLES:
-        safe_role = _safe_text(role, 80, "missing")
-        allowed = ", ".join(ALLOWED_OPERATOR_ROLES)
-        raise QuoteCompilationAccessError(f"Unknown operator role '{safe_role}'. Allowed roles: {allowed}.")
-    if not operator_name:
-        raise QuoteCompilationAccessError("Operator name is required via X-LMCP-Operator-Name.")
-    allowed_roles = OPERATOR_ACTION_ALLOWED_ROLES.get(action, ())
-    if normalized_role not in allowed_roles:
-        action_label = OPERATOR_ACTION_LABELS.get(action, action.replace("_", " "))
-        raise QuoteCompilationAccessError(f"Operator role '{normalized_role}' cannot {action_label}.")
-    return OperatorContext(role=normalized_role, name=operator_name)
 
 
 def _manual_completion_path(workspace: Path) -> Path:
@@ -4723,10 +4671,9 @@ class QuoteCompilationService:
         self,
         pack_id: str,
         rfq_reference: Optional[str] = None,
-        operator_role: Optional[str] = None,
-        operator_name: Optional[str] = None,
+        operator: Optional[OperatorContext] = None,
     ) -> Dict[str, Any]:
-        operator = require_operator_access("compliance_archive_create", operator_role, operator_name)
+        operator = require_operator_access("compliance_archive_create", operator)
         archive = create_compliance_archive(pack_id, rfq_reference=rfq_reference, operator=operator)
         return {
             **archive,
@@ -4746,10 +4693,9 @@ class QuoteCompilationService:
         self,
         pack_id: str,
         archive_id: Optional[str] = None,
-        operator_role: Optional[str] = None,
-        operator_name: Optional[str] = None,
+        operator: Optional[OperatorContext] = None,
     ) -> Dict[str, Any]:
-        operator = require_operator_access("compliance_archive_zip_export", operator_role, operator_name)
+        operator = require_operator_access("compliance_archive_zip_export", operator)
         bundle = build_compliance_bundle_zip(pack_id, archive_id=archive_id, operator=operator)
         return {
             **bundle,
@@ -4771,10 +4717,9 @@ class QuoteCompilationService:
     def load_submission_proof(
         self,
         pack_id: str,
-        operator_role: Optional[str] = None,
-        operator_name: Optional[str] = None,
+        operator: Optional[OperatorContext] = None,
     ) -> Dict[str, Any]:
-        operator = require_operator_access("submission_proof_load", operator_role, operator_name)
+        operator = require_operator_access("submission_proof_load", operator)
         workspace = _safe_quote_pack_dir(pack_id)
         if not workspace:
             return {
@@ -4806,11 +4751,10 @@ class QuoteCompilationService:
     def export_submission_proof(
         self,
         pack_id: str,
-        operator_role: Optional[str] = None,
-        operator_name: Optional[str] = None,
+        operator: Optional[OperatorContext] = None,
     ) -> Dict[str, Any]:
-        operator = require_operator_access("submission_proof_export", operator_role, operator_name)
-        proof = self.load_submission_proof(pack_id, operator_role=operator.role, operator_name=operator.name)
+        operator = require_operator_access("submission_proof_export", operator)
+        proof = self.load_submission_proof(pack_id, operator=operator)
         if proof.get("status") in {"ok", "invalid"}:
             append_pack_audit_event(
                 proof.get("pack_id") or _safe_text(pack_id, 160),
@@ -4856,10 +4800,9 @@ class QuoteCompilationService:
         self,
         pack_id: str,
         payload: Optional[Dict[str, Any]] = None,
-        operator_role: Optional[str] = None,
-        operator_name: Optional[str] = None,
+        operator: Optional[OperatorContext] = None,
     ) -> Dict[str, Any]:
-        operator = require_operator_access("submission_proof_save", operator_role, operator_name)
+        operator = require_operator_access("submission_proof_save", operator)
         workspace = _safe_quote_pack_dir(pack_id)
         if not workspace:
             return {

@@ -58,13 +58,28 @@ async function safeJson(path, options = {}, fallback = null) {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
+      credentials: options.credentials || "include",
       signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         ...(options.headers || {}),
       },
     });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    if (!res.ok) {
+      let error = `${res.status} ${res.statusText}`;
+      try {
+        const payload = await res.json();
+        error = String(payload?.detail || payload?.message || error);
+      } catch {
+        try {
+          const text = await res.text();
+          if (text) error = text;
+        } catch {
+          // ignore parse failure
+        }
+      }
+      return fallback ?? { status: "offline", error, status_code: res.status, path };
+    }
     return await res.json();
   } catch (error) {
     return fallback ?? { status: "offline", error: error.message, path };
@@ -318,6 +333,22 @@ export async function getQuoteCompilationComplianceSummary(packId) {
     {},
     { status: "unknown", pack_id: packId, blockers: [], warnings: [] },
   );
+}
+
+export async function bootstrapOperatorAdmin(payload) {
+  return safeJson("/operator-auth/bootstrap-admin", { method: "POST", body: JSON.stringify(payload || {}) }, null);
+}
+
+export async function loginOperator(payload) {
+  return safeJson("/operator-auth/login", { method: "POST", body: JSON.stringify(payload || {}) }, null);
+}
+
+export async function logoutOperator() {
+  return safeJson("/operator-auth/logout", { method: "POST", body: JSON.stringify({}) }, null);
+}
+
+export async function getOperatorSession() {
+  return safeJson("/operator-auth/session", {}, null);
 }
 
 export { API_BASE, OPERATOR_ROLES, buildOperatorHeaders, normalizeOperatorRole };

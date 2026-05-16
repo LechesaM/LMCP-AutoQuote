@@ -22,7 +22,7 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { API_BASE, buildOperatorHeaders, normalizeOperatorRole, OPERATOR_ROLES } from "../services/api";
+import { API_BASE } from "../services/api";
 
 const REQUEST_TIMEOUT_MS = 8000;
 
@@ -688,24 +688,29 @@ function formatDateTime(value) {
   return date.toLocaleString("en-ZA", { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+function normalizeSessionRole(role) {
+  const normalizedRole = safeText(role).toLowerCase();
+  return OPERATOR_ROLE_LABELS[normalizedRole] ? normalizedRole : "";
+}
+
 function operatorRoleLabel(role) {
-  const normalizedRole = normalizeOperatorRole(role);
+  const normalizedRole = normalizeSessionRole(role);
   return OPERATOR_ROLE_LABELS[normalizedRole] || "Unknown";
 }
 
 function operatorCan(role, action) {
-  const normalizedRole = normalizeOperatorRole(role);
+  const normalizedRole = normalizeSessionRole(role);
   return (OPERATOR_ACTION_ALLOWED_ROLES[action] || []).includes(normalizedRole);
 }
 
-function operatorBlockedReason(role, name, action) {
-  const normalizedRole = normalizeOperatorRole(role);
-  if (!normalizedRole) return "Select a valid operator role.";
-  if (!safeText(name)) return "Enter the operator name to unlock restricted actions.";
-  if (operatorCan(normalizedRole, action)) return "";
-  if (action.startsWith("proof_")) return `${operatorRoleLabel(normalizedRole)} role cannot access manual submission proof actions.`;
-  if (action.startsWith("archive_")) return `${operatorRoleLabel(normalizedRole)} role cannot manage compliance archives.`;
-  return `${operatorRoleLabel(normalizedRole)} role cannot use this action.`;
+function operatorBlockedReason(session, action) {
+  if (!session?.authenticated) return "Login required. Operator session is missing or expired.";
+  const role = normalizeSessionRole(session?.operator?.role);
+  if (!role) return "Authenticated operator role is not recognized.";
+  if (operatorCan(role, action)) return "";
+  if (action.startsWith("proof_")) return `${operatorRoleLabel(role)} role cannot access manual submission proof actions.`;
+  if (action.startsWith("archive_")) return `${operatorRoleLabel(role)} role cannot manage compliance archives.`;
+  return `${operatorRoleLabel(role)} role cannot use this action.`;
 }
 
 async function fetchEndpoint(path, options = {}) {
@@ -714,6 +719,7 @@ async function fetchEndpoint(path, options = {}) {
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       signal: controller.signal,
+      credentials: options.credentials || "include",
       headers: options.headers || {},
     });
     if (!response.ok) {
@@ -729,11 +735,13 @@ async function fetchEndpoint(path, options = {}) {
           // ignore body parsing failure
         }
       }
-      throw new Error(error);
+      const failure = new Error(error);
+      failure.status = response.status;
+      throw failure;
     }
     return { path, ok: true, data: await response.json() };
   } catch (error) {
-    return { path, ok: false, error: error.message || "request failed" };
+    return { path, ok: false, error: error.message || "request failed", status: error.status || 0 };
   } finally {
     clearTimeout(timeout);
   }
@@ -746,6 +754,7 @@ async function postEndpoint(path, body, options = {}) {
     const response = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       signal: controller.signal,
+      credentials: options.credentials || "include",
       headers: {
         "Content-Type": "application/json",
         ...(options.headers || {}),
@@ -765,11 +774,11 @@ async function postEndpoint(path, body, options = {}) {
           // ignore body parsing failure
         }
       }
-      return { path, ok: false, error };
+      return { path, ok: false, error, status: response.status };
     }
     return { path, ok: true, data: await response.json() };
   } catch (error) {
-    return { path, ok: false, error: error.message || "request failed" };
+    return { path, ok: false, error: error.message || "request failed", status: error.status || 0 };
   } finally {
     clearTimeout(timeout);
   }
@@ -781,12 +790,17 @@ async function fetchTextEndpoint(path, options = {}) {
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       signal: controller.signal,
+      credentials: options.credentials || "include",
       headers: options.headers || {},
     });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    if (!response.ok) {
+      const failure = new Error(`${response.status} ${response.statusText}`);
+      failure.status = response.status;
+      throw failure;
+    }
     return { path, ok: true, data: await response.text() };
   } catch (error) {
-    return { path, ok: false, error: error.message || "request failed" };
+    return { path, ok: false, error: error.message || "request failed", status: error.status || 0 };
   } finally {
     clearTimeout(timeout);
   }
@@ -798,6 +812,7 @@ async function downloadEndpoint(path, fallbackFilename, options = {}) {
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       signal: controller.signal,
+      credentials: options.credentials || "include",
       headers: options.headers || {},
     });
     if (!response.ok) {
@@ -813,7 +828,9 @@ async function downloadEndpoint(path, fallbackFilename, options = {}) {
           // ignore body parsing failure
         }
       }
-      throw new Error(error);
+      const failure = new Error(error);
+      failure.status = response.status;
+      throw failure;
     }
     const blob = await response.blob();
     const href = URL.createObjectURL(blob);
@@ -826,7 +843,7 @@ async function downloadEndpoint(path, fallbackFilename, options = {}) {
     URL.revokeObjectURL(href);
     return { path, ok: true };
   } catch (error) {
-    return { path, ok: false, error: error.message || "request failed" };
+    return { path, ok: false, error: error.message || "request failed", status: error.status || 0 };
   } finally {
     clearTimeout(timeout);
   }
@@ -1096,6 +1113,12 @@ function parsePrintableReportPreview(html) {
 }
 
 function SubmissionGateCard({
+  authState,
+  authForm,
+  onAuthFormChange,
+  onAuthLogin,
+  onAuthLogout,
+  onAuthBootstrap,
   gateState,
   summaryState,
   checklistState,
@@ -1119,10 +1142,6 @@ function SubmissionGateCard({
   onManualCompletionSave,
   onPrintableReportRequest,
   packId,
-  operatorRole,
-  operatorName,
-  onOperatorRoleChange,
-  onOperatorNameChange,
   onSummaryRequest,
   onChecklistRequest,
   onAuditRequest,
@@ -1188,12 +1207,14 @@ function SubmissionGateCard({
   const archiveCount = normalizeNumber(submissionComplianceArchiveState?.data?.count, archives.length);
   const archiveWarningCount = asArray(submissionComplianceArchiveState?.data?.warnings).length;
   const latestArchiveWarnings = asArray(latestArchive?.warnings);
-  const proofSaveBlockedReason = operatorBlockedReason(operatorRole, operatorName, "proof_save");
-  const proofLoadBlockedReason = operatorBlockedReason(operatorRole, operatorName, "proof_load");
-  const proofExportBlockedReason = operatorBlockedReason(operatorRole, operatorName, "proof_export");
-  const archiveCreateBlockedReason = operatorBlockedReason(operatorRole, operatorName, "archive_create");
-  const archiveExportBlockedReason = operatorBlockedReason(operatorRole, operatorName, "archive_export");
-  const operatorStatusMessage = archiveCreateBlockedReason || proofSaveBlockedReason || "Selected operator has access to the enabled manual-only actions.";
+  const session = authState?.session || null;
+  const authLoading = Boolean(authState?.loading);
+  const proofSaveBlockedReason = operatorBlockedReason(session, "proof_save");
+  const proofLoadBlockedReason = operatorBlockedReason(session, "proof_load");
+  const proofExportBlockedReason = operatorBlockedReason(session, "proof_export");
+  const archiveCreateBlockedReason = operatorBlockedReason(session, "archive_create");
+  const archiveExportBlockedReason = operatorBlockedReason(session, "archive_export");
+  const operatorStatusMessage = archiveCreateBlockedReason || proofSaveBlockedReason || "Authenticated operator has access to the enabled manual-only actions.";
   const archiveBadgeStatus = latestArchive?.verification_status || (archives.length ? submissionComplianceArchiveState.data?.status : "unknown") || "unknown";
   const evidenceSnapshotStatus = safeText(evidenceSnapshot?.verification_status, "unknown");
   const evidenceSnapshotGeneratedAt = safeText(evidenceSnapshot?.generated_at, "Not loaded");
@@ -1906,28 +1927,74 @@ function SubmissionGateCard({
               <h3>Operator Access</h3>
               <p>Restricted manual workflow actions send operator role and name headers to the backend.</p>
             </div>
-            <div className={`submission-gate-operator-badge ${statusTone(normalizeOperatorRole(operatorRole) === "admin" ? "ready" : "review")}`}>
+            <div className={`submission-gate-operator-badge ${statusTone(session?.authenticated ? (normalizeSessionRole(session?.operator?.role) === "admin" ? "ready" : "review") : "blocked")}`}>
               <ShieldCheck size={14} />
-              {operatorRoleLabel(operatorRole)}
+              {session?.authenticated ? operatorRoleLabel(session?.operator?.role) : "Login required"}
             </div>
           </div>
-          <div className="submission-gate-operator-fields">
-            <label>
-              <span>Operator Role</span>
-              <select value={operatorRole} onChange={(event) => onOperatorRoleChange(event.target.value)}>
-                {OPERATOR_ROLES.map((role) => (
-                  <option value={role} key={role}>{operatorRoleLabel(role)}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Operator Name</span>
-              <input value={operatorName} onChange={(event) => onOperatorNameChange(event.target.value)} placeholder="LMCP operator name" />
-            </label>
-          </div>
+          {session?.authenticated ? (
+            <div className="submission-gate-operator-fields">
+              <label>
+                <span>Operator Name</span>
+                <input value={safeText(session?.operator?.display_name, "Authenticated operator")} readOnly />
+              </label>
+              <label>
+                <span>Operator Role</span>
+                <input value={operatorRoleLabel(session?.operator?.role)} readOnly />
+              </label>
+            </div>
+          ) : (
+            <div className="submission-gate-auth-layout">
+              <div className="submission-gate-operator-fields">
+                <label>
+                  <span>Operator ID</span>
+                  <input value={authForm.operator_id} onChange={(event) => onAuthFormChange("operator_id", event.target.value)} placeholder="operator.admin" autoComplete="username" />
+                </label>
+                <label>
+                  <span>Password</span>
+                  <input type="password" value={authForm.password} onChange={(event) => onAuthFormChange("password", event.target.value)} placeholder="Operator password" autoComplete="current-password" />
+                </label>
+              </div>
+              <div className="submission-gate-auth-actions">
+                <button type="button" onClick={onAuthLogin} disabled={authLoading}>
+                  <ShieldCheck size={15} />
+                  {authLoading ? "Checking" : "Login"}
+                </button>
+              </div>
+              <div className="submission-gate-operator-fields">
+                <label>
+                  <span>Bootstrap Admin ID</span>
+                  <input value={authForm.bootstrap_operator_id} onChange={(event) => onAuthFormChange("bootstrap_operator_id", event.target.value)} placeholder="admin.local" autoComplete="username" />
+                </label>
+                <label>
+                  <span>Bootstrap Display Name</span>
+                  <input value={authForm.bootstrap_display_name} onChange={(event) => onAuthFormChange("bootstrap_display_name", event.target.value)} placeholder="LMCP Admin" />
+                </label>
+                <label className="wide">
+                  <span>Bootstrap Password</span>
+                  <input type="password" value={authForm.bootstrap_password} onChange={(event) => onAuthFormChange("bootstrap_password", event.target.value)} placeholder="Create initial admin password" autoComplete="new-password" />
+                </label>
+              </div>
+              <div className="submission-gate-auth-actions">
+                <button type="button" onClick={onAuthBootstrap} disabled={authLoading}>
+                  <ShieldCheck size={15} />
+                  Bootstrap Admin
+                </button>
+              </div>
+            </div>
+          )}
           <div className="submission-gate-operator-status">
             <p className="submission-risk warning">{operatorStatusMessage}</p>
+            {authState?.error ? <p className="submission-risk blocker">{authState.error}</p> : null}
             <p className="submission-risk warning">Final submit remains disabled for every role. Manual submission only.</p>
+            {session?.authenticated ? (
+              <div className="submission-gate-auth-actions">
+                <button type="button" onClick={onAuthLogout} disabled={authLoading}>
+                  <LockKeyhole size={15} />
+                  Logout
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="submission-gate-archive-card">
@@ -2415,7 +2482,13 @@ function PanelShell({ title, icon: Icon, children }) {
   );
 }
 
-export default function SubmissionCentreWorkspace() {
+export default function SubmissionCentreWorkspace({
+  authState,
+  onRefreshAuth,
+  onLogin,
+  onLogout,
+  onBootstrapAdmin,
+}) {
   const [endpointState, setEndpointState] = useState({ loading: true, results: [], dryRunResults: [], binderResults: [], error: "" });
   const [submissions, setSubmissions] = useState([]);
   const [submissionBinders, setSubmissionBinders] = useState([]);
@@ -2426,11 +2499,16 @@ export default function SubmissionCentreWorkspace() {
   const [readiness, setReadiness] = useState("All");
   const [blockersOnly, setBlockersOnly] = useState(false);
   const [urgency, setUrgency] = useState("All");
-  const [operatorRole, setOperatorRole] = useState("preparer");
-  const [operatorName, setOperatorName] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [activeTab, setActiveTab] = useState("Overview");
   const [operatorState, setOperatorState] = useState({});
+  const [authForm, setAuthForm] = useState({
+    operator_id: "",
+    password: "",
+    bootstrap_operator_id: "",
+    bootstrap_display_name: "",
+    bootstrap_password: "",
+  });
   const [submissionGateState, setSubmissionGateState] = useState({ loading: false, data: null, error: "" });
   const [submissionGateSummaryState, setSubmissionGateSummaryState] = useState({ loading: false, data: null, error: "" });
   const [submissionChecklistState, setSubmissionChecklistState] = useState({ loading: false, data: null, error: "" });
@@ -2529,8 +2607,8 @@ export default function SubmissionCentreWorkspace() {
   const gateBinder = selectedSubmission ? selectedSubmission.submission_binder : focusedBinder;
   const gatePackId = gateBinder?.pack_id || "";
   const gateRfqReference = selectedSubmission?.rfq_reference || gateBinder?.rfq_reference || "";
-  const restrictedOperatorHeaders = buildOperatorHeaders(operatorRole, operatorName);
-  const proofLoadBlockedReason = operatorBlockedReason(operatorRole, operatorName, "proof_load");
+  const authenticatedSession = authState?.session || null;
+  const proofLoadBlockedReason = operatorBlockedReason(authenticatedSession, "proof_load");
   const liveCount = endpointState.results.filter((result) => result.ok).length;
   const dryRunCount = endpointState.dryRunResults.filter((result) => result.ok).length;
   const binderProbeCount = endpointState.binderResults.filter((result) => result.ok).length;
@@ -2589,7 +2667,7 @@ export default function SubmissionCentreWorkspace() {
         fetchEndpoint(submissionComplianceArchivesPath(gatePackId)),
         proofLoadBlockedReason
           ? Promise.resolve({ ok: true, data: null, skipped: true })
-          : fetchEndpoint(submissionProofPath(gatePackId), { headers: restrictedOperatorHeaders }),
+          : fetchEndpoint(submissionProofPath(gatePackId)),
         fetchEndpoint(submissionManualCompletionPath(gatePackId)),
       ]);
       if (cancelled) return;
@@ -2650,6 +2728,9 @@ export default function SubmissionCentreWorkspace() {
         data: proofData,
         error: proofLoadBlockedReason || (proofResult.ok ? "" : proofResult.error || "Submission proof endpoint did not respond."),
       });
+      if (proofResult.status === 401) {
+        onRefreshAuth?.();
+      }
       if (proofData?.status === "ok" && proofData?.submission_proof) {
         setSubmissionProofForm(submissionProofFormFromRecord(proofData.submission_proof));
       }
@@ -2668,7 +2749,7 @@ export default function SubmissionCentreWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [gatePackId, gateRfqReference]);
+  }, [gatePackId, gateRfqReference, proofLoadBlockedReason, authState?.session?.operator?.operator_id]);
 
   function openSubmission(submission) {
     setSelectedId(submission.id);
@@ -2677,6 +2758,44 @@ export default function SubmissionCentreWorkspace() {
 
   function setLocalAction(id, action) {
     setOperatorState((prev) => ({ ...prev, [id]: action }));
+  }
+
+  function onAuthFormChange(field, value) {
+    setAuthForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function handleAuthLogin() {
+    if (!onLogin) return;
+    const result = await onLogin({
+      operator_id: authForm.operator_id,
+      password: authForm.password,
+    });
+    await onRefreshAuth?.();
+    if (result?.authenticated) {
+      setAuthForm((prev) => ({ ...prev, password: "" }));
+    }
+  }
+
+  async function handleAuthLogout() {
+    await onLogout?.();
+    await onRefreshAuth?.();
+  }
+
+  async function handleAuthBootstrap() {
+    if (!onBootstrapAdmin) return;
+    const result = await onBootstrapAdmin({
+      operator_id: authForm.bootstrap_operator_id,
+      display_name: authForm.bootstrap_display_name,
+      password: authForm.bootstrap_password,
+    });
+    if (result?.status === "ok") {
+      setAuthForm((prev) => ({
+        ...prev,
+        operator_id: prev.operator_id || authForm.bootstrap_operator_id,
+        bootstrap_password: "",
+      }));
+    }
+    await onRefreshAuth?.();
   }
 
   async function refreshManualChecklist() {
@@ -2719,13 +2838,14 @@ export default function SubmissionCentreWorkspace() {
       return;
     }
     setSubmissionProofState((prev) => ({ ...prev, loading: true, error: "" }));
-    const result = await fetchEndpoint(submissionProofPath(gatePackId), { headers: restrictedOperatorHeaders });
+    const result = await fetchEndpoint(submissionProofPath(gatePackId));
     const proofData = result.ok ? result.data : null;
     setSubmissionProofState({
       loading: false,
       data: proofData,
       error: result.ok ? "" : result.error || "Submission proof endpoint did not respond.",
     });
+    if (result.status === 401) await onRefreshAuth?.();
     if (proofData?.status === "ok" && proofData?.submission_proof) {
       setSubmissionProofForm(submissionProofFormFromRecord(proofData.submission_proof));
     }
@@ -2822,9 +2942,10 @@ export default function SubmissionCentreWorkspace() {
 
   async function saveSubmissionProofRecord() {
     if (!gatePackId) return;
-    const blockedReason = operatorBlockedReason(operatorRole, operatorName, "proof_save");
+    const blockedReason = operatorBlockedReason(authenticatedSession, "proof_save");
     if (blockedReason) {
       setSubmissionProofState((prev) => ({ ...prev, loading: false, error: blockedReason }));
+      if (blockedReason.toLowerCase().includes("login required")) await onRefreshAuth?.();
       return;
     }
     setSubmissionProofState((prev) => ({ ...prev, loading: true, error: "" }));
@@ -2842,9 +2963,10 @@ export default function SubmissionCentreWorkspace() {
       confirmation_message: submissionProofForm.confirmation_message,
       screenshot_notes: submissionProofForm.screenshot_notes,
     };
-    const result = await postEndpoint(submissionProofPath(gatePackId), payload, { headers: restrictedOperatorHeaders });
+    const result = await postEndpoint(submissionProofPath(gatePackId), payload);
     if (!result.ok) {
       setSubmissionProofState({ loading: false, data: null, error: result.error || "Submission proof could not be saved." });
+      if (result.status === 401) await onRefreshAuth?.();
       return;
     }
     const proofData = result.data || null;
@@ -2866,15 +2988,17 @@ export default function SubmissionCentreWorkspace() {
 
   async function createComplianceArchive() {
     if (!gatePackId) return;
-    const blockedReason = operatorBlockedReason(operatorRole, operatorName, "archive_create");
+    const blockedReason = operatorBlockedReason(authenticatedSession, "archive_create");
     if (blockedReason) {
       setSubmissionComplianceArchiveState((prev) => ({ ...prev, loading: false, error: blockedReason }));
+      if (blockedReason.toLowerCase().includes("login required")) await onRefreshAuth?.();
       return;
     }
     setSubmissionComplianceArchiveState((prev) => ({ ...prev, loading: true, error: "" }));
-    const result = await postEndpoint(submissionComplianceArchivePath(gatePackId, gateRfqReference), {}, { headers: restrictedOperatorHeaders });
+    const result = await postEndpoint(submissionComplianceArchivePath(gatePackId, gateRfqReference), {});
     if (!result.ok) {
       setSubmissionComplianceArchiveState({ loading: false, data: null, error: result.error || "Compliance archive could not be created." });
+      if (result.status === 401) await onRefreshAuth?.();
       return;
     }
     await refreshComplianceArchives();
@@ -2882,26 +3006,29 @@ export default function SubmissionCentreWorkspace() {
 
   async function downloadSubmissionProofJson() {
     if (!gatePackId) return;
-    const blockedReason = operatorBlockedReason(operatorRole, operatorName, "proof_export");
+    const blockedReason = operatorBlockedReason(authenticatedSession, "proof_export");
     if (blockedReason) {
       setSubmissionProofState((prev) => ({ ...prev, error: blockedReason }));
+      if (blockedReason.toLowerCase().includes("login required")) await onRefreshAuth?.();
       return;
     }
     const result = await downloadEndpoint(
       submissionProofExportPath(gatePackId),
       `${gatePackId}-submission-proof.json`,
-      { headers: restrictedOperatorHeaders },
+      {},
     );
     if (!result.ok) {
       setSubmissionProofState((prev) => ({ ...prev, error: result.error || "Submission proof export could not be downloaded." }));
+      if (result.status === 401) await onRefreshAuth?.();
     }
   }
 
   async function downloadComplianceArchiveZip(archiveId = "latest") {
     if (!gatePackId) return;
-    const blockedReason = operatorBlockedReason(operatorRole, operatorName, "archive_export");
+    const blockedReason = operatorBlockedReason(authenticatedSession, "archive_export");
     if (blockedReason) {
       setSubmissionComplianceArchiveState((prev) => ({ ...prev, error: blockedReason }));
+      if (blockedReason.toLowerCase().includes("login required")) await onRefreshAuth?.();
       return;
     }
     const path = archiveId === "latest"
@@ -2910,10 +3037,11 @@ export default function SubmissionCentreWorkspace() {
     const result = await downloadEndpoint(
       path,
       `${gatePackId}-${archiveId}-compliance-archive.zip`,
-      { headers: restrictedOperatorHeaders },
+      {},
     );
     if (!result.ok) {
       setSubmissionComplianceArchiveState((prev) => ({ ...prev, error: result.error || "Compliance archive ZIP could not be downloaded." }));
+      if (result.status === 401) await onRefreshAuth?.();
     }
   }
 
@@ -3007,6 +3135,12 @@ export default function SubmissionCentreWorkspace() {
       />
 
       <SubmissionGateCard
+        authState={authState}
+        authForm={authForm}
+        onAuthFormChange={onAuthFormChange}
+        onAuthLogin={handleAuthLogin}
+        onAuthLogout={handleAuthLogout}
+        onAuthBootstrap={handleAuthBootstrap}
         gateState={submissionGateState}
         summaryState={submissionGateSummaryState}
         checklistState={submissionChecklistState}
@@ -3030,10 +3164,6 @@ export default function SubmissionCentreWorkspace() {
         onManualCompletionSave={saveManualCompletionRecord}
         onPrintableReportRequest={refreshPrintableReport}
         packId={gatePackId}
-        operatorRole={operatorRole}
-        operatorName={operatorName}
-        onOperatorRoleChange={setOperatorRole}
-        onOperatorNameChange={setOperatorName}
         onSummaryRequest={refreshSubmissionPackSummary}
         onChecklistRequest={refreshManualChecklist}
         onAuditRequest={refreshAuditLog}

@@ -12,6 +12,9 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Callable, Optional, Any
 
+from app.core.runtime_config import env
+from app.core.runtime_paths import get_runtime_paths
+
 logger = logging.getLogger("lmcp.stability")
 
 
@@ -29,17 +32,13 @@ class StabilityGuard:
     """
 
     def __init__(self) -> None:
-        self.base_dir = Path(os.getenv("LMCP_RUNTIME_DIR", "/tmp/lmcp_runtime"))
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-
-        self.lock_dir = self.base_dir / "locks"
-        self.lock_dir.mkdir(parents=True, exist_ok=True)
-
-        self.health_dir = self.base_dir / "health"
-        self.health_dir.mkdir(parents=True, exist_ok=True)
-
-        self.log_dir = self.base_dir / "logs"
-        self.log_dir.mkdir(parents=True, exist_ok=True)
+        paths = get_runtime_paths()
+        self.base_dir = paths.runtime_root
+        self.lock_dir = paths.locks_dir
+        self.health_dir = paths.health_dir
+        self.log_dir = paths.logs_dir
+        for directory in (self.base_dir, self.lock_dir, self.health_dir, self.log_dir):
+            directory.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # BASIC INFO
@@ -82,8 +81,8 @@ class StabilityGuard:
             "missing_required": missing_required,
             "missing_recommended": missing_recommended,
             "environment": {
-                "ENVIRONMENT": os.getenv("ENVIRONMENT", "development"),
-                "LOG_LEVEL": os.getenv("LOG_LEVEL", "INFO"),
+                "ENVIRONMENT": env("ENVIRONMENT", "development"),
+                "LOG_LEVEL": env("LOG_LEVEL", "INFO"),
             },
         }
 

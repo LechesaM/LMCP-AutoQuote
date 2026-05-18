@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 from collections import Counter
 from datetime import datetime, timezone
-from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List
 
+from app.core.runtime_paths import get_runtime_paths
 
-RUNTIME_DIR = Path("runtime")
-PILOT_RUN_DIR = RUNTIME_DIR / "manual_production"
+RUNTIME_DIR = get_runtime_paths().runtime_root
+PILOT_RUN_DIR = get_runtime_paths().manual_production_dir
 PILOT_RUN_DIR.mkdir(parents=True, exist_ok=True)
 PILOT_RUN_LOG_FILE = PILOT_RUN_DIR / "pilot_runs.jsonl"
 

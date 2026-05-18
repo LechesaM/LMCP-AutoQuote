@@ -3,15 +3,15 @@ from __future__ import annotations
 import logging
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.core.runtime_paths import get_runtime_paths
 from app.services.websocket_broker import publish_dashboard_event
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_DIR = Path("runtime")
-AUDIT_DIR = RUNTIME_DIR / "audit_trail"
+RUNTIME_DIR = get_runtime_paths().runtime_root
+AUDIT_DIR = get_runtime_paths().audit_trail_dir
 AUDIT_DIR.mkdir(parents=True, exist_ok=True)
 AUDIT_FILE = AUDIT_DIR / "audit_events.json"
 

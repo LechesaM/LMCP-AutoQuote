@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import os
-from logging.handlers import RotatingFileHandler
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterable, List, Tuple
@@ -15,42 +13,14 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router_registry import RouterSpec, iter_router_specs
 from app.config import settings
+from app.core.runtime_config import get_runtime_config
 from app.services.operator_auth_service import ensure_operator_auth_schema
 from app.services.quote_review_service import ensure_quote_pack_schema
 
 
 logger = logging.getLogger(__name__)
-
-
-def _configure_logging() -> None:
-    root = logging.getLogger()
-    if getattr(root, "_lmcp_logging_configured", False):
-        return
-
-    log_dir = settings.log_dir
-    log_dir.mkdir(parents=True, exist_ok=True)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
-
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    console.setFormatter(formatter)
-
-    app_log = RotatingFileHandler(log_dir / "app.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")
-    app_log.setLevel(logging.INFO)
-    app_log.setFormatter(formatter)
-
-    error_log = RotatingFileHandler(log_dir / "error.log", maxBytes=5 * 1024 * 1024, backupCount=10, encoding="utf-8")
-    error_log.setLevel(logging.ERROR)
-    error_log.setFormatter(formatter)
-
-    root.setLevel(logging.INFO)
-    root.addHandler(console)
-    root.addHandler(app_log)
-    root.addHandler(error_log)
-    root._lmcp_logging_configured = True  # type: ignore[attr-defined]
-
-
-_configure_logging()
+runtime_config = get_runtime_config()
+runtime_config.configure_logging()
 
 
 def _load_router(spec: RouterSpec) -> Any:
@@ -107,7 +77,7 @@ def _include_registered_routers(app: FastAPI, specs: Iterable[RouterSpec]) -> Di
 
 
 def _allow_degraded_startup() -> bool:
-    return str(os.getenv("LMCP_ALLOW_DEGRADED_STARTUP", "false")).strip().lower() == "true"
+    return runtime_config.allow_degraded_startup
 
 
 @asynccontextmanager
@@ -187,6 +157,7 @@ def _base_status_payload() -> Dict[str, Any]:
     return {
         "version": settings.app_version,
         "environment": settings.environment,
+        "production_mode": settings.production_mode,
         "loaded_routers": [item["name"] for item in report["loaded"]],
         "loaded_routers_count": len(report["loaded"]),
         "failed_routers": report["failures"],
@@ -228,6 +199,7 @@ def health() -> Dict[str, Any]:
         "status": "healthy",
         "service": settings.app_name,
         "environment": settings.environment,
+        "production_mode": settings.production_mode,
         "runtime_dir": str(settings.runtime_dir),
         "log_dir": str(settings.log_dir),
         "monthly_quotes_dir": str(settings.monthly_quotes_dir),

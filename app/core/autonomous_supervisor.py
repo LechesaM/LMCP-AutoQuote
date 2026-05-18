@@ -3,10 +3,10 @@ import time
 import json
 import logging
 import traceback
-from pathlib import Path
 from datetime import datetime, timezone
 from typing import Callable, Any, Optional
 
+from app.core.runtime_paths import get_runtime_paths
 from app.core.stability_guard import guard
 
 logger = logging.getLogger("lmcp.autonomous_supervisor")
@@ -25,7 +25,7 @@ class AutonomousSupervisor:
     """
 
     def __init__(self) -> None:
-        self.runtime_dir = Path(os.getenv("LMCP_RUNTIME_DIR", "/tmp/lmcp_runtime"))
+        self.runtime_dir = get_runtime_paths().runtime_root
         self.supervisor_dir = self.runtime_dir / "supervisor"
         self.supervisor_dir.mkdir(parents=True, exist_ok=True)
 

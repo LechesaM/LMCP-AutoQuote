@@ -8,8 +8,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Sequence
 
+from app.core.runtime_paths import get_runtime_paths
 
-RUNTIME_DIR = Path("runtime")
+RUNTIME_DIR = get_runtime_paths().runtime_root
 LOCAL_SYSTEM_STATUS_FILE = RUNTIME_DIR / "local_system_status.json"
 
 BACKEND_HOST = "127.0.0.1"

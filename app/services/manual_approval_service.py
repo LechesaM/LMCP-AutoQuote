@@ -6,9 +6,10 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List
 
+from app.core.runtime_paths import get_runtime_paths
 
-RUNTIME_DIR = Path("runtime")
-MANUAL_PRODUCTION_DIR = RUNTIME_DIR / "manual_production"
+RUNTIME_DIR = get_runtime_paths().runtime_root
+MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
 MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
 APPROVAL_LOG_FILE = MANUAL_PRODUCTION_DIR / "approvals.jsonl"
 
@@ -114,4 +115,3 @@ def build_manual_approval_record(
         "gate": gate,
         "status": "recorded" if gate["approved"] and confirm_approval else "refused",
     }
-

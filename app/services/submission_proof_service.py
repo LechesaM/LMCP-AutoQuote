@@ -6,11 +6,12 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List
 
+from app.core.runtime_paths import get_runtime_paths
 from app.services import submission_review_service
 
 
-RUNTIME_DIR = Path("runtime")
-MANUAL_PRODUCTION_DIR = RUNTIME_DIR / "manual_production"
+RUNTIME_DIR = get_runtime_paths().runtime_root
+MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
 MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
 SUBMISSION_PROOF_LOG_FILE = MANUAL_PRODUCTION_DIR / "submission_proofs.jsonl"
 
@@ -100,4 +101,3 @@ def build_submission_proof_record(
         "timestamp": _now_iso(),
     }
     return record
-

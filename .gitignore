@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Runtime
+runtime/
+logs/
+tmp/
+temp/
+
+# Env
+.env
+.venv/
+venv/
+
+# Uploads / generated docs
+downloads/
+exports/
+generated/
+submission_exports/
+proof_exports/
+
+# IDE
+.vscode/
+.idea/
+
+# Archives
+*.zip
+
+# OS
+Thumbs.db

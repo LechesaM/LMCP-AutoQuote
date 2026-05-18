@@ -1,0 +1,68 @@
+{
+  "name": "SBD4 New Profile - FINAL WORKING",
+  "template_type": "pdf_coordinate",
+  "field_aliases": {
+    "name_of_bidder": [
+      "company_name",
+      "bidder_name",
+      "legal_entity_name"
+    ],
+    "position": [
+      "director_capacity",
+      "designation",
+      "role"
+    ],
+    "date_signed": [
+      "date",
+      "signature_date"
+    ]
+  },
+  "anchor_rules": [],
+  "pdf_coordinates": {
+    "date_signed": {
+      "page": 4,
+      "x": 820,
+      "y": 770,
+      "width": 160,
+      "height": 16,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "align": "left"
+    },
+    "position": {
+      "page": 4,
+      "x": 270,
+      "y": 560,
+      "width": 220,
+      "height": 16,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "align": "left"
+    },
+    "name_of_bidder": {
+      "page": 4,
+      "x": 880,
+      "y": 560,
+      "width": 320,
+      "height": 16,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "align": "left"
+    }
+  },
+  "signature_coordinates": {
+    "page": 4,
+    "x": 250,
+    "y": 760,
+    "width": 180,
+    "height": 42
+  },
+  "docx_signature_placeholder": "{{signature}}",
+  "xlsx_signature_anchor": "F25"
+}

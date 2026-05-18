@@ -1,0 +1,758 @@
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from app.services.real_profit_pricing_service import enrich_with_real_profit_pricing
+import re
+
+RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "runtime"))
+SCHEDULER_DIR = RUNTIME_DIR / "safe_autonomous_scheduler"
+SCHEDULER_DIR.mkdir(parents=True, exist_ok=True)
+
+STATE_FILE = SCHEDULER_DIR / "state.json"
+HISTORY_FILE = SCHEDULER_DIR / "history.json"
+LAST_RUN_FILE = SCHEDULER_DIR / "last_run.json"
+
+DEFAULT_INTERVAL_SECONDS = int(os.getenv("LMCP_SAFE_SCHEDULER_INTERVAL_SECONDS", "21600"))
+DEFAULT_MAX_TOTAL = int(os.getenv("LMCP_SAFE_SCHEDULER_MAX_TOTAL", "10"))
+DEFAULT_MAX_SUBMISSIONS = int(os.getenv("LMCP_SAFE_SCHEDULER_MAX_SUBMISSIONS", "3"))
+DEFAULT_ENABLE_SUBMIT = os.getenv("LMCP_SAFE_SCHEDULER_ENABLE_SUBMIT", "false").lower() in {"1", "true", "yes", "on"}
+DEFAULT_ENABLE_QUOTE_ENGINE = os.getenv("LMCP_SAFE_SCHEDULER_ENABLE_QUOTE_ENGINE", "true").lower() in {"1", "true", "yes", "on"}
+
+_scheduler_task: Optional[asyncio.Task] = None
+_scheduler_lock = asyncio.Lock()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _read_json(path: Path, default: Any) -> Any:
+    try:
+        if not path.exists():
+            return default
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _append_history(item: Dict[str, Any]) -> None:
+    history = _read_json(HISTORY_FILE, [])
+    if not isinstance(history, list):
+        history = []
+    history.append(item)
+    _write_json(HISTORY_FILE, history[-500:])
+
+
+def _default_state() -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "mode": "safe_controlled_with_quote_engine",
+        "interval_seconds": DEFAULT_INTERVAL_SECONDS,
+        "max_total": DEFAULT_MAX_TOTAL,
+        "max_submissions": DEFAULT_MAX_SUBMISSIONS,
+        "enable_submit": DEFAULT_ENABLE_SUBMIT,
+        "enable_quote_engine": DEFAULT_ENABLE_QUOTE_ENGINE,
+        "require_production_lock": True,
+        "last_started_at": None,
+        "last_finished_at": None,
+        "last_status": "idle",
+        "last_message": "Safe scheduler with quote engine installed but not running.",
+        "updated_at": _now(),
+    }
+
+
+def get_scheduler_state() -> Dict[str, Any]:
+    state = _read_json(STATE_FILE, None)
+    if not isinstance(state, dict):
+        state = _default_state()
+        _write_json(STATE_FILE, state)
+    if "enable_quote_engine" not in state:
+        state["enable_quote_engine"] = DEFAULT_ENABLE_QUOTE_ENGINE
+        _write_json(STATE_FILE, state)
+    return state
+
+
+def update_scheduler_state(updates: Dict[str, Any]) -> Dict[str, Any]:
+    state = get_scheduler_state()
+    allowed = {
+        "enabled",
+        "mode",
+        "interval_seconds",
+        "max_total",
+        "max_submissions",
+        "enable_submit",
+        "enable_quote_engine",
+        "require_production_lock",
+    }
+    for key, value in (updates or {}).items():
+        if key in allowed:
+            state[key] = value
+    state["updated_at"] = _now()
+    _write_json(STATE_FILE, state)
+    return state
+
+
+async def _maybe_await(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
+
+
+def _normalise_tenders(raw: Any) -> List[Dict[str, Any]]:
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        for key in ["tenders", "opportunities", "items", "results", "data"]:
+            if isinstance(raw.get(key), list):
+                raw = raw[key]
+                break
+        else:
+            return [raw]
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict)]
+
+
+
+SUPPLY_HARVEST_KEYWORDS = [
+    "supply and delivery",
+    "supply",
+    "delivery",
+    "procurement",
+    "provide and deliver",
+    "appointment of service provider for supply",
+    "purchase",
+    "quotation for supply",
+    "rfq supply",
+]
+
+NON_SUPPLY_HARVEST_KEYWORDS = [
+    "repair",
+    "installation",
+    "maintenance",
+    "consultation",
+    "consulting",
+    "meeting invitation",
+    "request for information",
+    "rfi",
+    "archive",
+    "tenders archive",
+    "tender portal",
+    "rfq/tenders",
+    "database",
+    "panel of service providers",
+    "expression of interest",
+    "training",
+    "workshop",
+]
+
+
+
+RFQ_EVIDENCE_PATTERNS = [
+    r"\brfq[\s:/#_-]*[a-z0-9][a-z0-9/_-]{2,}",
+    r"\brfp[\s:/#_-]*[a-z0-9][a-z0-9/_-]{2,}",
+    r"\brfx[\s:/#_-]*[a-z0-9][a-z0-9/_-]{2,}",
+    r"\btender[\s:/#_-]*[a-z0-9][a-z0-9/_-]{2,}",
+    r"\bquotation[\s:/#_-]*[a-z0-9][a-z0-9/_-]{2,}",
+    r"\bbid[\s:/#_-]*[a-z0-9][a-z0-9/_-]{2,}",
+]
+
+LISTING_PAGE_KEYWORDS = [
+    "latest tenders",
+    "current tenders",
+    "tenders archive",
+    "view latest tenders",
+    "rfp & rfq procurement",
+    "rfq/tenders",
+    "tender opportunities",
+    "procurement portal",
+    "tenders |",
+    "tenders -",
+]
+
+
+
+def _has_real_rfq_evidence(tender: Dict[str, Any]) -> Dict[str, Any]:
+    blob = " ".join(
+        str(tender.get(k) or "")
+        for k in [
+            "buyer_rfq_number",
+            "rfq_number",
+            "reference_number",
+            "document_number",
+            "tender_number",
+            "title",
+            "description",
+            "raw_text",
+            "submission_message",
+            "submission_method",
+            "closing_date",
+            "closing_datetime",
+            "deadline",
+            "document_url",
+            "detail_url",
+            "source_url",
+        ]
+    ).lower()
+
+    listing_hits = [kw for kw in LISTING_PAGE_KEYWORDS if kw in blob]
+
+    # HARD BLOCK: listing/portal pages
+    if listing_hits:
+        return {
+            "allowed": False,
+            "reason": "listing_page_blocked",
+            "pattern_hits": [],
+            "has_closing": False,
+            "has_submission": False,
+            "has_document": False,
+            "listing_hits": listing_hits,
+        }
+
+    pattern_hits = []
+    for pattern in RFQ_EVIDENCE_PATTERNS:
+        try:
+            if re.search(pattern, blob, flags=re.IGNORECASE):
+                pattern_hits.append(pattern)
+        except Exception:
+            pass
+
+    has_closing = any(token in blob for token in ["closing date", "closing:", "deadline", "closing_datetime", "closing at"])
+    has_submission = any(token in blob for token in ["submit", "submission", "email", "portal", "hand delivery", "tender box"])
+    has_document = bool(tender.get("document_url")) or ".pdf" in blob or "download" in blob
+
+    allowed = bool(pattern_hits or has_closing or has_document or has_submission)
+
+    if listing_hits and not (pattern_hits or has_closing or has_document):
+        allowed = False
+
+    return {
+        "allowed": allowed,
+        "reason": "real_rfq_evidence_found" if allowed else "real_rfq_evidence_missing",
+        "pattern_hits": pattern_hits,
+        "has_closing": has_closing,
+        "has_submission": has_submission,
+        "has_document": has_document,
+        "listing_hits": listing_hits,
+    }
+
+
+
+def _is_strict_supply_candidate(tender: Dict[str, Any]) -> Dict[str, Any]:
+    blob = " ".join(
+        str(tender.get(k) or "")
+        for k in [
+            "buyer_rfq_number",
+            "rfq_number",
+            "reference_number",
+            "title",
+            "description",
+            "raw_text",
+            "category",
+            "tender_category",
+            "portal_name",
+            "source_name",
+        ]
+    ).lower()
+
+    non_supply_hits = [kw for kw in NON_SUPPLY_HARVEST_KEYWORDS if kw in blob]
+    supply_hits = [kw for kw in SUPPLY_HARVEST_KEYWORDS if kw in blob]
+
+    rfq_evidence = _has_real_rfq_evidence(tender)
+
+    if non_supply_hits:
+        return {
+            "allowed": False,
+            "reason": "strict_supply_filter_non_supply",
+            "supply_hits": supply_hits,
+            "non_supply_hits": non_supply_hits,
+            "rfq_evidence": rfq_evidence,
+        }
+
+    if not supply_hits:
+        return {
+            "allowed": False,
+            "reason": "strict_supply_filter_no_supply_keywords",
+            "supply_hits": [],
+            "non_supply_hits": [],
+            "rfq_evidence": rfq_evidence,
+        }
+
+    if not rfq_evidence.get("allowed"):
+        return {
+            "allowed": False,
+            "reason": "strict_supply_filter_no_real_rfq_evidence",
+            "supply_hits": supply_hits,
+            "non_supply_hits": [],
+            "rfq_evidence": rfq_evidence,
+        }
+
+    return {
+        "allowed": True,
+        "reason": "strict_supply_filter_allowed_real_rfq",
+        "supply_hits": supply_hits,
+        "non_supply_hits": [],
+        "rfq_evidence": rfq_evidence,
+    }
+
+
+def _apply_strict_supply_filter(tenders: List[Dict[str, Any]]) -> Dict[str, Any]:
+    allowed: List[Dict[str, Any]] = []
+    rejected: List[Dict[str, Any]] = []
+
+    for tender in tenders:
+        decision = _is_strict_supply_candidate(tender)
+        if decision.get("allowed"):
+            tender = dict(tender)
+            tender["strict_supply_filter"] = decision
+            allowed.append(tender)
+        else:
+            rejected.append({
+                "buyer_rfq_number": tender.get("buyer_rfq_number") or tender.get("rfq_number") or tender.get("reference_number") or tender.get("title"),
+                "title": tender.get("title"),
+                "decision": decision,
+            })
+
+    return {
+        "allowed": allowed,
+        "rejected": rejected,
+        "allowed_count": len(allowed),
+        "rejected_count": len(rejected),
+    }
+
+
+
+async def _safe_harvest(max_total: int) -> Dict[str, Any]:
+    try:
+        from app.services.tender_harvester import run_national_tender_radar
+    except Exception as exc:
+        return {"status": "error", "message": "Could not import tender harvester.", "error": str(exc), "tenders": []}
+
+    attempts = [
+        {"max_total": max_total, "max_per_source": 1, "enable_auto_quote": False, "persist_to_live_store": True},
+        {"max_total": max_total, "enable_auto_quote": False},
+        {"max_total": max_total},
+    ]
+
+    errors: List[str] = []
+    for kwargs in attempts:
+        try:
+            result = await _maybe_await(run_national_tender_radar(**kwargs))
+            tenders = _normalise_tenders(result)
+            return {"status": "ok", "method": "run_national_tender_radar", "kwargs": kwargs, "count": len(tenders), "tenders": tenders[:max_total]}
+        except TypeError as exc:
+            errors.append(str(exc))
+            continue
+        except Exception as exc:
+            return {"status": "error", "message": "Harvester failed during safe scheduler cycle.", "error": str(exc), "errors": errors, "tenders": []}
+
+    return {"status": "error", "message": "No compatible tender_harvester signature worked.", "errors": errors, "tenders": []}
+
+
+def _extract_numeric(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str):
+            value = value.replace("R", "").replace(",", "").replace("%", "").strip()
+        return float(value)
+    except Exception:
+        return default
+
+
+def _pull_pricing_from_result(tender: Dict[str, Any], result: Any) -> Dict[str, Any]:
+    enriched = dict(tender or {})
+
+    if not isinstance(result, dict):
+        return enriched
+
+    # Preserve result for audit.
+    enriched["scheduler_quote_engine_result"] = result
+
+    candidates = [
+        result,
+        result.get("pricing") if isinstance(result.get("pricing"), dict) else {},
+        result.get("pricing_summary") if isinstance(result.get("pricing_summary"), dict) else {},
+        result.get("quote") if isinstance(result.get("quote"), dict) else {},
+        result.get("result") if isinstance(result.get("result"), dict) else {},
+    ]
+
+    for src in candidates:
+        if not isinstance(src, dict):
+            continue
+
+        profit = (
+            src.get("estimated_profit")
+            or src.get("total_profit")
+            or src.get("profit")
+            or src.get("minimum_profit_required")
+        )
+        margin = (
+            src.get("estimated_margin_percent")
+            or src.get("achieved_margin_percent")
+            or src.get("margin_percent")
+            or src.get("minimum_margin_percent")
+        )
+
+        if profit is not None and _extract_numeric(profit) > 0:
+            enriched["estimated_profit"] = _extract_numeric(profit)
+
+        if margin is not None and _extract_numeric(margin) > 0:
+            enriched["estimated_margin_percent"] = _extract_numeric(margin)
+
+        if src.get("quote_number") and not enriched.get("quote_number"):
+            enriched["quote_number"] = src.get("quote_number")
+
+        if src.get("pdf_path") and not enriched.get("pdf_path"):
+            enriched["pdf_path"] = src.get("pdf_path")
+
+        if src.get("line_items") and not enriched.get("line_items"):
+            enriched["line_items"] = src.get("line_items")
+
+    return enriched
+
+
+def _inject_existing_pricing_fields(tender: Dict[str, Any]) -> Dict[str, Any]:
+    tender = dict(tender or {})
+
+    # Fix common naming mismatch: estimated_margin_pct -> estimated_margin_percent
+    if "estimated_margin_percent" not in tender and tender.get("estimated_margin_pct") is not None:
+        tender["estimated_margin_percent"] = tender.get("estimated_margin_pct")
+
+    pricing = tender.get("pricing") or tender.get("pricing_summary") or {}
+    if isinstance(pricing, dict):
+        if "estimated_profit" not in tender and pricing.get("total_profit") is not None:
+            tender["estimated_profit"] = pricing.get("total_profit")
+        if "estimated_margin_percent" not in tender and pricing.get("achieved_margin_percent") is not None:
+            tender["estimated_margin_percent"] = pricing.get("achieved_margin_percent")
+
+    return tender
+
+
+async def _run_quote_engine(tender: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Attempts known LMCP quote/pricing entry points without assuming one fixed function.
+    If no quote engine function is available, returns the original tender and marks pricing unavailable.
+    """
+    tender = _inject_existing_pricing_fields(tender)
+
+    # If pricing already exists and is positive, do not reprice.
+    if _extract_numeric(tender.get("estimated_profit")) > 0 and _extract_numeric(tender.get("estimated_margin_percent")) > 0:
+        return {
+            "status": "ok",
+            "method": "existing_pricing",
+            "priced": True,
+            "tender": tender,
+        }
+
+    attempts = [
+        ("app.services.quote_engine_service", ["generate_quote", "price_tender", "run_quote_engine", "generate_quote_from_payload"]),
+        ("app.services.quote_engine", ["generate_quote", "price_tender", "run_quote_engine", "calculate_quote"]),
+        ("app.services.auto_pricing_v43_service", ["auto_price", "price_tender", "run_auto_pricing", "generate_pricing"]),
+        ("app.services.tender_pipeline", ["run_tender_pipeline_from_payload"]),
+    ]
+
+    errors: List[Dict[str, str]] = []
+
+    for module_name, names in attempts:
+        try:
+            module = __import__(module_name, fromlist=["*"])
+        except Exception as exc:
+            errors.append({"module": module_name, "error": str(exc)})
+            continue
+
+        for name in names:
+            fn = getattr(module, name, None)
+            if not callable(fn):
+                continue
+
+            try:
+                result = fn(dict(tender))
+                result = await _maybe_await(result)
+                enriched = _pull_pricing_from_result(tender, result)
+                enriched = _inject_existing_pricing_fields(enriched)
+
+                priced = _extract_numeric(enriched.get("estimated_profit")) > 0 and _extract_numeric(enriched.get("estimated_margin_percent")) > 0
+
+                return {
+                    "status": "ok" if priced else "no_pricing",
+                    "method": f"{module_name}.{name}",
+                    "priced": priced,
+                    "estimated_profit": enriched.get("estimated_profit"),
+                    "estimated_margin_percent": enriched.get("estimated_margin_percent"),
+                    "tender": enriched,
+                }
+            except Exception as exc:
+                errors.append({"module": module_name, "function": name, "error": str(exc)})
+
+    return {
+        "status": "no_quote_engine",
+        "priced": False,
+        "message": "No compatible quote engine produced positive profit and margin.",
+        "errors": errors[-20:],
+        "tender": tender,
+    }
+
+
+
+def _apply_real_profit_fallback(tender: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        current_profit = _extract_numeric(tender.get("estimated_profit"))
+        current_margin = _extract_numeric(tender.get("estimated_margin_percent") or tender.get("estimated_margin_pct"))
+
+        if current_profit >= 30000 and current_margin >= 25:
+            return {
+                "status": "skipped_existing_pricing_ok",
+                "priced": True,
+                "estimated_profit": current_profit,
+                "estimated_margin_percent": current_margin,
+                "tender": tender,
+            }
+
+        real_profit = enrich_with_real_profit_pricing(tender)
+        enriched = real_profit.get("payload") or tender
+
+        return {
+            "status": real_profit.get("status"),
+            "method": "app.services.real_profit_pricing_service.enrich_with_real_profit_pricing",
+            "priced": bool(real_profit.get("priced")),
+            "estimated_profit": enriched.get("estimated_profit"),
+            "estimated_margin_percent": enriched.get("estimated_margin_percent"),
+            "tender": enriched,
+            "real_profit_result": {k: v for k, v in real_profit.items() if k != "payload"},
+        }
+    except Exception as exc:
+        return {
+            "status": "real_profit_fallback_error",
+            "priced": False,
+            "error": str(exc),
+            "tender": tender,
+        }
+
+
+async def _production_check(tender: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from app.services.production_lock_service import assert_production_submission_allowed
+        return assert_production_submission_allowed(tender)
+    except Exception as exc:
+        return {"status": "blocked", "allowed": False, "submission_status": "blocked_by_production_lock_error", "message": "Production Lock failed closed.", "error": str(exc)}
+
+
+async def _submit_if_allowed(tender: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from app.services.portal_submission_service import auto_submit_portal
+    except Exception as exc:
+        return {"status": "error", "submitted": False, "submission_status": "portal_submit_import_error", "message": "Could not import auto_submit_portal.", "error": str(exc)}
+    try:
+        result = auto_submit_portal(tender)
+        result = await _maybe_await(result)
+        return result if isinstance(result, dict) else {"status": "unknown", "submitted": False, "raw_result": str(result)}
+    except Exception as exc:
+        return {"status": "error", "submitted": False, "submission_status": "portal_submit_error", "message": "Portal submission failed.", "error": str(exc)}
+
+
+async def run_safe_autonomous_cycle(
+    max_total: Optional[int] = None,
+    max_submissions: Optional[int] = None,
+    enable_submit: Optional[bool] = None,
+    enable_quote_engine: Optional[bool] = None,
+    reason: str = "manual",
+) -> Dict[str, Any]:
+    async with _scheduler_lock:
+        state = get_scheduler_state()
+        max_total = int(max_total if max_total is not None else state.get("max_total", DEFAULT_MAX_TOTAL))
+        max_submissions = int(max_submissions if max_submissions is not None else state.get("max_submissions", DEFAULT_MAX_SUBMISSIONS))
+        enable_submit = bool(enable_submit if enable_submit is not None else state.get("enable_submit", DEFAULT_ENABLE_SUBMIT))
+        enable_quote_engine = bool(enable_quote_engine if enable_quote_engine is not None else state.get("enable_quote_engine", DEFAULT_ENABLE_QUOTE_ENGINE))
+
+        run = {
+            "status": "running",
+            "service_version": "LMCP_SAFE_AUTONOMOUS_SCHEDULER_V2_QUOTE_ENGINE",
+            "reason": reason,
+            "started_at": _now(),
+            "finished_at": None,
+            "settings": {
+                "max_total": max_total,
+                "max_submissions": max_submissions,
+                "enable_submit": enable_submit,
+                "enable_quote_engine": enable_quote_engine,
+            },
+            "harvest": {},
+            "summary": {
+                "harvested": 0,
+                "priced": 0,
+                "pricing_failed": 0,
+                "allowed": 0,
+                "blocked": 0,
+                "submitted": 0,
+                "failed": 0,
+                "skipped_submit_disabled": 0,
+            },
+            "items": [],
+        }
+
+        state["last_status"] = "running"
+        state["last_started_at"] = run["started_at"]
+        state["last_message"] = "Safe autonomous quote cycle running."
+        state["updated_at"] = _now()
+        _write_json(STATE_FILE, state)
+
+        try:
+            harvest = await _safe_harvest(max_total=max_total)
+            run["harvest"] = {k: v for k, v in harvest.items() if k != "tenders"}
+            tenders = harvest.get("tenders", [])
+            run["summary"]["harvested"] = len(tenders)
+
+            strict_supply = _apply_strict_supply_filter(tenders)
+            tenders = strict_supply.get("allowed", [])
+            run["strict_supply_filter"] = {
+                "allowed_count": strict_supply.get("allowed_count", 0),
+                "rejected_count": strict_supply.get("rejected_count", 0),
+                "rejected": strict_supply.get("rejected", [])[:25],
+            }
+            run["summary"]["supply_candidates"] = len(tenders)
+            run["summary"]["non_supply_rejected"] = strict_supply.get("rejected_count", 0)
+
+            submissions_used = 0
+
+            for tender in tenders[:max_total]:
+                tender = _inject_existing_pricing_fields(tender)
+                rfq = tender.get("buyer_rfq_number") or tender.get("rfq_number") or tender.get("reference_number") or tender.get("title") or "UNKNOWN"
+                item = {
+                    "buyer_rfq_number": rfq,
+                    "title": tender.get("title"),
+                    "checked_at": _now(),
+                    "quote_engine": None,
+                    "production_decision": None,
+                    "submission_result": None,
+                }
+
+                if enable_quote_engine:
+                    quote_result = await _run_quote_engine(tender)
+                    item["quote_engine"] = {k: v for k, v in quote_result.items() if k != "tender"}
+                    tender = quote_result.get("tender") or tender
+                    if quote_result.get("priced"):
+                        run["summary"]["priced"] += 1
+                    else:
+                        run["summary"]["pricing_failed"] += 1
+                else:
+                    item["quote_engine"] = {"status": "disabled", "priced": False}
+
+                real_profit_fallback = _apply_real_profit_fallback(tender)
+                item["real_profit_fallback"] = {k: v for k, v in real_profit_fallback.items() if k != "tender"}
+                tender = real_profit_fallback.get("tender") or tender
+
+                decision = await _production_check(tender)
+                item["production_decision"] = decision
+
+                if not decision.get("allowed"):
+                    run["summary"]["blocked"] += 1
+                    item["final_status"] = "blocked_by_production_lock"
+                    run["items"].append(item)
+                    continue
+
+                run["summary"]["allowed"] += 1
+
+                if not enable_submit:
+                    run["summary"]["skipped_submit_disabled"] += 1
+                    item["final_status"] = "allowed_submit_disabled"
+                    run["items"].append(item)
+                    continue
+
+                if submissions_used >= max_submissions:
+                    item["final_status"] = "allowed_submission_limit_reached"
+                    run["items"].append(item)
+                    continue
+
+                submit_result = await _submit_if_allowed(tender)
+                item["submission_result"] = submit_result
+
+                if submit_result.get("submitted") is True:
+                    run["summary"]["submitted"] += 1
+                    item["final_status"] = "submitted"
+                else:
+                    run["summary"]["failed"] += 1
+                    item["final_status"] = submit_result.get("submission_status") or submit_result.get("status") or "submission_failed"
+
+                submissions_used += 1
+                run["items"].append(item)
+
+            run["status"] = "ok"
+            run["finished_at"] = _now()
+            run["message"] = "Safe autonomous quote cycle completed."
+        except Exception as exc:
+            run["status"] = "error"
+            run["finished_at"] = _now()
+            run["message"] = "Safe autonomous quote cycle failed."
+            run["error"] = str(exc)
+
+        _write_json(LAST_RUN_FILE, run)
+        _append_history(run)
+
+        state = get_scheduler_state()
+        state["last_status"] = run["status"]
+        state["last_finished_at"] = run["finished_at"]
+        state["last_message"] = run.get("message")
+        state["updated_at"] = _now()
+        _write_json(STATE_FILE, state)
+
+        return run
+
+
+async def start_safe_scheduler_loop() -> None:
+    while True:
+        state = get_scheduler_state()
+        interval = int(state.get("interval_seconds", DEFAULT_INTERVAL_SECONDS))
+        if state.get("enabled") is True:
+            await run_safe_autonomous_cycle(reason="scheduled")
+        await asyncio.sleep(max(interval, 300))
+
+
+def start_background_scheduler() -> Dict[str, Any]:
+    global _scheduler_task
+    if _scheduler_task and not _scheduler_task.done():
+        return {"status": "ok", "message": "Safe scheduler loop already running."}
+    try:
+        loop = asyncio.get_running_loop()
+        _scheduler_task = loop.create_task(start_safe_scheduler_loop())
+        return {"status": "ok", "message": "Safe scheduler loop started."}
+    except RuntimeError:
+        return {"status": "error", "message": "No running event loop available."}
+
+
+def get_safe_scheduler_status(limit: int = 20) -> Dict[str, Any]:
+    history = _read_json(HISTORY_FILE, [])
+    if not isinstance(history, list):
+        history = []
+    return {
+        "status": "ok",
+        "service_version": "LMCP_SAFE_AUTONOMOUS_SCHEDULER_V2_QUOTE_ENGINE",
+        "state": get_scheduler_state(),
+        "last_run": _read_json(LAST_RUN_FILE, {}),
+        "recent_runs": history[-limit:],
+        "background_loop_running": bool(_scheduler_task and not _scheduler_task.done()),
+        "files": {"state": str(STATE_FILE), "history": str(HISTORY_FILE), "last_run": str(LAST_RUN_FILE)},
+        "updated_at": _now(),
+    }
+
+
+async def enable_safe_scheduler() -> Dict[str, Any]:
+    state = update_scheduler_state({"enabled": True})
+    loop_result = start_background_scheduler()
+    return {"status": "ok", "state": state, "loop": loop_result}
+
+
+def disable_safe_scheduler() -> Dict[str, Any]:
+    state = update_scheduler_state({"enabled": False})
+    return {"status": "ok", "state": state, "message": "Safe scheduler disabled."}

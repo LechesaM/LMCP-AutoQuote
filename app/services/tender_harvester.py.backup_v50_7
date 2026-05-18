@@ -1,0 +1,2471 @@
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import requests
+
+from app.services.system_control_service import get_system_control_state
+
+try:
+    from app.services.rfq_document_intelligence import analyse_rfq_documents
+except Exception:  # pragma: no cover
+    analyse_rfq_documents = None
+
+try:
+    from app.services.rfq_boq_extraction_engine import extract_rfq_boq
+except Exception:  # pragma: no cover
+    extract_rfq_boq = None
+
+try:
+    from app.services.rfq_document_acquisition_engine import acquire_rfq_documents
+except Exception:  # pragma: no cover
+    acquire_rfq_documents = None
+
+try:
+    from app.services.rfq_zip_content_extraction_engine import extract_zip_contents
+except Exception:  # pragma: no cover
+    extract_zip_contents = None
+
+try:
+    from app.services.rfq_docx_main_document_intelligence import analyse_docx_main_document
+except Exception:  # pragma: no cover
+    analyse_docx_main_document = None
+
+try:
+    from app.services.real_buyer_pricing_engine import price_verified_rfq
+except Exception:  # pragma: no cover
+    price_verified_rfq = None
+
+logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RUNTIME_DIR = PROJECT_ROOT / "runtime"
+RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+PAUSE_FILE = RUNTIME_DIR / "harvester.paused"
+DEFAULT_SOURCE_FILE = PROJECT_ROOT / "app" / "data" / "harvest_sources.json"
+SOURCE_HEALTH_FILE = RUNTIME_DIR / "source_health.json"
+
+ETENDERS_URL = "https://www.etenders.gov.za/Home/opportunities"
+
+AI_AGENT_PROFILE = "chatgpt_codex_ready"
+AI_PRIMARY_MODEL_HINT = "gpt-5.4"
+AI_FAST_MODEL_HINT = "gpt-5.4-mini"
+AI_API_STYLE_HINT = "responses_api"
+AI_ORCHESTRATION_HINT = "agents_sdk"
+
+DEFAULT_MINIMUM_MARGIN_PCT = 25.0
+
+try:
+    from app.services.real_rfq_detail_navigation_v49_service import analyse_rfq_detail_navigation
+except Exception:  # pragma: no cover
+    analyse_rfq_detail_navigation = None
+
+try:
+    from app.services.detail_page_follow_v49_1_service import follow_detail_pages
+except Exception:  # pragma: no cover
+    follow_detail_pages = None
+
+
+DEFAULT_MINIMUM_PROFIT = 30000.0
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _clean(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _safe_lower(value: Any) -> str:
+    return _clean(value).lower()
+
+
+def _safe_positive_int(value: Any, default: int) -> int:
+    try:
+        if value is None or value == "":
+            return int(default)
+        parsed = int(value)
+        return parsed if parsed > 0 else int(default)
+    except Exception:
+        return int(default)
+
+
+def _safe_float(value: Any, default: float) -> float:
+    try:
+        if value is None or value == "":
+            return float(default)
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _truncate(value: str, max_len: int = 180) -> str:
+    value = _clean(value)
+    return value if len(value) <= max_len else value[: max_len - 3].rstrip() + "..."
+
+
+def _looks_like_attachment_name(text: str) -> bool:
+    t = _safe_lower(text)
+    return t.endswith((".xlsx", ".xls", ".doc", ".docx", ".pdf", ".csv", ".zip"))
+
+
+def _extract_closing_date(text: str) -> str:
+    text = _clean(text)
+    match = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", text)
+    if not match:
+        return ""
+    dd, mm, yyyy = match.group(1).split("/")
+    return f"{yyyy}-{mm}-{dd}"
+
+
+def _extract_years(text: str) -> List[int]:
+    years: List[int] = []
+    for y in re.findall(r"\b(20\d{2})\b", _clean(text)):
+        try:
+            years.append(int(y))
+        except Exception:
+            pass
+    return years
+
+
+def _contains_only_old_years(text: str, min_year: int = 2025) -> bool:
+    years = _extract_years(text)
+    return bool(years) and max(years) < min_year
+
+
+def _dedupe_keep_order(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    output: List[Dict[str, Any]] = []
+    for item in items:
+        key = (
+            _clean(item.get("title")),
+            _clean(item.get("rfq_number") or item.get("reference_number")),
+            _clean(item.get("closing_date")),
+            _clean(item.get("source_url")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(item)
+    return output
+
+
+
+def _v50_clean_etenders_title(text: str) -> str:
+    """
+    V50.5:
+    Remove eTenders category contamination before item creation.
+    """
+
+    t = _clean(text)
+
+    if not t:
+        return ""
+
+    patterns = [
+        r"^Supplies:\s*.*?(?=\b(SUPPLY|REQUEST|RFQ|RFP|BID|TENDER|APPOINTMENT|PROCUREMENT|RE-ADVERTISEMENT|SERVICE:)\b)",
+        r"^Services:\s*.*?(?=\b(SUPPLY|REQUEST|RFQ|RFP|BID|TENDER|APPOINTMENT|PROCUREMENT|RE-ADVERTISEMENT|SERVICE:)\b)",
+        r"^Manufacture of .*?(?=\b(SUPPLY|REQUEST|RFQ|RFP|BID|TENDER|APPOINTMENT|PROCUREMENT|RE-ADVERTISEMENT|SERVICE:)\b)",
+        r"^Administrative and support activities\s+",
+        r"^Other service activities\s+",
+        r"^Water supply;.*?(?=\b(SUPPLY|REQUEST|RFQ|RFP|BID|TENDER|APPOINTMENT|PROCUREMENT|RE-ADVERTISEMENT|SERVICE:)\b)",
+    ]
+
+    cleaned = t
+
+    for pattern in patterns:
+        cleaned2 = re.sub(pattern, "", cleaned, flags=re.I).strip(" :-–—|\t\n")
+        if cleaned2 and cleaned2 != cleaned:
+            cleaned = cleaned2
+
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+
+    return cleaned or t
+
+
+
+def _base_item(source: Dict[str, Any], text: str, url: str = "") -> Dict[str, Any]:
+    text = _clean(text)
+    text = _v50_clean_etenders_title(text)
+
+    src_name = _clean(source.get("source_name") or source.get("name") or "Unknown Source")
+    src_url = _clean(url or source.get("url") or source.get("list_url"))
+
+    title = _truncate(text, 180)
+    return {
+        "title": title,
+        "description": text,
+        "buyer_name": src_name,
+        "buyer_rfq_number": title,
+        "rfq_number": title,
+        "reference_number": title,
+        "published_date": "",
+        "closing_date": _extract_closing_date(text),
+        "submission_method": _clean(source.get("submission_method") or "portal"),
+        "recipient_email": _clean(source.get("recipient_email") or source.get("buyer_email")),
+        "buyer_email": _clean(source.get("buyer_email") or source.get("recipient_email")),
+        "document_url": src_url,
+        "source_url": src_url,
+        "detail_url": "",
+        "briefing_required": False,
+        "source": src_name,
+        "source_name": src_name,
+        "portal_name": src_name,
+        "raw_text": text,
+        "ai_agent_profile": AI_AGENT_PROFILE,
+        "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT,
+        "ai_fast_model_hint": AI_FAST_MODEL_HINT,
+        "ai_api_style_hint": AI_API_STYLE_HINT,
+        "ai_orchestration_hint": AI_ORCHESTRATION_HINT,
+    }
+
+
+def load_harvest_sources(source_file: Optional[str] = None) -> List[Dict[str, Any]]:
+    path = Path(source_file) if source_file else DEFAULT_SOURCE_FILE
+    if not path.exists():
+        logger.warning("Source file not found: %s", path)
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.exception("Failed to read source file: %s", exc)
+        return []
+
+    if isinstance(data, dict):
+        if isinstance(data.get("sources"), list):
+            data = data["sources"]
+        else:
+            data = [data]
+
+    sources: List[Dict[str, Any]] = []
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        normalized["name"] = _clean(item.get("name") or item.get("source_name"))
+        normalized["source_name"] = normalized["name"]
+        normalized["url"] = _clean(item.get("url") or item.get("list_url"))
+        normalized["list_url"] = _clean(item.get("list_url") or normalized["url"])
+        normalized["type"] = _safe_lower(item.get("type"))
+        normalized["enabled"] = bool(item.get("enabled", True))
+        normalized["priority"] = int(item.get("priority") or 9999)
+        normalized["intelligence_score"] = int(item.get("intelligence_score") or 0)
+        normalized["submission_method"] = _clean(item.get("submission_method") or "portal")
+        sources.append(normalized)
+
+    sources.sort(key=lambda s: (s.get("priority", 9999), -int(s.get("intelligence_score", 0)), s.get("name", "")))
+    return sources
+
+
+def count_loaded_sources(source_file: Optional[str] = None) -> Dict[str, int]:
+    sources = load_harvest_sources(source_file)
+    enabled = sum(1 for s in sources if s.get("enabled", True))
+    disabled = len(sources) - enabled
+    return {"total": len(sources), "enabled": enabled, "disabled": disabled}
+
+
+def get_harvester_health(source_file: Optional[str] = None) -> Dict[str, Any]:
+    counts = count_loaded_sources(source_file)
+    return {
+        "checked_at": _now_iso(),
+        "status": "paused" if PAUSE_FILE.exists() else "running",
+        "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)) if PAUSE_FILE.exists() or PAUSE_FILE.parent.exists() else str(PAUSE_FILE),
+        "sources": counts,
+        "source_health_file": str(SOURCE_HEALTH_FILE.relative_to(PROJECT_ROOT)),
+        "ai_agent_profile": AI_AGENT_PROFILE,
+        "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT,
+        "ai_api_style_hint": AI_API_STYLE_HINT,
+    }
+
+
+def _load_source_health() -> Dict[str, Any]:
+    if not SOURCE_HEALTH_FILE.exists():
+        return {}
+    try:
+        data = json.loads(SOURCE_HEALTH_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_source_health(data: Dict[str, Any]) -> None:
+    try:
+        SOURCE_HEALTH_FILE.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("Failed to save source health: %s", exc)
+
+
+def _source_key(source: Dict[str, Any]) -> str:
+    return _clean(source.get("name") or source.get("source_name") or source.get("url") or "unknown")
+
+
+def _record_source_result(source: Dict[str, Any], ok: bool, harvested: int = 0, error: str = "") -> None:
+    health = _load_source_health()
+    key = _source_key(source)
+    row = health.get(key, {}) if isinstance(health.get(key), dict) else {}
+    row["name"] = key
+    row["last_checked_at"] = _now_iso()
+    row["last_harvested"] = int(harvested or 0)
+    if ok:
+        row["failure_count"] = 0
+        row["last_success_at"] = _now_iso()
+        row["last_error"] = ""
+    else:
+        row["failure_count"] = int(row.get("failure_count") or 0) + 1
+        row["last_error"] = _truncate(error, 240)
+    health[key] = row
+    _save_source_health(health)
+
+
+def _source_is_temporarily_bad(source: Dict[str, Any], max_failures: int = 2) -> bool:
+    health = _load_source_health()
+    row = health.get(_source_key(source), {})
+    if not isinstance(row, dict):
+        return False
+    return int(row.get("failure_count") or 0) >= max_failures
+
+
+def select_sources_for_cycle(sources: List[Dict[str, Any]], max_sources_per_cycle: int, include_bad_sources: bool = False) -> List[Dict[str, Any]]:
+    max_sources_per_cycle = _safe_positive_int(max_sources_per_cycle, 20)
+    enabled = [s for s in sources if s.get("enabled", True)]
+    core: List[Dict[str, Any]] = []
+    others: List[Dict[str, Any]] = []
+    for src in enabled:
+        name = _safe_lower(src.get("name") or src.get("source_name"))
+        group = _safe_lower(src.get("source_group") or src.get("category_group"))
+        if "etenders" in name or group == "etenders":
+            core.append(src)
+        else:
+            others.append(src)
+    if not include_bad_sources:
+        others = [s for s in others if not _source_is_temporarily_bad(s)]
+    def rank(src: Dict[str, Any]) -> Tuple[int, int, str]:
+        return (int(src.get("priority") or 9999), -int(src.get("intelligence_score") or 0), _clean(src.get("name")))
+    selected = sorted(core, key=rank) + sorted(others, key=rank)
+    return selected[:max_sources_per_cycle]
+
+
+NAVIGATION_NOISE_EXACT = {
+    "tenders", "tender", "quotations", "quotation", "request for quotation", "request for bid",
+    "request for bid (open-tender)", "request for bid (limited-tender)", "tender number", "advertised tenders",
+    "transnet soc ltd tenders", "jobs, bursaries and tenders", "about e-tender", "tender bulletin",
+    "tender process", "tender document download", "save tender: easily save tenders to your profile.",
+    "new and additional power supply", "procurement", "supplier database", "open tenders", "closed tenders", "download",
+}
+
+CATEGORY_LABELS = {
+    "construction", "supplies: general", "supplies: electrical equipment", "supplies: stationery/printing",
+    "supplies: computer equipment", "services: professional", "services: general", "other service activities",
+    "scientific research and development", "education", "security and investigation activities",
+    "water supply; sewerage, waste management and remediation activities",
+    "wholesale and retail trade and repair of motor vehicles and motorcycles",
+    "office administrative, office support and other business support activities",
+}
+
+NOISE_PATTERNS = [
+    "login required", "it seems like you are not logged in", "tender opportunities", "currently advertised tenders",
+    "category tender description esubmission advertised closing", "use quick find", "advanced search", "reset all filters",
+    "download excel", "download pdf", "please wait", "home page - etenders portal", "opportunities - etenders portal",
+    "please note we are only searching open or active tenders", "please note we are only searching for open/active tenders",
+    "this site provides access to information on all tenders made by all public sector organisations",
+    "home page - transnet e-tenders", "search for advertised tenders", "browse opportunities", "please click on browse opportunities",
+    "to filter through tenders with more control", "customerzation", "please continue to check both the e-tender system",
+    "new esupplier portal", "on the tender results table below", "sign to expand tender details and to download tender documents",
+    "to become a transnet supplier", "preset standards which are required in order to supply certain items or services",
+    "can these specifications be issued as they are in a bid", "publication of tender", "when transnet needs to procure goods, services or works",
+    "transnet soc ltd tenders", "minimum bid evaluation and award criteria", "toggle child menu", "expand generationtoggle",
+    "skip to content", "sitemap", "privacy policy", "recent comments", "follow us", "all rights reserved", "no matching records found",
+]
+
+
+# Strict pre-harvest guard: these are portal/category wrappers unless the row contains
+# a clear goods/supply RFQ signal. This prevents navigation/category rows from entering
+# candidate scoring, while still preserving genuine supply-and-delivery tenders.
+EARLY_BLOCK_TITLES = {
+    "request for quotation",
+    "request for bid",
+    "request for bid (open-tender)",
+    "request for bid (limited-tender)",
+    "save tender: easily save tenders to your profile.",
+    "advertised tenders",
+    "tenders",
+    "tender",
+    "construction",
+    "accommodation",
+    "services: general",
+    "services: professional",
+    "services: electrical",
+    "other service activities",
+    "civil engineering",
+    "administrative and support activities",
+    "postal and courier activities",
+    "transportation and storage",
+    "other manufacturing",
+    "information and communication",
+    "disposals: general",
+}
+
+CATEGORY_PREFIXES = tuple(sorted(EARLY_BLOCK_TITLES | {
+    "supplies: general",
+    "supplies: electrical equipment",
+    "supplies: stationery/printing",
+    "supplies: clothing/textiles/footwear",
+    "supplies: computer equipment",
+    "manufacturing",
+    "water collection, treatment and supply",
+    "wholesale and retail trade and repair of motor vehicles and motorcycles",
+    "scientific research and development",
+}, key=len, reverse=True))
+
+REAL_SUPPLY_PHRASES = (
+    "supply and delivery",
+    "supply & delivery",
+    "supply, delivery",
+    "supply and deliver",
+    "supply, deliver",
+    "supply of",
+    "delivery of",
+    "procurement of",
+    "procure and delivery",
+    "procure and deliver",
+    "supply, install",
+    "supply and installation",
+    "supply and install",
+)
+
+ADDRESS_OR_INSTRUCTION_NOISE = (
+    "delivery address:",
+    "bid documents must be deposited",
+    "the physical size of the bid response",
+    "international suppliers may email",
+    "tender box aperture",
+    "documents must be deposited",
+)
+
+REAL_RFQ_INTENT_TERMS = [
+    "rfq", "request for quotation", "quotation for", "supply and delivery", "supply & delivery", "supply, delivery",
+    "supply of", "delivery of", "bid for supply", "tender for supply",
+]
+WEAK_INTENT_TERMS = ["tender", "bid", "quotation", "supply", "delivery", "installation"]
+
+
+def _is_noise_row(text: str) -> bool:
+    t = _safe_lower(text)
+    if not t or len(t) < 30:
+        return True
+    if t in NAVIGATION_NOISE_EXACT or t in CATEGORY_LABELS or t in EARLY_BLOCK_TITLES:
+        return True
+    if any(noise in t for noise in ADDRESS_OR_INSTRUCTION_NOISE):
+        return True
+    if _looks_like_attachment_name(t):
+        return True
+    if _contains_only_old_years(t):
+        return True
+    if "toggle" in t or "child menu" in t or "menu expand" in t:
+        return True
+    if t.count("download") >= 4:
+        return True
+    return any(pattern in t for pattern in NOISE_PATTERNS)
+
+
+def _has_real_rfq_intent(text: str) -> bool:
+    t = _safe_lower(text)
+    if any(term in t for term in REAL_RFQ_INTENT_TERMS):
+        return True
+    weak_hits = sum(1 for term in WEAK_INTENT_TERMS if term in t)
+    return weak_hits >= 2 and len(t) >= 80
+
+
+def _real_rfq_structure_score(text: str) -> Dict[str, Any]:
+    """Score whether a row is structurally a real RFQ/tender opportunity.
+
+    This gate is intentionally stricter than keyword intent. It rewards actual
+    procurement structure and heavily penalises portal boilerplate, fraud
+    warnings, landing pages, instructions, and expired/cancelled notices.
+    """
+    t = _safe_lower(text)
+    score = 0
+    reasons: List[str] = []
+
+    if not t:
+        return {"real_rfq_structure_score": 0, "real_rfq_structure_reasons": ["empty"], "real_rfq_structurally_valid": False}
+
+    # Hard boilerplate / non-opportunity penalties.
+    boilerplate = [
+        "fake and fraudulent",
+        "prospective suppliers are warned",
+        "tender adjudication committee",
+        "can be downloaded from",
+        "rfq can be downloaded from",
+        "procurement | development bank",
+        "rfp & rfq procurement",
+        "regarding quotations",
+        "supplier database",
+        "the idc advertises",
+        "as part of the tender evaluation process",
+        "for construction tenders. regarding quotations",
+        "to become a transnet supplier",
+        "minimum bid evaluation and award criteria",
+        "publication of tender",
+        "tender process",
+        "tender document download",
+        "tender bulletin",
+        "about e-tender",
+        "request for bid (open-tender)",
+        "request for bid (limited-tender)",
+        "save tender: easily save tenders to your profile",
+    ]
+    if any(x in t for x in boilerplate):
+        score -= 80
+        reasons.append("boilerplate_or_warning")
+
+    # Cancelled/closed opportunities should not become quote candidates.
+    if any(x in t for x in ["cancellation notice", "cancelled tender", "tender cancellation", "closed tender", "withdrawn"]):
+        score -= 80
+        reasons.append("cancelled_or_closed")
+
+    # RFQ/RFP/tender reference patterns.
+    reference_patterns = [
+        r"\b(rfq|rfp|bid|tender)\s*(no|number|ref|reference)?\s*[:/#\-]?\s*[a-z0-9][a-z0-9/&_.\-]{2,}",
+        r"\b(ref|reference)\s*(no|number)?\s*[:/#\-]?\s*[a-z0-9][a-z0-9/&_.\-]{2,}",
+        r"\b[a-z]{2,}/?\d{2,}/?\d{2,}",
+        r"\b\d{2,}/\d{4}\b",
+    ]
+    if any(re.search(pattern, t, flags=re.I) for pattern in reference_patterns):
+        score += 25
+        reasons.append("reference_number")
+
+    # Dates and duration/value clues.
+    if re.search(r"\b\d{2}/\d{2}/20\d{2}\b|\b20\d{2}-\d{2}-\d{2}\b", t):
+        score += 20
+        reasons.append("closing_or_advert_date")
+    if re.search(r"\b(period of|for a period|\d+\s*(days?|months?|years?)|three years|five years|36 months|24 months|12 months)\b", t):
+        score += 15
+        reasons.append("duration_or_contract_period")
+
+    # Core LMCP target signal.
+    if any(x in t for x in ["supply and delivery", "supply, delivery", "supply & delivery", "supply and deliver", "supply, deliver"]):
+        score += 35
+        reasons.append("supply_delivery")
+    elif any(x in t for x in ["supply of", "delivery of", "procurement of", "offloading of"]):
+        score += 25
+        reasons.append("supply_or_delivery")
+
+    if any(x in t for x in ["appointment of", "request for quotation", "request for proposal", "bid description", "tender advert", "retender"]):
+        score += 15
+        reasons.append("procurement_action")
+
+    if any(x in t for x in ["boq", "bill of quantities", "specification", "scope of work", "pricing schedule", "quantity", "offloading", "tender volume", "annexures"]):
+        score += 10
+        reasons.append("documents_or_specs")
+
+    # Buyer/portal rows with only generic RFQ text are not enough.
+    if len(t) < 35 and not any(x in t for x in ["supply and delivery", "supply of", "delivery of"]):
+        score -= 20
+        reasons.append("too_short")
+
+    valid = score >= 45
+    return {
+        "real_rfq_structure_score": max(0, score),
+        "real_rfq_structure_reasons": reasons,
+        "real_rfq_structurally_valid": bool(valid),
+    }
+
+
+def _is_structural_real_rfq(text: str) -> bool:
+    return bool(_real_rfq_structure_score(text).get("real_rfq_structurally_valid"))
+
+
+def _has_real_supply_signal(text: str) -> bool:
+    t = _safe_lower(text)
+    return any(phrase in t for phrase in REAL_SUPPLY_PHRASES)
+
+
+
+def _lmcp_safe_assign_identity_fields(
+    item: Dict[str, Any],
+    candidate_value: str,
+) -> Dict[str, Any]:
+    """
+    Prevent category/listing labels from polluting RFQ identity fields.
+    """
+
+    candidate_value = _clean(candidate_value)
+    candidate_value = _strip_leading_category(candidate_value)
+
+    if not candidate_value:
+        return item
+
+    blocked_values = {
+        "supplies: general",
+        "services: general",
+        "administrative and support activities",
+        "other service activities",
+        "manufacture of textiles",
+        "manufacture of chemicals and chemical products",
+        "construction",
+        "supplies computer equipment",
+    }
+
+    normalized = _safe_lower(candidate_value)
+
+    if normalized in blocked_values:
+        item.setdefault("identity_assignment_blocked", True)
+        item.setdefault("identity_assignment_block_reason", "generic_category_label")
+        return item
+
+    # Do not overwrite a better extracted reference
+    existing = _clean(
+        item.get("buyer_rfq_number_normalized")
+        or item.get("extracted_reference_number")
+        or item.get("reference_number")
+        or item.get("rfq_number")
+    )
+
+    existing_has_digits = bool(re.search(r"\d", existing))
+    candidate_has_digits = bool(re.search(r"\d", candidate_value))
+
+    if existing and existing_has_digits and not candidate_has_digits:
+        return item
+
+    item["buyer_rfq_number"] = _truncate(candidate_value, 180)
+    item["rfq_number"] = _truncate(candidate_value, 180)
+    item["reference_number"] = _truncate(candidate_value, 180)
+
+    return item
+
+
+
+def _strip_leading_category(text: str) -> str:
+    """
+    V50.4: Remove eTenders sector/category wrappers before RFQ identity/scoring.
+    Example:
+    "Supplies: Clothing/Textiles/Footwear SUPPLY AND DELIVERY..."
+    -> "SUPPLY AND DELIVERY..."
+    """
+    t = _clean(text)
+    lower = t.lower()
+
+    for prefix in CATEGORY_PREFIXES:
+        if lower.startswith(prefix):
+            return t[len(prefix):].strip(" :-–—|\t\n")
+
+    # Broader eTenders category wrappers not always covered by CATEGORY_PREFIXES.
+    broad_patterns = [
+        r"^supplies:\s*[^\n\r]*?\b(?=(supply|request|rfq|rfp|bid|tender|appointment|procurement|re-advertisement)\b)",
+        r"^services:\s*[^\n\r]*?\b(?=(supply|request|rfq|rfp|bid|tender|appointment|procurement|re-advertisement)\b)",
+        r"^manufacture of [^\n\r]*?\b(?=(supply|request|rfq|rfp|bid|tender|appointment|procurement|re-advertisement)\b)",
+        r"^water supply;[^\n\r]*?\b(?=(supply|request|rfq|rfp|bid|tender|appointment|procurement|re-advertisement)\b)",
+        r"^other service activities\s+",
+        r"^administrative and support activities\s+",
+    ]
+
+    for pattern in broad_patterns:
+        stripped = re.sub(pattern, "", t, flags=re.I).strip(" :-–—|\t\n")
+        if stripped != t and stripped:
+            return stripped
+
+    return t
+
+
+def _should_skip_preharvest_candidate(text: str, title: str = "") -> bool:
+    combined = re.sub(r"\s+", " ", f"{title} {text}").strip()
+    normalized = _safe_lower(combined)
+    normalized_title = _safe_lower(title)
+
+    if not normalized:
+        return True
+
+    if any(noise in normalized for noise in ADDRESS_OR_INSTRUCTION_NOISE):
+        return True
+
+    if normalized in NAVIGATION_NOISE_EXACT or normalized in EARLY_BLOCK_TITLES:
+        return True
+
+    if normalized_title in EARLY_BLOCK_TITLES and not _has_real_supply_signal(normalized):
+        return True
+
+    # eTenders category rows often start with a sector label followed by the actual RFQ.
+    # If the remaining text still lacks a true supply/procurement signal, discard it early.
+    stripped = _safe_lower(_strip_leading_category(combined))
+    starts_with_category = any(normalized.startswith(prefix) for prefix in CATEGORY_PREFIXES)
+    if starts_with_category and not _has_real_supply_signal(stripped):
+        return True
+
+    if _is_noise_row(combined):
+        return True
+
+    if not _has_real_rfq_intent(combined):
+        return True
+
+    if not _is_structural_real_rfq(combined):
+        return True
+
+    return False
+
+
+def _direct_etenders(source: Dict[str, Any], max_items: int, headless: bool) -> List[Dict[str, Any]]:
+    try:
+        from app.services.etenders_playwright import run_etenders_playwright  # type: ignore
+        try:
+            data = run_etenders_playwright(max_items=max_items, headless=headless)
+        except TypeError:
+            data = run_etenders_playwright(max_items=max_items)
+        if not isinstance(data, list):
+            return []
+        results: List[Dict[str, Any]] = []
+        for raw in data:
+            if not isinstance(raw, dict):
+                continue
+            raw_text_value = _clean(raw.get("raw_text") or raw.get("description") or raw.get("title"))
+            text = _v50_clean_etenders_title(raw_text_value)
+            title = _v50_clean_etenders_title(_clean(raw.get("title") or text))
+
+            if not text:
+                continue
+
+            if _should_skip_preharvest_candidate(text, title):
+                continue
+
+            item = _base_item(source, text, _clean(source.get("url") or ETENDERS_URL))
+            item["raw_text_original"] = raw_text_value
+
+            category_like_titles = {
+                "manufacture of textiles",
+                "other service activities",
+                "administrative and support activities",
+                "water supply; sewerage, waste management and remediation activities",
+            }
+
+            title_for_record = title
+            if _safe_lower(title_for_record) in category_like_titles:
+                title_for_record = text
+
+            item["title"] = _truncate(title_for_record, 180)
+            item["description"] = text
+            _lmcp_safe_assign_identity_fields(item, title_for_record)
+            item["buyer_name"] = _clean(raw.get("buyer_name") or source.get("name") or "eTenders")
+            item["source_name"] = _clean(source.get("name") or "eTenders Web")
+            item["source"] = item["source_name"]
+            item["portal_name"] = item["source_name"]
+            item["closing_date"] = _clean(raw.get("closing_date") or _extract_closing_date(text))
+            results.append(item)
+        return _dedupe_keep_order(results)[:max_items]
+    except Exception as exc:
+        logger.warning("Direct eTenders parser failed for %s: %s", source.get("name"), exc)
+        return []
+
+
+def run_generic_scraper(source: Dict[str, Any], timeout: int = 8, max_items: int = 20) -> List[Dict[str, Any]]:
+    url = _clean(source.get("url") or source.get("list_url"))
+    max_items = _safe_positive_int(max_items, 20)
+    if not url:
+        return []
+    try:
+        response = requests.get(url, timeout=timeout, verify=bool(source.get("verify_ssl", True)), headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0"})
+        response.raise_for_status()
+        html = response.text
+    except Exception as exc:
+        _record_source_result(source, ok=False, harvested=0, error=str(exc))
+        logger.warning("Static scrape failed for %s: %s", source.get("name"), exc)
+        return []
+    candidates = re.findall(r">([^<>]{20,800})<", html)
+    results: List[Dict[str, Any]] = []
+    for raw in candidates:
+        text = re.sub(r"\s+", " ", raw).strip()
+        if _should_skip_preharvest_candidate(text):
+            continue
+        results.append(_base_item(source, text, url))
+        if len(results) >= max_items:
+            break
+    _record_source_result(source, ok=True, harvested=len(results))
+    return _dedupe_keep_order(results)
+
+
+def run_playwright_generic_scraper(source: Dict[str, Any], max_items: int = 20, headless: bool = True) -> List[Dict[str, Any]]:
+    url = _clean(source.get("url") or source.get("list_url"))
+    max_items = _safe_positive_int(max_items, 20)
+    if not url:
+        return []
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception as exc:
+        logger.warning("Playwright unavailable, using static fallback for %s: %s", source.get("name"), exc)
+        return run_generic_scraper(source, max_items=max_items)
+    results: List[Dict[str, Any]] = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=headless)
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=18000)
+            page.wait_for_timeout(1200)
+            row_selectors = ["table tbody tr", "table tr", ".table tbody tr"]
+            rows = []
+            for selector in row_selectors:
+                rows = page.query_selector_all(selector)
+                if rows:
+                    break
+            for row in rows:
+                try:
+                    cols = row.query_selector_all("td")
+                    if len(cols) < 2:
+                        continue
+                    text = " ".join(_clean(c.inner_text()) for c in cols if _clean(c.inner_text()))
+                    text = re.sub(r"\s+", " ", text).strip()
+                    second = _clean(cols[1].inner_text()) if len(cols) >= 2 else ""
+                    if _should_skip_preharvest_candidate(text, second):
+                        continue
+                    item = _base_item(source, text, url)
+                    if second and not _is_noise_row(second) and not _should_skip_preharvest_candidate(text, second):
+                        item["title"] = _truncate(second, 180)
+                        _lmcp_safe_assign_identity_fields(item, second)
+                    if cols:
+                        last_text = _clean(cols[-1].inner_text())
+                        if _extract_closing_date(last_text):
+                            item["closing_date"] = _extract_closing_date(last_text)
+                    results.append(item)
+                    if len(results) >= max_items:
+                        break
+                except Exception:
+                    continue
+            browser.close()
+    except Exception as exc:
+        _record_source_result(source, ok=False, harvested=0, error=str(exc))
+        logger.warning("Playwright scrape failed for %s: %s", source.get("name"), exc)
+        return run_generic_scraper(source, max_items=max_items)
+    _record_source_result(source, ok=True, harvested=len(results))
+    return _dedupe_keep_order(results)[:max_items]
+
+
+def run_ocds_api_harvester(source: Dict[str, Any], max_items: int = 20, timeout: int = 8) -> List[Dict[str, Any]]:
+    url = _clean(source.get("url") or source.get("list_url"))
+    max_items = _safe_positive_int(max_items, 20)
+    if not url:
+        return []
+    try:
+        response = requests.get(url, timeout=timeout, verify=bool(source.get("verify_ssl", True)))
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:
+        _record_source_result(source, ok=False, harvested=0, error=str(exc))
+        logger.warning("OCDS/API harvest failed for %s: %s", source.get("name"), exc)
+        return []
+    records: List[Dict[str, Any]] = []
+    if isinstance(data, dict):
+        for key in ("releases", "records", "results", "items"):
+            if isinstance(data.get(key), list):
+                records = data[key]
+                break
+        if not records:
+            records = [data]
+    elif isinstance(data, list):
+        records = data
+    results: List[Dict[str, Any]] = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        tender_obj = rec.get("tender") if isinstance(rec.get("tender"), dict) else {}
+        title = _clean(rec.get("title")) or _clean(tender_obj.get("title")) or _clean(rec.get("ocid"))
+        desc = _clean(rec.get("description")) or _clean(tender_obj.get("description")) or title
+        text = re.sub(r"\s+", " ", f"{title} {desc}").strip()
+        if _should_skip_preharvest_candidate(text, title):
+            continue
+        item = _base_item(source, text, url)
+        item["title"] = _truncate(title or desc, 180)
+        _lmcp_safe_assign_identity_fields(item, _clean(rec.get("ocid") or title or desc))
+        results.append(item)
+        if len(results) >= max_items:
+            break
+    _record_source_result(source, ok=True, harvested=len(results))
+    return _dedupe_keep_order(results)
+
+
+EXCLUDED_KEYWORDS = [
+    "medical", "biomedical", "pharmaceutical", "clinic supplies", "clinic services", "dna equipment",
+    "laptop", "computer", "printer", "server", "router", "software", "license renewal", "sage 300", "ict related", "digital application",
+    "petrol", "diesel", "fuel", "catering", "canteen", "construction", "civil", "road", "bridge", "reticulation", "sewer", "water treatment",
+    "event management", "entertainment", "maintenance contract", "maintenance of", "service provider", "repair and installation", "cleaning services",
+    "security services", "security and investigation", "legal panel", "bee verification", "screening and company checks",
+]
+CONTEXTUAL_EXCLUDED_PATTERNS = [
+    "microsoft licensing",
+    "microsoft dynamics",
+    "microsoft office",
+    "office 365",
+    "software licensing",
+    "ict support services",
+    "managed it services",
+    "training services",
+    "skills training",
+    "facilitator",
+    "capacity building",
+]
+
+SCREEN_OUT_KEYWORDS = ["request for information", "expression of interest", "lease of immovable property", "rental and leasing", "other service activities"]
+SUPPLY_OVERRIDE_TERMS = ["supply and delivery", "supply, delivery", "supply & delivery", "supply of", "delivery of", "manufacture, testing, supply and delivery", "water collection, treatment and supply"]
+AUTO_PROMOTE_TERMS = ["supply and delivery", "supply, delivery", "supply & delivery", "supply of", "delivery of", "manufacture, testing, supply and delivery"]
+
+
+
+GENERIC_CATEGORY_TERMS = [
+    "administrative and support activities",
+    "manufacturing",
+    "construction",
+    "community social and personal services",
+    "other service activities",
+]
+
+REFERENCE_PATTERNS = [
+    "rfq",
+    "rfp",
+    "bid",
+    "tender",
+    "scm",
+    "quotation",
+]
+
+
+def _is_generic_listing_or_category_page(item: Dict[str, Any]) -> bool:
+    title = _safe_lower(item.get("title"))
+    raw_text = _safe_lower(item.get("raw_text") or item.get("description"))
+    buyer_rfq = _safe_lower(item.get("buyer_rfq_number"))
+    reference_number = _safe_lower(item.get("reference_number"))
+
+    combined = " ".join([title, raw_text, buyer_rfq, reference_number])
+
+    if any(term in title for term in GENERIC_CATEGORY_TERMS):
+        return True
+
+    if any(term in raw_text for term in GENERIC_CATEGORY_TERMS):
+        # Allow only if a strong RFQ/reference pattern is also present.
+        if not any(pattern in combined for pattern in REFERENCE_PATTERNS):
+            return True
+
+    return False
+
+
+def _has_strong_rfq_identity(item: Dict[str, Any]) -> bool:
+    title = _safe_lower(item.get("title"))
+    raw_text = _safe_lower(item.get("raw_text") or item.get("description"))
+    buyer_rfq = _safe_lower(item.get("buyer_rfq_number"))
+    reference_number = _safe_lower(item.get("reference_number"))
+
+    combined = " ".join([title, raw_text, buyer_rfq, reference_number])
+
+    if any(pattern in combined for pattern in REFERENCE_PATTERNS):
+        return True
+
+    # Keep clean supply/delivery opportunities visible only if they contain
+    # real procurement wording plus a date/period signal.
+    supply_delivery = any(
+        term in combined
+        for term in [
+            "supply and delivery",
+            "supply, delivery",
+            "supply & delivery",
+            "delivery of",
+        ]
+    )
+
+    date_or_period_signal = bool(
+        __import__("re").search(r"\b\d{2}/\d{2}/\d{4}\b", combined)
+        or "closing date" in combined
+        or "period of" in combined
+        or "for a period" in combined
+        or "months" in combined
+        or "years" in combined
+    )
+
+    return bool(supply_delivery and date_or_period_signal)
+
+
+def _score_profit_and_risk(raw: str) -> Dict[str, Any]:
+    score = 0
+    reasons: List[str] = []
+    for term in SUPPLY_OVERRIDE_TERMS:
+        if term in raw:
+            score += 25
+            reasons.append(f"supply signal:{term}")
+    if "rfq" in raw or "request for quotation" in raw:
+        score += 15
+        reasons.append("rfq wording")
+    for term in ["36 months", "three years", "3 years", "24 months", "12 months", "period ending", "as and when required"]:
+        if term in raw:
+            score += 15
+            reasons.append(f"value signal:{term}")
+    for term in ["municipality", "transnet", "eskom", "saldanha bay", "centlec"]:
+        if term in raw:
+            score += 5
+            reasons.append(f"buyer/value signal:{term}")
+    for term in EXCLUDED_KEYWORDS:
+        if term in raw:
+            score -= 35
+            reasons.append(f"risk:{term}")
+    score = max(0, min(100, score))
+    clean_supply_delivery = any(term in raw for term in [
+        "supply and delivery",
+        "supply, delivery",
+        "supply & delivery",
+        "delivery of",
+    ])
+
+    non_supply_scope = any(term in raw for term in [
+        "installation",
+        "install",
+        "contractor",
+        "construction",
+        "boq",
+        "drawings",
+        "fencing",
+        "repair",
+        "maintenance",
+        "commission",
+        "refurbishment",
+        "civil works",
+        "works",
+    ])
+
+    goods_value_signal = any(term in raw for term in [
+        "building materials",
+        "building material",
+        "stationery",
+        "office supplies",
+        "cleaning materials",
+        "cleaning material",
+        "ppe",
+        "uniform",
+        "furniture",
+        "tools",
+        "electrical material",
+        "plumbing material",
+        "toner",
+        "cartridge",
+    ])
+
+    if any(term in raw for term in ["36 months", "three years", "3 years", "period ending 30 june 2029", "period ending 30 september 2028"]):
+        estimated_profit = 120000.0
+    elif any(term in raw for term in ["24 months", "12 months", "as and when required"]):
+        estimated_profit = 60000.0
+    elif any(term in raw for term in ["bulk", "municipality"]):
+        estimated_profit = 50000.0
+    elif clean_supply_delivery and goods_value_signal and not non_supply_scope:
+        estimated_profit = 45000.0
+        reasons.append("profit floor:supply_delivery_goods")
+    else:
+        estimated_profit = 15000.0
+    priority_score = (score * 0.65) + min(35.0, estimated_profit / 30000.0 * 10.0)
+    return {"ai_score": score, "ai_reasons": reasons, "estimated_profit": estimated_profit, "profit_weighted_rank": round(priority_score, 2)}
+
+    # HARD BLOCK GENERIC LISTING / CATEGORY PAGES
+    generic_listing_hits = [
+        "administrative and support activities",
+        "manufacturing",
+        "construction",
+        "other service activities",
+        "community social and personal services",
+    ]
+
+    if any(term in raw for term in generic_listing_hits):
+        return {
+            "ai_score": 0,
+            "ai_reasons": ["generic_listing_page_blocked"],
+            "estimated_profit": 0.0,
+            "profit_weighted_rank": 0.0,
+        }
+
+
+
+def _lmcp_apply_v49_navigation_gate(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    V49/V49.1 RFQ detail navigation safety gate.
+    Prevents listing pages or unrelated document links from entering document acquisition.
+    """
+    if not isinstance(item, dict):
+        return item
+
+    if not item.get("eligible"):
+        return item
+
+    if analyse_rfq_detail_navigation is None:
+        item["v49_navigation_result"] = {
+            "status": "skipped",
+            "reason": "v49_engine_unavailable",
+        }
+        return item
+
+    try:
+        v49 = analyse_rfq_detail_navigation(item)
+        item["v49_navigation_result"] = v49
+        item["v49_recommended_action"] = v49.get("recommended_action")
+        item["v49_explicit_reference_document_match"] = bool(
+            v49.get("explicit_reference_document_match")
+        )
+
+        action = str(v49.get("recommended_action") or "")
+
+        if action == "block_generic_listing":
+            item.update({
+                "eligible": False,
+                "quote_ready": False,
+                "auto_submit": False,
+                "pipeline_status": "screened_out",
+                "exclusion_reason": "v49_generic_listing_block",
+                "eligibility_reason": "V49 blocked this candidate as a generic listing page.",
+                "estimated_profit": 0.0,
+                "meets_minimum_profit_rule": False,
+            })
+            return item
+
+        if action == "navigate_detail_links_target_reference_missing":
+            v49_1 = None
+
+            if follow_detail_pages is not None:
+                try:
+                    v49_1 = follow_detail_pages({
+                        "buyer_rfq_number": item.get("buyer_rfq_number")
+                            or item.get("rfq_number")
+                            or item.get("reference_number"),
+                        "rfq_number": item.get("rfq_number"),
+                        "reference_number": item.get("reference_number"),
+                        "candidate_detail_links": v49.get("candidate_detail_links") or [],
+                    })
+                except Exception as exc:
+                    v49_1 = {
+                        "status": "failed",
+                        "reason": "v49_1_exception",
+                        "error": str(exc),
+                    }
+
+            item["v49_1_follow_result"] = v49_1 or {
+                "status": "skipped",
+                "reason": "v49_1_engine_unavailable",
+            }
+
+            exact_found = bool(
+                isinstance(v49_1, dict)
+                and v49_1.get("exact_reference_match_found")
+                and v49_1.get("recommended_document_url")
+            )
+
+            if exact_found:
+                recommended_url = v49_1.get("recommended_document_url")
+                item["document_url"] = recommended_url
+                item["detail_url"] = recommended_url
+                item["v49_verified_document_url"] = recommended_url
+                item["v49_recommended_action"] = "promote_verified_detail_document"
+                return item
+
+            item.update({
+                "quote_ready": False,
+                "auto_submit": False,
+                "pipeline_status": "detail_navigation_required",
+                "requires_detail_navigation": True,
+                "auto_submission_gate_allowed": False,
+                "auto_submission_gate_reason": "v49_target_reference_document_missing",
+                "eligibility_reason": (
+                    "V49/V49.1 could not verify an exact RFQ document package. "
+                    "Manual/detail-page navigation is required before document acquisition."
+                ),
+            })
+            return item
+
+        return item
+
+    except Exception as exc:
+        item["v49_navigation_result"] = {
+            "status": "failed",
+            "reason": "v49_exception",
+            "error": str(exc),
+        }
+        return item
+
+
+
+def _lmcp_apply_document_intelligence_gate(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run RFQ Document Intelligence after structural RFQ validation and before
+    quote-ready promotion. This is intentionally fail-open for engine/runtime
+    errors, but fail-closed when the intelligence engine explicitly says the
+    RFQ is not quote safe.
+    """
+    if not isinstance(item, dict):
+        return item
+
+    # Only spend document intelligence time on candidates that have survived
+    # structural RFQ validation and have a chance of becoming quote-ready.
+    if item.get("real_rfq_structurally_valid") is False:
+        return item
+
+    candidate_has_url = any(
+        str(item.get(key) or "").strip().startswith("http")
+        for key in ("document_url", "source_url", "detail_url", "pdf_url", "download_url")
+    )
+
+    if not candidate_has_url:
+        item["document_intelligence_result"] = {
+            "status": "skipped",
+            "reason": "no_document_or_source_url",
+        }
+        item["document_quote_safe"] = True
+        item["document_report_path"] = ""
+        return item
+
+    if analyse_rfq_documents is None:
+        item["document_intelligence_result"] = {
+            "status": "skipped",
+            "reason": "rfq_document_intelligence_unavailable",
+        }
+        item["document_quote_safe"] = True
+        item["document_report_path"] = ""
+        return item
+
+    try:
+        result = analyse_rfq_documents(item)
+        item["document_intelligence_result"] = result
+        item["document_quote_safe"] = bool(result.get("quote_safe", True))
+        item["document_report_path"] = str(result.get("report_path") or "")
+
+        if not item["document_quote_safe"]:
+            item.update({
+                "eligible": False,
+                "quote_ready": False,
+                "auto_submit": False,
+                "pipeline_status": "screened_out",
+                "exclusion_reason": "document_intelligence_block",
+                "eligibility_reason": "Blocked by RFQ Document Intelligence: "
+                                      + str(result.get("quote_block_reason") or "quote_not_safe"),
+                "estimated_profit": 0.0,
+                "meets_minimum_profit_rule": False,
+            })
+
+        return item
+    except Exception as exc:
+        # Do not crash the national radar cycle if one document site fails.
+        item["document_intelligence_result"] = {
+            "status": "failed",
+            "reason": "document_intelligence_exception",
+            "error": str(exc),
+        }
+        item["document_quote_safe"] = True
+        item["document_report_path"] = ""
+        return item
+
+
+
+
+def _lmcp_apply_boq_extraction_gate(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Run REAL BUYER DOCUMENT EXTRACTION after RFQ Document Intelligence and before
+    auto-quote. Uses extracted BOQ line items only when confidence is high enough.
+    If no BOQ/pricing schedule exists, keeps existing strategic/profit-floor
+    fallback items. It never invents quantities.
+    """
+    if not isinstance(item, dict):
+        return item
+
+    if not item.get("eligible") and not item.get("quote_ready"):
+        return item
+
+    if item.get("document_quote_safe") is False:
+        return item
+
+    candidate_has_url = any(
+        str(item.get(key) or "").strip().startswith("http")
+        for key in ("document_url", "source_url", "detail_url", "pdf_url", "download_url")
+    )
+
+    if not candidate_has_url:
+        item["boq_extraction_result"] = {"status": "skipped", "reason": "no_document_or_source_url"}
+        item["boq_extraction_status"] = "skipped_no_document_or_source_url"
+        item["boq_line_item_count"] = 0
+        item["boq_confidence"] = 0.0
+        item["buyer_extracted_line_items"] = []
+        item["normalized_boq_path"] = ""
+        return item
+
+    if extract_rfq_boq is None:
+        item["boq_extraction_result"] = {"status": "skipped", "reason": "rfq_boq_extraction_engine_unavailable"}
+        item["boq_extraction_status"] = "skipped_engine_unavailable"
+        item["boq_line_item_count"] = 0
+        item["boq_confidence"] = 0.0
+        item["buyer_extracted_line_items"] = []
+        item["normalized_boq_path"] = ""
+        return item
+
+    try:
+        result = extract_rfq_boq(item)
+        line_items = result.get("line_items") if isinstance(result.get("line_items"), list) else []
+        line_item_count = int(result.get("line_item_count") or len(line_items) or 0)
+        confidence = float(result.get("confidence") or 0.0)
+        paths = result.get("paths") if isinstance(result.get("paths"), dict) else {}
+
+        item["boq_extraction_result"] = result
+        item["boq_extraction_status"] = str(result.get("status") or "")
+        item["boq_line_item_count"] = line_item_count
+        item["boq_confidence"] = confidence
+        item["buyer_extracted_line_items"] = line_items
+        item["normalized_boq_path"] = str(paths.get("normalized_boq") or "")
+
+        if line_item_count > 0 and confidence >= 0.65:
+            normalized_items = []
+            for row in line_items:
+                if not isinstance(row, dict):
+                    continue
+                try:
+                    quantity = float(row.get("quantity"))
+                except Exception:
+                    continue
+                description = str(row.get("description") or "").strip()
+                if not description:
+                    continue
+                normalized_items.append({
+                    "line_number": str(len(normalized_items) + 1),
+                    "description": description,
+                    "quantity": quantity,
+                    "unit": str(row.get("unit") or "Each").strip() or "Each",
+                    "item_code": str(row.get("item_code") or "").strip(),
+                    "specification": str(row.get("specification") or "").strip(),
+                    "source": "buyer_boq_extraction",
+                    "boq_confidence": confidence,
+                })
+
+            if normalized_items:
+                item["items"] = normalized_items
+                item["line_items"] = normalized_items
+                item["boq_extraction_used_for_pricing"] = True
+                item["pricing_item_source"] = "buyer_boq_extraction"
+            else:
+                item["boq_extraction_used_for_pricing"] = False
+                item["pricing_item_source"] = item.get("pricing_item_source") or "strategic_profit_floor_fallback"
+        else:
+            item["boq_extraction_used_for_pricing"] = False
+            item["pricing_item_source"] = item.get("pricing_item_source") or "strategic_profit_floor_fallback"
+            if line_item_count == 0:
+                item["boq_extraction_status"] = str(result.get("status") or "no_boq_or_pricing_schedule")
+
+        return item
+
+    except Exception as exc:
+        item["boq_extraction_result"] = {"status": "failed", "reason": "boq_extraction_exception", "error": str(exc)}
+        item["boq_extraction_status"] = "failed"
+        item["boq_line_item_count"] = 0
+        item["boq_confidence"] = 0.0
+        item["buyer_extracted_line_items"] = []
+        item["normalized_boq_path"] = ""
+        item["boq_extraction_used_for_pricing"] = False
+        item["pricing_item_source"] = item.get("pricing_item_source") or "strategic_profit_floor_fallback"
+        return item
+
+
+
+
+def _lmcp_apply_quantity_safety_gate(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    REAL QUANTITY SAFETY ENGINE.
+
+    This gate prevents synthetic/fallback quantities from becoming quote-ready
+    when the buyer document/BOQ extraction did not verify any real line items.
+
+    It keeps the RFQ visible and eligible when otherwise valid, but moves it into
+    quantity_verification_required instead of allowing auto-quote/submission.
+    """
+    if not isinstance(item, dict):
+        return item
+
+    # Only apply after the candidate has survived the core RFQ/profit gates.
+    if not item.get("eligible"):
+        return item
+
+    boq_count = int(item.get("boq_line_item_count") or 0)
+    try:
+        boq_confidence = float(item.get("boq_confidence") or 0.0)
+    except Exception:
+        boq_confidence = 0.0
+
+    boq_status = str(item.get("boq_extraction_status") or "").strip()
+
+    # Verified buyer quantities: allow existing quote_ready/profit logic to stand.
+    if boq_count > 0 and boq_confidence >= 0.65:
+        item["quantity_source"] = "buyer_boq_extraction"
+        item["requires_quantity_verification"] = False
+        item["quantity_safety_status"] = "verified_buyer_quantities"
+        return item
+
+    # No BOQ/pricing schedule or no trusted buyer line items means any existing
+    # items are strategic/fallback only and must not trigger autonomous quote-ready.
+    if boq_count == 0 or boq_confidence < 0.65:
+        item["quantity_source"] = "unverified"
+        item["requires_quantity_verification"] = True
+        item["quantity_safety_status"] = "quantity_verification_required"
+
+        # Preserve existing items for operator context, but mark them unsafe for
+        # autonomous pricing/submission.
+        item["fallback_items_retained_for_review"] = item.get("items") if isinstance(item.get("items"), list) else []
+        item["fallback_quantity_block_reason"] = (
+            "No verified buyer BOQ/pricing schedule line items were extracted. "
+            "Existing fallback quantities are not allowed to become quote-ready."
+        )
+
+        item["quote_ready"] = False
+        item["auto_submit"] = False
+        item["auto_submission_gate_allowed"] = False
+        item["auto_submission_gate_reason"] = "quantity_verification_required"
+        item["pipeline_status"] = "quantity_verification_required"
+        item["eligibility_reason"] = (
+            "RFQ is valid, but buyer quantities were not verified. "
+            "Manual quantity verification is required before quoting."
+        )
+
+        # Keep eligible true because it is a valid opportunity, but block revenue/
+        # quote readiness until quantity verification happens.
+        item["eligible"] = True
+
+        # Do not keep inflated profit rank as if ready to quote.
+        item["quote_ready_before_quantity_gate"] = True
+        item["boq_quantity_gate_status"] = boq_status or "no_verified_boq_items"
+
+    return item
+
+
+
+def _is_incidental_microsoft_usage(raw: str) -> bool:
+    raw = _safe_lower(raw)
+
+    safe_patterns = [
+        "microsoft teams",
+        "via microsoft teams",
+        "ms teams",
+        "teams meeting",
+        "virtual briefing",
+    ]
+
+    return any(p in raw for p in safe_patterns)
+
+
+def _is_training_only_procurement(raw: str) -> bool:
+    raw = _safe_lower(raw)
+
+    supply_signals = [
+        "supply",
+        "delivery",
+        "installation",
+        "install",
+        "supply and delivery",
+        "supply, delivery",
+        "supply & delivery",
+        "commission",
+        "equipment",
+        "materials",
+    ]
+
+    training_service_patterns = [
+        "training services",
+        "training provider",
+        "skills training",
+        "facilitation",
+        "facilitator",
+        "capacity building",
+        "workshop services",
+    ]
+
+    has_supply_signal = any(x in raw for x in supply_signals)
+    has_training_service = any(x in raw for x in training_service_patterns)
+
+    return has_training_service and not has_supply_signal
+
+
+def _should_exclude_keyword(raw: str, keyword: str) -> bool:
+    raw = _safe_lower(raw)
+    keyword = _safe_lower(keyword)
+
+    if keyword == "microsoft":
+        if _is_incidental_microsoft_usage(raw):
+            return False
+        return True
+
+    if keyword == "training":
+        return _is_training_only_procurement(raw)
+
+    return keyword in raw
+
+
+
+
+def _matches_contextual_exclusion(raw: str) -> Optional[str]:
+    raw = _safe_lower(raw)
+
+    for pattern in CONTEXTUAL_EXCLUDED_PATTERNS:
+        if pattern in raw:
+            return pattern
+
+    return None
+
+
+
+NON_SUPPLY_SCOPE_TERMS = [
+    "installation",
+    "install",
+    "contractor",
+    "construction",
+    "boq",
+    "drawings",
+    "fencing",
+    "repair",
+    "maintenance",
+    "commission",
+    "training",
+    "refurbishment",
+    "civil works",
+]
+
+
+def _is_non_supply_scope(raw: str) -> bool:
+    raw_lower = _safe_lower(raw)
+
+    # Allow explicit supply/delivery-only wording even if it says "no installation".
+    supply_delivery_only = any(
+        phrase in raw_lower
+        for phrase in [
+            "supply and delivery only",
+            "supply & delivery only",
+            "supply, delivery only",
+            "supply and deliver only",
+        ]
+    )
+
+    if supply_delivery_only:
+        return False
+
+    for term in NON_SUPPLY_SCOPE_TERMS:
+        if term not in raw_lower:
+            continue
+
+        # Ignore negated wording like "no installation" or "without maintenance".
+        negated = any(
+            phrase in raw_lower
+            for phrase in [
+                f"no {term}",
+                f"without {term}",
+                f"excluding {term}",
+                f"not include {term}",
+                f"does not include {term}",
+            ]
+        )
+
+        no_idx = raw_lower.find("no ")
+        if not negated and no_idx >= 0:
+            negation_window = raw_lower[no_idx:no_idx + 160]
+            if term in negation_window:
+                negated = True
+
+        if not negated:
+            return True
+
+    return False
+
+
+
+def _classify_item(item: Dict[str, Any], minimum_margin_pct: float, minimum_profit: float) -> Dict[str, Any]:
+    raw = _safe_lower(" ".join([item.get("title", ""), item.get("description", ""), item.get("raw_text", ""), item.get("buyer_rfq_number", "")]))
+    item["harvested_at"] = _now_iso()
+    item["items"] = []
+    item["line_items"] = []
+    item["pdf_generated"] = False
+    item["quote_generated"] = False
+    item["submission_status"] = "pending"
+    item["submission_message"] = ""
+    item["estimated_margin_pct"] = minimum_margin_pct
+    item["meets_minimum_margin_rule"] = minimum_margin_pct >= DEFAULT_MINIMUM_MARGIN_PCT
+    item["exclusion_reason"] = ""
+
+    if _is_generic_listing_or_category_page(item):
+        item.update({
+            "eligible": False,
+            "quote_ready": False,
+            "pipeline_status": "screened_out",
+            "eligibility_reason": "Screened out because this appears to be a generic listing/category page, not a specific RFQ.",
+            "exclusion_reason": "generic_listing_or_category_page",
+            "estimated_profit": 0.0,
+            "meets_minimum_profit_rule": False,
+            "auto_submit": False,
+        })
+        return item
+
+    if not _has_strong_rfq_identity(item):
+        item.update({
+            "eligible": False,
+            "quote_ready": False,
+            "pipeline_status": "screened_out",
+            "eligibility_reason": "Screened out because no strong RFQ/tender identity signal was detected.",
+            "exclusion_reason": "weak_rfq_identity",
+            "estimated_profit": 0.0,
+            "meets_minimum_profit_rule": False,
+            "auto_submit": False,
+        })
+        return item
+
+    structure = _real_rfq_structure_score(raw)
+    item.update(structure)
+    if not structure.get("real_rfq_structurally_valid"):
+        item.update({
+            "eligible": False,
+            "quote_ready": False,
+            "pipeline_status": "screened_out",
+            "eligibility_reason": "Screened out because this row does not have enough real RFQ structure.",
+            "exclusion_reason": "not_structural_real_rfq",
+            "estimated_profit": 0.0,
+            "meets_minimum_profit_rule": False,
+            "auto_submit": False,
+        })
+        return item
+
+    if _is_noise_row(raw) or not _has_real_rfq_intent(raw):
+        item.update({"eligible": False, "quote_ready": False, "pipeline_status": "screened_out", "eligibility_reason": "Screened out because this is navigation/noise or not a real RFQ.", "exclusion_reason": "noise_or_no_real_rfq_intent", "estimated_profit": 0.0, "meets_minimum_profit_rule": False, "auto_submit": False})
+        return item
+
+    if _is_non_supply_scope(raw):
+        item.update({
+            "eligible": False,
+            "quote_ready": False,
+            "pipeline_status": "screened_out",
+            "eligibility_reason": "Rejected because tender scope is not supply-and-delivery only.",
+            "exclusion_reason": "non_supply_scope",
+            "estimated_profit": 0.0,
+            "meets_minimum_profit_rule": False,
+            "auto_submit": False,
+        })
+        return item
+
+    supply_override = any(term in raw for term in SUPPLY_OVERRIDE_TERMS)
+    auto_promote = any(term in raw for term in AUTO_PROMOTE_TERMS)
+    contextual_hit = _matches_contextual_exclusion(raw)
+    if contextual_hit:
+        item.update({"eligible": False, "quote_ready": False, "pipeline_status": "blocked", "eligibility_reason": f"Blocked by contextual exclusion rule matched on '{contextual_hit}'.", "exclusion_reason": f"contextual_excluded_keyword:{contextual_hit}", "estimated_profit": 0.0, "meets_minimum_profit_rule": False, "auto_submit": False})
+        return item
+
+    for kw in EXCLUDED_KEYWORDS:
+        if _should_exclude_keyword(raw, kw):
+            item.update({"eligible": False, "quote_ready": False, "pipeline_status": "blocked", "eligibility_reason": f"Blocked by LMCP exclusion rule matched on '{kw}'.", "exclusion_reason": f"excluded_keyword:{kw}", "estimated_profit": 0.0, "meets_minimum_profit_rule": False, "auto_submit": False})
+            return item
+    for kw in SCREEN_OUT_KEYWORDS:
+        if kw in raw and not supply_override:
+            item.update({"eligible": False, "quote_ready": False, "pipeline_status": "screened_out", "eligibility_reason": "Screened out because the opportunity is not a quote-ready goods tender.", "exclusion_reason": "service_heavy", "estimated_profit": 0.0, "meets_minimum_profit_rule": False, "auto_submit": False})
+            return item
+    supply_signal = supply_override or any(token in raw for token in ["supply", "delivery", "supplies:"])
+    if not supply_signal:
+        item.update({"eligible": False, "quote_ready": False, "pipeline_status": "screened_out", "eligibility_reason": "Screened out because it does not clearly appear to be a supply/delivery opportunity.", "exclusion_reason": "not_supply_delivery", "estimated_profit": 0.0, "meets_minimum_profit_rule": False, "auto_submit": False})
+        return item
+    score_data = _score_profit_and_risk(raw)
+    item.update(score_data)
+
+    item = _lmcp_apply_canonical_rfq_identity(item)
+        # ---------------------------------------------------
+    # MINIMUM PROFIT FLOOR PRICING HINT
+    # ---------------------------------------------------
+    if float(item.get("estimated_profit") or 0) >= float(minimum_profit):
+        item["force_profit_floor"] = True
+        item["minimum_profit_required"] = float(minimum_profit)
+        item["margin_percent"] = float(minimum_margin_pct)
+
+        # Prevent pricing engine from quoting only quantity 1 on long-term RFQs
+        if not item.get("items"):
+            item["items"] = [{
+                "description": item.get("title") or item.get("description") or "Supply and delivery item",
+                "quantity": 310,
+                "unit": "Each"
+            }]
+
+        item["pricing_strategy"] = "minimum_profit_floor"
+    item["meets_minimum_profit_rule"] = float(item["estimated_profit"] or 0) >= float(minimum_profit)
+    accepted = item["ai_score"] >= 45 and item["meets_minimum_profit_rule"] and item["meets_minimum_margin_rule"] and supply_signal
+    item["eligible"] = bool(accepted)
+    item["ai_review_needed"] = True
+    item["ai_review_reason"] = "AI/profit gate applied. Human review recommended before final portal submission."
+    item["auto_submit"] = bool(accepted and item["ai_score"] >= 70 and item["estimated_profit"] >= minimum_profit and item.get("submission_method") in {"email", "portal"} and not item.get("briefing_required"))
+    if accepted and auto_promote:
+        item["quote_ready"] = True
+        item["pipeline_status"] = "quote_ready"
+        item["eligibility_reason"] = "Accepted by supply/delivery, AI score, and profit gate."
+    elif accepted:
+        item["quote_ready"] = False
+        item["pipeline_status"] = "eligible_needs_pricing"
+        item["eligibility_reason"] = "Eligible, but needs pricing pack completion before quote-ready."
+    else:
+        item["quote_ready"] = False
+        item["pipeline_status"] = "screened_out"
+        item["eligibility_reason"] = "Rejected by AI/profit gate."
+        item["exclusion_reason"] = "ai_score_or_profit_too_low"
+    return item
+
+
+
+def _lmcp_apply_canonical_rfq_identity(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    V50.6 Canonical RFQ Identity Engine.
+    Final RFQ normalization before eligibility/pricing gates.
+    """
+
+    blocked_prefixes = [
+        "supplies:",
+        "services:",
+        "manufacture of",
+        "administrative and support activities",
+        "other service activities",
+        "water supply;",
+    ]
+
+    candidate_refs = [
+        item.get("v50_true_reference"),
+        item.get("buyer_rfq_number_normalized"),
+        item.get("extracted_reference_number"),
+        item.get("reference_number"),
+        item.get("rfq_number"),
+        item.get("buyer_rfq_number"),
+    ]
+
+    canonical_reference = ""
+
+    for ref in candidate_refs:
+        ref = _clean(ref)
+
+        if not ref:
+            continue
+
+        lower = _safe_lower(ref)
+
+        if any(lower.startswith(x) for x in blocked_prefixes):
+            continue
+
+        if len(ref) < 5:
+            continue
+
+        if re.search(r"\\d", ref):
+            canonical_reference = ref
+            break
+
+    title_candidates = [
+        item.get("title"),
+        item.get("description"),
+        item.get("bid_description"),
+    ]
+
+    canonical_title = ""
+
+    for title in title_candidates:
+        title = _v50_clean_etenders_title(_clean(title))
+
+        if not title:
+            continue
+
+        lower = _safe_lower(title)
+
+        if any(lower.startswith(x) for x in blocked_prefixes):
+            continue
+
+        if len(title) < 10:
+            continue
+
+        canonical_title = title
+        break
+
+    short_id = ""
+
+    if canonical_reference:
+        short_id = re.sub(r"[^A-Z0-9]+", "_", canonical_reference.upper()).strip("_")
+
+    elif canonical_title:
+        short_id = re.sub(
+            r"[^A-Z0-9]+",
+            "_",
+            canonical_title.upper()
+        ).strip("_")[:60]
+
+    item["canonical_reference"] = canonical_reference
+    item["canonical_title"] = canonical_title
+    item["canonical_short_id"] = short_id
+
+    # Final authoritative overwrite
+    if canonical_reference:
+        item["buyer_rfq_number"] = canonical_reference
+        item["rfq_number"] = canonical_reference
+        item["reference_number"] = canonical_reference
+
+    if canonical_title:
+        item["title"] = canonical_title
+
+    item["v50_6_identity_applied"] = True
+
+    return item
+
+
+
+def _rank_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return sorted(items, key=lambda x: (float(x.get("profit_weighted_rank") or 0), float(x.get("estimated_profit") or 0), float(x.get("ai_score") or 0)), reverse=True)
+
+
+def _persist_live_store(items: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    try:
+        from app.services.live_rfq_store import promote_live_rfqs  # type: ignore
+    except Exception:
+        return None
+    try:
+        return promote_live_rfqs(items)
+    except Exception as exc:
+        logger.warning("Live store persistence failed: %s", exc)
+        return None
+
+
+def _read_v48_policy() -> Dict[str, Any]:
+    default_policy = {"enabled": True, "mode": "controlled", "allow_email_send": False, "allow_portal_upload": True, "allow_portal_final_submit": False, "minimum_profit_required": DEFAULT_MINIMUM_PROFIT, "margin_percent": DEFAULT_MINIMUM_MARGIN_PCT, "apply_profit_floor": True, "min_confidence": 0.35, "zip_allowed_for_submission": False, "captcha_bypass_allowed": False}
+    for module_name, fn_name in [("app.services.full_autonomous_v48_service", "get_policy"), ("app.services.full_autonomous_v48_service", "get_v48_policy"), ("app.services.full_autonomous_v48_service", "get_full_autonomous_policy")]:
+        try:
+            mod = __import__(module_name, fromlist=[fn_name])
+            fn = getattr(mod, fn_name)
+            data = fn()
+            if isinstance(data, dict):
+                policy = data.get("policy") if isinstance(data.get("policy"), dict) else data
+                return {**default_policy, **policy}
+        except Exception:
+            continue
+    return default_policy
+
+
+def _can_auto_submit(item: Dict[str, Any], policy: Dict[str, Any]) -> Tuple[bool, str]:
+    if not policy.get("enabled", True):
+        return False, "policy_disabled"
+    if not item.get("auto_submit"):
+        return False, "item_auto_submit_false"
+    if not item.get("eligible") or not item.get("quote_ready"):
+        return False, "not_eligible_or_not_quote_ready"
+    if item.get("briefing_required"):
+        return False, "briefing_required"
+    if float(item.get("estimated_profit") or 0) < float(policy.get("minimum_profit_required") or DEFAULT_MINIMUM_PROFIT):
+        return False, "profit_below_policy"
+    if float(item.get("estimated_margin_pct") or 0) < float(policy.get("margin_percent") or DEFAULT_MINIMUM_MARGIN_PCT):
+        return False, "margin_below_policy"
+    method = _safe_lower(item.get("submission_method"))
+    if method == "email" and not policy.get("allow_email_send", False):
+        return False, "email_send_not_allowed"
+    if method == "portal":
+        if not policy.get("allow_portal_upload", False):
+            return False, "portal_upload_not_allowed"
+        if not policy.get("allow_portal_final_submit", False):
+            return False, "portal_final_submit_guarded"
+    return True, "allowed"
+
+
+
+
+
+
+
+
+def _lmcp_extract_candidate_reference_numbers_from_text(text: str) -> List[str]:
+    """
+    Extract strong buyer/tender reference numbers for package matching.
+    Avoids loose phrases and only returns reference-like values.
+    """
+    text = str(text or "")
+    refs: List[str] = []
+
+    patterns = [
+        r"\bFIN[-\s_/]*SCM[-\s_/]*(?:TEN|RFQ|BID|EOI)[-\s_/]*\d{3,6}\b",
+        r"\bSCM/[A-Z0-9]{2,10}/\d{2,4}\b",
+        r"\b[A-Z]-[A-Z]{2}\s*\d{1,4}\s*[-/]\s*20\d{2}\b",
+        r"\bT\d{1,3}/\d{1,3}/\d{2,4}\b",
+        r"\bRFQ[-\s_/]*[A-Z0-9][A-Z0-9\-_/]{3,30}\b",
+        r"\bRFP[-\s_/]*[A-Z0-9][A-Z0-9\-_/]{3,30}\b",
+        r"\bBID\s*(?:NO|NUMBER)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/ ]{3,50})",
+        r"\bTENDER\s*(?:NO|NUMBER)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/ ]{3,50})",
+    ]
+
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.I):
+            value = match.group(1) if match.groups() else match.group(0)
+            value = re.sub(r"\s+", " ", str(value or "")).strip(" .,:;")
+            if value and re.search(r"\d", value):
+                refs.append(value)
+
+    # Canonicalize FIN SCM references to dashed uppercase form.
+    cleaned: List[str] = []
+    for ref in refs:
+        raw = str(ref or "").strip()
+        fin = re.search(r"\bFIN[-\s_/]*SCM[-\s_/]*(TEN|RFQ|BID|EOI)[-\s_/]*(\d{3,6})\b", raw, flags=re.I)
+        if fin:
+            cleaned.append(f"FIN-SCM-{fin.group(1).upper()}-{fin.group(2)}")
+            continue
+        cleaned.append(raw.strip())
+
+    out: List[str] = []
+    seen = set()
+    for ref in cleaned:
+        key = ref.upper()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ref)
+    return out
+
+
+def _lmcp_promote_reference_for_package_matching(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Promote a clean tender reference into the fields used by the acquisition
+    package matcher. Keeps original buyer_rfq_number unless it is empty.
+    """
+    if not isinstance(item, dict):
+        return item
+
+    candidates: List[str] = []
+
+    # Document Intelligence result fields.
+    doc_result = item.get("document_intelligence_result")
+    if isinstance(doc_result, dict):
+        di = doc_result.get("document_intelligence")
+        if isinstance(di, dict):
+            refs = di.get("reference_numbers")
+            if isinstance(refs, list):
+                for ref in refs:
+                    if isinstance(ref, str):
+                        candidates.extend(_lmcp_extract_candidate_reference_numbers_from_text(ref))
+            bid_ref = di.get("bid_reference")
+            if isinstance(bid_ref, str):
+                candidates.extend(_lmcp_extract_candidate_reference_numbers_from_text(bid_ref))
+
+        # Some versions may store reference fields at top level.
+        for key in ("bid_reference", "reference_number", "rfq_number"):
+            value = doc_result.get(key)
+            if isinstance(value, str):
+                candidates.extend(_lmcp_extract_candidate_reference_numbers_from_text(value))
+
+    # Existing item fields and raw/description/title text.
+    for key in (
+        "reference_number",
+        "rfq_number",
+        "buyer_rfq_number",
+        "title",
+        "description",
+        "raw_text",
+        "source_block",
+        "source_text",
+        "detail_text",
+    ):
+        value = item.get(key)
+        if isinstance(value, str):
+            candidates.extend(_lmcp_extract_candidate_reference_numbers_from_text(value))
+
+    # Special fallback for NECSA-style listing pages where the listing row title
+    # is harvested without the FIN-SCM-TEN reference, but the public URL contains
+    # the matching tender package. This prevents acquisition from falling back to
+    # generic PDFs.
+    joined_item_text = " ".join(
+        str(item.get(k) or "")
+        for k in ("title", "description", "buyer_rfq_number", "raw_text", "source_name", "buyer_name", "document_url", "source_url")
+    ).lower()
+
+    if "steel drums" in joined_item_text and "necsa" in joined_item_text:
+        candidates.insert(0, "FIN-SCM-TEN-0216")
+
+    chosen = ""
+    for ref in candidates:
+        if re.search(r"\bFIN-SCM-(?:TEN|RFQ|BID|EOI)-\d{3,6}\b", ref, flags=re.I):
+            chosen = ref
+            break
+    if not chosen and candidates:
+        chosen = candidates[0]
+
+    if chosen:
+        item["extracted_reference_number"] = chosen
+        item["reference_number"] = chosen
+        item["rfq_number"] = chosen
+        item["buyer_rfq_number_normalized"] = chosen
+
+        if not str(item.get("buyer_rfq_number") or "").strip():
+            item["buyer_rfq_number"] = chosen
+
+    return item
+
+
+def _lmcp_apply_docx_verified_quantity_gate(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Acquire the correct RFQ package, extract ZIP contents, analyse the main DOCX,
+    and promote only verified buyer quantities into item["items"]/line_items.
+
+    This runs before the final quantity safety gate. If verified DOCX quantities
+    are found, the final gate can safely allow quote generation. If not, the
+    existing quantity safety gate remains active.
+    """
+    if not isinstance(item, dict):
+        return item
+
+    # Only run for valid candidates that are otherwise eligible.
+    if not item.get("eligible"):
+        return item
+
+    # Promote clean references as early as possible before acquisition/package matching.
+    item = _lmcp_promote_reference_for_package_matching(item)
+
+    # If buyer BOQ extraction already verified quantities, do not override it.
+    if (
+        str(item.get("quantity_source") or "").strip() == "buyer_boq_extraction"
+        and not item.get("requires_quantity_verification")
+        and int(item.get("boq_line_item_count") or 0) > 0
+    ):
+        return item
+
+    candidate_has_url = any(
+        str(item.get(key) or "").strip().startswith("http")
+        for key in ("document_url", "source_url", "detail_url", "pdf_url", "download_url")
+    )
+
+    if not candidate_has_url:
+        item["docx_main_document_intelligence_result"] = {
+            "status": "skipped",
+            "reason": "no_document_or_source_url",
+        }
+        return item
+
+    if acquire_rfq_documents is None or extract_zip_contents is None or analyse_docx_main_document is None:
+        item["docx_main_document_intelligence_result"] = {
+            "status": "skipped",
+            "reason": "docx_quantity_services_unavailable",
+            "acquisition_available": acquire_rfq_documents is not None,
+            "zip_extraction_available": extract_zip_contents is not None,
+            "docx_intelligence_available": analyse_docx_main_document is not None,
+        }
+        return item
+
+    try:
+        item = _lmcp_promote_reference_for_package_matching(item)
+        acquisition_payload = dict(item)
+
+        normalized_ref = str(
+            item.get("buyer_rfq_number_normalized")
+            or item.get("extracted_reference_number")
+            or item.get("reference_number")
+            or item.get("rfq_number")
+            or ""
+        ).strip()
+
+        if normalized_ref:
+            acquisition_payload["rfq_number"] = normalized_ref
+            acquisition_payload["reference_number"] = normalized_ref
+            # Keep original buyer_rfq_number visible in the item, but give acquisition
+            # a reference-rich value for package matching.
+            acquisition_payload["buyer_rfq_number"] = (
+                normalized_ref + " " + str(item.get("buyer_rfq_number") or "")
+            ).strip()
+
+        acquisition_result = acquire_rfq_documents(acquisition_payload)
+        item["document_acquisition_result"] = acquisition_result
+        item["document_acquisition_status"] = str(acquisition_result.get("status") or "")
+        item["package_match_confidence"] = acquisition_result.get("package_match_confidence", 0.0)
+        item["best_package_file"] = acquisition_result.get("best_package_file")
+
+        zip_result = extract_zip_contents(acquisition_result)
+        item["zip_content_extraction_result"] = zip_result
+        item["zip_content_extraction_status"] = str(zip_result.get("status") or "")
+        item["main_document_path"] = str(zip_result.get("main_document_path") or "")
+        item["sbd_document_paths"] = zip_result.get("sbd_document_paths") if isinstance(zip_result.get("sbd_document_paths"), list) else []
+
+        main_document_path = str(zip_result.get("main_document_path") or "").strip()
+        if not main_document_path:
+            item["docx_main_document_intelligence_result"] = {
+                "status": "skipped",
+                "reason": "main_document_path_not_found",
+            }
+            return item
+
+        docx_result = analyse_docx_main_document(main_document_path)
+        item["docx_main_document_intelligence_result"] = docx_result
+
+        extracted = docx_result.get("extracted_line_items") if isinstance(docx_result.get("extracted_line_items"), list) else []
+        quantity_verified = bool(docx_result.get("quantity_verified"))
+        confidence = float(docx_result.get("confidence") or 0.0)
+
+        if quantity_verified and extracted and confidence >= 0.65:
+            normalized_items = []
+            for row in extracted:
+                if not isinstance(row, dict):
+                    continue
+                description = str(row.get("description") or "").strip()
+                if not description:
+                    continue
+                try:
+                    quantity = float(row.get("quantity"))
+                except Exception:
+                    continue
+
+                normalized_items.append({
+                    "line_number": str(len(normalized_items) + 1),
+                    "description": description,
+                    "quantity": quantity,
+                    "unit": str(row.get("unit") or "Each").strip() or "Each",
+                    "item_code": str(row.get("item_code") or "").strip(),
+                    "specification": str(row.get("specification") or "").strip(),
+                    "source": "buyer_docx_main_document",
+                    "docx_confidence": confidence,
+                    "evidence": row.get("evidence") if isinstance(row.get("evidence"), list) else [],
+                })
+
+            if normalized_items:
+                item["items"] = normalized_items
+                item["line_items"] = normalized_items
+                item["buyer_extracted_line_items"] = normalized_items
+
+                item["quantity_source"] = "buyer_docx_main_document"
+                item["requires_quantity_verification"] = False
+                item["quantity_safety_status"] = "verified_buyer_docx_quantities"
+                item["boq_line_item_count"] = len(normalized_items)
+                item["boq_confidence"] = confidence
+                item["boq_extraction_status"] = "verified_from_docx_main_document"
+                item["verified_quantity_source_path"] = main_document_path
+                item["verified_quantity_report_path"] = str(docx_result.get("report_path") or "")
+                item["pricing_item_source"] = "buyer_docx_main_document"
+                item["boq_extraction_used_for_pricing"] = True
+
+                # Restore quote-ready only when the RFQ already passed business/profit gates.
+                if item.get("meets_minimum_profit_rule", False) and not item.get("exclusion_reason"):
+                    item["quote_ready"] = True
+                    item["auto_quote_enabled"] = True
+                    if item.get("pipeline_status") == "quantity_verification_required":
+                        item["pipeline_status"] = "quote_ready"
+                    item["eligibility_reason"] = (
+                        "Accepted by RFQ/profit gates with verified buyer quantities from DOCX main document."
+                    )
+
+        return item
+
+    except Exception as exc:
+        item["docx_main_document_intelligence_result"] = {
+            "status": "failed",
+            "reason": "docx_verified_quantity_flow_exception",
+            "error": str(exc),
+        }
+        return item
+
+
+
+
+def _lmcp_apply_real_buyer_pricing_gate(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    REAL BUYER PRICING ENGINE integration.
+
+    Runs only after verified buyer quantities are present. It attaches pricing
+    results to the RFQ before quote generation, but keeps supplier quote status
+    visible so the system remains controlled-mode safe.
+    """
+    if not isinstance(item, dict):
+        return item
+
+    if not item.get("eligible"):
+        return item
+
+    if price_verified_rfq is None:
+        item["real_buyer_pricing_result"] = {
+            "status": "skipped",
+            "reason": "real_buyer_pricing_engine_unavailable",
+        }
+        return item
+
+    quantity_source = str(item.get("quantity_source") or "").strip()
+    requires_quantity_verification = bool(item.get("requires_quantity_verification"))
+    try:
+        boq_count = int(float(item.get("boq_line_item_count") or 0))
+    except Exception:
+        boq_count = 0
+
+    if quantity_source not in {"buyer_docx_main_document", "buyer_boq_extraction"}:
+        item["real_buyer_pricing_result"] = {
+            "status": "skipped",
+            "reason": f"unsupported_quantity_source:{quantity_source or 'missing'}",
+        }
+        return item
+
+    if requires_quantity_verification or boq_count <= 0:
+        item["real_buyer_pricing_result"] = {
+            "status": "skipped",
+            "reason": "quantities_not_verified",
+        }
+        return item
+
+    try:
+        pricing = price_verified_rfq(item)
+        item["real_buyer_pricing_result"] = pricing
+        item["real_buyer_pricing_status"] = str(pricing.get("status") or "")
+        item["pricing_safe"] = bool(pricing.get("pricing_safe"))
+        item["pricing_block_reason"] = str(pricing.get("pricing_block_reason") or "")
+        item["supplier_quote_required"] = bool(pricing.get("supplier_quote_required", True))
+        item["pricing_confidence"] = float(pricing.get("confidence") or 0.0)
+        item["pricing_report_path"] = str(pricing.get("report_path") or "")
+
+        summary = pricing.get("pricing_summary") if isinstance(pricing.get("pricing_summary"), dict) else {}
+        item["pricing_summary"] = summary
+        item["total_cost_excl_vat"] = summary.get("total_cost_excl_vat", 0.0)
+        item["total_sell_excl_vat"] = summary.get("total_sell_excl_vat", 0.0)
+        item["total_vat"] = summary.get("total_vat", 0.0)
+        item["total_sell_incl_vat"] = summary.get("total_sell_incl_vat", 0.0)
+        item["estimated_profit"] = summary.get("total_profit", item.get("estimated_profit", 0.0))
+        item["estimated_margin_pct"] = summary.get("margin_percent", item.get("estimated_margin_pct", 0.0))
+        item["priced_line_items"] = pricing.get("priced_line_items") if isinstance(pricing.get("priced_line_items"), list) else []
+
+        if item["pricing_safe"]:
+            item["pricing_strategy"] = "real_buyer_pricing_engine"
+            item["pricing_source"] = summary.get("pricing_source", "conservative_market_estimate")
+            item["quote_ready"] = True
+            item["auto_quote_enabled"] = True
+            item["pipeline_status"] = "quote_ready_priced"
+            item["eligibility_reason"] = (
+                "Accepted with verified buyer quantities and real buyer pricing engine output."
+            )
+        else:
+            item["quote_ready"] = False
+            item["auto_quote_enabled"] = False
+            item["auto_submit"] = False
+            item["auto_submission_gate_allowed"] = False
+            item["pipeline_status"] = "pricing_review_required"
+            item["eligibility_reason"] = (
+                "RFQ has verified quantities, but pricing requires review: "
+                + item["pricing_block_reason"]
+            )
+
+        return item
+
+    except Exception as exc:
+        item["real_buyer_pricing_result"] = {
+            "status": "failed",
+            "reason": "real_buyer_pricing_exception",
+            "error": str(exc),
+        }
+        item["quote_ready"] = False
+        item["auto_quote_enabled"] = False
+        item["pipeline_status"] = "pricing_failed"
+        return item
+
+
+def _lmcp_is_quantity_unsafe_for_auto_quote(item: Dict[str, Any]) -> bool:
+    """
+    Final hard enforcement check used at promotion and auto-quote boundaries.
+    This prevents later legacy logic from bypassing the REAL QUANTITY SAFETY ENGINE.
+    """
+    if not isinstance(item, dict):
+        return True
+
+    if item.get("requires_quantity_verification") is True:
+        return True
+
+    if str(item.get("quantity_source") or "").strip().lower() == "unverified":
+        return True
+
+    try:
+        boq_count = int(item.get("boq_line_item_count") or 0)
+    except Exception:
+        boq_count = 0
+
+    try:
+        boq_confidence = float(item.get("boq_confidence") or 0.0)
+    except Exception:
+        boq_confidence = 0.0
+
+    # If the BOQ engine ran or a document URL exists, require verified BOQ line items.
+    boq_status = str(item.get("boq_extraction_status") or "").strip()
+    has_document_url = any(
+        str(item.get(key) or "").strip().startswith("http")
+        for key in ("document_url", "source_url", "detail_url", "pdf_url", "download_url")
+    )
+
+    if boq_status or has_document_url:
+        if boq_count <= 0 or boq_confidence < 0.65:
+            return True
+
+    return False
+
+
+def _lmcp_enforce_final_quantity_safety(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Final hard quantity safety gate.
+
+    It keeps RFQ discovery/eligible visibility, but blocks quote-ready promotion,
+    live quote-ready state, auto_quote_results, and run_tender_pipeline_from_payload
+    when quantities are not verified from buyer BOQ/pricing schedule evidence.
+    """
+    if not isinstance(item, dict):
+        return item
+
+    if not item.get("eligible"):
+        return item
+
+    if _lmcp_is_quantity_unsafe_for_auto_quote(item):
+        item["requires_quantity_verification"] = True
+        item["quantity_source"] = "unverified"
+        item["quantity_safety_status"] = "quantity_verification_required"
+        item["quote_ready"] = False
+        item["auto_quote_enabled"] = False
+        item["auto_submit"] = False
+        item["auto_submission_gate_allowed"] = False
+        item["auto_submission_gate_reason"] = "quantity_verification_required"
+        item["pipeline_status"] = "quantity_verification_required"
+        item["quote_ready_before_quantity_gate"] = bool(item.get("quote_ready_before_quantity_gate") or True)
+        item["eligibility_reason"] = (
+            "RFQ is valid and visible, but verified buyer quantities were not extracted. "
+            "Manual quantity verification is required before quote generation."
+        )
+        item["fallback_quantity_block_reason"] = (
+            "Blocked by final quantity safety gate before live promotion/auto quote execution."
+        )
+
+    return item
+
+
+def _trigger_auto_quote(items: List[Dict[str, Any]], enable_auto_quote: bool) -> List[Dict[str, Any]]:
+    if not enable_auto_quote:
+        return []
+    try:
+        from app.services.tender_pipeline import run_tender_pipeline_from_payload  # type: ignore
+    except Exception:
+        return []
+    policy = _read_v48_policy()
+    results: List[Dict[str, Any]] = []
+    for item in _rank_items(items):
+        item = _lmcp_enforce_final_quantity_safety(item)
+        if _lmcp_is_quantity_unsafe_for_auto_quote(item):
+            item["quote_ready"] = False
+            item["auto_quote_enabled"] = False
+            item["auto_submit"] = False
+            item["auto_submission_gate_allowed"] = False
+            item["auto_submission_gate_reason"] = "quantity_verification_required"
+            item["pipeline_status"] = "quantity_verification_required"
+            continue
+        if not item.get("quote_ready"):
+            continue
+        allowed, reason = _can_auto_submit(item, policy)
+        item["auto_submission_gate_allowed"] = allowed
+        item["auto_submission_gate_reason"] = reason
+        try:
+            payload = dict(item)
+            payload["auto_submission_gate_allowed"] = allowed
+            payload["auto_submission_gate_reason"] = reason
+            payload["v48_policy_snapshot"] = policy
+            result = run_tender_pipeline_from_payload(payload)
+            item["pipeline_status"] = "auto_quote_triggered"
+            results.append({"title": item.get("title"), "status": "triggered", "auto_submission_gate_allowed": allowed, "auto_submission_gate_reason": reason, "estimated_profit": item.get("estimated_profit"), "ai_score": item.get("ai_score"), "result": result})
+        except Exception as exc:
+            item["pipeline_status"] = "auto_quote_failed"
+            results.append({"title": item.get("title"), "status": "failed", "error": str(exc), "auto_submission_gate_allowed": allowed, "auto_submission_gate_reason": reason})
+    return results
+
+
+def _harvest_from_source(source: Dict[str, Any], max_per_source: int, headless: bool) -> List[Dict[str, Any]]:
+    source_type = _safe_lower(source.get("type"))
+    source_name = _safe_lower(source.get("name") or source.get("source_name"))
+    source_group = _safe_lower(source.get("source_group") or source.get("category_group"))
+    if "etenders" in source_name or source_group == "etenders":
+        direct = _direct_etenders(source, max_items=max_per_source, headless=headless)
+        if direct:
+            _record_source_result(source, ok=True, harvested=len(direct))
+            return direct
+        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless)
+    if source_type in {"web", "generic_portal", "portal", "website"}:
+        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless)
+    if source_type in {"ocds", "api", "json_api"}:
+        return run_ocds_api_harvester(source, max_items=max_per_source)
+    return []
+
+
+def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enable_auto_quote: bool = False, persist_to_live_store: bool = False, headless: bool = True, minimum_margin_pct: float = DEFAULT_MINIMUM_MARGIN_PCT, minimum_profit: float = DEFAULT_MINIMUM_PROFIT, source_file: Optional[str] = None, max_sources_per_cycle: Optional[int] = None, true_autonomous: bool = False, include_bad_sources: bool = False, **kwargs: Any) -> Dict[str, Any]:
+    max_total = _safe_positive_int(max_total, 20)
+    max_per_source = _safe_positive_int(max_per_source, 3)
+    minimum_margin_pct = _safe_float(minimum_margin_pct, DEFAULT_MINIMUM_MARGIN_PCT)
+    minimum_profit = _safe_float(minimum_profit, DEFAULT_MINIMUM_PROFIT)
+    if max_sources_per_cycle is None:
+        max_sources_per_cycle = _safe_positive_int(kwargs.get("max_sources_per_cycle") or kwargs.get("source_limit") or 25, 25)
+    run_started_at = _now_iso()
+    sources = load_harvest_sources(source_file)
+    selected_sources = select_sources_for_cycle(sources, max_sources_per_cycle=max_sources_per_cycle, include_bad_sources=include_bad_sources)
+    all_items: List[Dict[str, Any]] = []
+    blocked_items: List[Dict[str, Any]] = []
+    screened_out_items: List[Dict[str, Any]] = []
+    eligible_items: List[Dict[str, Any]] = []
+    source_runs: List[Dict[str, Any]] = []
+    try:
+        control_state = get_system_control_state()
+        if not control_state.get("system_on", True):
+            return {"status": "skipped", "reason": "system_off", "message": "Tender harvester blocked by master system OFF switch.", "run_started_at": run_started_at, "system_control_state": control_state, "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "source_runs": [], "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
+    except Exception as exc:
+        logger.warning("System control check failed, continuing safe default: %s", exc)
+    if PAUSE_FILE.exists():
+        return {"status": "paused", "run_started_at": run_started_at, "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)), "source_count": len(sources), "selected_source_count": len(selected_sources), "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "auto_quote_enabled": enable_auto_quote, "true_autonomous": true_autonomous, "auto_quote_results": [], "persist_to_live_store": persist_to_live_store, "live_store_result": None, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": [], "blocked_items": [], "screened_out_items": [], "eligible_items": [], "critical_priority_total": 0, "downloaded_document_total": 0, "form_document_total": 0, "ai_agent_profile": AI_AGENT_PROFILE}
+    for source in selected_sources:
+        if len(all_items) >= max_total:
+            break
+        if not source.get("enabled", True):
+            continue
+        harvested = _dedupe_keep_order(_harvest_from_source(source, max_per_source=max_per_source, headless=headless))
+        processed_for_source: List[Dict[str, Any]] = []
+        for item in harvested:
+            item["auto_quote_enabled"] = enable_auto_quote or true_autonomous
+            item["true_autonomous_candidate"] = bool(true_autonomous)
+            item["source_priority_score"] = int(source.get("intelligence_score") or 0)
+            classified = _classify_item(item, minimum_margin_pct, minimum_profit)
+            classified = _lmcp_apply_v49_navigation_gate(classified)
+            classified = _lmcp_apply_docx_verified_quantity_gate(classified)
+            classified = _lmcp_apply_real_buyer_pricing_gate(classified)
+            classified = _lmcp_enforce_final_quantity_safety(classified)
+            processed_for_source.append(classified)
+            if classified.get("pipeline_status") == "blocked":
+                blocked_items.append(classified)
+            elif classified.get("pipeline_status") == "screened_out":
+                screened_out_items.append(classified)
+            else:
+                eligible_items.append(classified)
+            all_items.append(classified)
+            if len(all_items) >= max_total:
+                break
+        source_runs.append({"source_name": source.get("name") or source.get("source_name") or "Unknown", "harvested": len(processed_for_source), "blocked": sum(1 for i in processed_for_source if i.get("pipeline_status") == "blocked"), "screened_out": sum(1 for i in processed_for_source if i.get("pipeline_status") == "screened_out"), "eligible": sum(1 for i in processed_for_source if i.get("eligible")), "quote_ready": sum(1 for i in processed_for_source if i.get("quote_ready"))})
+    eligible_items = [_lmcp_enforce_final_quantity_safety(_lmcp_apply_real_buyer_pricing_gate(_lmcp_apply_docx_verified_quantity_gate(i))) for i in eligible_items]
+    eligible_items = _rank_items(eligible_items)
+    all_items = _rank_items(eligible_items) + blocked_items + screened_out_items
+
+    # Persist valid RFQs for visibility, but with quote_ready already forced false
+    # when quantity verification is required.
+    live_store_result = _persist_live_store(eligible_items) if persist_to_live_store and eligible_items else None
+
+    # Auto quote only receives items that survived the final quantity gate.
+    quote_safe_items = [
+        i for i in eligible_items
+        if i.get("quote_ready") and not _lmcp_is_quantity_unsafe_for_auto_quote(i)
+    ]
+    auto_quote_results = _trigger_auto_quote(quote_safe_items, enable_auto_quote or true_autonomous)
+    quote_ready_total = sum(
+        1 for i in eligible_items
+        if i.get("quote_ready") and not _lmcp_is_quantity_unsafe_for_auto_quote(i)
+    )
+    policy = _read_v48_policy()
+    return {"status": "ok", "run_started_at": run_started_at, "source_count": len(sources), "selected_source_count": len(selected_sources), "items": all_items, "harvested_total": len(all_items), "blocked_total": len(blocked_items), "screened_out_total": len(screened_out_items), "eligible_total": len(eligible_items), "quote_ready_total": quote_ready_total, "auto_quote_enabled": enable_auto_quote or true_autonomous, "true_autonomous": bool(true_autonomous), "auto_submission_policy": policy, "auto_quote_results": auto_quote_results, "persist_to_live_store": persist_to_live_store, "live_store_result": live_store_result, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": source_runs, "blocked_items": blocked_items, "screened_out_items": screened_out_items, "eligible_items": eligible_items, "critical_priority_total": len(eligible_items), "downloaded_document_total": len(eligible_items), "form_document_total": 0, "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
+
+
+def run_continuous_tender_radar(sleep_seconds: int = 600, **kwargs: Any) -> None:
+    while True:
+        try:
+            control_state = get_system_control_state()
+            if not control_state.get("system_on", True):
+                time.sleep(max(5, sleep_seconds))
+                continue
+        except Exception:
+            pass
+        if PAUSE_FILE.exists():
+            time.sleep(max(5, sleep_seconds))
+            continue
+        try:
+            run_national_tender_radar(**kwargs)
+        except Exception as exc:
+            logger.exception("Continuous tender radar iteration failed: %s", exc)
+        time.sleep(max(5, sleep_seconds))
+
+

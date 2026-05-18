@@ -1,0 +1,144 @@
+{
+  "name": "SBD4 Old Profile",
+  "template_type": "pdf_hybrid",
+  "field_aliases": {
+    "company_name": ["company", "business_name", "name_of_tenderer", "name of bidder", "bidder name"],
+    "registration_number": ["reg_no", "registration_no", "company_reg_number", "registration number"],
+    "director_name": ["authorised_person", "authorized_person", "full_name", "name of duly authorised person"],
+    "director_capacity": ["capacity", "position", "designation"],
+    "date_signed": ["date", "signature_date", "date signed"]
+  },
+  "anchor_rules": [
+    {
+      "field_name": "company_name",
+      "anchor_text": "name of bidder",
+      "page": 2,
+      "x_offset": 145,
+      "y_offset": -4,
+      "width": 240,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "match_mode": "contains",
+      "align": "left"
+    },
+    {
+      "field_name": "director_name",
+      "anchor_text": "full name of duly authorised representative",
+      "page": 3,
+      "x_offset": 210,
+      "y_offset": -4,
+      "width": 220,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "match_mode": "contains",
+      "align": "left"
+    },
+    {
+      "field_name": "director_capacity",
+      "anchor_text": "capacity",
+      "page": 3,
+      "x_offset": 95,
+      "y_offset": -4,
+      "width": 180,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "match_mode": "contains",
+      "align": "left"
+    },
+    {
+      "field_name": "date_signed",
+      "anchor_text": "date",
+      "page": 3,
+      "x_offset": 55,
+      "y_offset": -4,
+      "width": 120,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "match_mode": "contains",
+      "align": "left"
+    }
+  ],
+  "pdf_coordinates": {
+    "company_name": {
+      "page": 2,
+      "x": 210,
+      "y": 120,
+      "width": 240,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "align": "left"
+    },
+    "registration_number": {
+      "page": 2,
+      "x": 210,
+      "y": 100,
+      "width": 180,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "align": "left"
+    },
+    "director_name": {
+      "page": 3,
+      "x": 210,
+      "y": 118,
+      "width": 220,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "align": "left"
+    },
+    "director_capacity": {
+      "page": 3,
+      "x": 110,
+      "y": 96,
+      "width": 180,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "align": "left"
+    },
+    "date_signed": {
+      "page": 3,
+      "x": 430,
+      "y": 96,
+      "width": 110,
+      "height": 14,
+      "font_size": 9,
+      "multiline": false,
+      "whiteout": true,
+      "whiteout_padding": 1,
+      "align": "left"
+    }
+  },
+  "signature_coordinates": {
+    "page": 3,
+    "x": 110,
+    "y": 140,
+    "width": 100,
+    "height": 30
+  },
+  "docx_signature_placeholder": "{{signature}}",
+  "xlsx_signature_anchor": "F25"
+}

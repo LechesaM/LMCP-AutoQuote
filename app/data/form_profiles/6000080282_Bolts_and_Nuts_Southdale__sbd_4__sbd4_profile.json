@@ -1,0 +1,92 @@
+{
+  "name": "6000080282_Bolts_and_Nuts_Southdale__sbd_4__sbd4_profile",
+  "template_type": "sbd_form",
+  "field_aliases": {
+    "company_name": [
+      "name of bidder",
+      "bidder name"
+    ],
+    "signatory_name": [
+      "full name of bidder",
+      "full name",
+      "name in print"
+    ],
+    "signatory_capacity": [
+      "capacity",
+      "position"
+    ],
+    "date_signed": [
+      "date"
+    ]
+  },
+  "anchor_rules": [
+    {
+      "field_name": "company_name",
+      "anchor_text": "Name of bidder",
+      "x_offset": 135,
+      "y_offset": -2,
+      "width": 240,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 8
+    },
+    {
+      "field_name": "signatory_name",
+      "anchor_text": "Full name of bidder",
+      "x_offset": 145,
+      "y_offset": -2,
+      "width": 240,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 8
+    },
+    {
+      "field_name": "signatory_capacity",
+      "anchor_text": "Capacity",
+      "x_offset": 70,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 8
+    },
+    {
+      "field_name": "date_signed",
+      "anchor_text": "Date",
+      "x_offset": 45,
+      "y_offset": -2,
+      "width": 100,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 8
+    }
+  ],
+  "signature_coordinates": {
+    "page": 8,
+    "x": 115,
+    "y": 100,
+    "width": 150,
+    "height": 40
+  },
+  "witness_1_signature_coordinates": {
+    "page": 8,
+    "x": 115,
+    "y": 58,
+    "width": 130,
+    "height": 34
+  },
+  "witness_2_signature_coordinates": {
+    "page": 8,
+    "x": 290,
+    "y": 58,
+    "width": 130,
+    "height": 34
+  },
+  "docx_signature_placeholder": "{{signature}}",
+  "docx_witness_1_signature_placeholder": "{{witness_1_signature}}",
+  "docx_witness_2_signature_placeholder": "{{witness_2_signature}}"
+}

@@ -1,0 +1,726 @@
+from __future__ import annotations
+
+import json
+import logging
+import re
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import requests
+
+from app.services.system_control_service import get_system_control_state
+
+logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RUNTIME_DIR = PROJECT_ROOT / "runtime"
+RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+PAUSE_FILE = RUNTIME_DIR / "harvester.paused"
+DEFAULT_SOURCE_FILE = PROJECT_ROOT / "app" / "data" / "harvest_sources.json"
+
+ETENDERS_URL = "https://www.etenders.gov.za/Home/opportunities"
+
+AI_AGENT_PROFILE = "chatgpt_codex_ready"
+AI_PRIMARY_MODEL_HINT = "gpt-5.4"
+AI_FAST_MODEL_HINT = "gpt-5.4-mini"
+AI_API_STYLE_HINT = "responses_api"
+AI_ORCHESTRATION_HINT = "agents_sdk"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _clean(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _safe_lower(value: Any) -> str:
+    return _clean(value).lower()
+
+
+def _safe_positive_int(value: Any, default: int) -> int:
+    try:
+        if value is None or value == "":
+            return int(default)
+        parsed = int(value)
+        return parsed if parsed > 0 else int(default)
+    except Exception:
+        return int(default)
+
+
+def _truncate(value: str, max_len: int = 180) -> str:
+    value = _clean(value)
+    return value if len(value) <= max_len else value[: max_len - 3].rstrip() + "..."
+
+
+def _looks_like_attachment_name(text: str) -> bool:
+    t = _safe_lower(text)
+    return t.endswith((".xlsx", ".xls", ".doc", ".docx", ".pdf", ".csv", ".zip"))
+
+
+def _dedupe_keep_order(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = set()
+    output: List[Dict[str, Any]] = []
+    for item in items:
+        key = (
+            _clean(item.get("title")),
+            _clean(item.get("rfq_number") or item.get("reference_number")),
+            _clean(item.get("closing_date")),
+            _clean(item.get("source_url")),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(item)
+    return output
+
+
+def _extract_closing_date(text: str) -> str:
+    text = _clean(text)
+    match = re.search(r"\b(\d{2}/\d{2}/\d{4})\b", text)
+    if not match:
+        return ""
+    dd, mm, yyyy = match.group(1).split("/")
+    return f"{yyyy}-{mm}-{dd}"
+
+
+def _base_item(source: Dict[str, Any], text: str, url: str = "") -> Dict[str, Any]:
+    text = _clean(text)
+    src_name = _clean(source.get("source_name") or source.get("name") or "Unknown Source")
+    src_url = _clean(url or source.get("url") or source.get("list_url"))
+    return {
+        "title": _truncate(text, 180),
+        "description": text,
+        "buyer_name": src_name,
+        "buyer_rfq_number": _truncate(text, 180),
+        "rfq_number": _truncate(text, 180),
+        "reference_number": _truncate(text, 180),
+        "published_date": "",
+        "closing_date": _extract_closing_date(text),
+        "submission_method": _clean(source.get("submission_method") or "portal"),
+        "recipient_email": "",
+        "buyer_email": "",
+        "document_url": src_url,
+        "source_url": src_url,
+        "detail_url": "",
+        "briefing_required": False,
+        "source": src_name,
+        "source_name": src_name,
+        "portal_name": src_name,
+        "raw_text": text,
+        "ai_agent_profile": AI_AGENT_PROFILE,
+        "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT,
+        "ai_fast_model_hint": AI_FAST_MODEL_HINT,
+        "ai_api_style_hint": AI_API_STYLE_HINT,
+        "ai_orchestration_hint": AI_ORCHESTRATION_HINT,
+    }
+
+
+def load_harvest_sources(source_file: Optional[str] = None) -> List[Dict[str, Any]]:
+    path = Path(source_file) if source_file else DEFAULT_SOURCE_FILE
+    if not path.exists():
+        logger.warning("Source file not found: %s", path)
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.exception("Failed to read source file: %s", exc)
+        return []
+
+    if isinstance(data, dict):
+        if isinstance(data.get("sources"), list):
+            data = data["sources"]
+        else:
+            data = [data]
+
+    sources: List[Dict[str, Any]] = []
+    for item in data if isinstance(data, list) else []:
+        if not isinstance(item, dict):
+            continue
+        normalized = dict(item)
+        normalized["name"] = _clean(item.get("name") or item.get("source_name"))
+        normalized["source_name"] = normalized["name"]
+        normalized["url"] = _clean(item.get("url") or item.get("list_url"))
+        normalized["list_url"] = _clean(item.get("list_url") or normalized["url"])
+        normalized["type"] = _safe_lower(item.get("type"))
+        normalized["enabled"] = bool(item.get("enabled", True))
+        normalized["priority"] = int(item.get("priority") or 9999)
+        normalized["intelligence_score"] = int(item.get("intelligence_score") or 0)
+        normalized["submission_method"] = _clean(item.get("submission_method") or "portal")
+        sources.append(normalized)
+
+    sources.sort(key=lambda s: (s.get("priority", 9999), -int(s.get("intelligence_score", 0)), s.get("name", "")))
+    return sources
+
+
+def count_loaded_sources(source_file: Optional[str] = None) -> Dict[str, int]:
+    sources = load_harvest_sources(source_file)
+    enabled = sum(1 for s in sources if s.get("enabled", True))
+    disabled = len(sources) - enabled
+    return {"total": len(sources), "enabled": enabled, "disabled": disabled}
+
+
+def get_harvester_health(source_file: Optional[str] = None) -> Dict[str, Any]:
+    counts = count_loaded_sources(source_file)
+    return {
+        "checked_at": _now_iso(),
+        "status": "paused" if PAUSE_FILE.exists() else "running",
+        "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)) if PAUSE_FILE.exists() or PAUSE_FILE.parent.exists() else str(PAUSE_FILE),
+        "sources": counts,
+        "ai_agent_profile": AI_AGENT_PROFILE,
+        "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT,
+        "ai_api_style_hint": AI_API_STYLE_HINT,
+    }
+
+
+NOISE_PATTERNS = [
+    "login required",
+    "it seems like you are not logged in",
+    "tender opportunities",
+    "currently advertised tenders",
+    "category tender description esubmission advertised closing",
+    "use quick find",
+    "advanced search",
+    "reset all filters",
+    "download excel",
+    "download pdf",
+    "please wait",
+    "home page - etenders portal",
+    "opportunities - etenders portal",
+    "please note we are only searching open or active tenders",
+    "please note we are only searching for open/active tenders",
+    "this site provides access to information on all tenders made by all public sector organisations",
+    "home page - transnet e-tenders",
+    "search for advertised tenders",
+    "browse opportunities",
+    "please click on browse opportunities",
+    "to filter through tenders with more control",
+    "customerzation",
+    "please continue to check both the e-tender system",
+    "new esupplier portal",
+    "on the tender results table below",
+    "sign to expand tender details and to download tender documents",
+    "to become a transnet supplier",
+    "preset standards which are required in order to supply certain items or services",
+    "can these specifications be issued as they are in a bid",
+    "publication of tender",
+    "when transnet needs to procure goods, services or works",
+    "transnet soc ltd tenders",
+    "minimum bid evaluation and award criteria",
+]
+
+
+def _is_noise_row(text: str) -> bool:
+    t = _safe_lower(text)
+    if not t:
+        return True
+    if _looks_like_attachment_name(t):
+        return True
+    return any(pattern in t for pattern in NOISE_PATTERNS)
+
+
+def run_generic_scraper(source: Dict[str, Any], timeout: int = 15, max_items: int = 20) -> List[Dict[str, Any]]:
+    url = _clean(source.get("url") or source.get("list_url"))
+    max_items = _safe_positive_int(max_items, 20)
+    if not url:
+        return []
+    try:
+        response = requests.get(url, timeout=timeout, verify=bool(source.get("verify_ssl", True)))
+        response.raise_for_status()
+        html = response.text
+    except Exception as exc:
+        logger.warning("Static scrape failed for %s: %s", source.get("name"), exc)
+        return []
+
+    candidates = re.findall(r">([^<>]{20,400})<", html)
+    results: List[Dict[str, Any]] = []
+    for raw in candidates:
+        text = re.sub(r"\s+", " ", raw).strip()
+        if not text or _is_noise_row(text):
+            continue
+        t = _safe_lower(text)
+        if not any(token in t for token in ["tender", "rfq", "bid", "quotation", "supply", "delivery", "installation"]):
+            continue
+        results.append(_base_item(source, text, url))
+        if len(results) >= max_items:
+            break
+    return _dedupe_keep_order(results)
+
+
+def run_playwright_generic_scraper(source: Dict[str, Any], max_items: int = 20, headless: bool = True) -> List[Dict[str, Any]]:
+    url = _clean(source.get("url") or source.get("list_url"))
+    max_items = _safe_positive_int(max_items, 20)
+    if not url:
+        return []
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:
+        logger.warning("Playwright unavailable, using static fallback for %s: %s", source.get("name"), exc)
+        return run_generic_scraper(source, max_items=max_items)
+
+    results: List[Dict[str, Any]] = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=headless)
+            page = browser.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(3500)
+
+            row_selectors = ["table tbody tr", "table tr", ".table tbody tr"]
+            rows = []
+            for selector in row_selectors:
+                rows = page.query_selector_all(selector)
+                if rows:
+                    break
+
+            for row in rows:
+                try:
+                    cols = row.query_selector_all("td")
+                    if len(cols) < 2:
+                        continue
+                    text = " ".join(_clean(c.inner_text()) for c in cols if _clean(c.inner_text()))
+                    text = re.sub(r"\s+", " ", text).strip()
+                    if not text or _is_noise_row(text):
+                        continue
+                    t = _safe_lower(text)
+                    if not any(token in t for token in ["tender", "rfq", "bid", "quotation", "supply", "delivery", "installation"]):
+                        continue
+                    item = _base_item(source, text, url)
+                    second = _clean(cols[1].inner_text()) if len(cols) >= 2 else ""
+                    if second and not _is_noise_row(second):
+                        item["title"] = _truncate(second, 180)
+                        item["buyer_rfq_number"] = _truncate(second, 180)
+                        item["rfq_number"] = _truncate(second, 180)
+                        item["reference_number"] = _truncate(second, 180)
+                    if cols:
+                        last_text = _clean(cols[-1].inner_text())
+                        if _extract_closing_date(last_text):
+                            item["closing_date"] = _extract_closing_date(last_text)
+                    results.append(item)
+                    if len(results) >= max_items:
+                        break
+                except Exception:
+                    continue
+
+            if len(results) < max_items:
+                card_selectors = ["[class*='tender']", "[class*='opportunit']", ".card", "article", "li"]
+                seen_text = {item["raw_text"] for item in results}
+                for selector in card_selectors:
+                    cards = page.query_selector_all(selector)
+                    for card in cards:
+                        try:
+                            text = re.sub(r"\s+", " ", _clean(card.inner_text())).strip()
+                            if not text or text in seen_text or _is_noise_row(text):
+                                continue
+                            t = _safe_lower(text)
+                            if not any(token in t for token in ["tender", "rfq", "bid", "quotation", "supply", "delivery", "installation"]):
+                                continue
+                            results.append(_base_item(source, text, url))
+                            seen_text.add(text)
+                            if len(results) >= max_items:
+                                break
+                        except Exception:
+                            continue
+                    if len(results) >= max_items:
+                        break
+
+            browser.close()
+    except Exception as exc:
+        logger.warning("Playwright scrape failed for %s: %s", source.get("name"), exc)
+        return run_generic_scraper(source, max_items=max_items)
+
+    return _dedupe_keep_order(results)[:max_items]
+
+
+def run_ocds_api_harvester(source: Dict[str, Any], max_items: int = 20, timeout: int = 20) -> List[Dict[str, Any]]:
+    url = _clean(source.get("url") or source.get("list_url"))
+    max_items = _safe_positive_int(max_items, 20)
+    if not url:
+        return []
+    try:
+        response = requests.get(url, timeout=timeout, verify=bool(source.get("verify_ssl", True)))
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:
+        logger.warning("OCDS/API harvest failed for %s: %s", source.get("name"), exc)
+        return []
+
+    records: List[Dict[str, Any]] = []
+    if isinstance(data, dict):
+        for key in ("releases", "records", "results", "items"):
+            if isinstance(data.get(key), list):
+                records = data[key]
+                break
+        if not records:
+            records = [data]
+    elif isinstance(data, list):
+        records = data
+
+    results: List[Dict[str, Any]] = []
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        title = (
+            _clean(rec.get("title"))
+            or _clean(rec.get("tender", {}).get("title") if isinstance(rec.get("tender"), dict) else "")
+            or _clean(rec.get("ocid"))
+        )
+        desc = (
+            _clean(rec.get("description"))
+            or _clean(rec.get("tender", {}).get("description") if isinstance(rec.get("tender"), dict) else "")
+            or title
+        )
+        text = re.sub(r"\s+", " ", f"{title} {desc}").strip()
+        if not text or _is_noise_row(text):
+            continue
+        item = _base_item(source, text, url)
+        item["title"] = _truncate(title or desc, 180)
+        item["buyer_rfq_number"] = _truncate(title or desc, 180)
+        item["rfq_number"] = _truncate(title or desc, 180)
+        item["reference_number"] = _truncate(_clean(rec.get("ocid") or title or desc), 180)
+        results.append(item)
+        if len(results) >= max_items:
+            break
+    return _dedupe_keep_order(results)
+
+
+EXCLUDED_KEYWORDS = [
+    "medical", "pharmaceutical", "clinic supplies", "dna equipment",
+    "laptop", "computer", "printer", "server", "router", "software",
+    "petrol", "diesel", "fuel",
+    "catering",
+    "construction", "civil", "road", "bridge", "reticulation", "sewer", "water treatment",
+    "event management", "entertainment",
+    "maintenance contract", "maintenance of", "service provider",
+    "repair and installation",
+]
+
+SCREEN_OUT_KEYWORDS = [
+    "request for information",
+    "expression of interest",
+    "lease of immovable property",
+    "rental and leasing",
+    "other service activities",
+]
+
+SUPPLY_OVERRIDE_TERMS = [
+    "supply and delivery",
+    "supply, delivery",
+    "supply of",
+    "delivery of",
+    "manufacture, testing, supply and delivery",
+    "supply, delivery and installation",
+    "supply and installation",
+    "supply, delivery, installation and commissioning",
+]
+
+AUTO_PROMOTE_TERMS = [
+    "supply and delivery",
+    "supply, delivery",
+    "supply of",
+    "delivery of",
+    "manufacture, testing, supply and delivery",
+    "supply, delivery and installation",
+    "supply and installation",
+    "supply, delivery, installation and commissioning",
+    "water collection, treatment and supply",
+]
+
+
+def _classify_item(item: Dict[str, Any], minimum_margin_pct: float, minimum_profit: float) -> Dict[str, Any]:
+    raw = _safe_lower(" ".join([
+        item.get("title", ""),
+        item.get("description", ""),
+        item.get("raw_text", ""),
+        item.get("buyer_rfq_number", ""),
+    ]))
+
+    item["harvested_at"] = _now_iso()
+    item["items"] = []
+    item["line_items"] = []
+    item["pdf_generated"] = False
+    item["quote_generated"] = False
+    item["submission_status"] = "pending"
+    item["submission_message"] = ""
+    item["estimated_margin_pct"] = minimum_margin_pct
+    item["estimated_profit"] = None
+    item["meets_minimum_margin_rule"] = minimum_margin_pct >= 25.0
+    item["meets_minimum_profit_rule"] = None
+    item["exclusion_reason"] = ""
+
+    supply_override = any(term in raw for term in SUPPLY_OVERRIDE_TERMS)
+    auto_promote = any(term in raw for term in AUTO_PROMOTE_TERMS)
+
+    for kw in EXCLUDED_KEYWORDS:
+        if kw in raw:
+            if supply_override and kw not in {"medical", "pharmaceutical", "clinic supplies", "dna equipment"}:
+                continue
+            item["eligible"] = False
+            item["quote_ready"] = False
+            item["pipeline_status"] = "blocked"
+            item["eligibility_reason"] = f"Blocked by LMCP exclusion rule matched on '{kw}'."
+            item["exclusion_reason"] = f"excluded_keyword:{kw}"
+            return item
+
+    for kw in SCREEN_OUT_KEYWORDS:
+        if kw in raw and not supply_override:
+            item["eligible"] = False
+            item["quote_ready"] = False
+            item["pipeline_status"] = "screened_out"
+            item["eligibility_reason"] = "Screened out because the opportunity is not a quote-ready goods tender."
+            item["exclusion_reason"] = "service_heavy"
+            return item
+
+    supply_signal = supply_override or any(token in raw for token in ["supply", "delivery", "supplies:"])
+    if not supply_signal:
+        item["eligible"] = False
+        item["quote_ready"] = False
+        item["pipeline_status"] = "screened_out"
+        item["eligibility_reason"] = "Screened out because it does not clearly appear to be a supply/delivery opportunity."
+        item["exclusion_reason"] = "not_supply_delivery"
+        return item
+
+    item["estimated_profit"] = None
+    item["meets_minimum_profit_rule"] = None
+    item["eligible"] = True
+    item["ai_review_needed"] = True
+    item["ai_review_reason"] = "Future ChatGPT/Codex scoring can refine pricing, extraction quality, and buyer-form mapping."
+
+    if auto_promote:
+        item["quote_ready"] = True
+        item["pipeline_status"] = "quote_ready"
+        item["eligibility_reason"] = "Auto-promoted to quote-ready by supply/delivery/installation rule."
+    else:
+        item["quote_ready"] = False
+        item["pipeline_status"] = "eligible_needs_pricing"
+        item["eligibility_reason"] = "Eligible by category, but profit cannot yet be estimated reliably."
+
+    return item
+
+
+def _persist_live_store(items: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    try:
+        from app.services.live_rfq_store import promote_live_rfqs  # type: ignore
+    except Exception:
+        return None
+    try:
+        return promote_live_rfqs(items)
+    except Exception as exc:
+        logger.warning("Live store persistence failed: %s", exc)
+        return None
+
+
+def _trigger_auto_quote(items: List[Dict[str, Any]], enable_auto_quote: bool) -> List[Dict[str, Any]]:
+    if not enable_auto_quote:
+        return []
+    try:
+        from app.services.tender_pipeline import run_tender_pipeline_from_payload  # type: ignore
+    except Exception:
+        return []
+
+    results: List[Dict[str, Any]] = []
+    for item in items:
+        if not item.get("quote_ready"):
+            continue
+        try:
+            payload = dict(item)
+            result = run_tender_pipeline_from_payload(payload)
+            item["pipeline_status"] = "auto_quote_triggered"
+            results.append({"title": item.get("title"), "status": "triggered", "result": result})
+        except Exception as exc:
+            item["pipeline_status"] = "auto_quote_failed"
+            results.append({"title": item.get("title"), "status": "failed", "error": str(exc)})
+    return results
+
+
+def _harvest_from_source(source: Dict[str, Any], max_per_source: int, headless: bool) -> List[Dict[str, Any]]:
+    source_type = _safe_lower(source.get("type"))
+    source_name = _safe_lower(source.get("name") or source.get("source_name"))
+    source_group = _safe_lower(source.get("source_group") or source.get("category_group"))
+
+    if source_type in {"web", "generic_portal", "portal", "website"}:
+        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless)
+
+    if source_type in {"ocds", "api", "json_api"}:
+        return run_ocds_api_harvester(source, max_items=max_per_source)
+
+    if "etenders" in source_name or source_group == "etenders":
+        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless)
+
+    return []
+
+
+def run_national_tender_radar(
+    max_total: int = 20,
+    max_per_source: int = 3,
+    enable_auto_quote: bool = False,
+    persist_to_live_store: bool = False,
+    headless: bool = True,
+    minimum_margin_pct: float = 25.0,
+    minimum_profit: float = 30000.0,
+    source_file: Optional[str] = None,
+) -> Dict[str, Any]:
+    max_total = _safe_positive_int(max_total, 20)
+    max_per_source = _safe_positive_int(max_per_source, 3)
+
+    run_started_at = _now_iso()
+    sources = load_harvest_sources(source_file)
+    all_items: List[Dict[str, Any]] = []
+    blocked_items: List[Dict[str, Any]] = []
+    screened_out_items: List[Dict[str, Any]] = []
+    eligible_items: List[Dict[str, Any]] = []
+    source_runs: List[Dict[str, Any]] = []
+
+    # ---------------------------------------------------
+    # MASTER SYSTEM SWITCH CHECK
+    # ---------------------------------------------------
+    try:
+        control_state = get_system_control_state()
+
+        if not control_state.get("system_on", True):
+            return {
+                "status": "skipped",
+                "reason": "system_off",
+                "message": "Tender harvester blocked by master system OFF switch.",
+                "run_started_at": run_started_at,
+                "system_control_state": control_state,
+                "items": [],
+                "harvested_total": 0,
+                "blocked_total": 0,
+                "screened_out_total": 0,
+                "eligible_total": 0,
+                "quote_ready_total": 0,
+                "source_runs": [],
+                "ai_agent_profile": AI_AGENT_PROFILE,
+                "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT,
+                "ai_fast_model_hint": AI_FAST_MODEL_HINT,
+                "ai_api_style_hint": AI_API_STYLE_HINT,
+                "ai_orchestration_hint": AI_ORCHESTRATION_HINT,
+            }
+
+    except Exception as exc:
+        logger.warning("System control check failed, continuing safe default: %s", exc)
+
+    if PAUSE_FILE.exists():
+        return {
+            "status": "paused",
+            "run_started_at": run_started_at,
+            "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)),
+            "source_count": len(sources),
+            "items": [],
+            "harvested_total": 0,
+            "blocked_total": 0,
+            "screened_out_total": 0,
+            "eligible_total": 0,
+            "quote_ready_total": 0,
+            "auto_quote_enabled": enable_auto_quote,
+            "auto_quote_results": [],
+            "persist_to_live_store": persist_to_live_store,
+            "live_store_result": None,
+            "minimum_margin_pct": minimum_margin_pct,
+            "minimum_profit": minimum_profit,
+            "source_runs": [],
+            "blocked_items": [],
+            "screened_out_items": [],
+            "eligible_items": [],
+            "critical_priority_total": 0,
+            "downloaded_document_total": 0,
+            "form_document_total": 0,
+            "ai_agent_profile": AI_AGENT_PROFILE,
+        }
+
+    for source in sources:
+        if len(all_items) >= max_total:
+            break
+        if not source.get("enabled", True):
+            continue
+
+        harvested = _harvest_from_source(source, max_per_source=max_per_source, headless=headless)
+        harvested = _dedupe_keep_order(harvested)
+
+        processed_for_source: List[Dict[str, Any]] = []
+        for item in harvested:
+            item["auto_quote_enabled"] = enable_auto_quote
+            item["source_priority_score"] = int(source.get("intelligence_score") or 0)
+            classified = _classify_item(item, minimum_margin_pct, minimum_profit)
+            processed_for_source.append(classified)
+
+            if classified.get("pipeline_status") == "blocked":
+                blocked_items.append(classified)
+            elif classified.get("pipeline_status") == "screened_out":
+                screened_out_items.append(classified)
+            else:
+                eligible_items.append(classified)
+
+            all_items.append(classified)
+            if len(all_items) >= max_total:
+                break
+
+        source_runs.append({
+            "source_name": source.get("name") or source.get("source_name") or "Unknown",
+            "harvested": len(processed_for_source),
+            "blocked": sum(1 for i in processed_for_source if i.get("pipeline_status") == "blocked"),
+            "screened_out": sum(1 for i in processed_for_source if i.get("pipeline_status") == "screened_out"),
+            "eligible": sum(1 for i in processed_for_source if i.get("eligible")),
+            "quote_ready": sum(1 for i in processed_for_source if i.get("quote_ready")),
+        })
+
+    live_store_result = _persist_live_store(all_items) if persist_to_live_store and all_items else None
+    auto_quote_results = _trigger_auto_quote(all_items, enable_auto_quote)
+    quote_ready_total = sum(1 for i in all_items if i.get("quote_ready"))
+
+    return {
+        "status": "ok",
+        "run_started_at": run_started_at,
+        "source_count": len(sources),
+        "items": all_items,
+        "harvested_total": len(all_items),
+        "blocked_total": len(blocked_items),
+        "screened_out_total": len(screened_out_items),
+        "eligible_total": len(eligible_items),
+        "quote_ready_total": quote_ready_total,
+        "auto_quote_enabled": enable_auto_quote,
+        "auto_quote_results": auto_quote_results,
+        "persist_to_live_store": persist_to_live_store,
+        "live_store_result": live_store_result,
+        "minimum_margin_pct": minimum_margin_pct,
+        "minimum_profit": minimum_profit,
+        "source_runs": source_runs,
+        "blocked_items": blocked_items,
+        "screened_out_items": screened_out_items,
+        "eligible_items": eligible_items,
+        "critical_priority_total": len(all_items),
+        "downloaded_document_total": len(all_items),
+        "form_document_total": 0,
+        "ai_agent_profile": AI_AGENT_PROFILE,
+        "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT,
+        "ai_fast_model_hint": AI_FAST_MODEL_HINT,
+        "ai_api_style_hint": AI_API_STYLE_HINT,
+        "ai_orchestration_hint": AI_ORCHESTRATION_HINT,
+    }
+
+
+def run_continuous_tender_radar(sleep_seconds: int = 600, **kwargs: Any) -> None:
+    while True:
+        try:
+            control_state = get_system_control_state()
+            if not control_state.get("system_on", True):
+                time.sleep(max(5, sleep_seconds))
+                continue
+        except Exception:
+            pass
+
+        if PAUSE_FILE.exists():
+            time.sleep(max(5, sleep_seconds))
+            continue
+        try:
+            run_national_tender_radar(**kwargs)
+        except Exception as exc:
+            logger.exception("Continuous tender radar iteration failed: %s", exc)
+        time.sleep(max(5, sleep_seconds))
+
+

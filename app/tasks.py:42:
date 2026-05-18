@@ -1,0 +1,283 @@
+# app/tasks.py
+import os
+import json
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
+
+import psycopg2
+from psycopg2.extras import Json
+import requests
+from celery import Celery
+
+# -----------------------------
+# Environment / Celery
+# -----------------------------
+DATABASE_URL = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL".lower(), os.getenv("DATABASE_URL".upper(), "")))
+# Your project uses DATABASE_URL in some places and DATABASE_URL/DATABASE_URL casing may differ.
+# But in your containers you've confirmed DATABASE_URL is set, so we fall back safely.
+DATABASE_URL = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL".lower(), os.getenv("DATABASE_URL".upper(), os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "")))))
+DATABASE_URL = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL".lower(), os.getenv("DATABASE_URL".upper(), os.getenv("DATABASE_URL", ""))))
+
+# In your repo you were using DATABASE_URL (not SQLAlchemy engine here)
+DATABASE_URL = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL".lower(), os.getenv("DATABASE_URL".upper(), os.getenv("DATABASE_URL", ""))))
+if not DATABASE_URL:
+    # Your actual running containers showed DATABASE_URL is set, but keep a fallback just in case:
+    DATABASE_URL = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://autoquote:autoquote@db:5432/autoquote"))
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", REDIS_URL)
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+
+celery_app = Celery(
+    "autoquote",
+    broker=CELERY_BROKER_URL,
+    backend=CELERY_RESULT_BACKEND,
+)
+
+# -----------------------------
+# eTenders / OCDS endpoint
+# -----------------------------
+# IMPORTANT:
+# Set ETENDERS_API_URL to the FULL endpoint you want to call.
+# Example you currently have:
+#   ETENDERS_API_URL=https://ocds-api.etenders.gov.za/api/OCDSReleases
+ETENDERS_API_URL = os.getenv("ETENDERS_API_URL", "https://ocds-api.etenders.gov.za/api/OCDSReleases").strip()
+
+REQUEST_TIMEOUT_SECONDS = int(os.getenv("ETENDERS_TIMEOUT_SECONDS", "45"))
+
+
+# -----------------------------
+# Helpers
+# -----------------------------
+def _db_connect():
+    return psycopg2.connect(DATABASE_URL)
+
+
+def _safe_parse_dt(value: Any) -> Optional[datetime]:
+    """
+    Try to parse various date/datetime forms from OCDS payloads.
+    Returns timezone-naive datetime if possible.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, (int, float)):
+        # unix timestamp
+        try:
+            return datetime.utcfromtimestamp(value)
+        except Exception:
+            return None
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        # common ISO formats
+        for fmt in (
+            "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%dT%H:%M:%S.%f%z",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%d",
+        ):
+            try:
+                dt = datetime.strptime(s, fmt)
+                # if it had tzinfo, drop it (Postgres timestamptz can accept naive too, but keep consistent)
+                return dt.replace(tzinfo=None)
+            except Exception:
+                continue
+    return None
+
+
+def _extract_records(payload: Any) -> List[Dict[str, Any]]:
+    """
+    OCDS APIs vary:
+    - sometimes payload is { "records": [...] }
+    - sometimes { "releases": [...] }
+    - sometimes a list is returned directly
+    """
+    if isinstance(payload, list):
+        return [x for x in payload if isinstance(x, dict)]
+    if isinstance(payload, dict):
+        for key in ("records", "releases", "data", "results"):
+            v = payload.get(key)
+            if isinstance(v, list):
+                return [x for x in v if isinstance(x, dict)]
+    return []
+
+
+def _extract_opportunity_fields(item: Dict[str, Any]) -> Tuple[str, str, str, Optional[datetime], Optional[datetime], str, Dict[str, Any]]:
+    """
+    Returns:
+      title, buyer, source, published_date, closing_date, reference, raw
+    """
+    raw = item
+    source = "etenders"
+
+    # Try common OCDS structures
+    compiled = item.get("compiledRelease") or item.get("release") or item.get("releases") or {}
+    if isinstance(compiled, list) and compiled:
+        compiled = compiled[0] if isinstance(compiled[0], dict) else {}
+
+    tender = {}
+    if isinstance(compiled, dict):
+        tender = compiled.get("tender") or {}
+    if not isinstance(tender, dict):
+        tender = {}
+
+    title = (
+        tender.get("title")
+        or item.get("title")
+        or item.get("name")
+        or "Untitled Opportunity"
+    )
+    if not isinstance(title, str):
+        title = "Untitled Opportunity"
+
+    buyer = ""
+    buyer_obj = tender.get("procuringEntity") if isinstance(tender, dict) else None
+    if isinstance(buyer_obj, dict):
+        buyer = buyer_obj.get("name") or ""
+    if not buyer:
+        buyer2 = item.get("buyer")
+        if isinstance(buyer2, dict):
+            buyer = buyer2.get("name") or ""
+        elif isinstance(buyer2, str):
+            buyer = buyer2
+
+    # Dates
+    published_date = _safe_parse_dt(
+        (compiled.get("date") if isinstance(compiled, dict) else None)
+        or item.get("date")
+        or item.get("published_date")
+    )
+
+    closing_date = None
+    tender_period = tender.get("tenderPeriod") if isinstance(tender, dict) else None
+    if isinstance(tender_period, dict):
+        closing_date = _safe_parse_dt(tender_period.get("endDate"))
+
+    closing_date = closing_date or _safe_parse_dt(item.get("closing_date"))
+
+    # Reference
+    reference = (
+        item.get("ocid")
+        or item.get("id")
+        or (compiled.get("ocid") if isinstance(compiled, dict) else None)
+        or "UNKNOWN"
+    )
+    if not isinstance(reference, str):
+        reference = str(reference)
+
+    return title.strip(), buyer.strip(), source, published_date, closing_date, reference.strip(), raw
+
+
+def _insert_opportunities(rows: List[Tuple[str, str, str, Optional[datetime], Optional[datetime], str, Dict[str, Any]]]) -> int:
+    """
+    Inserts into opportunities table.
+    NOTE: Your table columns currently include:
+      id (uuid default), title (text not null), buyer (text), source (text),
+      closing_date (timestamptz), reference (text), raw (jsonb), created_at (timestamptz),
+      published_date (timestamptz)   [you added this]
+    """
+    if not rows:
+        return 0
+
+    inserted = 0
+    conn = _db_connect()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                for (title, buyer, source, published_dt, closing_dt, reference, raw) in rows:
+                    # Best effort dedupe: if same reference+title already exists, skip
+                    cur.execute(
+                        """
+                        SELECT 1
+                        FROM opportunities
+                        WHERE reference = %s AND title = %s
+                        LIMIT 1
+                        """,
+                        (reference, title),
+                    )
+                    if cur.fetchone():
+                        continue
+
+                    cur.execute(
+                        """
+                        INSERT INTO opportunities (title, buyer, source, published_date, closing_date, reference, raw)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (title, buyer or None, source, published_dt, closing_dt, reference or None, Json(raw)),
+                    )
+                    inserted += 1
+        return inserted
+    finally:
+        conn.close()
+
+
+# -----------------------------
+# Tasks
+# -----------------------------
+@celery_app.task(name="app.tasks.health_check")
+def health_check() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "timestamp": datetime.utcnow().isoformat(),
+        "database_url_set": bool(DATABASE_URL),
+        "etenders_api_url": ETENDERS_API_URL,
+    }
+
+
+@celery_app.task(name="app.tasks.poll_etenders")
+def poll_etenders(date_from: Optional[str] = None, date_to: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Poll National Treasury OCDS endpoint.
+
+    We DO NOT append '/api/records' anymore.
+    Whatever you set as ETENDERS_API_URL will be called directly.
+    """
+    # Default range: last 7 days
+    if not date_to:
+        date_to = date.today().isoformat()
+    if not date_from:
+        date_from = (date.today() - timedelta(days=7)).isoformat()
+
+    params = {"date_from": date_from, "date_to": date_to}
+
+    try:
+        resp = requests.get(ETENDERS_API_URL, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        payload = resp.json()
+        items = _extract_records(payload)
+
+        rows = []
+        sample_titles = []
+        for item in items[:2000]:  # safety cap
+            title, buyer, source, published_dt, closing_dt, reference, raw = _extract_opportunity_fields(item)
+            rows.append((title, buyer, source, published_dt, closing_dt, reference, raw))
+            if len(sample_titles) < 5:
+                sample_titles.append(title)
+
+        inserted = _insert_opportunities(rows)
+
+        return {
+            "source": "etenders",
+            "date_from": date_from,
+            "date_to": date_to,
+            "fetched_releases": len(items),
+            "inserted": inserted,
+            "sample_titles": sample_titles,
+            "note": f"Called ETENDERS_API_URL directly: {ETENDERS_API_URL}",
+        }
+
+    except Exception as e:
+        return {
+            "source": "etenders",
+            "date_from": date_from,
+            "date_to": date_to,
+            "fetched_releases": 0,
+            "inserted": 0,
+            "sample_titles": [],
+            "error": str(e),
+            "note": f"Failed calling {ETENDERS_API_URL} with params {params}",
+        }

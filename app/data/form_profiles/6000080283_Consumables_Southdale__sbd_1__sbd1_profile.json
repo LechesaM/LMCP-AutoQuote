@@ -1,0 +1,218 @@
+{
+  "name": "6000080283_Consumables_Southdale__sbd_1__sbd1_profile",
+  "template_type": "sbd_form",
+  "field_aliases": {
+    "company_name": [
+      "name of bidder",
+      "bidder name",
+      "supplier information"
+    ],
+    "postal_address": [
+      "postal address"
+    ],
+    "company_address": [
+      "street address",
+      "physical address"
+    ],
+    "company_phone": [
+      "telephone number",
+      "telephone"
+    ],
+    "company_cellphone": [
+      "cellphone number",
+      "cellphone"
+    ],
+    "contact_person": [
+      "contact person",
+      "contract person"
+    ],
+    "company_email": [
+      "e-mail address",
+      "email address"
+    ],
+    "vat_number": [
+      "vat registration number",
+      "vat no"
+    ],
+    "csd_number": [
+      "central supplier database no",
+      "csd no",
+      "csd number"
+    ],
+    "tcs_pin": [
+      "tax compliance system pin",
+      "tcs pin"
+    ],
+    "signatory_capacity": [
+      "capacity under which this bid is signed",
+      "capacity"
+    ],
+    "date_signed": [
+      "date",
+      "signature date"
+    ],
+    "total_bid_price": [
+      "total bid price",
+      "total bid price inc. vat"
+    ]
+  },
+  "anchor_rules": [
+    {
+      "field_name": "company_name",
+      "anchor_text": "NAME OF BIDDER",
+      "x_offset": 160,
+      "y_offset": -2,
+      "width": 280,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "postal_address",
+      "anchor_text": "POSTAL ADDRESS",
+      "x_offset": 160,
+      "y_offset": -2,
+      "width": 280,
+      "height": 26,
+      "font_size": 10,
+      "multiline": true,
+      "max_lines": 2,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "company_address",
+      "anchor_text": "STREET ADDRESS",
+      "x_offset": 160,
+      "y_offset": -2,
+      "width": 280,
+      "height": 26,
+      "font_size": 10,
+      "multiline": true,
+      "max_lines": 2,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "company_phone",
+      "anchor_text": "TELEPHONE NUMBER",
+      "x_offset": 150,
+      "y_offset": -2,
+      "width": 130,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "company_cellphone",
+      "anchor_text": "CELLPHONE NUMBER",
+      "x_offset": 150,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "contact_person",
+      "anchor_text": "CONTRACT PERSON",
+      "x_offset": 135,
+      "y_offset": -2,
+      "width": 200,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "company_email",
+      "anchor_text": "E-MAIL ADDRESS",
+      "x_offset": 150,
+      "y_offset": -2,
+      "width": 260,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "vat_number",
+      "anchor_text": "VAT REGISTRATION NUMBER",
+      "x_offset": 160,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "total_bid_price",
+      "anchor_text": "TOTAL BID PRICE",
+      "x_offset": 130,
+      "y_offset": -2,
+      "width": 150,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "tcs_pin",
+      "anchor_text": "TAX COMPLIANCE SYSTEM PIN",
+      "x_offset": 150,
+      "y_offset": -2,
+      "width": 120,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "csd_number",
+      "anchor_text": "CENTRAL SUPPLIER DATABASE No",
+      "x_offset": 160,
+      "y_offset": -2,
+      "width": 140,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "signatory_capacity",
+      "anchor_text": "CAPACITY UNDER WHICH THIS BID IS SIGNED",
+      "x_offset": 220,
+      "y_offset": -2,
+      "width": 250,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    },
+    {
+      "field_name": "date_signed",
+      "anchor_text": "DATE",
+      "x_offset": 45,
+      "y_offset": -2,
+      "width": 100,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 9
+    }
+  ],
+  "signature_coordinates": {
+    "page": 9,
+    "x": 110,
+    "y": 95,
+    "width": 150,
+    "height": 40
+  },
+  "docx_signature_placeholder": "{{signature}}",
+  "docx_witness_1_signature_placeholder": "{{witness_1_signature}}",
+  "docx_witness_2_signature_placeholder": "{{witness_2_signature}}"
+}

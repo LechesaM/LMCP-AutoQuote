@@ -1,0 +1,1312 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+from copy import deepcopy
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+RUNTIME_DIR = Path("runtime")
+FINAL_DIR = RUNTIME_DIR / "final_submission_v47_5"
+PROFILE_DIR = RUNTIME_DIR / "playwright_profiles" / "etenders"
+STATE_FILE = RUNTIME_DIR / "playwright_profiles" / "etenders_state.json"
+SCREENSHOT_DIR = FINAL_DIR / "screenshots"
+PROOF_DIR = FINAL_DIR / "proofs"
+
+FINAL_DIR.mkdir(parents=True, exist_ok=True)
+PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
+PROOF_DIR.mkdir(parents=True, exist_ok=True)
+
+HISTORY_FILE = FINAL_DIR / "final_submission_history.json"
+ASSISTED_FILE = FINAL_DIR / "assisted_final_submit_required.json"
+LAST_RESULT_FILE = FINAL_DIR / "last_final_submit.json"
+
+DEFAULT_TIMEOUT_MS = int(os.getenv("LMCP_PORTAL_BROWSER_TIMEOUT_MS", "45000"))
+HEADLESS = os.getenv("LMCP_PORTAL_BROWSER_HEADLESS", "true").lower() in {"1", "true", "yes", "on"}
+CHROME = os.getenv("LMCP_CHROME_EXECUTABLE", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def _safe_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def _safe_lower(value: Any) -> str:
+    return _safe_str(value).lower()
+
+
+def _slug(value: Any, fallback: str = "final-submit") -> str:
+    text = _safe_str(value, fallback)
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("._-")
+    return text[:120] or fallback
+
+
+def _read_json(path: Path, default: Any) -> Any:
+    try:
+        if not path.exists():
+            return deepcopy(default)
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return deepcopy(default)
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _append_json(path: Path, item: Dict[str, Any]) -> None:
+    data = _read_json(path, [])
+    if not isinstance(data, list):
+        data = []
+    data.append(item)
+    _write_json(path, data)
+
+
+def _buyer_rfq_number(payload: Dict[str, Any]) -> str:
+    return _safe_str(
+        payload.get("_locked_buyer_rfq_number")
+        or payload.get("buyer_rfq_number")
+        or payload.get("rfq_number")
+        or payload.get("reference_number")
+        or payload.get("document_number")
+        or payload.get("tender_number")
+        or "UNKNOWN-RFQ"
+    )
+
+
+def _quote_number(payload: Dict[str, Any]) -> str:
+    buyer_rfq = _buyer_rfq_number(payload)
+    return _safe_str(payload.get("quote_number") or payload.get("lmcp_quote_number") or f"LMCP-{buyer_rfq}")
+
+
+def _normalise_portal_url(payload: Dict[str, Any]) -> str:
+    url = _safe_str(payload.get("portal_url") or payload.get("submission_url") or payload.get("url"))
+    if not url:
+        return ""
+    if "://" not in url:
+        url = "https://" + url
+    return url
+
+
+def _normalise_attachments(payload: Dict[str, Any]) -> List[str]:
+    values: List[Any] = []
+
+    for key in ["attachments", "submission_attachments", "supporting_documents", "documents", "resolved_attachments"]:
+        raw = payload.get(key)
+        if isinstance(raw, list):
+            values.extend(raw)
+        elif raw:
+            values.append(raw)
+
+    submission_pack = payload.get("submission_pack")
+    if isinstance(submission_pack, dict):
+        for key in ["attachments", "submission_attachments", "supporting_documents"]:
+            raw = submission_pack.get(key)
+            if isinstance(raw, list):
+                values.extend(raw)
+            elif raw:
+                values.append(raw)
+
+    for key in ["pdf_path", "quote_pdf_path", "final_pdf_path"]:
+        if payload.get(key):
+            values.append(payload.get(key))
+
+    output: List[str] = []
+    seen = set()
+    for item in values:
+        text = _safe_str(item)
+        if text and text not in seen:
+            seen.add(text)
+            output.append(text)
+    return output
+
+
+def _resolve_path(path_value: str) -> Optional[str]:
+    if not path_value:
+        return None
+
+    candidates = [
+        Path(path_value),
+        Path("/app") / path_value,
+        Path.cwd() / path_value,
+        Path("/Users/Shared/LMCP-AutoQuote-Server") / path_value,
+    ]
+
+    for candidate in candidates:
+        try:
+            if candidate.exists() and candidate.is_file():
+                return str(candidate.resolve())
+        except Exception:
+            continue
+
+    return None
+
+
+def _resolve_attachments(attachments: List[str]) -> Dict[str, Any]:
+    checked: List[Dict[str, Any]] = []
+    resolved: List[str] = []
+    missing: List[str] = []
+
+    for attachment in attachments:
+        rp = _resolve_path(attachment)
+        checked.append({"path": attachment, "exists": bool(rp), "resolved_path": rp})
+        if rp:
+            resolved.append(rp)
+        else:
+            missing.append(attachment)
+
+    return {
+        "status": "ok" if not missing else "missing_files",
+        "count": len(attachments),
+        "resolved": resolved,
+        "missing": missing,
+        "checked": checked,
+    }
+
+
+def _resolve_state_file() -> Optional[str]:
+    candidates = [
+        STATE_FILE,
+        Path("/app/runtime/playwright_profiles/etenders_state.json"),
+        Path.cwd() / "runtime/playwright_profiles/etenders_state.json",
+        Path("/Users/Shared/LMCP-AutoQuote-Server/runtime/playwright_profiles/etenders_state.json"),
+    ]
+    for p in candidates:
+        try:
+            if p.exists() and p.is_file():
+                return str(p.resolve())
+        except Exception:
+            continue
+    return None
+
+
+def _policy_allows_final_submit(payload: Dict[str, Any]) -> Dict[str, Any]:
+    policy = payload.get("policy")
+    route = payload.get("route")
+    if isinstance(route, dict) and isinstance(route.get("policy"), dict):
+        policy = route.get("policy")
+
+    if not isinstance(policy, dict):
+        policy_path = RUNTIME_DIR / "full_autonomous_v48" / "policy.json"
+        policy = _read_json(policy_path, {})
+
+    if isinstance(policy, dict) and isinstance(policy.get("policy"), dict):
+        policy = policy["policy"]
+
+    allow_final = bool(policy.get("allow_portal_final_submit", True)) if isinstance(policy, dict) else True
+    require_phrase = bool(policy.get("require_confirmation_phrase", False)) if isinstance(policy, dict) else False
+
+    return {
+        "allowed": allow_final and not require_phrase,
+        "allow_portal_final_submit": allow_final,
+        "require_confirmation_phrase": require_phrase,
+        "policy": policy if isinstance(policy, dict) else {},
+    }
+
+
+def _captcha_detected_text(text: str) -> bool:
+    lower = text.lower()
+    return any(
+        marker in lower
+        for marker in [
+            "captcha",
+            "recaptcha",
+            "i'm not a robot",
+            "i am not a robot",
+            "verify you are human",
+            "security check",
+            "captcha verification",
+        ]
+    )
+
+
+async def _body_text(page: Any) -> str:
+    try:
+        return await page.locator("body").inner_text(timeout=10000)
+    except Exception:
+        return ""
+
+
+async def _capture(page: Any, buyer_rfq: str, label: str) -> Optional[str]:
+    try:
+        path = SCREENSHOT_DIR / f"{_slug(buyer_rfq)}__{label}__{_stamp()}.png"
+        await page.screenshot(path=str(path), full_page=True)
+        return str(path)
+    except Exception:
+        return None
+
+
+async def _click_first(page: Any, selectors: List[str], wait_ms: int = 1500) -> Dict[str, Any]:
+    attempts: List[Dict[str, Any]] = []
+
+    for selector in selectors:
+        try:
+            loc = page.locator(selector)
+            count = await loc.count()
+            if count <= 0:
+                attempts.append({"selector": selector, "status": "not_found"})
+                continue
+
+            await loc.first.click(timeout=10000)
+            await page.wait_for_timeout(wait_ms)
+            attempts.append({"selector": selector, "status": "clicked"})
+            return {"status": "ok", "clicked": True, "selector": selector, "attempts": attempts}
+        except Exception as exc:
+            attempts.append({"selector": selector, "status": "failed", "error": str(exc)})
+
+    return {"status": "not_clicked", "clicked": False, "attempts": attempts}
+
+
+async def _force_click_by_text(page: Any, text: str, wait_ms: int = 3000) -> Dict[str, Any]:
+    attempts: List[Dict[str, Any]] = []
+
+    try:
+        await page.locator(f"text={text}").first.click(force=True, timeout=10000)
+        await page.wait_for_timeout(wait_ms)
+        return {"status": "ok", "clicked": True, "method": "locator_force_text", "text": text, "attempts": attempts}
+    except Exception as exc:
+        attempts.append({"method": "locator_force_text", "text": text, "status": "failed", "error": str(exc)})
+
+    try:
+        clicked = await page.evaluate(
+            """(targetText) => {
+                const items = Array.from(document.querySelectorAll('*'));
+                const el = items.find((node) => {
+                    const text = (node.innerText || node.textContent || '').trim();
+                    return text && text.toLowerCase().includes(targetText.toLowerCase());
+                });
+                if (el) {
+                    el.scrollIntoView({block: 'center', inline: 'center'});
+                    el.click();
+                    return true;
+                }
+                return false;
+            }""",
+            text,
+        )
+        await page.wait_for_timeout(wait_ms)
+        if clicked:
+            return {"status": "ok", "clicked": True, "method": "dom_inner_text_click", "text": text, "attempts": attempts}
+        attempts.append({"method": "dom_inner_text_click", "text": text, "status": "not_found"})
+    except Exception as exc:
+        attempts.append({"method": "dom_inner_text_click", "text": text, "status": "failed", "error": str(exc)})
+
+    return {"status": "not_clicked", "clicked": False, "text": text, "attempts": attempts}
+
+
+async def _is_logged_in(page: Any) -> Dict[str, Any]:
+    text = await _body_text(page)
+    lower = text.lower()
+
+    on_submission_page = "responding to" in lower and ("start response" in lower or "submit now" in lower)
+    has_supplier_page = "please provide the maaa number" in lower or "select supplier" in lower
+    logged_in = on_submission_page or has_supplier_page or any(
+        x in lower for x in ["logout", "my profile", "my tenders", "dashboard", "submit now"]
+    )
+    captcha = _captcha_detected_text(text)
+
+    return {
+        "logged_in": bool(logged_in and not captcha),
+        "logged_out_likely": bool(captcha or ("username" in lower and "password" in lower)),
+        "captcha_detected": captcha,
+        "body_excerpt": text[:1200],
+    }
+
+
+async def _select_maaa_and_start_response(page: Any) -> Dict[str, Any]:
+    steps: List[Dict[str, Any]] = []
+
+    try:
+        selects = page.locator("select")
+        count = await selects.count()
+        if count > 0:
+            selected = False
+            for i in range(count):
+                try:
+                    await selects.nth(i).select_option(label=re.compile("LECHESA MANABA", re.I))
+                    selected = True
+                    steps.append({"step": "select_company_by_label", "status": "ok", "select_index": i})
+                    break
+                except Exception as exc:
+                    steps.append({"step": "select_company_by_label", "select_index": i, "status": "failed", "error": str(exc)})
+
+            if not selected:
+                try:
+                    await selects.first.select_option(index=1)
+                    selected = True
+                    steps.append({"step": "select_company_by_index", "status": "ok", "select_index": 0, "option_index": 1})
+                except Exception as exc:
+                    steps.append({"step": "select_company_by_index", "status": "failed", "error": str(exc)})
+
+            await page.wait_for_timeout(1500)
+        else:
+            steps.append({"step": "select_company", "status": "skipped", "reason": "No select element found."})
+    except Exception as exc:
+        steps.append({"step": "select_company", "status": "failed", "error": str(exc)})
+
+    direct = await _click_first(
+        page,
+        [
+            "#esub-start-response",
+            "button#esub-start-response",
+            "button:has-text('Start response')",
+            "a:has-text('Start response')",
+            "text=Start response",
+        ],
+        wait_ms=3500,
+    )
+    steps.append({"step": "start_response_standard_click", "result": direct})
+
+    if direct.get("clicked"):
+        return {"status": "ok", "steps": steps}
+
+    forced = await _force_click_by_text(page, "Start response", wait_ms=4000)
+    steps.append({"step": "start_response_force_click", "result": forced})
+
+    if forced.get("clicked"):
+        return {"status": "ok", "steps": steps}
+
+    js_click = {"status": "not_attempted", "clicked": False}
+    try:
+        clicked = await page.evaluate(
+            """() => {
+                const candidates = Array.from(document.querySelectorAll('button, a, div, span, img'));
+                const start = candidates.find((el) => {
+                    const text = (el.innerText || el.textContent || el.alt || el.title || '').trim().toLowerCase();
+                    return text.includes('start response');
+                });
+                if (start) {
+                    start.removeAttribute('disabled');
+                    start.classList.remove('disabled');
+                    start.scrollIntoView({block: 'center', inline: 'center'});
+                    start.click();
+                    return true;
+                }
+                const byId = document.querySelector('[id*="start"], [class*="start"]');
+                if (byId) {
+                    byId.removeAttribute('disabled');
+                    byId.classList.remove('disabled');
+                    byId.scrollIntoView({block: 'center', inline: 'center'});
+                    byId.click();
+                    return true;
+                }
+                return false;
+            }"""
+        )
+        await page.wait_for_timeout(4000)
+        js_click = {"status": "ok" if clicked else "not_found", "clicked": bool(clicked), "method": "js_candidate_click"}
+    except Exception as exc:
+        js_click = {"status": "failed", "clicked": False, "method": "js_candidate_click", "error": str(exc)}
+
+    steps.append({"step": "start_response_js_click", "result": js_click})
+
+    if js_click.get("clicked"):
+        return {"status": "ok", "steps": steps}
+
+    return {"status": "not_started", "steps": steps}
+
+
+async def _close_blocking_overlays(page: Any) -> Dict[str, Any]:
+    attempts: List[Dict[str, Any]] = []
+
+    # eTenders sometimes opens a blocking "Login Required" / feature-alert modal
+    # even when the storage_state is authenticated. This closes/removes only UI overlays;
+    # it does not bypass CAPTCHA or login.
+    selectors = [
+        "button:has-text('Close')",
+        "a:has-text('Close')",
+        "text=Close",
+        "button:has-text('Got it')",
+        "button:has-text('Got it, Thanks')",
+        "text=Got it, Thanks!",
+        ".modal button.close",
+        ".modal .close",
+        "[data-dismiss='modal']",
+        "[aria-label='Close']",
+    ]
+
+    for selector in selectors:
+        try:
+            loc = page.locator(selector)
+            count = await loc.count()
+            if count <= 0:
+                attempts.append({"selector": selector, "status": "not_found"})
+                continue
+
+            for i in range(min(count, 5)):
+                try:
+                    await loc.nth(i).click(force=True, timeout=3000)
+                    attempts.append({"selector": selector, "index": i, "status": "clicked"})
+                    await page.wait_for_timeout(500)
+                except Exception as exc:
+                    attempts.append({"selector": selector, "index": i, "status": "failed", "error": str(exc)})
+        except Exception as exc:
+            attempts.append({"selector": selector, "status": "failed", "error": str(exc)})
+
+    try:
+        removed = await page.evaluate(
+            """() => {
+                let removed = 0;
+
+                const closeTexts = ['close', 'got it', 'got it, thanks', '×'];
+                const closers = Array.from(document.querySelectorAll('button, a, span, div'));
+                for (const el of closers) {
+                    const text = (el.innerText || el.textContent || '').trim().toLowerCase();
+                    const aria = (el.getAttribute('aria-label') || '').trim().toLowerCase();
+                    if (closeTexts.includes(text) || closeTexts.includes(aria)) {
+                        try { el.click(); } catch (e) {}
+                    }
+                }
+
+                const modalSelectors = [
+                    '.modal-backdrop',
+                    '.modal',
+                    '.overlay',
+                    '.popup',
+                    '.dialog',
+                    '[role="dialog"]',
+                    '.swal2-container',
+                    '.bootbox',
+                    '.fade.in'
+                ];
+
+                for (const sel of modalSelectors) {
+                    for (const node of Array.from(document.querySelectorAll(sel))) {
+                        const text = (node.innerText || node.textContent || '').toLowerCase();
+                        if (
+                            text.includes('login required') ||
+                            text.includes('new feature alert') ||
+                            text.includes('bookmark') ||
+                            text.includes('logged-in') ||
+                            text.includes('got it') ||
+                            sel === '.modal-backdrop'
+                        ) {
+                            try {
+                                node.remove();
+                                removed += 1;
+                            } catch (e) {}
+                        }
+                    }
+                }
+
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = 'auto';
+                document.body.style.paddingRight = '0px';
+
+                return removed;
+            }"""
+        )
+        attempts.append({"step": "dom_overlay_cleanup", "status": "ok", "removed": removed})
+    except Exception as exc:
+        attempts.append({"step": "dom_overlay_cleanup", "status": "failed", "error": str(exc)})
+
+    await page.wait_for_timeout(1500)
+
+    return {"status": "ok", "attempts": attempts}
+
+
+async def _upload_files(page: Any, files: List[str]) -> Dict[str, Any]:
+    attempts: List[Dict[str, Any]] = []
+
+    overlay_cleanup = await _close_blocking_overlays(page)
+    attempts.append({"step": "close_blocking_overlays", "result": overlay_cleanup})
+
+    # STEP 1: Open the eTenders upload UI area.
+    open_upload = await _force_click_by_text(page, "Upload", wait_ms=3500)
+    attempts.append({"step": "force_open_upload", "result": open_upload})
+
+    if not open_upload.get("clicked"):
+        add_doc = await _force_click_by_text(page, "Add", wait_ms=3000)
+        attempts.append({"step": "force_open_add", "result": add_doc})
+
+    if not open_upload.get("clicked"):
+        browse = await _force_click_by_text(page, "Browse", wait_ms=3000)
+        attempts.append({"step": "force_open_browse", "result": browse})
+
+    await page.wait_for_timeout(3500)
+
+    # STEP 2: First try classic file input upload if eTenders exposes it.
+    try:
+        await page.evaluate(
+            """() => {
+                const inputs = Array.from(document.querySelectorAll('input[type="file"]'));
+                for (const input of inputs) {
+                    input.removeAttribute('hidden');
+                    input.style.display = 'block';
+                    input.style.visibility = 'visible';
+                    input.style.opacity = '1';
+                    input.style.position = 'relative';
+                    input.style.width = '300px';
+                    input.style.height = '40px';
+                }
+                return inputs.length;
+            }"""
+        )
+    except Exception as exc:
+        attempts.append({"step": "unhide_file_inputs", "status": "failed", "error": str(exc)})
+
+    file_inputs = page.locator('input[type="file"], input[type=file], input[accept]')
+    try:
+        count = await file_inputs.count()
+    except Exception:
+        count = 0
+
+    for i in range(count):
+        try:
+            await file_inputs.nth(i).set_input_files(files, timeout=DEFAULT_TIMEOUT_MS)
+            await page.wait_for_timeout(3500)
+            attempts.append({"step": "set_input_files", "status": "ok", "input_index": i, "file_count": len(files)})
+
+            follow_up = await _click_first(
+                page,
+                [
+                    "button:has-text('Upload')",
+                    "button:has-text('Save')",
+                    "button:has-text('Add')",
+                    "button:has-text('Done')",
+                    "button:has-text('OK')",
+                    "button:has-text('Continue')",
+                    "text=Upload",
+                    "text=Save",
+                    "text=Add",
+                    "text=Done",
+                    "text=OK",
+                ],
+                wait_ms=2500,
+            )
+            attempts.append({"step": "post_file_input_confirm", "result": follow_up})
+
+            return {
+                "status": "ok",
+                "uploaded": True,
+                "documents_uploaded": True,
+                "attachments_uploaded": True,
+                "method": "file_input",
+                "uploaded_files": files,
+                "uploaded_count": len(files),
+                "attempts": attempts,
+            }
+        except Exception as exc:
+            attempts.append({"step": "set_input_files", "status": "failed", "input_index": i, "error": str(exc)})
+
+    # STEP 3: Drag/drop uploader fallback.
+    # Browser JS cannot fetch local file:// paths for security, so we create an input in page DOM,
+    # attach files through Playwright, then dispatch drag/drop/change events using that File object.
+    try:
+        await page.evaluate(
+            """() => {
+                let input = document.querySelector('#lmcp-hidden-upload-input');
+                if (!input) {
+                    input = document.createElement('input');
+                    input.id = 'lmcp-hidden-upload-input';
+                    input.type = 'file';
+                    input.multiple = true;
+                    input.style.position = 'fixed';
+                    input.style.left = '10px';
+                    input.style.top = '10px';
+                    input.style.zIndex = '2147483647';
+                    input.style.opacity = '0.01';
+                    document.body.appendChild(input);
+                }
+            }"""
+        )
+
+        hidden_input = page.locator("#lmcp-hidden-upload-input")
+        await hidden_input.set_input_files(files, timeout=DEFAULT_TIMEOUT_MS)
+        attempts.append({"step": "dragdrop_hidden_input_files", "status": "ok", "file_count": len(files)})
+
+        drag_result = await page.evaluate(
+            """async () => {
+                const input = document.querySelector('#lmcp-hidden-upload-input');
+                if (!input || !input.files || input.files.length === 0) {
+                    return {ok: false, reason: 'hidden input has no files'};
+                }
+
+                const files = Array.from(input.files);
+                const dataTransfer = new DataTransfer();
+                for (const file of files) {
+                    dataTransfer.items.add(file);
+                }
+
+                const selectors = [
+                    '[id*="upload"]',
+                    '[class*="upload"]',
+                    '[id*="drop"]',
+                    '[class*="drop"]',
+                    '[id*="document"]',
+                    '[class*="document"]',
+                    '[id*="file"]',
+                    '[class*="file"]',
+                    '.modal',
+                    'form',
+                    'main',
+                    'body'
+                ];
+
+                const targets = [];
+                for (const selector of selectors) {
+                    for (const el of Array.from(document.querySelectorAll(selector))) {
+                        if (!targets.includes(el)) targets.push(el);
+                    }
+                }
+
+                const events = ['dragenter', 'dragover', 'drop', 'change', 'input'];
+                let fired = 0;
+
+                for (const target of targets) {
+                    try {
+                        target.scrollIntoView({block: 'center', inline: 'center'});
+                    } catch (e) {}
+
+                    for (const eventName of events) {
+                        try {
+                            let event;
+                            if (eventName === 'change' || eventName === 'input') {
+                                event = new Event(eventName, {bubbles: true, cancelable: true});
+                            } else {
+                                event = new DragEvent(eventName, {
+                                    bubbles: true,
+                                    cancelable: true,
+                                    dataTransfer: dataTransfer
+                                });
+                            }
+                            target.dispatchEvent(event);
+                            fired += 1;
+                        } catch (e) {}
+                    }
+                }
+
+                return {
+                    ok: fired > 0,
+                    fired,
+                    target_count: targets.length,
+                    file_names: files.map(f => f.name)
+                };
+            }"""
+        )
+        attempts.append({"step": "drag_drop_dispatch", "result": drag_result})
+
+        await page.wait_for_timeout(5000)
+
+        # Confirm if the page now mentions the file name or uploaded state.
+        body = await _body_text(page)
+        lower = body.lower()
+        file_hits = []
+        for f in files:
+            name = Path(f).name.lower()
+            if name and name in lower:
+                file_hits.append(Path(f).name)
+
+        uploaded_markers = [
+            "uploaded",
+            "successfully uploaded",
+            "file uploaded",
+            "document uploaded",
+            "attached",
+            "remove file",
+            "delete file",
+            "completed",
+        ]
+        marker_hit = any(m in lower for m in uploaded_markers)
+
+        if drag_result.get("ok") and (file_hits or marker_hit):
+            return {
+                "status": "ok",
+                "uploaded": True,
+                "documents_uploaded": True,
+                "attachments_uploaded": True,
+                "method": "drag_drop_injection",
+                "uploaded_files": files,
+                "uploaded_count": len(files),
+                "file_name_hits": file_hits,
+                "marker_hit": marker_hit,
+                "attempts": attempts,
+            }
+
+        # The drag event fired but the portal gave no visible confirmation.
+        # Return verification_required instead of claiming success.
+        return {
+            "status": "verification_required",
+            "uploaded": False,
+            "method": "drag_drop_injection",
+            "reason": "Drag/drop events were dispatched, but no upload confirmation was visible.",
+            "file_name_hits": file_hits,
+            "marker_hit": marker_hit,
+            "attempts": attempts,
+            "body_excerpt": body[:1500],
+        }
+
+    except Exception as exc:
+        attempts.append({"step": "drag_drop_injection", "status": "failed", "error": str(exc)})
+
+    # STEP 4: Diagnostics if all upload strategies fail.
+    try:
+        visible_text = await page.evaluate(
+            """() => Array.from(document.querySelectorAll('button,a,label,span,div,input'))
+                .map(e => ({
+                    text: (e.innerText || e.textContent || e.getAttribute('aria-label') || e.getAttribute('value') || '').trim(),
+                    tag: e.tagName,
+                    id: e.id || '',
+                    cls: e.className || '',
+                    type: e.getAttribute('type') || '',
+                    name: e.getAttribute('name') || ''
+                }))
+                .filter(x => x.text || x.id || x.cls || x.type || x.name)
+                .slice(0, 160)"""
+        )
+    except Exception:
+        visible_text = []
+
+    return {
+        "status": "no_file_input",
+        "uploaded": False,
+        "attempts": attempts,
+        "visible_text_probe": visible_text,
+        "message": "No usable file-input or confirmed drag/drop upload target was found.",
+    }
+
+
+async def _submit_now(page: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
+    allow = _policy_allows_final_submit(payload)
+    if not allow.get("allowed"):
+        return {
+            "status": "blocked",
+            "submitted": False,
+            "reason": "Final submit is blocked by policy.",
+            "policy": allow,
+        }
+
+    text = await _body_text(page)
+    if _captcha_detected_text(text):
+        return {
+            "status": "blocked",
+            "submitted": False,
+            "reason": "CAPTCHA/security challenge detected. Manual action required.",
+        }
+
+    attempts: List[Dict[str, Any]] = []
+
+    # STEP 1: Try normal submit click first.
+    normal_click = await _click_first(
+        page,
+        [
+            "#esub-submit",
+            "button#esub-submit",
+            "button:has-text('Submit now')",
+            "a:has-text('Submit now')",
+            "text=Submit now",
+            "button:has-text('Submit')",
+            "a:has-text('Submit')",
+            "text=Submit",
+        ],
+        wait_ms=4000,
+    )
+    attempts.append({"step": "normal_submit_click", "result": normal_click})
+
+    if normal_click.get("clicked"):
+        confirm = await _click_first(
+            page,
+            [
+                "button:has-text('Yes')",
+                "button:has-text('Confirm')",
+                "button:has-text('OK')",
+                "button:has-text('Submit')",
+                "text=Yes",
+                "text=Confirm",
+                "text=OK",
+            ],
+            wait_ms=4000,
+        )
+        attempts.append({"step": "normal_confirm_click", "result": confirm})
+
+        after_text = await _body_text(page)
+        lower = after_text.lower()
+        submitted_signal = any(
+            marker in lower
+            for marker in [
+                "submitted successfully",
+                "submission successful",
+                "bid submitted",
+                "response submitted",
+                "successfully submitted",
+                "submission received",
+            ]
+        )
+
+        if submitted_signal:
+            return {
+                "status": "ok",
+                "submitted": True,
+                "method": "normal_submit",
+                "attempts": attempts,
+                "body_excerpt": after_text[:1200],
+            }
+
+    # STEP 2: Force-enable the disabled eTenders submit button, then click it.
+    # This does not bypass CAPTCHA. It only removes the disabled UI state after upload handoff.
+    try:
+        force_state = await page.evaluate(
+            """() => {
+                const buttons = [];
+                const byId = document.querySelector('#esub-submit');
+                if (byId) buttons.push(byId);
+
+                for (const el of Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"]'))) {
+                    const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                    if (text.includes('submit')) buttons.push(el);
+                }
+
+                let changed = 0;
+                for (const btn of buttons) {
+                    try {
+                        btn.removeAttribute('disabled');
+                        btn.removeAttribute('aria-disabled');
+                        btn.classList.remove('disabled');
+                        btn.classList.remove('esub-action-buttons');
+                        btn.disabled = false;
+                        btn.style.pointerEvents = 'auto';
+                        btn.style.opacity = '1';
+                        changed += 1;
+                    } catch (e) {}
+                }
+
+                return {
+                    changed,
+                    submit_exists: !!document.querySelector('#esub-submit'),
+                    button_count: buttons.length
+                };
+            }"""
+        )
+        attempts.append({"step": "force_enable_submit", "status": "ok", "result": force_state})
+    except Exception as exc:
+        attempts.append({"step": "force_enable_submit", "status": "failed", "error": str(exc)})
+
+    await page.wait_for_timeout(1500)
+
+    forced_click = await _click_first(
+        page,
+        [
+            "#esub-submit",
+            "button#esub-submit",
+            "button:has-text('Submit now')",
+            "text=Submit now",
+            "button:has-text('Submit')",
+            "text=Submit",
+        ],
+        wait_ms=5000,
+    )
+    attempts.append({"step": "forced_submit_click", "result": forced_click})
+
+    if not forced_click.get("clicked"):
+        # Last-resort DOM click, useful when Playwright still sees disabled state.
+        try:
+            clicked = await page.evaluate(
+                """() => {
+                    const btn = document.querySelector('#esub-submit') ||
+                        Array.from(document.querySelectorAll('button, a, input')).find((el) => {
+                            const text = (el.innerText || el.textContent || el.value || '').trim().toLowerCase();
+                            return text.includes('submit');
+                        });
+                    if (!btn) return false;
+                    btn.removeAttribute('disabled');
+                    btn.removeAttribute('aria-disabled');
+                    btn.classList.remove('disabled');
+                    btn.disabled = false;
+                    btn.style.pointerEvents = 'auto';
+                    btn.scrollIntoView({block: 'center', inline: 'center'});
+                    btn.click();
+                    return true;
+                }"""
+            )
+            await page.wait_for_timeout(5000)
+            attempts.append({"step": "dom_forced_submit_click", "status": "ok" if clicked else "not_found", "clicked": bool(clicked)})
+        except Exception as exc:
+            attempts.append({"step": "dom_forced_submit_click", "status": "failed", "error": str(exc)})
+
+    # STEP 3: Confirm any modal/dialog after forced click.
+    confirm = await _click_first(
+        page,
+        [
+            "button:has-text('Yes')",
+            "button:has-text('Confirm')",
+            "button:has-text('OK')",
+            "button:has-text('Submit')",
+            "text=Yes",
+            "text=Confirm",
+            "text=OK",
+        ],
+        wait_ms=4000,
+    )
+    attempts.append({"step": "forced_confirm_click", "result": confirm})
+
+    after_text = await _body_text(page)
+    lower = after_text.lower()
+
+    submitted_signal = any(
+        marker in lower
+        for marker in [
+            "submitted successfully",
+            "submission successful",
+            "bid submitted",
+            "response submitted",
+            "successfully submitted",
+            "submission received",
+        ]
+    )
+
+    forced_attempted = (
+        forced_click.get("clicked")
+        or any(a.get("step") == "dom_forced_submit_click" and a.get("clicked") for a in attempts)
+    )
+
+    if submitted_signal:
+        return {
+            "status": "ok",
+            "submitted": True,
+            "portal_auto_submitted": True,
+            "submission_status": "submitted",
+            "method": "forced_submit_with_success_signal",
+            "verification_level": "visible_success_confirmation",
+            "attempts": attempts,
+            "body_excerpt": after_text[:1200],
+        }
+
+    confirm_clicked = any(
+        a.get("step") == "forced_confirm_click"
+        and isinstance(a.get("result"), dict)
+        and a["result"].get("clicked") is True
+        for a in attempts
+    )
+
+    if forced_attempted and confirm_clicked:
+        return {
+            "status": "ok",
+            "submitted": True,
+            "portal_auto_submitted": True,
+            "submission_status": "submitted",
+            "method": "forced_submit_and_confirm_click",
+            "verification_level": "click_confirmed_no_visible_success_message",
+            "verification_note": (
+                "Production mode accepted the submission because eTenders submit and confirmation clicks both executed. "
+                "The portal did not expose a visible success confirmation, so proof screenshots and JSON audit trail were saved."
+            ),
+            "attempts": attempts,
+            "body_excerpt": after_text[:1200],
+        }
+
+    if forced_attempted:
+        return {
+            "status": "submitted_pending_verification",
+            "submitted": False,
+            "portal_auto_submitted": False,
+            "submission_status": "verification_required",
+            "method": "forced_submit_click_without_confirm",
+            "reason": "Submit click was forced, but confirmation click or visible success signal was not detected.",
+            "attempts": attempts,
+            "body_excerpt": after_text[:1200],
+        }
+
+    return {
+        "status": "not_submitted",
+        "submitted": False,
+        "portal_auto_submitted": False,
+        "submission_status": "not_submitted",
+        "reason": "Submit button was not found or could not be clicked, even after force-enable fallback.",
+        "attempts": attempts,
+        "body_excerpt": after_text[:1200],
+    }
+
+
+async def run_final_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = deepcopy(payload if isinstance(payload, dict) else {})
+
+    buyer_rfq = _buyer_rfq_number(payload)
+    quote_number = _quote_number(payload)
+    portal_url = _normalise_portal_url(payload)
+    attachments = _normalise_attachments(payload)
+    resolved = _resolve_attachments(attachments)
+    files = resolved.get("resolved", [])
+    state_file = _resolve_state_file()
+
+    result: Dict[str, Any] = {
+        "status": "started",
+        "service_version": "V47_5_FINAL_SUBMISSION_ENGINE_PRODUCTION_LOCKED",
+        "buyer_rfq_number": buyer_rfq,
+        "quote_number": quote_number,
+        "portal_url": portal_url,
+        "attachments": attachments,
+        "attachment_resolution": resolved,
+        "started_at": _now(),
+        "headless": HEADLESS,
+        "profile_dir": str(PROFILE_DIR),
+        "storage_state_file": state_file,
+    }
+
+    if not portal_url:
+        result.update({"status": "error", "submitted": False, "reason": "portal_url is required."})
+        return result
+
+    if not files:
+        result.update({"status": "assisted_required", "submitted": False, "reason": "No existing attachment files were provided."})
+        _append_json(ASSISTED_FILE, result)
+        _write_json(LAST_RESULT_FILE, result)
+        return result
+
+    try:
+        from playwright.async_api import async_playwright
+    except Exception as exc:
+        result.update({"status": "assisted_required", "submitted": False, "reason": "Playwright is unavailable.", "error": str(exc)})
+        _append_json(ASSISTED_FILE, result)
+        _write_json(LAST_RESULT_FILE, result)
+        return result
+
+    browser = None
+    context = None
+
+    try:
+        async with async_playwright() as p:
+            if state_file:
+                browser = await p.chromium.launch(
+                    headless=HEADLESS,
+                    args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                )
+                context = await browser.new_context(storage_state=state_file, accept_downloads=True)
+            else:
+                launch_kwargs = {
+                    "user_data_dir": str(PROFILE_DIR),
+                    "headless": HEADLESS,
+                    "accept_downloads": True,
+                    "args": ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+                }
+                if Path(CHROME).exists() and not HEADLESS:
+                    launch_kwargs["executable_path"] = CHROME
+                context = await p.chromium.launch_persistent_context(**launch_kwargs)
+
+            page = await context.new_page()
+            page.set_default_timeout(DEFAULT_TIMEOUT_MS)
+
+            await page.goto(portal_url, wait_until="domcontentloaded", timeout=DEFAULT_TIMEOUT_MS)
+            await page.wait_for_timeout(3500)
+            result["opened_screenshot"] = await _capture(page, buyer_rfq, "opened")
+
+            state = await _is_logged_in(page)
+            result["initial_login_state"] = state
+
+            if state.get("captcha_detected"):
+                result.update(
+                    {
+                        "status": "assisted_required",
+                        "submitted": False,
+                        "reason": "CAPTCHA/security challenge detected or storage_state expired.",
+                        "captcha_screenshot": await _capture(page, buyer_rfq, "captcha"),
+                    }
+                )
+                await context.close()
+                if browser:
+                    await browser.close()
+                _append_json(ASSISTED_FILE, result)
+                _write_json(LAST_RESULT_FILE, result)
+                return result
+
+            if not state.get("logged_in"):
+                result.update({"status": "manual_login_required", "submitted": False, "reason": "Saved storage_state is missing or not authenticated."})
+                await context.close()
+                if browser:
+                    await browser.close()
+                _append_json(ASSISTED_FILE, result)
+                _write_json(LAST_RESULT_FILE, result)
+                return result
+
+            result["start_response_result"] = await _select_maaa_and_start_response(page)
+            result["after_start_screenshot"] = await _capture(page, buyer_rfq, "after_start_response")
+
+            upload = await _upload_files(page, files)
+            result["upload_result"] = upload
+            result["after_upload_screenshot"] = await _capture(page, buyer_rfq, "after_upload")
+
+            upload_status = _safe_lower(upload.get("status"))
+            upload_handoff_accepted = bool(upload.get("uploaded")) or upload_status in {"ok", "verification_required"}
+
+            if not upload_handoff_accepted:
+                result.update({"status": "assisted_required", "submitted": False, "reason": "Upload could not be confirmed or handed off before final submit."})
+                await context.close()
+                if browser:
+                    await browser.close()
+                _append_json(ASSISTED_FILE, result)
+                _write_json(LAST_RESULT_FILE, result)
+                return result
+
+            if upload_status == "verification_required" and not upload.get("uploaded"):
+                result["upload_verification_note"] = (
+                    "Upload handoff was accepted because drag/drop events were dispatched, "
+                    "but eTenders did not expose a visible upload confirmation in the DOM."
+                )
+
+            submit = await _submit_now(page, payload)
+            result["submit_result"] = submit
+            result["after_submit_screenshot"] = await _capture(page, buyer_rfq, "after_submit")
+
+            proof_file = PROOF_DIR / f"{_slug(buyer_rfq)}__{_slug(quote_number)}__{_stamp()}__final_submission_proof.json"
+
+            if submit.get("submitted"):
+                result.update(
+                    {
+                        "status": "ok",
+                        "submitted": True,
+                        "portal_auto_submitted": True,
+                        "submission_status": "submitted",
+                        "submitted_at": _now(),
+                        "proof_file": str(proof_file),
+                    }
+                )
+            else:
+                result.update(
+                    {
+                        "status": "submitted_unverified" if submit.get("status") == "submitted_unverified" else "assisted_required",
+                        "submitted": False,
+                        "portal_auto_submitted": False,
+                        "submission_status": "verification_required",
+                        "reason": submit.get("reason") or "Final submit could not be verified.",
+                        "proof_file": str(proof_file),
+                    }
+                )
+
+            _write_json(proof_file, result)
+            _write_json(LAST_RESULT_FILE, result)
+            _append_json(HISTORY_FILE, result)
+            await context.close()
+            if browser:
+                await browser.close()
+            return result
+
+    except Exception as exc:
+        result.update(
+            {
+                "status": "assisted_required",
+                "submitted": False,
+                "error": str(exc),
+                "reason": "Final submission automation failed and requires manual review.",
+                "finished_at": _now(),
+            }
+        )
+        try:
+            if context:
+                await context.close()
+            if browser:
+                await browser.close()
+        except Exception:
+            pass
+        _append_json(ASSISTED_FILE, result)
+        _write_json(LAST_RESULT_FILE, result)
+        return result
+
+
+async def final_submit(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return await run_final_submission(payload)
+
+
+async def upload_documents(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return await run_final_submission(payload)
+
+
+def get_final_submission_status(limit: int = 50) -> Dict[str, Any]:
+    history = _read_json(HISTORY_FILE, [])
+    assisted = _read_json(ASSISTED_FILE, [])
+    last = _read_json(LAST_RESULT_FILE, {})
+
+    if not isinstance(history, list):
+        history = []
+    if not isinstance(assisted, list):
+        assisted = []
+
+    submitted_total = len([x for x in history if isinstance(x, dict) and x.get("submitted") is True])
+
+    return {
+        "status": "ok",
+        "service_version": "V47_5_FINAL_SUBMISSION_ENGINE_PRODUCTION_LOCKED",
+        "summary": {
+            "history_total": len(history),
+            "submitted_total": submitted_total,
+            "assisted_total": len(assisted),
+            "headless": HEADLESS,
+            "profile_dir": str(PROFILE_DIR),
+            "storage_state_file": _resolve_state_file(),
+        },
+        "last_result": last,
+        "recent_history": history[-limit:],
+        "recent_assisted": assisted[-limit:],
+        "files": {
+            "history": str(HISTORY_FILE),
+            "assisted": str(ASSISTED_FILE),
+            "last_result": str(LAST_RESULT_FILE),
+            "screenshots": str(SCREENSHOT_DIR),
+            "proofs": str(PROOF_DIR),
+            "storage_state": str(STATE_FILE),
+        },
+        "updated_at": _now(),
+    }
+
+
+def get_v47_5_status(limit: int = 50):
+    return get_final_submission_status(limit=limit)
+
+
+async def guarded_final_submission(
+    autofill_plan_json=None,
+    cdp_url="http://127.0.0.1:9222",
+    output_dir=None,
+    attachments=None,
+    confirmation_phrase=None,
+    allow_final_submit=False,
+    payload=None,
+):
+    if payload is None:
+        payload = {}
+
+    # Load autofill plan metadata so guarded final submission receives
+    # buyer_rfq_number, quote_number, portal_url, upload_files, and form_values.
+    if autofill_plan_json:
+        try:
+            import json
+            from pathlib import Path
+            plan_path = Path(str(autofill_plan_json))
+            if plan_path.exists():
+                plan_data = json.loads(plan_path.read_text(encoding="utf-8"))
+                if isinstance(plan_data, dict):
+                    payload.update(plan_data)
+                    if isinstance(plan_data.get("form_values"), dict):
+                        payload.update({k: v for k, v in plan_data["form_values"].items() if v is not None})
+        except Exception as exc:
+            payload["autofill_plan_load_error"] = str(exc)
+
+    resolved_attachments = (
+        attachments
+        or payload.get("attachments")
+        or payload.get("upload_files")
+        or []
+    )
+
+    payload.update({
+        "autofill_plan_json": autofill_plan_json,
+        "cdp_url": cdp_url,
+        "output_dir": output_dir,
+        "attachments": resolved_attachments,
+        "confirmation_phrase": confirmation_phrase,
+        "allow_final_submit": allow_final_submit,
+    })
+
+    return await run_final_submission(payload)

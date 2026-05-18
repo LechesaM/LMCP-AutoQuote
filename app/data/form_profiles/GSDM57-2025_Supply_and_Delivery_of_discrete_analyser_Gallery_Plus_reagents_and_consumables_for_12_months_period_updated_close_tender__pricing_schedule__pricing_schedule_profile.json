@@ -1,0 +1,175 @@
+{
+  "name": "GSDM57-2025_Supply_and_Delivery_of_discrete_analyser_Gallery_Plus_reagents_and_consumables_for_12_months_period_updated_close_tender__pricing_schedule__pricing_schedule_profile",
+  "template_type": "pricing_schedule",
+  "field_aliases": {
+    "company_name": [
+      "name of bidder",
+      "supplier name",
+      "company name"
+    ],
+    "vat_number": [
+      "vat registration number",
+      "vat no"
+    ],
+    "csd_number": [
+      "csd no",
+      "csd number"
+    ],
+    "tender_number": [
+      "tender number",
+      "bid number",
+      "rfq number",
+      "reference number"
+    ],
+    "date_signed": [
+      "date"
+    ],
+    "signatory_capacity": [
+      "capacity",
+      "position"
+    ],
+    "contact_person": [
+      "contact person"
+    ],
+    "company_email": [
+      "email address",
+      "e-mail address"
+    ],
+    "company_phone": [
+      "telephone number",
+      "telephone"
+    ]
+  },
+  "anchor_rules": [
+    {
+      "field_name": "company_name",
+      "anchor_text": "Name of bidder",
+      "x_offset": 140,
+      "y_offset": -2,
+      "width": 260,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "company_name",
+      "anchor_text": "Supplier name",
+      "x_offset": 120,
+      "y_offset": -2,
+      "width": 260,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "vat_number",
+      "anchor_text": "VAT REGISTRATION NUMBER",
+      "x_offset": 160,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "csd_number",
+      "anchor_text": "CSD No",
+      "x_offset": 55,
+      "y_offset": -2,
+      "width": 120,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "tender_number",
+      "anchor_text": "Tender number",
+      "x_offset": 110,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "tender_number",
+      "anchor_text": "Bid number",
+      "x_offset": 90,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "contact_person",
+      "anchor_text": "Contact person",
+      "x_offset": 100,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "company_email",
+      "anchor_text": "E-MAIL ADDRESS",
+      "x_offset": 150,
+      "y_offset": -2,
+      "width": 260,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "company_phone",
+      "anchor_text": "TELEPHONE NUMBER",
+      "x_offset": 150,
+      "y_offset": -2,
+      "width": 140,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "signatory_capacity",
+      "anchor_text": "Capacity",
+      "x_offset": 70,
+      "y_offset": -2,
+      "width": 180,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    },
+    {
+      "field_name": "date_signed",
+      "anchor_text": "Date",
+      "x_offset": 45,
+      "y_offset": -2,
+      "width": 100,
+      "height": 14,
+      "font_size": 10,
+      "whiteout": true,
+      "page": 3
+    }
+  ],
+  "signature_coordinates": {
+    "page": 3,
+    "x": 120,
+    "y": 95,
+    "width": 150,
+    "height": 40
+  },
+  "docx_signature_placeholder": "{{signature}}",
+  "xlsx_signature_anchor": "E20"
+}

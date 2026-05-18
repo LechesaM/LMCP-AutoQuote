@@ -1,0 +1,682 @@
+from __future__ import annotations
+
+import json
+import re
+from copy import deepcopy
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
+
+RUNTIME_DIR = Path("runtime")
+PORTAL_DIR = RUNTIME_DIR / "portal_submission"
+PROOF_DIR = PORTAL_DIR / "proofs"
+MONTHLY_QUOTES_DIR = Path("monthly_quotes")
+
+PORTAL_DIR.mkdir(parents=True, exist_ok=True)
+PROOF_DIR.mkdir(parents=True, exist_ok=True)
+
+HISTORY_FILE = PORTAL_DIR / "portal_submission_history.json"
+MANUAL_QUEUE_FILE = PORTAL_DIR / "manual_portal_queue.json"
+SUPPORTED_DOMAINS_FILE = PORTAL_DIR / "auto_supported_domains.json"
+LATEST_QUOTE_DISCOVERY_FILE = PORTAL_DIR / "latest_quote_discovery_for_final.json"
+
+DEFAULT_SUPPORTED_DOMAINS = ["www.etenders.gov.za", "etenders.gov.za"]
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def _safe_lower(value: Any) -> str:
+    return _safe_str(value).lower()
+
+
+def _safe_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = _safe_lower(value)
+    if text in {"true", "1", "yes", "y", "on"}:
+        return True
+    if text in {"false", "0", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _slug(value: Any, fallback: str = "portal-proof") -> str:
+    text = _safe_str(value, fallback)
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("._-")
+    return text[:120] or fallback
+
+
+def _read_json(path: Path, default: Any) -> Any:
+    try:
+        if not path.exists():
+            return deepcopy(default)
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return deepcopy(default)
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _append_json(path: Path, item: Dict[str, Any]) -> None:
+    data = _read_json(path, [])
+    if not isinstance(data, list):
+        data = []
+    data.append(item)
+    _write_json(path, data)
+
+
+def _portal_domain(url: Any) -> str:
+    text = _safe_str(url)
+    if not text:
+        return ""
+    if "://" not in text:
+        text = "https://" + text
+    try:
+        parsed = urlparse(text)
+        return _safe_lower(parsed.netloc or parsed.path.split("/")[0]).replace("www.www.", "www.")
+    except Exception:
+        return ""
+
+
+def _normalise_portal_url(url: Any, fallback_domain: str = "") -> str:
+    text = _safe_str(url)
+    if text:
+        if "://" not in text:
+            text = "https://" + text
+        return text
+    if fallback_domain:
+        return f"https://{fallback_domain}"
+    return ""
+
+
+def _load_supported_domains() -> List[str]:
+    existing = _read_json(SUPPORTED_DOMAINS_FILE, None)
+    domains = existing if isinstance(existing, list) and existing else DEFAULT_SUPPORTED_DOMAINS
+
+    if not (isinstance(existing, list) and existing):
+        _write_json(SUPPORTED_DOMAINS_FILE, domains)
+
+    output: List[str] = []
+    seen = set()
+
+    for domain in domains:
+        d = _safe_lower(domain)
+        if d and d not in seen:
+            seen.add(d)
+            output.append(d)
+
+    return output
+
+
+def _policy() -> Dict[str, Any]:
+    policy_path = RUNTIME_DIR / "full_autonomous_v48" / "policy.json"
+    try:
+        if policy_path.exists():
+            data = json.loads(policy_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                if isinstance(data.get("policy"), dict):
+                    return data["policy"]
+                return data
+    except Exception:
+        pass
+
+    state_path = RUNTIME_DIR / "system_control" / "v48_autonomous_state.json"
+    try:
+        if state_path.exists():
+            data = json.loads(state_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                if isinstance(data.get("policy"), dict):
+                    return data["policy"]
+                return data
+    except Exception:
+        pass
+
+    return {
+        "enabled": True,
+        "mode": "full_autonomous",
+        "allow_email_send": True,
+        "allow_portal_upload": True,
+        "allow_portal_final_submit": True,
+        "require_confirmation_phrase": False,
+        "captcha_bypass_allowed": False,
+    }
+
+
+def _is_etenders(domain: str, url: str = "") -> bool:
+    return "etenders.gov.za" in f"{domain} {url}".lower()
+
+
+def _submission_method(payload: Dict[str, Any]) -> str:
+    return _safe_lower(
+        payload.get("submission_method")
+        or payload.get("submission_channel")
+        or payload.get("method")
+        or payload.get("route")
+    )
+
+
+def _extract_portal_url(payload: Dict[str, Any]) -> str:
+    links = payload.get("links")
+
+    if isinstance(links, list) and links:
+        first = links[0]
+        if isinstance(first, dict):
+            for key in ["url", "href", "link"]:
+                if first.get(key):
+                    return _safe_str(first.get(key))
+        return _safe_str(first)
+
+    if isinstance(links, dict):
+        for key in ["url", "href", "link"]:
+            if links.get(key):
+                return _safe_str(links.get(key))
+
+    return _safe_str(
+        payload.get("portal_url")
+        or payload.get("submission_url")
+        or payload.get("url")
+        or payload.get("tender_url")
+        or payload.get("source_url")
+    )
+
+
+def _buyer_rfq_number(payload: Dict[str, Any]) -> str:
+    return _safe_str(
+        payload.get("_locked_buyer_rfq_number")
+        or payload.get("buyer_rfq_number")
+        or payload.get("rfq_number")
+        or payload.get("reference_number")
+        or payload.get("document_number")
+        or payload.get("tender_number")
+        or "UNKNOWN-RFQ"
+    )
+
+
+def _quote_number(payload: Dict[str, Any]) -> str:
+    buyer_rfq = _buyer_rfq_number(payload)
+    return _safe_str(payload.get("quote_number") or payload.get("lmcp_quote_number") or f"LMCP-{buyer_rfq}")
+
+
+def _find_latest_generated_quote_pdf(payload: Dict[str, Any]) -> Optional[str]:
+    buyer_rfq = _buyer_rfq_number(payload)
+    quote_number = _quote_number(payload)
+
+    search_roots = [
+        MONTHLY_QUOTES_DIR,
+        Path("/app/monthly_quotes"),
+        Path("/Users/Shared/LMCP-AutoQuote-Server/monthly_quotes"),
+    ]
+
+    pdfs: List[Path] = []
+
+    for root in search_roots:
+        try:
+            if root.exists():
+                pdfs.extend([p for p in root.rglob("*.pdf") if p.is_file()])
+        except Exception:
+            continue
+
+    unique: Dict[str, Path] = {}
+    for pdf in pdfs:
+        unique[str(pdf)] = pdf
+    pdfs = list(unique.values())
+
+    if not pdfs:
+        _write_json(
+            LATEST_QUOTE_DISCOVERY_FILE,
+            {
+                "status": "not_found",
+                "buyer_rfq_number": buyer_rfq,
+                "quote_number": quote_number,
+                "reason": "No PDF files found under monthly_quotes.",
+                "checked_at": _now(),
+            },
+        )
+        return None
+
+    def score(pdf: Path) -> int:
+        haystack = str(pdf).lower()
+        points = 0
+        if buyer_rfq and buyer_rfq.lower() in haystack:
+            points += 1000
+        if quote_number and quote_number.lower() in haystack:
+            points += 1000
+        if "lmcp" in haystack:
+            points += 100
+        if "quote" in haystack or "rfq" in haystack:
+            points += 50
+        return points
+
+    pdfs = sorted(pdfs, key=lambda p: (score(p), p.stat().st_mtime), reverse=True)
+    selected = pdfs[0]
+
+    selected_str = str(selected)
+    try:
+        selected_str = str(selected.resolve().relative_to(Path.cwd().resolve()))
+    except Exception:
+        pass
+
+    _write_json(
+        LATEST_QUOTE_DISCOVERY_FILE,
+        {
+            "status": "ok",
+            "buyer_rfq_number": buyer_rfq,
+            "quote_number": quote_number,
+            "selected_pdf": selected_str,
+            "selected_pdf_absolute": str(selected.resolve()),
+            "candidate_count": len(pdfs),
+            "score": score(selected),
+            "modified_at": datetime.fromtimestamp(selected.stat().st_mtime, timezone.utc).isoformat(),
+            "checked_at": _now(),
+        },
+    )
+
+    return selected_str
+
+
+def _attachments(payload: Dict[str, Any], auto_latest: bool = True) -> List[str]:
+    values: List[Any] = []
+
+    for key in ["submission_attachments", "attachments", "supporting_documents", "documents"]:
+        raw = payload.get(key)
+        if isinstance(raw, list):
+            values.extend(raw)
+        elif raw:
+            values.append(raw)
+
+    submission_pack = payload.get("submission_pack")
+    if isinstance(submission_pack, dict):
+        for key in ["submission_attachments", "attachments", "supporting_documents"]:
+            raw = submission_pack.get(key)
+            if isinstance(raw, list):
+                values.extend(raw)
+            elif raw:
+                values.append(raw)
+
+    pdf_path = payload.get("pdf_path") or payload.get("final_pdf_path") or payload.get("quote_pdf_path")
+    if pdf_path:
+        values.append(pdf_path)
+
+    output: List[str] = []
+    seen = set()
+
+    for item in values:
+        path = _safe_str(item)
+        if path and path not in seen:
+            seen.add(path)
+            output.append(path)
+
+    if auto_latest and not output:
+        latest = _find_latest_generated_quote_pdf(payload)
+        if latest:
+            output.append(latest)
+
+    return output
+
+
+def _route_from_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    method = _submission_method(payload)
+    url = _extract_portal_url(payload)
+    domain = _portal_domain(url)
+
+    if not domain and method == "portal":
+        domain = "www.etenders.gov.za"
+        url = _normalise_portal_url(url, domain)
+
+    supported_domains = _load_supported_domains()
+    policy = _policy()
+
+    portal_like = (
+        method in {"portal", "online", "web", "upload", "esubmission", "e-submission"}
+        or bool(url)
+    )
+
+    if not portal_like:
+        return {
+            "status": "ok",
+            "route": "not_portal",
+            "auto_supported": False,
+            "reason": "Submission route is not portal-based.",
+            "portal_url": url,
+            "portal_domain": domain,
+            "method": method,
+            "checked_at": _now(),
+        }
+
+    policy_enabled = _safe_bool(policy.get("enabled"), True)
+    allow_upload = _safe_bool(policy.get("allow_portal_upload"), True)
+    allow_final_submit = _safe_bool(policy.get("allow_portal_final_submit"), True)
+    confirmation_required = _safe_bool(policy.get("require_confirmation_phrase"), False)
+    captcha_bypass_allowed = _safe_bool(policy.get("captcha_bypass_allowed"), False)
+
+    auto_supported = False
+    reason = "Portal route detected but auto-submission is not enabled for this portal."
+
+    if domain in supported_domains:
+        auto_supported = True
+        reason = f"Portal domain is listed as auto-supported: {domain}"
+
+    if _is_etenders(domain, url):
+        auto_supported = True
+        reason = "eTenders forced auto-enabled for LMCP portal automation."
+
+    if not policy_enabled:
+        auto_supported = False
+        reason = "V48 policy is disabled."
+
+    if not allow_upload:
+        auto_supported = False
+        reason = "Portal upload is disabled by V48 policy."
+
+    final_submit_allowed = bool(allow_final_submit and not confirmation_required)
+
+    return {
+        "status": "ok",
+        "route": "portal",
+        "auto_supported": auto_supported,
+        "reason": reason,
+        "portal_url": _normalise_portal_url(url, domain),
+        "portal_domain": domain,
+        "email": _safe_str(payload.get("recipient_email") or payload.get("submission_email") or payload.get("buyer_email")),
+        "method": method or "portal",
+        "supported_domains": supported_domains,
+        "policy": {
+            "enabled": policy_enabled,
+            "mode": _safe_str(policy.get("mode"), "full_autonomous"),
+            "allow_portal_upload": allow_upload,
+            "allow_portal_final_submit": allow_final_submit,
+            "require_confirmation_phrase": confirmation_required,
+            "captcha_bypass_allowed": captcha_bypass_allowed,
+        },
+        "final_submit_allowed": final_submit_allowed,
+        "checked_at": _now(),
+    }
+
+
+async def _try_final_submission_v47_5(payload: Dict[str, Any], route: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        from app.services.final_submission_v47_5_service import run_final_submission
+    except Exception as exc:
+        return {
+            "status": "skipped",
+            "submitted": False,
+            "reason": "Final submission V47.5 service is not available.",
+            "error": str(exc),
+        }
+
+    attachments = _attachments(payload, auto_latest=True)
+
+    final_payload = {
+        **payload,
+        "portal_url": route.get("portal_url") or payload.get("portal_url"),
+        "portal_domain": route.get("portal_domain"),
+        "route": route,
+        "policy": route.get("policy") or _policy(),
+        "attachments": attachments,
+        "submission_attachments": attachments,
+        "latest_quote_discovery": _read_json(LATEST_QUOTE_DISCOVERY_FILE, {}),
+    }
+
+    try:
+        result = run_final_submission(final_payload)
+        if hasattr(result, "__await__"):
+            result = await result
+        if not isinstance(result, dict):
+            result = {"raw_result": str(result)}
+        return result
+    except Exception as exc:
+        return {
+            "status": "error",
+            "submitted": False,
+            "reason": "Final submission V47.5 failed.",
+            "error": str(exc),
+        }
+
+
+class PortalSubmissionService:
+    @staticmethod
+    def get_status(limit: int = 50) -> Dict[str, Any]:
+        history = _read_json(HISTORY_FILE, [])
+        manual_queue = _read_json(MANUAL_QUEUE_FILE, [])
+        supported_domains = _load_supported_domains()
+        proof_files = sorted([str(p) for p in PROOF_DIR.glob("*.json")])
+
+        if not isinstance(history, list):
+            history = []
+        if not isinstance(manual_queue, list):
+            manual_queue = []
+
+        return {
+            "status": "ok",
+            "service_version": "PORTAL_SUBMISSION_WITH_FINAL_V47_5_AUTO_ATTACH",
+            "summary": {
+                "history_total": len(history),
+                "manual_queue_total": len(manual_queue),
+                "proof_files_total": len(proof_files),
+                "auto_supported_domains": supported_domains,
+                "active_policy": _policy(),
+            },
+            "latest_quote_discovery": _read_json(LATEST_QUOTE_DISCOVERY_FILE, {}),
+            "recent_history": history[-limit:],
+            "manual_queue": manual_queue[-limit:],
+            "files": {
+                "history": str(HISTORY_FILE),
+                "manual_queue": str(MANUAL_QUEUE_FILE),
+                "proof_dir": str(PROOF_DIR),
+                "supported_domains": str(SUPPORTED_DOMAINS_FILE),
+                "latest_quote_discovery": str(LATEST_QUOTE_DISCOVERY_FILE),
+                "policy": str(RUNTIME_DIR / "full_autonomous_v48" / "policy.json"),
+            },
+            "updated_at": _now(),
+        }
+
+    @staticmethod
+    def classify_submission_route(payload: Dict[str, Any]) -> Dict[str, Any]:
+        payload = deepcopy(payload if isinstance(payload, dict) else {})
+        return {
+            "status": "ok",
+            "stage": "classify_submission_route",
+            "buyer_rfq_number": _buyer_rfq_number(payload),
+            "quote_number": _quote_number(payload),
+            "route": _route_from_payload(payload),
+            "created_at": _now(),
+        }
+
+    @staticmethod
+    async def prepare_portal_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
+        payload = deepcopy(payload if isinstance(payload, dict) else {})
+        route = _route_from_payload(payload)
+
+        result = {
+            "status": "ok",
+            "stage": "prepare_portal_submission",
+            "buyer_rfq_number": _buyer_rfq_number(payload),
+            "quote_number": _quote_number(payload),
+            "route": route,
+            "payload": payload,
+            "attachments": _attachments(payload, auto_latest=True),
+            "created_at": _now(),
+        }
+
+        if route.get("route") != "portal":
+            result["submission_status"] = "not_portal"
+            result["message"] = "Submission method is not portal."
+            return result
+
+        if not route.get("auto_supported"):
+            result["submission_status"] = "manual_portal_submission_required"
+            result["message"] = "Portal submission requires manual action. The system will not mark it as submitted automatically."
+            _append_json(MANUAL_QUEUE_FILE, result)
+            _append_json(HISTORY_FILE, result)
+            return result
+
+        result["submission_status"] = "portal_automation_ready"
+        result["message"] = "Portal submission is auto-supported and ready for upload/final submit."
+        _append_json(HISTORY_FILE, result)
+        return result
+
+    @staticmethod
+    async def mark_portal_submission_proof(payload: Dict[str, Any]) -> Dict[str, Any]:
+        payload = deepcopy(payload if isinstance(payload, dict) else {})
+
+        buyer_rfq_number = _buyer_rfq_number(payload)
+        quote_number = _quote_number(payload)
+
+        proof_record = {
+            "status": "ok",
+            "submission_status": "portal_submission_proof_recorded",
+            "buyer_rfq_number": buyer_rfq_number,
+            "quote_number": quote_number,
+            "proof_note": _safe_str(payload.get("proof_note"), "Portal submission proof recorded."),
+            "proof_url": _safe_str(payload.get("proof_url") or payload.get("portal_url")),
+            "portal_url": _safe_str(payload.get("portal_url")),
+            "portal_domain": _safe_str(payload.get("portal_domain")),
+            "payload": payload,
+            "recorded_at": _now(),
+        }
+
+        proof_name = f"{_slug(buyer_rfq_number)}__{_slug(quote_number)}__proof.json"
+        proof_file = PROOF_DIR / proof_name
+        _write_json(proof_file, proof_record)
+
+        proof_record["proof_file"] = str(proof_file)
+        _append_json(HISTORY_FILE, proof_record)
+        return proof_record
+
+    @staticmethod
+    async def auto_submit(payload: Dict[str, Any]) -> Dict[str, Any]:
+        payload = deepcopy(payload if isinstance(payload, dict) else {})
+        prepared = await PortalSubmissionService.prepare_portal_submission(payload)
+        route = prepared.get("route", {})
+
+        if route.get("route") != "portal" or not route.get("auto_supported"):
+            return prepared
+
+        portal_url = _safe_str(route.get("portal_url") or payload.get("portal_url"))
+        portal_domain = _safe_str(route.get("portal_domain"))
+
+        if _is_etenders(portal_domain, portal_url):
+            payload_with_attachments = {
+                **payload,
+                "attachments": prepared.get("attachments") or _attachments(payload, auto_latest=True),
+                "submission_attachments": prepared.get("attachments") or _attachments(payload, auto_latest=True),
+            }
+
+            final_result = await _try_final_submission_v47_5(payload_with_attachments, route)
+
+            result = {
+                "status": "ok" if final_result.get("submitted") else "assisted_required",
+                "stage": "portal_auto_submission",
+                "engine": "final_submission_v47_5",
+                "buyer_rfq_number": _buyer_rfq_number(payload),
+                "quote_number": _quote_number(payload),
+                "portal_url": portal_url,
+                "portal_domain": portal_domain,
+                "attachments": payload_with_attachments.get("attachments", []),
+                "latest_quote_discovery": _read_json(LATEST_QUOTE_DISCOVERY_FILE, {}),
+                "route": route,
+                "final_submission_result": final_result,
+                "portal_auto_submitted": bool(final_result.get("submitted")),
+                "submitted": bool(final_result.get("submitted")),
+                "submission_status": "submitted" if final_result.get("submitted") else final_result.get("status", "assisted_portal_submission_required"),
+                "started_at": _now(),
+                "finished_at": _now(),
+            }
+
+            if final_result.get("proof_file"):
+                result["proof_file"] = final_result.get("proof_file")
+            if final_result.get("after_submit_screenshot"):
+                result["proof_screenshot"] = final_result.get("after_submit_screenshot")
+
+            _append_json(HISTORY_FILE, result)
+            if not result["submitted"]:
+                _append_json(MANUAL_QUEUE_FILE, result)
+            return result
+
+        result = {
+            "status": "assisted_required",
+            "stage": "portal_auto_submission",
+            "buyer_rfq_number": _buyer_rfq_number(payload),
+            "quote_number": _quote_number(payload),
+            "portal_url": route.get("portal_url"),
+            "portal_domain": route.get("portal_domain"),
+            "attachments": prepared.get("attachments") or _attachments(payload, auto_latest=True),
+            "route": route,
+            "submission_status": "assisted_portal_submission_required",
+            "portal_auto_submitted": False,
+            "submitted": False,
+            "message": "Only eTenders final V47.5 path is currently connected for final auto-submit.",
+            "started_at": _now(),
+            "finished_at": _now(),
+        }
+        _append_json(MANUAL_QUEUE_FILE, result)
+        _append_json(HISTORY_FILE, result)
+        return result
+
+
+def get_portal_submission_status(limit: int = 50) -> Dict[str, Any]:
+    return PortalSubmissionService.get_status(limit=limit)
+
+
+def classify_submission_route(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return PortalSubmissionService.classify_submission_route(payload)
+
+
+async def prepare_portal_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return await PortalSubmissionService.prepare_portal_submission(payload)
+
+
+async def mark_portal_submission_proof(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return await PortalSubmissionService.mark_portal_submission_proof(payload)
+
+
+async def auto_submit_portal(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return await PortalSubmissionService.auto_submit(payload)
+
+
+def route_portal_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return classify_submission_route(payload)
+
+
+def record_portal_submission_proof(payload: Dict[str, Any]) -> Dict[str, Any]:
+    payload = deepcopy(payload if isinstance(payload, dict) else {})
+
+    buyer_rfq_number = _buyer_rfq_number(payload)
+    quote_number = _quote_number(payload)
+
+    proof_record = {
+        "status": "ok",
+        "submission_status": "portal_submission_proof_recorded",
+        "buyer_rfq_number": buyer_rfq_number,
+        "quote_number": quote_number,
+        "proof_note": _safe_str(payload.get("proof_note"), "Portal submission proof recorded."),
+        "proof_url": _safe_str(payload.get("proof_url") or payload.get("portal_url")),
+        "portal_url": _safe_str(payload.get("portal_url")),
+        "portal_domain": _safe_str(payload.get("portal_domain")),
+        "payload": payload,
+        "recorded_at": _now(),
+    }
+
+    proof_file = PROOF_DIR / f"{_slug(buyer_rfq_number)}__{_slug(quote_number)}__proof.json"
+    _write_json(proof_file, proof_record)
+
+    proof_record["proof_file"] = str(proof_file)
+    _append_json(HISTORY_FILE, proof_record)
+    return proof_record

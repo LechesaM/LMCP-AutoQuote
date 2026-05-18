@@ -1,0 +1,9 @@
+{
+  "etenders.gov.za": {
+    "success_count": 120,
+    "failure_count": 5,
+    "timeout_count": 3,
+    "avg_items": 18,
+    "last_success": "2026-04-13T10:00:00Z"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "pilot_name": "Phase 5 Pilot Batch 1",
+  "rfqs": [
+    {
+      "rfq_path": "/absolute/path/to/rfq1.pdf",
+      "human_notes": "Check pricing schedule formatting and buyer row wording.",
+      "rfq_data": {
+        "title": "Supply and delivery of office furniture",
+        "buyer_name": "City of Example",
+        "closing_date": "2026-05-30",
+        "province": "Gauteng"
+      }
+    },
+    {
+      "rfq_path": "/absolute/path/to/rfq2.pdf",
+      "human_notes": "Confirm delivery location and compliance returnables.",
+      "rfq_data": {
+        "title": "Supply and delivery of cleaning materials",
+        "buyer_name": "Department of Public Works",
+        "closing_date": "2026-06-02",
+        "province": "Western Cape"
+      }
+    }
+  ]
+}

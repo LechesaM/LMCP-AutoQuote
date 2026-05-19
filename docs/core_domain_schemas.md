@@ -46,6 +46,7 @@ This layer is contract-focused only. It does not introduce new business features
   - `SubmissionPack`
   - `SubmissionProof`
 - `app/domain/workflow.py`
+  - `WorkflowEvent`
   - `WorkflowStage`
   - `WorkflowState`
   - `WorkflowTransition`

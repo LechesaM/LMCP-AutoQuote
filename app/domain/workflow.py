@@ -35,3 +35,13 @@ class WorkflowTransition(StrictBaseModel):
     to_stage: WorkflowStage
     transitioned_at: Any = Field(default_factory=utc_now)
     reason: str = ""
+
+
+class WorkflowEvent(StrictBaseModel):
+    tender_id: str
+    from_stage: WorkflowStage
+    to_stage: WorkflowStage
+    actor: str = ""
+    reason: str = ""
+    details: Dict[str, Any] = Field(default_factory=dict)
+    transitioned_at: Any = Field(default_factory=utc_now)

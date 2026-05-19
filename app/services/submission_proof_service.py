@@ -35,6 +35,20 @@ def append_submission_proof(record: Dict[str, Any]) -> Dict[str, Any]:
     with _LOCK:
         with SUBMISSION_PROOF_LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+    if _clean(item.get("status")) == "recorded":
+        try:
+            from app.core.workflow_state_engine import WorkflowStage, record_transition
+
+            record_transition(
+                tender_id=_clean(item.get("tender_id")),
+                from_stage=WorkflowStage.REVIEW_READY,
+                to_stage=WorkflowStage.PROOF_RECORDED,
+                actor=_clean(item.get("submitted_by")) or "submission_proof_service",
+                reason="submission proof recorded",
+                details={"source_log": "submission_proofs.jsonl", "status": _clean(item.get("status"))},
+            )
+        except Exception:
+            pass
     return item
 
 

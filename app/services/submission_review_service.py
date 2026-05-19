@@ -62,6 +62,20 @@ def append_submission_review(record: Dict[str, Any]) -> Dict[str, Any]:
     with _LOCK:
         with SUBMISSION_REVIEW_LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+    if _clean(item.get("status")) == "review_ready":
+        try:
+            from app.core.workflow_state_engine import WorkflowStage, record_transition
+
+            record_transition(
+                tender_id=_clean(item.get("tender_id")),
+                from_stage=WorkflowStage.APPROVED,
+                to_stage=WorkflowStage.REVIEW_READY,
+                actor=_clean(item.get("operator_name")) or "submission_review_service",
+                reason="submission review marked review_ready",
+                details={"source_log": "submission_reviews.jsonl", "status": _clean(item.get("status"))},
+            )
+        except Exception:
+            pass
     return item
 
 

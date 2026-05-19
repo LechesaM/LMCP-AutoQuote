@@ -4,7 +4,7 @@ from app.domain.quote import BuyerPricingScheduleCompletion, QuotePack, QuotePac
 from app.domain.rfq import RFQDocument, RFQEvaluation, RFQLineItem, RFQRecord
 from app.domain.submission import ApprovalRecord, SubmissionPack, SubmissionProof, SubmissionReview
 from app.domain.supplier import SupplierQuote, SupplierQuoteLine, SupplierRecord
-from app.domain.workflow import WorkflowStage, WorkflowState, WorkflowTransition
+from app.domain.workflow import WorkflowEvent, WorkflowStage, WorkflowState, WorkflowTransition
 
 __all__ = [
     "ApprovalRecord",
@@ -27,6 +27,7 @@ __all__ = [
     "SupplierQuote",
     "SupplierQuoteLine",
     "SupplierRecord",
+    "WorkflowEvent",
     "WorkflowStage",
     "WorkflowState",
     "WorkflowTransition",

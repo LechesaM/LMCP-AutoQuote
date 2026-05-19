@@ -41,6 +41,24 @@ def append_manual_approval(record: Dict[str, Any]) -> Dict[str, Any]:
     with _LOCK:
         with APPROVAL_LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+    if (
+        _clean(item.get("status")) == "recorded"
+        and bool(item.get("manual_approval_recorded", False))
+        and bool(item.get("approved_by_operator", False))
+    ):
+        try:
+            from app.core.workflow_state_engine import WorkflowStage, record_transition
+
+            record_transition(
+                tender_id=_clean(item.get("tender_id")),
+                from_stage=WorkflowStage.APPROVAL_REQUIRED,
+                to_stage=WorkflowStage.APPROVED,
+                actor=_clean(item.get("operator_name")) or "manual_approval_service",
+                reason="manual approval recorded",
+                details={"source_log": "approvals.jsonl", "status": _clean(item.get("status"))},
+            )
+        except Exception:
+            pass
     return item
 
 

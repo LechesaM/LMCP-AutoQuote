@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.quote_pack_models import QuoteStatus
 
@@ -26,6 +26,8 @@ class QuotePackItemCreate(BaseModel):
 
 
 class QuotePackItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     item_no: int
     description: str
@@ -42,10 +44,6 @@ class QuotePackItemResponse(BaseModel):
     notes: Optional[str]
     mapping_confidence: float
     requires_manual_review: bool
-
-    class Config:
-        orm_mode = True
-
 
 class QuotePackCreate(BaseModel):
     client_name: str
@@ -82,6 +80,8 @@ class QuoteStatusAction(BaseModel):
 
 
 class QuotePackHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     from_status: Optional[str]
     to_status: str
@@ -89,11 +89,9 @@ class QuotePackHistoryResponse(BaseModel):
     comment: Optional[str]
     created_at: datetime
 
-    class Config:
-        orm_mode = True
-
-
 class QuotePackEditAuditResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     quote_pack_item_id: Optional[int]
     action: str
@@ -106,11 +104,9 @@ class QuotePackEditAuditResponse(BaseModel):
     notes: Optional[str]
     created_at: datetime
 
-    class Config:
-        orm_mode = True
-
-
 class QuotePackResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     quote_number: str
 
@@ -174,9 +170,6 @@ class QuotePackResponse(BaseModel):
     items: List[QuotePackItemResponse] = []
     history: List[QuotePackHistoryResponse] = []
     edit_audits: List[QuotePackEditAuditResponse] = []
-
-    class Config:
-        orm_mode = True
 
 
 class RFQReviewIngestRequest(BaseModel):

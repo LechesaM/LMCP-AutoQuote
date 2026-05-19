@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
@@ -52,7 +52,8 @@ class HandwritingFormOverlayRequest(BaseModel):
     default_font_name: str = "Helvetica-Oblique"
     font_path: Optional[str] = None
 
-    @validator("fields")
+    @field_validator("fields")
+    @classmethod
     def validate_fields(cls, value: List[HandwritingFormField]) -> List[HandwritingFormField]:
         if not value:
             raise ValueError("At least one field is required.")

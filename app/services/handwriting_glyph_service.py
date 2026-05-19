@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from PIL import Image, ImageOps
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
@@ -46,7 +46,8 @@ class GlyphOverlayRequest(BaseModel):
     default_word_spacing: float = Field(7.0, ge=0, le=80)
     default_line_spacing: float = Field(18.0, ge=0, le=120)
 
-    @validator("fields")
+    @field_validator("fields")
+    @classmethod
     def validate_fields(cls, value: List[GlyphField]) -> List[GlyphField]:
         if not value:
             raise ValueError("At least one field is required.")

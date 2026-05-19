@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ComplianceDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     document_code: str
     document_name: str
@@ -13,12 +15,9 @@ class ComplianceDocumentOut(BaseModel):
     expiry_date: Optional[str] = None
     status: str
     notes: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
 class OpportunityComplianceRequirementOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     opportunity_id: int
     document_code: str
@@ -26,18 +25,12 @@ class OpportunityComplianceRequirementOut(BaseModel):
     detected: bool
     notes: Optional[str] = None
     status: str
-
-    class Config:
-        from_attributes = True
-
-
 class OpportunityComplianceFileOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     opportunity_id: int
     document_code: str
     master_document_id: Optional[int] = None
     attached_file_path: Optional[str] = None
     status: str
-
-    class Config:
-        from_attributes = True

@@ -167,8 +167,14 @@ class SourceRegistry:
         }
 
 
-DEFAULT_SOURCE_REGISTRY = SourceRegistry()
+_DEFAULT_SOURCE_REGISTRY: SourceRegistry | None = None
+_DEFAULT_SOURCE_REGISTRY_PATH: Path | None = None
 
 
 def load_source_registry() -> SourceRegistry:
-    return DEFAULT_SOURCE_REGISTRY
+    global _DEFAULT_SOURCE_REGISTRY, _DEFAULT_SOURCE_REGISTRY_PATH
+    path = _registry_path()
+    if _DEFAULT_SOURCE_REGISTRY is None or _DEFAULT_SOURCE_REGISTRY_PATH != path:
+        _DEFAULT_SOURCE_REGISTRY = SourceRegistry(storage_path=path)
+        _DEFAULT_SOURCE_REGISTRY_PATH = path
+    return _DEFAULT_SOURCE_REGISTRY

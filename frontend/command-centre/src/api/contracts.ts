@@ -43,6 +43,14 @@ export type HarvestHealthResponse = {
   generatedAt: string;
   dataSource: string;
   sources: SourceHealthEntry[];
+  tierBreakdown?: Record<string, {
+    total: number;
+    active: number;
+    healthy: number;
+    degraded: number;
+    failing: number;
+    disabled: number;
+  }>;
   totalSources: number;
   activeSources: number;
   healthySources: number;

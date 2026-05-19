@@ -148,6 +148,7 @@ export function normalizeHarvestHealth(payload, fallback = {}) {
     disabledSources: numberOrZero(source.disabled_sources ?? source.disabledSources ?? fallbackSource.disabledSources),
     parserFailureRate: numberOrZero(source.parser_failure_rate ?? source.parserFailureRate ?? fallbackSource.parserFailureRate),
     averageResponseTimeMs: numberOrZero(source.average_response_time_ms ?? source.averageResponseTimeMs ?? fallbackSource.averageResponseTimeMs),
+    tierBreakdown: source.tier_breakdown ?? source.tierBreakdown ?? fallbackSource.tierBreakdown ?? {},
     recentSourceFailures: arrayOrEmpty(source.recent_source_failures ?? source.recentSourceFailures ?? fallbackSource.recentSourceFailures).map((item) => ({
       sourceId: stringOrEmpty(item?.source_id ?? item?.sourceId),
       name: stringOrEmpty(item?.name),
@@ -165,6 +166,7 @@ export function normalizeHarvestHealth(payload, fallback = {}) {
       disabledSources: numberOrZero(source.disabled_sources ?? source.disabledSources ?? fallbackSource.disabledSources),
       parserFailureRate: numberOrZero(source.parser_failure_rate ?? source.parserFailureRate ?? fallbackSource.parserFailureRate),
       averageResponseTimeMs: numberOrZero(source.average_response_time_ms ?? source.averageResponseTimeMs ?? fallbackSource.averageResponseTimeMs),
+      tierBreakdown: source.tier_breakdown ?? source.tierBreakdown ?? fallbackSource.tierBreakdown ?? {},
       recentSourceFailures: arrayOrEmpty(source.recent_source_failures ?? source.recentSourceFailures ?? fallbackSource.recentSourceFailures),
     },
   };

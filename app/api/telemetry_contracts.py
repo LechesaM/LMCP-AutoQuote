@@ -458,3 +458,32 @@ def build_operational_health_telemetry_response(limit: int = 100) -> Dict[str, A
             "governance_compliance_score": 0.0,
             "manual_governance_integrity_score": 0.0,
         }
+
+
+from app.api.live_telemetry_adapters import (
+    get_live_dashboard_telemetry,
+    get_live_operational_health_telemetry,
+    get_live_qualification_telemetry,
+    get_live_review_queue_telemetry,
+    get_live_source_health_telemetry,
+)
+
+
+def build_dashboard_telemetry_response(limit: int = 100) -> Dict[str, Any]:
+    return get_live_dashboard_telemetry(limit=limit)
+
+
+def build_source_health_telemetry_response(limit: int = 100) -> Dict[str, Any]:
+    return get_live_source_health_telemetry(limit=limit)
+
+
+def build_review_queue_telemetry_response(limit: int = 100) -> Dict[str, Any]:
+    return get_live_review_queue_telemetry(limit=limit)
+
+
+def build_qualification_telemetry_response(limit: int = 100) -> Dict[str, Any]:
+    return get_live_qualification_telemetry(limit=limit)
+
+
+def build_operational_health_telemetry_response(limit: int = 100) -> Dict[str, Any]:
+    return get_live_operational_health_telemetry(limit=limit)

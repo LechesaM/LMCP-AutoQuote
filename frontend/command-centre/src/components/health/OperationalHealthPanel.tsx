@@ -70,6 +70,15 @@ export default function OperationalHealthPanel({ state }) {
         <div className="rounded-full border border-slate-700/60 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[.24em] text-slate-300">
           Last updated {health.lastUpdated || health.telemetryUpdatedAt || "unknown"}
         </div>
+        {health.dataSource && health.dataSource !== "runtime" ? (
+          <div className="rounded-full border border-command-amber/40 bg-command-amber/10 px-3 py-1 text-[10px] font-black uppercase tracking-[.24em] text-command-amber">
+            Fallback mode
+          </div>
+        ) : (
+          <div className="rounded-full border border-command-green/40 bg-command-green/10 px-3 py-1 text-[10px] font-black uppercase tracking-[.24em] text-command-green">
+            Live runtime
+          </div>
+        )}
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">

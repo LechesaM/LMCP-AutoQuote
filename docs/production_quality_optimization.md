@@ -40,7 +40,21 @@ This branch improves production-quality outcomes without changing workflow gover
   - validity period
   - delivery terms
   - signature/approval placeholder
+- Readiness also expects:
+  - consistent artifact naming
+  - generated PDF, JSON, and manifest artifacts where applicable
 - Missing artifacts lower readiness and are reported as warnings.
+- Missing-field warnings are emitted with stable codes:
+  - `missing_company_details`
+  - `missing_buyer_details`
+  - `missing_tender_reference`
+  - `missing_pricing_schedule`
+  - `missing_vat_treatment`
+  - `missing_validity_period`
+  - `missing_delivery_terms`
+  - `missing_signature_placeholder`
+  - `missing_artifacts`
+  - `inconsistent_artifact_naming`
 
 ## Supplier Pricing Confidence
 

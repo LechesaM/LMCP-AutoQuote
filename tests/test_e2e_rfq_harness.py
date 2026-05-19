@@ -101,8 +101,11 @@ def test_valid_rfq_completes_to_proof_recorded(monkeypatch, tmp_path: Path) -> N
     assert result["workflow_history"]
     assert "quality_summary" in result
     assert "rfq_extraction" in result["quality_summary"]
+    assert result["quality_summary"]["quote_pack"]["quality_score"] >= 0.8
+    assert result["quality_summary"]["quote_pack"]["quote_pack"]["quote_pack_ready"] is True
     assert any(path.endswith("__quote_pack.pdf") for path in result["artifacts_created"])
     assert any(path.endswith("__quote_pack.json") for path in result["artifacts_created"])
+    assert any(path.endswith("__quote_pack_manifest.json") for path in result["artifacts_created"])
     assert any(path.endswith("_submission_pack_manifest.txt") for path in result["artifacts_created"])
 
 
@@ -228,6 +231,17 @@ def test_no_autonomous_final_submission_occurs(monkeypatch, tmp_path: Path) -> N
 
     assert result["manual_submission_preserved"] is True
     assert not any("final submission" in blocker.lower() for blocker in result["blockers"])
+
+
+def test_refused_rfq_does_not_gain_quote_pack_readiness(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    harness = E2ERFQHarness()
+
+    result = harness.run_fixture(FIXTURES_DIR / "excluded_catering_rfq.json")
+
+    assert result["final_stage"] == WorkflowStage.REFUSED.value
+    assert result["quality_summary"]["quote_pack"]["quality_score"] < 0.8
+    assert result["quality_summary"]["quote_pack"]["quote_pack"]["quote_pack_ready"] is False
 
 
 def test_dashboard_summary_reflects_fixture_workflow(monkeypatch, tmp_path: Path) -> None:

@@ -228,25 +228,63 @@ def test_quote_pack_readiness_score() -> None:
     report = assess_quote_pack_quality(
         {
             "tender_id": "Q-QUOTE-001",
+            "company_name": "Lechesa Manaba Consulting and Projects (Pty) Ltd",
+            "company_contact_person": "Operator",
+            "company_email": "ops@example.com",
+            "company_phone": "+27-11-000-0000",
+            "buyer_name": "City of Example",
+            "tender_reference": "Q-QUOTE-001",
+            "pricing_schedule_path": "/tmp/Q-QUOTE-001__buyer_pricing_schedule.csv",
+            "generated_pdf_path": "/tmp/Q-QUOTE-001__quote_pack.pdf",
+            "generated_json_path": "/tmp/Q-QUOTE-001__quote_pack.json",
+            "completed_buyer_schedule_path": "/tmp/Q-QUOTE-001__buyer_pricing_schedule.csv",
+            "manifest_path": "/tmp/Q-QUOTE-001__quote_pack_manifest.json",
+            "validity_days": 30,
+            "delivery_terms": "Standard delivery terms apply.",
+            "vat_treatment": "VAT included at 15%",
+            "company_details_present": True,
+            "buyer_details_present": True,
+            "tender_reference_present": True,
+            "pricing_schedule_present": True,
+            "vat_treatment_shown": True,
+            "validity_period_present": True,
+            "delivery_terms_present": True,
+            "signature_placeholder_present": True,
+            "artifacts": [
+                {"artifact_type": "pdf", "path": "/tmp/Q-QUOTE-001__quote_pack.pdf", "present": True},
+                {"artifact_type": "json", "path": "/tmp/Q-QUOTE-001__quote_pack.json", "present": True},
+                {"artifact_type": "manifest", "path": "/tmp/Q-QUOTE-001__quote_pack_manifest.json", "present": True},
+            ],
+        }
+    )
+
+    assert report["quality_score"] >= 0.8
+    assert report["quote_pack"]["quote_pack_ready"] is True
+    assert report["missing_artifacts"] == []
+
+
+def test_quote_pack_missing_fields_emit_warnings() -> None:
+    report = assess_quote_pack_quality(
+        {
+            "tender_id": "Q-QUOTE-002",
             "generated_pdf_path": "",
             "generated_json_path": "",
             "completed_buyer_schedule_path": "",
-            "company_details_present": True,
-            "buyer_details_present": False,
-            "tender_reference_present": True,
-            "pricing_schedule_present": False,
-            "vat_treatment_shown": False,
-            "validity_period_present": True,
-            "delivery_terms_present": False,
-            "signature_placeholder_present": False,
+            "manifest_path": "",
             "artifacts": [],
         }
     )
 
-    assert report["quality_score"] < 1
-    assert "quote_pack_pdf" in report["missing_artifacts"]
-    assert "pricing_schedule" in report["missing_artifacts"]
-    assert report["quote_pack"]["quote_pack_ready"] is False
+    assert report["quality_score"] < 0.8
+    assert "missing_company_details" in report["warnings"]
+    assert "missing_buyer_details" in report["warnings"]
+    assert "missing_tender_reference" in report["warnings"]
+    assert "missing_pricing_schedule" in report["warnings"]
+    assert "missing_vat_treatment" in report["warnings"]
+    assert "missing_validity_period" in report["warnings"]
+    assert "missing_delivery_terms" in report["warnings"]
+    assert "missing_signature_placeholder" in report["warnings"]
+    assert "missing_artifacts" in report["warnings"]
 
 
 def test_supplier_price_anomaly_detection_and_comparison_summary() -> None:

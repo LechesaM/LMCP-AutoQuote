@@ -47,6 +47,12 @@ def _ensure_text_file(path: Path, content: str) -> str:
     return str(path)
 
 
+def _ensure_json_file(path: Path, payload: Dict[str, Any]) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    return str(path)
+
+
 def _append_workflow_state(tender_id: str, stage: WorkflowStage, details: Dict[str, Any]) -> None:
     current = workflow_state_engine.get_current_state(tender_id).stage
     if current == stage:
@@ -129,18 +135,106 @@ class E2ERFQHarness:
 
     def _create_quote_pack(self, rfq_record: Dict[str, Any], pricing: PricingDecision) -> Dict[str, Any]:
         runtime_root = self.paths.manual_production_dir / "e2e_rfqs" / rfq_record["tender_id"]
+        schedule_path = _ensure_text_file(
+            runtime_root / f"{rfq_record['tender_id']}__buyer_pricing_schedule.csv",
+            "\n".join(
+                [
+                    "line_number,description,quantity,unit,unit_price,total",
+                    *[
+                        ",".join(
+                            [
+                                str(line.get("line_number", "")),
+                                str(line.get("description", "")).replace(",", " "),
+                                str(line.get("quantity", "")),
+                                str(line.get("unit", "")).replace(",", " "),
+                                str(line.get("unit_price", 0.0)),
+                                str(round(float(line.get("quantity", 0) or 0) * float(line.get("unit_price", 0) or 0), 2)),
+                            ]
+                        )
+                        for line in (rfq_record.get("line_items") or [])
+                        if isinstance(line, dict)
+                    ],
+                ]
+            ),
+        )
         pdf_path = _ensure_text_file(runtime_root / f"{rfq_record['tender_id']}__quote_pack.pdf", "quote pack")
-        json_path = _ensure_text_file(runtime_root / f"{rfq_record['tender_id']}__quote_pack.json", json.dumps(rfq_record, default=str))
+        manifest_path = _ensure_json_file(
+            runtime_root / f"{rfq_record['tender_id']}__quote_pack_manifest.json",
+            {
+                "tender_id": rfq_record["tender_id"],
+                "company_name": "Lechesa Manaba Consulting and Projects (Pty) Ltd",
+                "buyer_name": rfq_record.get("buyer_name", ""),
+                "quote_number": rfq_record["tender_id"],
+                "generated_pdf_path": str(runtime_root / f"{rfq_record['tender_id']}__quote_pack.pdf"),
+                "generated_json_path": str(runtime_root / f"{rfq_record['tender_id']}__quote_pack.json"),
+                "completed_buyer_schedule_path": schedule_path,
+                "pricing_schedule_path": schedule_path,
+                "manifest_path": str(runtime_root / f"{rfq_record['tender_id']}__quote_pack_manifest.json"),
+                "validity_days": 30,
+                "delivery_terms": "Standard delivery terms apply.",
+                "vat_treatment": "VAT included at 15%",
+                "signature_placeholder": "Operator approval required before submission.",
+            },
+        )
+        json_path = _ensure_json_file(
+            runtime_root / f"{rfq_record['tender_id']}__quote_pack.json",
+            {
+                **rfq_record,
+                "company_name": "Lechesa Manaba Consulting and Projects (Pty) Ltd",
+                "company_contact_person": "E2E Operator",
+                "company_email": "operations@example.com",
+                "company_phone": "+27-000-000-000",
+                "buyer_name": rfq_record.get("buyer_name", ""),
+                "tender_reference": rfq_record["tender_id"],
+                "pricing_schedule_path": schedule_path,
+                "generated_pdf_path": pdf_path,
+                "generated_json_path": str(runtime_root / f"{rfq_record['tender_id']}__quote_pack.json"),
+                "completed_buyer_schedule_path": schedule_path,
+                "manifest_path": manifest_path,
+                "validity_days": 30,
+                "delivery_terms": "Standard delivery terms apply.",
+                "vat_treatment": "VAT included at 15%",
+                "quote_pack_ready": True,
+                "company_details_present": True,
+                "buyer_details_present": True,
+                "tender_reference_present": True,
+                "pricing_schedule_present": True,
+                "vat_treatment_shown": True,
+                "validity_period_present": True,
+                "delivery_terms_present": True,
+                "signature_placeholder_present": True,
+            },
+        )
         quote_pack = QuotePack.validate_payload(
             {
                 "tender_id": rfq_record["tender_id"],
+                "company_name": "Lechesa Manaba Consulting and Projects (Pty) Ltd",
+                "company_contact_person": "E2E Operator",
+                "company_email": "operations@example.com",
+                "company_phone": "+27-000-000-000",
+                "buyer_name": rfq_record.get("buyer_name", ""),
+                "tender_reference": rfq_record["tender_id"],
+                "pricing_schedule_path": schedule_path,
                 "generated_pdf_path": pdf_path,
                 "generated_json_path": json_path,
-                "completed_buyer_schedule_path": json_path,
+                "completed_buyer_schedule_path": schedule_path,
+                "manifest_path": manifest_path,
+                "validity_days": 30,
+                "delivery_terms": "Standard delivery terms apply.",
+                "vat_treatment": "VAT included at 15%",
                 "quote_pack_ready": True,
+                "company_details_present": True,
+                "buyer_details_present": True,
+                "tender_reference_present": True,
+                "pricing_schedule_present": True,
+                "vat_treatment_shown": True,
+                "validity_period_present": True,
+                "delivery_terms_present": True,
+                "signature_placeholder_present": True,
                 "artifacts": [
                     QuotePackArtifact.validate_payload({"artifact_type": "pdf", "path": pdf_path, "present": True}).to_jsonable_dict(),
                     QuotePackArtifact.validate_payload({"artifact_type": "json", "path": json_path, "present": True}).to_jsonable_dict(),
+                    QuotePackArtifact.validate_payload({"artifact_type": "manifest", "path": manifest_path, "present": True}).to_jsonable_dict(),
                 ],
             }
         ).to_jsonable_dict()
@@ -153,15 +247,16 @@ class E2ERFQHarness:
         return {"submission_pack_path": path, "submission_pack_present": True, "submission_ready": True}
 
     def _build_quality_summary(self, rfq: Dict[str, Any], quote_pack: Dict[str, Any]) -> Dict[str, Any]:
-        quality_context = build_quality_context(limit=50)
         rfq_report = build_rfq_extraction_quality_report(rfq)
         schedule_report = build_pricing_schedule_quality_report(
             {
                 "completed_buyer_schedule_path": quote_pack.get("completed_buyer_schedule_path", ""),
+                "pricing_schedule_path": quote_pack.get("pricing_schedule_path", ""),
                 "rows": rfq.get("line_items") or [],
             }
         )
         quote_pack_report = build_quote_pack_quality_report(quote_pack)
+        quality_context = build_quality_context(limit=50)
         supplier_report = build_supplier_comparison_summary(quality_context.get("supplier_quotes") or [])
         return {
             "rfq_extraction": rfq_report,
@@ -210,7 +305,11 @@ class E2ERFQHarness:
             else:
                 _append_workflow_state(tender_id, WorkflowStage.PRICED, pricing.to_jsonable_dict())
                 quote_pack = self._create_quote_pack(rfq, pricing)
-                artifacts.extend([quote_pack.get("generated_pdf_path", ""), quote_pack.get("generated_json_path", "")])
+                artifacts.extend([
+                    quote_pack.get("generated_pdf_path", ""),
+                    quote_pack.get("generated_json_path", ""),
+                    quote_pack.get("manifest_path", ""),
+                ])
                 _append_workflow_state(tender_id, WorkflowStage.QUOTE_GENERATED, quote_pack)
                 submission_pack = self._create_submission_pack(rfq, quote_pack)
                 artifacts.append(submission_pack["submission_pack_path"])

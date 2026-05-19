@@ -23,6 +23,11 @@ Constraints preserved:
 
 All four targets passed.
 
+## Quote-Pack Fix
+- Previous quote-pack readiness: `0.0`
+- New quote-pack readiness on valid RFQs: `1.0`
+- Target met: `yes`
+
 ## Readiness Summary
 - Production readiness score: `80.0`
 - Workflow correctness rate: `0.6`
@@ -38,9 +43,9 @@ Supplementary pilot readiness report:
 ## Per-RFQ Results
 | Tender | Outcome | Extraction | Pricing schedule | Quote-pack readiness | Supplier pricing warnings | Operator recommendation | Refusal reasons |
 | --- | --- | ---: | ---: | ---: | --- | --- | --- |
-| `REAL-PILOT-001` | passed | `1.0` | `0.6` | `0.0` | none | review workflow | none |
-| `REAL-PILOT-002` | passed | `1.0` | `0.6` | `0.0` | none | review workflow | none |
-| `REAL-PILOT-003` | passed | `1.0` | `0.6` | `0.0` | none | review workflow | none |
+| `REAL-PILOT-001` | passed | `1.0` | `0.6` | `1.0` | none | review workflow | none |
+| `REAL-PILOT-002` | passed | `1.0` | `0.6` | `1.0` | none | review workflow | none |
+| `REAL-PILOT-003` | passed | `1.0` | `0.6` | `1.0` | none | review workflow | none |
 | `REAL-PILOT-004` | refused | `1.0` | `0.6` | `0.0` | none | archive; rerun validation | excluded category |
 | `REAL-PILOT-005` | refused | `1.0` | `0.6` | `0.0` | none | archive; rerun validation | minimum profit R30,000 not met; minimum supply margin 25% not met |
 
@@ -50,17 +55,19 @@ Supplementary pilot readiness report:
 - Audit failures recorded: `0`
 
 ## Blockers
-- Excluded category RFQ
-- Below-margin RFQ
-- Quote-pack readiness remains `0.0` because the generated quote pack lacks the checklist content required by the quality layer
+- Excluded category RFQ remains refused
+- Below-margin RFQ remains refused
+- No remaining quote-pack readiness blocker for valid RFQs
+- Pricing schedule quality remains at `0.6` because the dry-run fixtures only include minimal line-item data
 
 ## Recommended Fixes Before `supervised_live`
 1. Keep the manual approval, review, and proof gates exactly as they are.
-2. Improve generated quote-pack content so the checklist fields are present before supervised live use.
-3. Continue refusing excluded and below-margin RFQs instead of trying to force them through the workflow.
-4. Keep using dry-run validation on new pilot RFQs before any live supervision session.
+2. Continue refusing excluded and below-margin RFQs instead of trying to force them through the workflow.
+3. Keep using dry-run validation on new pilot RFQs before any live supervision session.
+4. If future pilot batches need higher schedule quality, enrich line-item schedules with fully populated unit price and total fields.
 
 ## Notes
 - Supplier pricing warnings were empty for all five fixtures.
 - The batch stayed within manual-production safety boundaries.
 - The quoted scores reflect the current harness and quality rules, not autonomous submission behavior.
+- `manual_production` approval, review, and proof gates remained intact.

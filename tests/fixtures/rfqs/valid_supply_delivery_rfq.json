@@ -1,0 +1,23 @@
+{
+  "tender_id": "RFQ-VALID-001",
+  "title": "Supply and Delivery of Office Consumables",
+  "buyer_name": "City of Example",
+  "province": "Gauteng",
+  "category": "supply and delivery",
+  "closing_date": "2026-12-31T12:00:00+00:00",
+  "source_files": ["source_files/valid_supply_delivery_rfq.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Office paper",
+      "quantity": 50,
+      "unit": "Box",
+      "unit_of_measure": "Box",
+      "notes": "A4 white"
+    }
+  ],
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": true,
+  "pricing_file": "source_files/valid_supply_delivery_pricing_schedule.xlsx"
+}

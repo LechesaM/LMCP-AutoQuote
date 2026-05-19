@@ -1,0 +1,23 @@
+{
+  "tender_id": "RFQ-MISSING-001",
+  "title": "Supply and Delivery of Cleaning Materials",
+  "buyer_name": "District Example",
+  "province": "Eastern Cape",
+  "category": "supply and delivery",
+  "closing_date": "2026-12-31T12:00:00+00:00",
+  "source_files": ["source_files/missing_source_document_rfq.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Cleaning detergent",
+      "quantity": 200,
+      "unit": "Bottle",
+      "unit_of_measure": "Bottle",
+      "notes": "5L"
+    }
+  ],
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": false,
+  "pricing_file": "source_files/missing_source_document_pricing_schedule.xlsx"
+}

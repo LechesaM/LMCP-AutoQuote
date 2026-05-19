@@ -1,0 +1,23 @@
+{
+  "tender_id": "RFQ-BELOW-001",
+  "title": "Supply and Delivery of Stationery",
+  "buyer_name": "Municipality Example",
+  "province": "KwaZulu-Natal",
+  "category": "supply and delivery",
+  "closing_date": "2026-12-31T12:00:00+00:00",
+  "source_files": ["source_files/below_margin_rfq.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Pens",
+      "quantity": 500,
+      "unit": "Pack",
+      "unit_of_measure": "Pack",
+      "notes": "Blue ink"
+    }
+  ],
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "below_margin",
+  "expected_submission_ready": false,
+  "pricing_file": "source_files/below_margin_pricing_schedule.xlsx"
+}

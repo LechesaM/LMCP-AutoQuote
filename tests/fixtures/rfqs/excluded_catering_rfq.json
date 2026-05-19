@@ -1,0 +1,23 @@
+{
+  "tender_id": "RFQ-EXCLUDED-001",
+  "title": "Catering Services for Annual Event",
+  "buyer_name": "City of Example",
+  "province": "Western Cape",
+  "category": "catering",
+  "closing_date": "2026-12-31T12:00:00+00:00",
+  "source_files": ["source_files/excluded_catering_rfq.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Lunch service",
+      "quantity": 100,
+      "unit": "Person",
+      "unit_of_measure": "Person",
+      "notes": "Per attendee"
+    }
+  ],
+  "expected_exclusion_status": "excluded",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": false,
+  "pricing_file": "source_files/excluded_catering_pricing_schedule.xlsx"
+}

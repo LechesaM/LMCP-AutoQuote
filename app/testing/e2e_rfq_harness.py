@@ -42,6 +42,11 @@ class ProductionValidationResult(StrictBaseModel):
     quality_summary: Dict[str, Any] = Field(default_factory=dict)
     qualification_summary: Dict[str, Any] = Field(default_factory=dict)
     qualification_result: Dict[str, Any] = Field(default_factory=dict)
+    pricing_evidence_summary: Dict[str, Any] = Field(default_factory=dict)
+    pricing_validation_summary: Dict[str, Any] = Field(default_factory=dict)
+    pricing_traceability_summary: Dict[str, Any] = Field(default_factory=dict)
+    quote_aging_summary: Dict[str, Any] = Field(default_factory=dict)
+    pricing_confidence_summary: Dict[str, Any] = Field(default_factory=dict)
     updated_at: Any = None
 
 def _ensure_text_file(path: Path, content: str) -> str:
@@ -282,6 +287,7 @@ class E2ERFQHarness:
             replay = replay_workflow_history(tender_id)
             current_state = workflow_state_engine.get_current_state(tender_id)
             qualification_result = self._build_qualification_summary(rfq)
+            quality_summary = self._build_quality_summary(rfq, {"artifacts": []})
             result = ProductionValidationResult(
                 tender_id=tender_id,
                 passed=False,
@@ -294,9 +300,14 @@ class E2ERFQHarness:
                 audit_verified=not bool(replay.get("missing_audit_events")),
                 manual_submission_preserved=True,
                 source_fixture=str(rfq_record.get("fixture_path") or ""),
-                quality_summary=self._build_quality_summary(rfq, {"artifacts": []}),
+                quality_summary=quality_summary,
                 qualification_result=qualification_result,
                 qualification_summary=qualification_result,
+                pricing_evidence_summary=quality_summary.get("supplier_pricing", {}).get("pricing_evidence_summary", {}),
+                pricing_validation_summary=quality_summary.get("supplier_pricing", {}).get("pricing_validation_summary", {}),
+                pricing_traceability_summary=quality_summary.get("supplier_pricing", {}).get("pricing_traceability_summary", {}),
+                quote_aging_summary=quality_summary.get("supplier_pricing", {}).get("quote_aging_summary", {}),
+                pricing_confidence_summary=quality_summary.get("supplier_pricing", {}).get("pricing_confidence_summary", {}),
                 updated_at=utc_now(),
             )
             return result.to_jsonable_dict()
@@ -358,6 +369,7 @@ class E2ERFQHarness:
         persistence_verified = not bool(replay.get("persistence_mismatch"))
         audit_verified = not bool(replay.get("missing_audit_events"))
         qualification_result = self._build_qualification_summary(rfq)
+        quality_summary = self._build_quality_summary(rfq, quote_pack if "quote_pack" in locals() else {})
         result = ProductionValidationResult(
             tender_id=tender_id,
             passed=not blockers and current_state.stage is WorkflowStage.PROOF_RECORDED and replay.get("passed", False),
@@ -370,9 +382,14 @@ class E2ERFQHarness:
             audit_verified=audit_verified,
             manual_submission_preserved=not bool(proof_record.get("final_submission_attempted", False)) if "proof_record" in locals() else True,
             source_fixture=str(rfq_record.get("fixture_path") or ""),
-            quality_summary=self._build_quality_summary(rfq, quote_pack if "quote_pack" in locals() else {}),
+            quality_summary=quality_summary,
             qualification_result=qualification_result,
             qualification_summary=qualification_result,
+            pricing_evidence_summary=quality_summary.get("supplier_pricing", {}).get("pricing_evidence_summary", {}),
+            pricing_validation_summary=quality_summary.get("supplier_pricing", {}).get("pricing_validation_summary", {}),
+            pricing_traceability_summary=quality_summary.get("supplier_pricing", {}).get("pricing_traceability_summary", {}),
+            quote_aging_summary=quality_summary.get("supplier_pricing", {}).get("quote_aging_summary", {}),
+            pricing_confidence_summary=quality_summary.get("supplier_pricing", {}).get("pricing_confidence_summary", {}),
             updated_at=utc_now(),
         )
         return result.to_jsonable_dict()

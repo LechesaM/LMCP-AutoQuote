@@ -19,6 +19,11 @@ def assess_opportunity_viability(
     language_intelligence: Dict[str, Any] | None = None,
     risk_engine: Dict[str, Any] | None = None,
     supplier_match: Dict[str, Any] | None = None,
+    pricing_evidence: Dict[str, Any] | None = None,
+    pricing_validation: Dict[str, Any] | None = None,
+    quote_aging: Dict[str, Any] | None = None,
+    pricing_confidence: Dict[str, Any] | None = None,
+    pricing_traceability: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     payload = dict(rfq_record_or_dict or {})
     category = str(classification.get("category") or "unknown")
@@ -27,6 +32,11 @@ def assess_opportunity_viability(
     language_intelligence = language_intelligence or {}
     risk_engine = risk_engine or {}
     supplier_match = supplier_match or {}
+    pricing_evidence = pricing_evidence or {}
+    pricing_validation = pricing_validation or {}
+    quote_aging = quote_aging or {}
+    pricing_confidence = pricing_confidence or {}
+    pricing_traceability = pricing_traceability or {}
     estimated_profit = payload.get("estimated_profit")
     gross_margin_ratio = payload.get("gross_margin_ratio")
     estimated_contract_value = payload.get("estimated_contract_value")
@@ -49,6 +59,8 @@ def assess_opportunity_viability(
         technical_complexity_score = max(technical_complexity_score, 75)
     if "oem_accreditation_requirement" in set(language_intelligence.get("risk_flags", [])):
         technical_complexity_score = max(technical_complexity_score, 78)
+    if pricing_evidence.get("pricing_defensibility_score") is not None:
+        technical_complexity_score = max(technical_complexity_score, 30 if pricing_evidence.get("pricing_defensibility_score", 0.0) >= 70 else 55)
     submission_method_name = str(submission_method.get("method") or "unknown")
     submission_complexity_score = {
         "email": 15,
@@ -93,6 +105,15 @@ def assess_opportunity_viability(
     if compliance_matrix.get("blockers"):
         recommendation = "MANUAL_REVIEW" if recommendation == "GO" else recommendation
         risk_level = "medium" if recommendation != "REJECT" else risk_level
+    manual_pricing_review_required = bool(
+        pricing_validation.get("manual_review_required")
+        or quote_aging.get("risk_level") == "HIGH_RISK"
+        or str(pricing_evidence.get("quotation_source_type") or "").lower() in {"estimated/manual", "manual", "historical pricing"}
+        or (pricing_confidence.get("overall_pricing_confidence") not in (None, "") and _to_float(pricing_confidence.get("overall_pricing_confidence")) < 55.0)
+    )
+    if manual_pricing_review_required and recommendation == "GO":
+        recommendation = "MANUAL_REVIEW"
+        risk_level = "medium"
 
     return {
         "estimated_profit": round(_to_float(estimated_profit), 2),
@@ -107,11 +128,19 @@ def assess_opportunity_viability(
         "risk_level": risk_level,
         "final_recommendation": recommendation,
         "critical_missing_fields": critical_missing,
+        "pricing_evidence_score": _to_float(pricing_evidence.get("evidence_completeness_score"), 0.0),
+        "pricing_defensibility_score": _to_float(pricing_evidence.get("pricing_defensibility_score"), 0.0),
+        "pricing_confidence_score": _to_float(pricing_confidence.get("overall_pricing_confidence"), 0.0),
+        "stale_quote_warning": bool(quote_aging.get("stale_pricing_warnings")),
+        "manual_pricing_review_required": manual_pricing_review_required,
+        "pricing_traceability_summary": pricing_traceability.get("pricing_traceability_summary", {}),
         "reason_chain": [
             "excluded category" if excluded_category else "",
             "technical validation required" if bool(payload.get("technical_validation_required")) else "",
             "missing critical fields" if critical_missing else "",
             "pricing gate failed" if (not profit_gate or not margin_gate) else "",
             "supplier match strong" if supplier_match.get("supplier_match_score", 0.0) >= 75 else "",
+            "pricing evidence incomplete" if pricing_evidence else "",
+            "manual pricing review required" if manual_pricing_review_required else "",
         ],
     }

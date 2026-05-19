@@ -13,6 +13,7 @@ from app.pilot.pilot_signoff import get_pilot_signoffs
 from app.analytics.tender_success_analytics import build_tender_success_analytics
 from app.quality.context import build_quality_context
 from app.quality.quote_pack_quality import build_quote_pack_quality_report
+from app.quality.supplier_pricing_quality import build_supplier_comparison_summary
 from app.qualification.qualification_engine import build_qualification_summary, qualify_rfq
 
 
@@ -39,6 +40,11 @@ class PilotReadinessReport(StrictBaseModel):
     manual_governance_integrity_score: float = 0.0
     qualification_summary: Dict[str, Any] = Field(default_factory=dict)
     qualification_result: Dict[str, Any] = Field(default_factory=dict)
+    pricing_evidence_summary: Dict[str, Any] = Field(default_factory=dict)
+    pricing_validation_summary: Dict[str, Any] = Field(default_factory=dict)
+    pricing_traceability_summary: Dict[str, Any] = Field(default_factory=dict)
+    quote_aging_summary: Dict[str, Any] = Field(default_factory=dict)
+    pricing_confidence_summary: Dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -52,6 +58,7 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
     signoffs = get_pilot_signoffs(limit=limit)
     quality_context = build_quality_context(limit=limit)
     quality_summary = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
+    supplier_quality = build_supplier_comparison_summary(quality_context.get("supplier_quotes") or [])
     qualification_result = qualify_rfq(quality_context.get("rfq_payload")) if quality_context.get("rfq_payload") else {}
     qualification_summary = build_qualification_summary([qualification_result] if qualification_result else [])
     tender_analytics = build_tender_success_analytics(limit=limit)
@@ -123,6 +130,11 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         manual_governance_integrity_score=manual_governance_integrity_score,
         qualification_summary=qualification_summary,
         qualification_result=qualification_result,
+        pricing_evidence_summary=supplier_quality.get("pricing_evidence_summary", {}),
+        pricing_validation_summary=supplier_quality.get("pricing_validation_summary", {}),
+        pricing_traceability_summary=supplier_quality.get("pricing_traceability_summary", {}),
+        quote_aging_summary=supplier_quality.get("quote_aging_summary", {}),
+        pricing_confidence_summary=supplier_quality.get("pricing_confidence_summary", {}),
         warnings=warnings,
     )
     return report.to_jsonable_dict()
@@ -144,6 +156,12 @@ def render_pilot_readiness_text(report: Optional[Dict[str, Any]] = None) -> str:
             f"Qualification reject count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('REJECT', 0)}",
             f"Qualification recommendation: {report.get('qualification_result', {}).get('recommendation', 'MANUAL_REVIEW')}",
             f"Qualification readiness state: {report.get('qualification_result', {}).get('readiness_state', 'HIGH_RISK')}",
+            f"Supplier evidence score: {report.get('qualification_result', {}).get('supplier_evidence_score', 0.0)}",
+            f"Pricing confidence: {report.get('qualification_result', {}).get('pricing_confidence', {}).get('overall_pricing_confidence', 0.0)}",
+            f"Manual pricing review required: {report.get('qualification_result', {}).get('manual_pricing_review_required', False)}",
+            f"Stale quote warning: {report.get('qualification_result', {}).get('stale_quote_warning', False)}",
+            f"Pricing evidence completeness: {report.get('pricing_evidence_summary', {}).get('average_evidence_completeness', 0.0)}",
+            f"Pricing traceability count: {report.get('pricing_traceability_summary', {}).get('quote_count', 0)}",
             f"Governance compliance score: {report.get('governance_compliance_score', 0.0)}",
             f"Manual governance integrity score: {report.get('manual_governance_integrity_score', 0.0)}",
             f"Supervised-live governance: advisory only",

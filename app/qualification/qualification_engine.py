@@ -14,6 +14,13 @@ from app.qualification.submission_readiness import assess_submission_readiness
 from app.qualification.submission_method_detector import detect_submission_method
 from app.qualification.supplier_match_intelligence import assess_supplier_match
 from app.qualification.supplier_domain_mapper import map_supplier_domain
+from app.pricing_evidence import (
+    assess_pricing_confidence,
+    assess_quote_aging,
+    build_pricing_traceability,
+    build_supplier_quote_evidence,
+    validate_pricing_evidence,
+)
 
 
 def _coerce_record(rfq_record_or_dict: Dict[str, Any] | RFQRecord | None) -> Dict[str, Any]:
@@ -45,6 +52,34 @@ def qualify_rfq(rfq_record_or_dict: Dict[str, Any] | RFQRecord | None) -> Dict[s
     submission_method = detect_submission_method(payload, language_intelligence=language_intelligence)
     supplier_domain = map_supplier_domain(classification, language_intelligence=language_intelligence)
     supplier_match = assess_supplier_match(payload, classification=classification, language_intelligence=language_intelligence, submission_method=submission_method)
+    pricing_payload = payload.get("pricing_evidence") or payload.get("supplier_quote") or {}
+    if not pricing_payload and isinstance(payload.get("supplier_quotes"), list) and payload.get("supplier_quotes"):
+        first_quote = payload.get("supplier_quotes")[0]
+        pricing_payload = first_quote if isinstance(first_quote, dict) else {}
+    pricing_evidence = build_supplier_quote_evidence(pricing_payload) if pricing_payload else {}
+    pricing_validation = validate_pricing_evidence(pricing_payload) if pricing_payload else {}
+    quote_aging = assess_quote_aging(pricing_payload) if pricing_payload else {}
+    pricing_confidence = (
+        assess_pricing_confidence(
+            pricing_payload,
+            evidence_report=pricing_evidence,
+            validation_report=pricing_validation,
+            quote_aging_report=quote_aging,
+            supplier_match=supplier_match,
+        )
+        if pricing_payload
+        else {}
+    )
+    pricing_traceability = (
+        build_pricing_traceability(
+            pricing_payload,
+            evidence_report=pricing_evidence,
+            validation_report=pricing_validation,
+            quote_aging_report=quote_aging,
+        )
+        if pricing_payload
+        else {}
+    )
     viability = assess_opportunity_viability(
         payload,
         classification,
@@ -52,6 +87,11 @@ def qualify_rfq(rfq_record_or_dict: Dict[str, Any] | RFQRecord | None) -> Dict[s
         submission_method,
         language_intelligence=language_intelligence,
         supplier_match=supplier_match,
+        pricing_evidence=pricing_evidence,
+        pricing_validation=pricing_validation,
+        quote_aging=quote_aging,
+        pricing_confidence=pricing_confidence,
+        pricing_traceability=pricing_traceability,
     )
     risk_engine = assess_rfq_risk(
         payload,
@@ -70,6 +110,11 @@ def qualify_rfq(rfq_record_or_dict: Dict[str, Any] | RFQRecord | None) -> Dict[s
         language_intelligence=language_intelligence,
         risk_engine=risk_engine,
         supplier_match=supplier_match,
+        pricing_evidence=pricing_evidence,
+        pricing_validation=pricing_validation,
+        quote_aging=quote_aging,
+        pricing_confidence=pricing_confidence,
+        pricing_traceability=pricing_traceability,
     )
     readiness = assess_submission_readiness(
         compliance_matrix=compliance_matrix,
@@ -98,16 +143,27 @@ def qualify_rfq(rfq_record_or_dict: Dict[str, Any] | RFQRecord | None) -> Dict[s
         warnings.extend([f"risk trigger: {item}" for item in risk_engine.get("manual_review_triggers", [])[:4]])
     if language_intelligence.get("manual_review_triggers"):
         warnings.extend([f"language trigger: {item}" for item in language_intelligence.get("manual_review_triggers", [])[:4]])
+    if pricing_validation.get("validation_errors"):
+        warnings.extend([f"pricing validation: {item}" for item in pricing_validation.get("validation_errors", [])[:4]])
+    if pricing_evidence.get("evidence_warnings"):
+        warnings.extend([f"pricing evidence: {item}" for item in pricing_evidence.get("evidence_warnings", [])[:4]])
+    if quote_aging.get("stale_pricing_warnings"):
+        warnings.extend([f"quote aging: {item}" for item in quote_aging.get("stale_pricing_warnings", [])[:4]])
     recommendation_reasons = []
     recommendation_reasons.extend([str(item) for item in viability.get("reason_chain", []) if item])
     recommendation_reasons.extend([str(item) for item in readiness.get("reason_chain", []) if item])
     recommendation_reasons.extend([str(item) for item in risk_engine.get("manual_review_triggers", [])[:4]])
     recommendation_reasons.extend([str(item) for item in language_intelligence.get("manual_review_triggers", [])[:4]])
+    recommendation_reasons.extend([str(item) for item in pricing_validation.get("validation_errors", [])[:4]])
+    recommendation_reasons.extend([str(item) for item in pricing_evidence.get("evidence_warnings", [])[:4]])
+    recommendation_reasons.extend([str(item) for item in quote_aging.get("stale_pricing_warnings", [])[:4]])
     recommendation_reasons = list(dict.fromkeys([item for item in recommendation_reasons if item]))
     if risk_engine.get("risk_level") == "blocked" or classification.get("excluded_category"):
         recommendation = "REJECT"
     elif viability.get("final_recommendation") == "REJECT":
         recommendation = "REJECT"
+    elif pricing_validation.get("manual_review_required") or quote_aging.get("risk_level") == "HIGH_RISK" or viability.get("manual_pricing_review_required"):
+        recommendation = "MANUAL_REVIEW"
     elif readiness.get("readiness_state") == "READY" and risk_engine.get("risk_level") in {"low", "medium"} and supplier_match.get("supplier_match_score", 0.0) >= 55:
         recommendation = "GO"
     else:
@@ -128,6 +184,14 @@ def qualify_rfq(rfq_record_or_dict: Dict[str, Any] | RFQRecord | None) -> Dict[s
         "supplier_domain": supplier_domain,
         "supplier_match_intelligence": supplier_match,
         "supplier_match_score": supplier_match.get("supplier_match_score", 0.0),
+        "supplier_evidence_score": pricing_evidence.get("evidence_completeness_score", 0.0),
+        "pricing_confidence": pricing_confidence,
+        "pricing_validation": pricing_validation,
+        "quote_aging": quote_aging,
+        "pricing_traceability": pricing_traceability,
+        "pricing_traceability_summary": pricing_traceability.get("pricing_traceability_summary", {}),
+        "stale_quote_warning": bool(quote_aging.get("stale_pricing_warnings")),
+        "manual_pricing_review_required": bool(pricing_validation.get("manual_review_required") or quote_aging.get("risk_level") == "HIGH_RISK" or viability.get("manual_pricing_review_required")),
         "language_intelligence": language_intelligence,
         "risk_breakdown": risk_engine,
         "readiness_state": readiness.get("readiness_state", "HIGH_RISK"),
@@ -173,6 +237,9 @@ def build_qualification_summary(results: List[Dict[str, Any]] | None = None) -> 
     readiness_breakdown: Dict[str, int] = {}
     supplier_domain_breakdown: Dict[str, int] = {}
     submission_method_breakdown: Dict[str, int] = {}
+    pricing_confidence_scores: List[float] = []
+    supplier_evidence_scores: List[float] = []
+    manual_pricing_review_count = 0
     automation_scores: List[float] = []
     blockers: List[str] = []
     manual_review_trigger_counts: Dict[str, int] = {}
@@ -190,6 +257,10 @@ def build_qualification_summary(results: List[Dict[str, Any]] | None = None) -> 
         supplier_domain_breakdown[supplier_domain] = supplier_domain_breakdown.get(supplier_domain, 0) + 1
         submission_method = str(item.get("submission_method", {}).get("method") or "unknown")
         submission_method_breakdown[submission_method] = submission_method_breakdown.get(submission_method, 0) + 1
+        pricing_confidence_scores.append(float(item.get("pricing_confidence", {}).get("overall_pricing_confidence") or 0.0))
+        supplier_evidence_scores.append(float(item.get("supplier_evidence_score") or 0.0))
+        if bool(item.get("manual_pricing_review_required")):
+            manual_pricing_review_count += 1
         automation_scores.append(float(item.get("automation_suitability_score") or 0.0))
         blockers.extend([str(blocker) for blocker in item.get("blockers", [])])
         for trigger in item.get("manual_review_triggers", []) or []:
@@ -205,6 +276,9 @@ def build_qualification_summary(results: List[Dict[str, Any]] | None = None) -> 
         "readiness_breakdown": readiness_breakdown,
         "supplier_domain_breakdown": supplier_domain_breakdown,
         "submission_method_breakdown": submission_method_breakdown,
+        "pricing_confidence_average": round(sum(pricing_confidence_scores) / len(pricing_confidence_scores), 2) if pricing_confidence_scores else 0.0,
+        "supplier_evidence_average": round(sum(supplier_evidence_scores) / len(supplier_evidence_scores), 2) if supplier_evidence_scores else 0.0,
+        "manual_pricing_review_count": manual_pricing_review_count,
         "manual_review_trigger_counts": manual_review_trigger_counts,
         "language_pattern_counts": language_pattern_counts,
         "average_automation_suitability_score": average_score,

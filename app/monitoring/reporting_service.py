@@ -10,6 +10,7 @@ from app.analytics.tender_success_analytics import build_tender_success_analytic
 from app.quality.context import build_quality_context
 from app.quality.operator_recommendations import generate_operator_recommendations
 from app.quality.quote_pack_quality import build_quote_pack_quality_report
+from app.quality.supplier_pricing_quality import build_supplier_comparison_summary
 from app.qualification.qualification_engine import build_qualification_summary, qualify_rfq
 from app.pilot.pilot_readiness_report import build_pilot_readiness_report
 from app.persistence.repositories import get_persistence_health
@@ -21,6 +22,7 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
     tender_analytics = build_tender_success_analytics(limit=limit)
     quality_context = build_quality_context(limit=limit)
     quality_summary = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
+    supplier_quality = build_supplier_comparison_summary(quality_context.get("supplier_quotes") or [])
     qualification_result = qualify_rfq(quality_context.get("rfq_payload")) if quality_context.get("rfq_payload") else {}
     recommendations = generate_operator_recommendations(
         workflow_summary=get_workflow_summary(limit=limit),
@@ -36,6 +38,7 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
         "metrics": metrics,
         "pilot": pilot,
         "quality_summary": quality_summary,
+        "supplier_pricing_summary": supplier_quality,
         "qualification_summary": build_qualification_summary([qualification_result] if qualification_result else []),
         "qualification_result": qualification_result,
         "tender_success_analytics": tender_analytics,
@@ -43,6 +46,18 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
         "supervised_live_governance_summary": pilot.get("supervised_live_governance_summary", {}),
         "governance_compliance_score": pilot.get("governance_compliance_score", 0.0),
         "manual_governance_integrity_score": pilot.get("manual_governance_integrity_score", 0.0),
+        "pricing_evidence_summary": supplier_quality.get("pricing_evidence_summary", {}),
+        "pricing_validation_summary": supplier_quality.get("pricing_validation_summary", {}),
+        "pricing_traceability_summary": supplier_quality.get("pricing_traceability_summary", {}),
+        "quote_aging_summary": supplier_quality.get("quote_aging_summary", {}),
+        "pricing_confidence_summary": supplier_quality.get("pricing_confidence_summary", {}),
+        "qualification_supplier_evidence_score": qualification_result.get("supplier_evidence_score", 0.0),
+        "qualification_pricing_confidence": qualification_result.get("pricing_confidence", {}),
+        "qualification_pricing_validation": qualification_result.get("pricing_validation", {}),
+        "qualification_quote_aging": qualification_result.get("quote_aging", {}),
+        "qualification_pricing_traceability_summary": qualification_result.get("pricing_traceability_summary", {}),
+        "qualification_stale_quote_warning": qualification_result.get("stale_quote_warning", False),
+        "qualification_manual_pricing_review_required": qualification_result.get("manual_pricing_review_required", False),
         "failure_summary": {
             "workflow_failures": metrics["metrics"].get("workflow_failures", 0),
             "persistence_failures": metrics["metrics"].get("persistence_failures", 0),
@@ -84,6 +99,12 @@ def render_operational_report_text(report: Optional[Dict[str, Any]] = None) -> s
         f"Qualification manual review count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('MANUAL_REVIEW', 0)}",
         f"Qualification reject count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('REJECT', 0)}",
         f"Supplier match score: {report.get('qualification_result', {}).get('supplier_match_score', 0.0)}",
+        f"Supplier evidence score: {report.get('qualification_result', {}).get('supplier_evidence_score', 0.0)}",
+        f"Pricing confidence: {report.get('qualification_result', {}).get('pricing_confidence', {}).get('overall_pricing_confidence', 0.0)}",
+        f"Manual pricing review required: {report.get('qualification_result', {}).get('manual_pricing_review_required', False)}",
+        f"Stale quote warning: {report.get('qualification_result', {}).get('stale_quote_warning', False)}",
+        f"Pricing evidence completeness: {report.get('supplier_pricing_summary', {}).get('pricing_evidence_summary', {}).get('average_evidence_completeness', 0.0)}",
+        f"Pricing traceability count: {report.get('supplier_pricing_summary', {}).get('pricing_traceability_summary', {}).get('quote_count', 0)}",
         f"Governance compliance score: {pilot.get('governance_compliance_score', 0.0)}",
         f"Manual governance integrity score: {pilot.get('manual_governance_integrity_score', 0.0)}",
         f"Pilot failures: {len(pilot.get('pilot_failures', []))}",

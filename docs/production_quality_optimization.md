@@ -68,6 +68,21 @@ This branch improves production-quality outcomes without changing workflow gover
   - missing VAT clarity
 - Comparison summaries remain advisory only.
 
+## Supplier Pricing Evidence
+
+- Supplier pricing evidence captures:
+  - supplier name and contact
+  - quote reference and receipt date
+  - validity period
+  - quoted items and quoted amounts
+  - delivery assumptions
+  - VAT clarity
+  - stock and lead-time notes
+  - quotation source type
+- Evidence completeness and pricing defensibility are reported for operator awareness.
+- Stale or expired quotes are flagged as advisory risk signals only.
+- Traceability summaries are append-only friendly and remain advisory only.
+
 ## Operator Recommendations
 
 - Operator recommendations are advisory only.

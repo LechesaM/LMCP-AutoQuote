@@ -62,6 +62,18 @@ Supplier match intelligence scores:
 
 This is advisory only and does not call any live supplier API.
 
+## Pricing Evidence Integration
+Pricing evidence strengthens advisory qualification without changing workflow governance.
+It can surface:
+- supplier evidence completeness
+- pricing defensibility
+- pricing validation warnings
+- quote aging risk
+- pricing confidence
+- traceability summaries
+
+These signals remain advisory only and do not authorize submission or bypass manual controls.
+
 ## Risk Engine
 The risk engine scores:
 - technical risk

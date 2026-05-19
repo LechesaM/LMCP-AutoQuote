@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +10,13 @@ from typing import Any, Dict, List, Tuple
 from app.core.runtime_paths import get_runtime_paths
 from app.domain.pricing import PricingDecision
 from app.persistence import jsonl_compat
+from app.pricing_evidence import (
+    assess_pricing_confidence,
+    assess_quote_aging,
+    build_pricing_traceability,
+    build_supplier_quote_evidence,
+    validate_pricing_evidence,
+)
 
 RUNTIME_DIR = get_runtime_paths().runtime_root
 LEGACY_SERVICE = False
@@ -345,6 +353,21 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
         "minimum_margin_percent": MIN_MARGIN_PERCENT,
         "target_margin_percent": target_margin,
     }
+    pricing_evidence = build_supplier_quote_evidence(payload)
+    pricing_validation = validate_pricing_evidence(payload)
+    quote_aging = assess_quote_aging(payload)
+    pricing_confidence = assess_pricing_confidence(
+        payload,
+        evidence_report=pricing_evidence,
+        validation_report=pricing_validation,
+        quote_aging_report=quote_aging,
+    )
+    pricing_traceability = build_pricing_traceability(
+        payload,
+        evidence_report=pricing_evidence,
+        validation_report=pricing_validation,
+        quote_aging_report=quote_aging,
+    )
     payload["pricing_decision"] = PricingDecision(
         tender_id=_safe_str(buyer_rfq),
         quantity=1.0,
@@ -353,8 +376,21 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
         profit_amount=round(target_profit, 2),
         minimum_profit_required=MIN_PROFIT_REQUIRED,
         minimum_supply_margin_ratio=MIN_MARGIN_PERCENT / 100.0,
+        supplier_evidence_score=pricing_evidence.get("evidence_completeness_score", 0.0),
+        pricing_confidence=pricing_confidence.get("overall_pricing_confidence", 0.0),
+        supplier_evidence_summary=pricing_evidence,
+        pricing_validation_summary=pricing_validation,
+        pricing_traceability_summary=pricing_traceability.get("pricing_traceability_summary", {}),
+        quote_aging_summary=quote_aging,
+        manual_pricing_review_required=bool(pricing_validation.get("manual_review_required") or quote_aging.get("risk_level") == "HIGH_RISK"),
+        stale_quote_warning=bool(quote_aging.get("stale_pricing_warnings")),
     ).to_jsonable_dict()
     jsonl_compat.persist_pricing_decision(payload["pricing_decision"])
+    payload["supplier_quote_evidence"] = pricing_evidence
+    payload["pricing_validation"] = pricing_validation
+    payload["quote_aging"] = quote_aging
+    payload["pricing_confidence"] = pricing_confidence
+    payload["pricing_traceability"] = pricing_traceability
 
     if not payload.get("line_items"):
         payload["line_items"] = [
@@ -376,6 +412,11 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
         "estimated_cost": round(estimated_cost, 2),
         "estimated_profit": payload["estimated_profit"],
         "estimated_margin_percent": payload["estimated_margin_percent"],
+        "supplier_evidence_score": pricing_evidence.get("evidence_completeness_score", 0.0),
+        "pricing_confidence": pricing_confidence.get("overall_pricing_confidence", 0.0),
+        "stale_quote_warning": bool(quote_aging.get("stale_pricing_warnings")),
+        "manual_pricing_review_required": bool(pricing_validation.get("manual_review_required") or quote_aging.get("risk_level") == "HIGH_RISK"),
+        "pricing_traceability_summary": pricing_traceability.get("pricing_traceability_summary", {}),
         "finished_at": _now(),
         "payload": payload,
     })

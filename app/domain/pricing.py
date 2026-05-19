@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Any, Dict, List
 
 from pydantic import Field
 
@@ -45,6 +45,14 @@ class PricingDecision(StrictBaseModel):
     minimum_supply_margin_ratio: float = 0.25
     refusal_blocker_reasons: List[str] = Field(default_factory=list)
     approved: bool = True
+    supplier_evidence_score: float = 0.0
+    pricing_confidence: float = 0.0
+    supplier_evidence_summary: Dict[str, Any] = Field(default_factory=dict)
+    pricing_validation_summary: Dict[str, Any] = Field(default_factory=dict)
+    pricing_traceability_summary: Dict[str, Any] = Field(default_factory=dict)
+    quote_aging_summary: Dict[str, Any] = Field(default_factory=dict)
+    manual_pricing_review_required: bool = False
+    stale_quote_warning: bool = False
 
     if PYDANTIC_V2:
 

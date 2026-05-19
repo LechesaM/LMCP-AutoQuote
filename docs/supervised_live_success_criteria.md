@@ -3,6 +3,7 @@
 ## Minimum Successful RFQs
 - All 10 real valid RFQs are tracked through the supervised-live pilot set
 - Every eligible RFQ completes the controlled workflow under manual governance
+- The execution report records pilot metrics, governance audit evidence, and pricing confidence evidence for each batch
 
 ## Acceptable Refusal Handling
 - Any refused RFQ has a documented refusal reason
@@ -26,6 +27,8 @@
 - review_ready remains mandatory before proof capture
 - Proof capture remains mandatory before closeout
 - Final submission remains manual-only
+- Governance audit evidence must explicitly confirm no autonomous submission occurred
 
 ## Go-Forward Recommendation
 - Recommend go-forward only when all governance criteria are met and no autonomous submission behavior is observed
+- Keep production human-governed even when the recommendation is go-forward or conditional go

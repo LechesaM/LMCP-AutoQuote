@@ -12,6 +12,7 @@ The supervised-live pilot pack supports operational execution only and does not 
 5. Record manual approval, review, and proof sign-offs where required.
 6. Record the pilot run and operational outcome.
 7. Review readiness and operator warnings.
+8. Capture supervised-live execution evidence, governance audit evidence, and pricing confidence evidence for the batch.
 
 ## Operator Responsibilities
 - Keep pilot mode supervised.
@@ -41,6 +42,7 @@ The supervised-live pilot pack supports operational execution only and does not 
 - Readiness scores are informational only.
 - A high readiness score does not authorize autonomous execution.
 - A low readiness score indicates the pilot should remain supervised or paused.
+- Reporting summaries are advisory only and do not override manual governance.
 
 ## Go/No-Go Criteria
 - Go only when human supervision, workflow integrity, and proof capture are consistently correct.

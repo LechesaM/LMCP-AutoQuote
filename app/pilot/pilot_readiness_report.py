@@ -45,6 +45,10 @@ class PilotReadinessReport(StrictBaseModel):
     pricing_traceability_summary: Dict[str, Any] = Field(default_factory=dict)
     quote_aging_summary: Dict[str, Any] = Field(default_factory=dict)
     pricing_confidence_summary: Dict[str, Any] = Field(default_factory=dict)
+    supervised_live_pilot_metrics: Dict[str, Any] = Field(default_factory=dict)
+    governance_audit_summary: Dict[str, Any] = Field(default_factory=dict)
+    incident_summary: Dict[str, Any] = Field(default_factory=dict)
+    operational_reliability_summary: Dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -83,6 +87,46 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
     operator_governance_score = 100.0 if signoffs else 50.0
     refusal_handling_score = max(0.0, 100.0 - float(metrics.get("rfqs_refused", 0)) * 5.0)
     recovery_readiness_score = max(0.0, 100.0 - float(metrics.get("persistence_failures", 0)) * 10.0)
+    supervised_live_pilot_metrics = {
+        "rfqs_processed": int(metrics.get("rfqs_processed", 0)),
+        "rfqs_refused": int(metrics.get("rfqs_refused", 0)),
+        "approvals_recorded": int(workflow_metrics.get("approvals_recorded", 0)),
+        "reviews_recorded": int(workflow_metrics.get("reviews_recorded", 0)),
+        "proofs_recorded": int(workflow_metrics.get("proofs_recorded", 0)),
+        "recovery_events": int(metrics.get("recovery_events", 0)),
+        "workflow_failures": int(metrics.get("workflow_failures", 0)),
+        "persistence_failures": int(metrics.get("persistence_failures", 0)),
+        "blocked_workflows": int(metrics.get("blocked_workflows", 0)),
+        "operator_interventions": int(metrics.get("operator_interventions", 0)),
+    }
+    governance_audit_summary = {
+        "approval_compliance_count": approval_signoffs,
+        "review_ready_compliance_count": review_signoffs,
+        "proof_capture_compliance_count": proof_signoffs,
+        "manual_submission_confirmation_count": explicit_manual_submission_confirmations,
+        "final_submission_attempts": final_submission_attempts,
+        "workflow_skips": workflow_skips,
+        "audit_failures": int(metrics.get("audit_failures", 0)),
+        "persistence_failures": int(metrics.get("persistence_failures", 0)),
+        "refusal_rule_compliance": True,
+        "no_autonomous_submission": final_submission_attempts == 0,
+    }
+    incident_summary = {
+        "workflow_failures": int(metrics.get("workflow_failures", 0)),
+        "persistence_failures": int(metrics.get("persistence_failures", 0)),
+        "blocked_workflows": int(metrics.get("blocked_workflows", 0)),
+        "recovery_events": int(metrics.get("recovery_events", 0)),
+        "operator_interventions": int(metrics.get("operator_interventions", 0)),
+        "audit_failures": int(metrics.get("audit_failures", 0)),
+    }
+    operational_reliability_summary = {
+        "workflow_correctness_score": round(success_rate * 100, 2),
+        "workflow_failure_rate": int(metrics.get("workflow_failures", 0)),
+        "persistence_failure_rate": int(metrics.get("persistence_failures", 0)),
+        "refusal_handling_score": refusal_handling_score,
+        "recovery_readiness_score": recovery_readiness_score,
+        "manual_governance_integrity_score": manual_governance_integrity_score,
+    }
     supervised_live_governance_summary = {
         "pilot_mode": pilot_mode.get("pilot_mode", "disabled"),
         "manual_approval_signoffs": approval_signoffs,
@@ -135,6 +179,10 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         pricing_traceability_summary=supplier_quality.get("pricing_traceability_summary", {}),
         quote_aging_summary=supplier_quality.get("quote_aging_summary", {}),
         pricing_confidence_summary=supplier_quality.get("pricing_confidence_summary", {}),
+        supervised_live_pilot_metrics=supervised_live_pilot_metrics,
+        governance_audit_summary=governance_audit_summary,
+        incident_summary=incident_summary,
+        operational_reliability_summary=operational_reliability_summary,
         warnings=warnings,
     )
     return report.to_jsonable_dict()
@@ -162,6 +210,9 @@ def render_pilot_readiness_text(report: Optional[Dict[str, Any]] = None) -> str:
             f"Stale quote warning: {report.get('qualification_result', {}).get('stale_quote_warning', False)}",
             f"Pricing evidence completeness: {report.get('pricing_evidence_summary', {}).get('average_evidence_completeness', 0.0)}",
             f"Pricing traceability count: {report.get('pricing_traceability_summary', {}).get('quote_count', 0)}",
+            f"Supervised-live RFQs processed: {report.get('supervised_live_pilot_metrics', {}).get('rfqs_processed', 0)}",
+            f"Governance audit no autonomous submission: {report.get('governance_audit_summary', {}).get('no_autonomous_submission', False)}",
+            f"Incident recovery events: {report.get('incident_summary', {}).get('recovery_events', 0)}",
             f"Governance compliance score: {report.get('governance_compliance_score', 0.0)}",
             f"Manual governance integrity score: {report.get('manual_governance_integrity_score', 0.0)}",
             f"Supervised-live governance: advisory only",

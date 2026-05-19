@@ -1,0 +1,19 @@
+{
+  "tender_id": "RFQ_005",
+  "title": "Thulamela building materials",
+  "buyer_name": "Thulamela Local Municipality",
+  "province": "Limpopo",
+  "category": "building_materials",
+  "closing_date": "2026-11-30T12:00:00+00:00",
+  "source_files": [],
+  "submission_instructions": "Courier or hand delivery to the municipal tender box, no email submissions accepted.",
+  "extracted_text": "Supply and delivery of building materials. SBD4, SBD6.1, SBD8, SBD9, BBBEE, CSD, Tax PIN, director IDs, bank confirmation, CIDB, local content, pricing schedule and quotation on company letterhead required.",
+  "estimated_contract_value": 175000.0,
+  "estimated_profit": 49000.0,
+  "gross_margin_ratio": 0.28,
+  "technical_validation_required": false,
+  "compliance_documents": ["SBD4", "SBD6.1", "SBD8", "SBD9", "BBBEE", "CSD", "Tax PIN", "Director IDs", "Bank confirmation", "CIDB", "Local content", "Pricing schedule", "Quotation on company letterhead"],
+  "line_items": [
+    {"description": "Building materials", "quantity": 1, "unit": "lot", "notes": "physical delivery"}
+  ]
+}

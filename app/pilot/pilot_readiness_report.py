@@ -13,6 +13,7 @@ from app.pilot.pilot_signoff import get_pilot_signoffs
 from app.analytics.tender_success_analytics import build_tender_success_analytics
 from app.quality.context import build_quality_context
 from app.quality.quote_pack_quality import build_quote_pack_quality_report
+from app.qualification.qualification_engine import build_qualification_summary, qualify_rfq
 
 
 class PilotReadinessReport(StrictBaseModel):
@@ -36,6 +37,7 @@ class PilotReadinessReport(StrictBaseModel):
     supervised_live_governance_summary: Dict[str, Any] = Field(default_factory=dict)
     governance_compliance_score: float = 0.0
     manual_governance_integrity_score: float = 0.0
+    qualification_summary: Dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -49,6 +51,8 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
     signoffs = get_pilot_signoffs(limit=limit)
     quality_context = build_quality_context(limit=limit)
     quality_summary = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
+    qualification_result = qualify_rfq(quality_context.get("rfq_payload")) if quality_context.get("rfq_payload") else {}
+    qualification_summary = build_qualification_summary([qualification_result] if qualification_result else [])
     tender_analytics = build_tender_success_analytics(limit=limit)
     readiness_score = calculate_readiness_score()
     success_rate = calculate_success_rate()
@@ -116,6 +120,7 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         supervised_live_governance_summary=supervised_live_governance_summary,
         governance_compliance_score=governance_compliance_score,
         manual_governance_integrity_score=manual_governance_integrity_score,
+        qualification_summary=qualification_summary,
         warnings=warnings,
     )
     return report.to_jsonable_dict()
@@ -132,6 +137,9 @@ def render_pilot_readiness_text(report: Optional[Dict[str, Any]] = None) -> str:
             f"Operator governance score: {report.get('operator_governance_score', 0.0)}",
             f"Refusal handling score: {report.get('refusal_handling_score', 0.0)}",
             f"Recovery readiness score: {report.get('recovery_readiness_score', 0.0)}",
+            f"Qualification GO count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('GO', 0)}",
+            f"Qualification manual review count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('MANUAL_REVIEW', 0)}",
+            f"Qualification reject count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('REJECT', 0)}",
             f"Governance compliance score: {report.get('governance_compliance_score', 0.0)}",
             f"Manual governance integrity score: {report.get('manual_governance_integrity_score', 0.0)}",
             f"Supervised-live governance: advisory only",

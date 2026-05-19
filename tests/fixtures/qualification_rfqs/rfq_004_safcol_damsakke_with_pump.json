@@ -1,0 +1,19 @@
+{
+  "tender_id": "RFQ_004",
+  "title": "SAFCOL Damsakke complete with pump",
+  "buyer_name": "South African Forestry Company SOC Ltd (SAFCOL)",
+  "province": "Mpumalanga",
+  "category": "equipment_supply",
+  "closing_date": "2026-11-30T12:00:00+00:00",
+  "source_files": [],
+  "submission_instructions": "Submit by portal on the supplier portal or via email to procurement@safcol.co.za if portal submission fails.",
+  "extracted_text": "Supply of Damsakke complete with pump. SBD4, SBD6.1, SBD8, BBBEE, CSD, Tax PIN, director IDs, bank confirmation, pricing schedule and quotation on company letterhead required.",
+  "estimated_contract_value": 140000.0,
+  "estimated_profit": 48000.0,
+  "gross_margin_ratio": 0.31,
+  "technical_validation_required": false,
+  "compliance_documents": ["SBD4", "SBD6.1", "SBD8", "BBBEE", "CSD", "Tax PIN", "Director IDs", "Bank confirmation", "Pricing schedule", "Quotation on company letterhead"],
+  "line_items": [
+    {"description": "Damsakke complete with pump", "quantity": 5, "unit": "unit", "notes": "industrial equipment"}
+  ]
+}

@@ -80,6 +80,17 @@ This branch improves production-quality outcomes without changing workflow gover
   - rerun validation
 - Recommendations must not mutate workflow state.
 
+## RFQ Qualification Engine
+
+- RFQ qualification is advisory and gating only.
+- Qualification may recommend:
+  - GO
+  - MANUAL_REVIEW
+  - REJECT
+- Qualification does not enable autonomous final submission.
+- Qualification does not bypass manual approval, review-ready, or proof-capture requirements.
+- Qualification summaries may be shown on the dashboard and monitoring reports for operator awareness.
+
 ## Tender Success Analytics
 
 - Real tender outcomes are tracked manually.

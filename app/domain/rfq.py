@@ -39,11 +39,18 @@ class RFQRecord(StrictBaseModel):
     buyer_name: str = ""
     title: str = ""
     description: str = ""
+    extracted_text: str = ""
+    submission_instructions: str = ""
     province: str = ""
     category: str = ""
     closing_date: Optional[datetime] = None
     compulsory_briefing_required: bool = False
     briefing_date: Optional[datetime] = None
+    estimated_contract_value: float = 0.0
+    estimated_profit: float = 0.0
+    gross_margin_ratio: float = 0.0
+    technical_validation_required: bool = False
+    compliance_documents: List[str] = Field(default_factory=list)
     documents: List[RFQDocument] = Field(default_factory=list)
     line_items: List[RFQLineItem] = Field(default_factory=list)
     detected_exclusions: List[str] = Field(default_factory=list)

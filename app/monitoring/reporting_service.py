@@ -10,6 +10,7 @@ from app.analytics.tender_success_analytics import build_tender_success_analytic
 from app.quality.context import build_quality_context
 from app.quality.operator_recommendations import generate_operator_recommendations
 from app.quality.quote_pack_quality import build_quote_pack_quality_report
+from app.qualification.qualification_engine import build_qualification_summary, qualify_rfq
 from app.pilot.pilot_readiness_report import build_pilot_readiness_report
 from app.persistence.repositories import get_persistence_health
 
@@ -20,6 +21,7 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
     tender_analytics = build_tender_success_analytics(limit=limit)
     quality_context = build_quality_context(limit=limit)
     quality_summary = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
+    qualification_result = qualify_rfq(quality_context.get("rfq_payload")) if quality_context.get("rfq_payload") else {}
     recommendations = generate_operator_recommendations(
         workflow_summary=get_workflow_summary(limit=limit),
         quality_summary=quality_summary,
@@ -34,6 +36,7 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
         "metrics": metrics,
         "pilot": pilot,
         "quality_summary": quality_summary,
+        "qualification_summary": build_qualification_summary([qualification_result] if qualification_result else []),
         "tender_success_analytics": tender_analytics,
         "operator_recommendations": recommendations,
         "supervised_live_governance_summary": pilot.get("supervised_live_governance_summary", {}),
@@ -74,6 +77,9 @@ def render_operational_report_text(report: Optional[Dict[str, Any]] = None) -> s
         f"Audit failures: {metrics.get('audit_failures', 0)}",
         f"Pilot mode: {pilot.get('pilot_mode', {}).get('pilot_mode', 'disabled')}",
         f"Pilot readiness score: {pilot.get('pilot_readiness_score', 0.0)}",
+        f"Qualification GO count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('GO', 0)}",
+        f"Qualification manual review count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('MANUAL_REVIEW', 0)}",
+        f"Qualification reject count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('REJECT', 0)}",
         f"Governance compliance score: {pilot.get('governance_compliance_score', 0.0)}",
         f"Manual governance integrity score: {pilot.get('manual_governance_integrity_score', 0.0)}",
         f"Pilot failures: {len(pilot.get('pilot_failures', []))}",

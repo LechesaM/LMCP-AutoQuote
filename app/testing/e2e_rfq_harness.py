@@ -13,6 +13,7 @@ from app.domain.pricing import PricingDecision
 from app.domain.quote import QuotePack, QuotePackArtifact
 from app.domain.rfq import RFQRecord
 from app.domain.workflow import WorkflowStage
+from app.qualification.qualification_engine import qualify_rfq
 from app.persistence import jsonl_compat
 from app.quality.context import build_quality_context
 from app.quality.extraction_quality import build_rfq_extraction_quality_report
@@ -39,6 +40,7 @@ class ProductionValidationResult(StrictBaseModel):
     manual_submission_preserved: bool = True
     source_fixture: str = ""
     quality_summary: Dict[str, Any] = Field(default_factory=dict)
+    qualification_summary: Dict[str, Any] = Field(default_factory=dict)
     updated_at: Any = None
 
 def _ensure_text_file(path: Path, content: str) -> str:
@@ -265,6 +267,9 @@ class E2ERFQHarness:
             "supplier_pricing": supplier_report,
         }
 
+    def _build_qualification_summary(self, rfq: Dict[str, Any]) -> Dict[str, Any]:
+        return qualify_rfq(rfq)
+
     def run_lifecycle(self, rfq_record: Dict[str, Any]) -> Dict[str, Any]:
         rfq = self._create_rfq_record(rfq_record)
         tender_id = rfq["tender_id"]
@@ -288,6 +293,7 @@ class E2ERFQHarness:
                 manual_submission_preserved=True,
                 source_fixture=str(rfq_record.get("fixture_path") or ""),
                 quality_summary=self._build_quality_summary(rfq, {"artifacts": []}),
+                qualification_summary=self._build_qualification_summary(rfq),
                 updated_at=utc_now(),
             )
             return result.to_jsonable_dict()
@@ -361,6 +367,7 @@ class E2ERFQHarness:
             manual_submission_preserved=not bool(proof_record.get("final_submission_attempted", False)) if "proof_record" in locals() else True,
             source_fixture=str(rfq_record.get("fixture_path") or ""),
             quality_summary=self._build_quality_summary(rfq, quote_pack if "quote_pack" in locals() else {}),
+            qualification_summary=self._build_qualification_summary(rfq),
             updated_at=utc_now(),
         )
         return result.to_jsonable_dict()

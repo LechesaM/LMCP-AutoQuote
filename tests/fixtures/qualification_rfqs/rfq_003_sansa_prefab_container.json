@@ -1,0 +1,19 @@
+{
+  "tender_id": "RFQ_003",
+  "title": "SANSA prefabricated shipping container",
+  "buyer_name": "South African National Space Agency (SANSA)",
+  "province": "Western Cape",
+  "category": "technical_fabrication",
+  "closing_date": "2026-11-30T12:00:00+00:00",
+  "source_files": [],
+  "submission_instructions": "Physical delivery to SANSA acquisition office or courier drop-off by the closing time.",
+  "extracted_text": "Prefabricated shipping container for technical use. SBD4, SBD8, SBD9, CSD, pricing schedule and company letterhead quotation requested. Fabrication detail review required.",
+  "estimated_contract_value": 210000.0,
+  "estimated_profit": 72000.0,
+  "gross_margin_ratio": 0.34,
+  "technical_validation_required": true,
+  "compliance_documents": ["SBD4", "SBD8", "SBD9", "CSD", "Pricing schedule", "Quotation on company letterhead"],
+  "line_items": [
+    {"description": "Prefabricated shipping container", "quantity": 1, "unit": "unit", "notes": "technical fabrication"}
+  ]
+}

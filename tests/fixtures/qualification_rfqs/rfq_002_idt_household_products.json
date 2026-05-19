@@ -1,0 +1,19 @@
+{
+  "tender_id": "RFQ_002",
+  "title": "IDT household products",
+  "buyer_name": "Independent Development Trust (IDT)",
+  "province": "Gauteng",
+  "category": "household_products",
+  "closing_date": "2026-11-30T12:00:00+00:00",
+  "source_files": [],
+  "submission_instructions": "Submit by email to bids@idt.org.za with quotation on company letterhead.",
+  "extracted_text": "Supply and delivery of household products including cleaning materials. SBD4, SBD6.1, SBD8, SBD9, BBBEE, CSD, Tax PIN, director IDs, bank confirmation, supplier code of conduct, company registration/CIPC, SARS tax clearance, pricing schedule and quotation on company letterhead are required.",
+  "estimated_contract_value": 180000.0,
+  "estimated_profit": 65000.0,
+  "gross_margin_ratio": 0.36,
+  "technical_validation_required": false,
+  "compliance_documents": ["SBD4", "SBD6.1", "SBD8", "SBD9", "BBBEE", "CSD", "Tax PIN", "Director IDs", "Bank confirmation", "Supplier code of conduct", "Company registration/CIPC", "SARS tax clearance", "Pricing schedule", "Quotation on company letterhead"],
+  "line_items": [
+    {"description": "Cleaning products", "quantity": 100, "unit": "carton", "notes": "household products"}
+  ]
+}

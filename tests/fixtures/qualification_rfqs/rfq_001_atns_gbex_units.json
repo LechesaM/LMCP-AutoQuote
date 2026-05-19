@@ -1,0 +1,19 @@
+{
+  "tender_id": "RFQ_001",
+  "title": "ATNS G-BEX 1000BASE units",
+  "buyer_name": "Air Traffic and Navigation Services (ATNS)",
+  "province": "Gauteng",
+  "category": "equipment_supply",
+  "closing_date": "2026-11-30T12:00:00+00:00",
+  "source_files": [],
+  "submission_instructions": "Submit by email to procurement@atns.co.za and include the portal reference where available.",
+  "extracted_text": "Supply and delivery of ATNS G-BEX 1000BASE units. SBD4, SBD6.1, SBD8, SBD9, BBBEE, CSD, Tax PIN, director IDs, bank confirmation, pricing schedule and quotation on company letterhead required. Technical product validation required before award.",
+  "estimated_contract_value": 160000.0,
+  "estimated_profit": 52000.0,
+  "gross_margin_ratio": 0.325,
+  "technical_validation_required": true,
+  "compliance_documents": ["SBD4", "SBD6.1", "SBD8", "SBD9", "BBBEE", "CSD", "Tax PIN", "Director IDs", "Bank confirmation", "Pricing schedule", "Quotation on company letterhead"],
+  "line_items": [
+    {"description": "G-BEX 1000BASE units", "quantity": 10, "unit": "unit", "notes": "network equipment"}
+  ]
+}

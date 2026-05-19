@@ -12,6 +12,7 @@ from app.quality.operator_recommendations import generate_operator_recommendatio
 from app.quality.pricing_schedule_quality import build_pricing_schedule_quality_report
 from app.quality.quote_pack_quality import build_quote_pack_quality_report
 from app.quality.supplier_pricing_quality import build_supplier_comparison_summary
+from app.qualification.qualification_engine import build_qualification_summary, qualify_rfq
 from app.pilot.pilot_mode import get_pilot_execution_metadata
 from app.pilot.pilot_metrics import get_pilot_metrics
 from app.pilot.pilot_readiness_report import build_pilot_readiness_report
@@ -61,6 +62,7 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
     schedule_quality = build_pricing_schedule_quality_report(quality_context.get("schedule_payload") or {"rows": []})
     quote_pack_quality = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
     supplier_quality = build_supplier_comparison_summary(quality_context.get("supplier_quotes") or [])
+    qualification_result = qualify_rfq(quality_context.get("rfq_payload")) if quality_context.get("rfq_payload") else {}
     tender_analytics = build_tender_success_analytics(limit=limit)
     recommendations = generate_operator_recommendations(
         workflow_summary=workflow_summary,
@@ -85,6 +87,8 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
             "quote_pack": quote_pack_quality,
             "supplier_pricing": supplier_quality,
         },
+        "qualification_summary": build_qualification_summary([qualification_result] if qualification_result else []),
+        "qualification_result": qualification_result,
         "operator_recommendations": recommendations,
         "tender_success_analytics": tender_analytics,
         "counts_by_stage": workflow_summary.get("stage_counts", {}),
@@ -110,6 +114,7 @@ def get_operational_summary(limit: int = 100) -> Dict[str, Any]:
         "persistence": report.get("persistence", {}),
         "monitoring": report.get("runtime_diagnostics", {}),
         "metrics": report.get("metrics", {}),
+        "qualification_summary": report.get("pilot", {}).get("qualification_summary", {}),
         "supervised_live_governance_summary": report.get("pilot", {}).get("supervised_live_governance_summary", {}),
         "governance_compliance_score": report.get("pilot", {}).get("governance_compliance_score", 0.0),
         "manual_governance_integrity_score": report.get("pilot", {}).get("manual_governance_integrity_score", 0.0),

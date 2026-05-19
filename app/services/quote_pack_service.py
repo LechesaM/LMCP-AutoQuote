@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.persistence import jsonl_compat
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -715,12 +717,30 @@ class QuotePackService:
                 ensure_ascii=False,
             )
 
+        jsonl_compat.persist_quote_pack(
+            {
+                "tender_id": _safe_str(source.get("tender_id") or buyer_rfq_number),
+                "workflow_stage": "quote_generated",
+                "actor": _safe_str(source.get("operator_name") or source.get("actor")),
+                "operator": _safe_str(source.get("operator_name") or source.get("actor")),
+                "payload": {
+                    "quote_number": quote_number,
+                    "buyer_rfq_number": buyer_rfq_number,
+                    "pdf_path": str(pdf_path),
+                    "quote_pack_dir": str(output_dir),
+                    "subtotal": totals["subtotal_excl_vat"],
+                    "vat_amount": totals["vat_amount"],
+                    "grand_total": totals["total_incl_vat"],
+                    "items": items,
+                },
+            }
+        )
+
         return quote_pack_result
 
 
 def generate_quote_pack(payload: Dict[str, Any], *args: Any, **kwargs: Any) -> Dict[str, Any]:
     return QuotePackService.generate_quote_pack(payload)
-
 
 
 

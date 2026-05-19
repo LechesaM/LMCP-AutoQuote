@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from app.domain.submission import ApprovalRecord, SubmissionReview
 from app.core.runtime_paths import get_runtime_paths
+from app.persistence import jsonl_compat
 from app.services import manual_approval_service
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ def append_submission_review(record: Dict[str, Any]) -> Dict[str, Any]:
     with _LOCK:
         with SUBMISSION_REVIEW_LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+    jsonl_compat.persist_submission_review(item)
     if _clean(item.get("status")) == "review_ready":
         try:
             from app.core.workflow_state_engine import WorkflowStage, record_transition

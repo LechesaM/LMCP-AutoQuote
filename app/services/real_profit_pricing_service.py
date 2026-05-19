@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 
 from app.core.runtime_paths import get_runtime_paths
 from app.domain.pricing import PricingDecision
+from app.persistence import jsonl_compat
 
 RUNTIME_DIR = get_runtime_paths().runtime_root
 LEGACY_SERVICE = False
@@ -353,6 +354,7 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
         minimum_profit_required=MIN_PROFIT_REQUIRED,
         minimum_supply_margin_ratio=MIN_MARGIN_PERCENT / 100.0,
     ).to_jsonable_dict()
+    jsonl_compat.persist_pricing_decision(payload["pricing_decision"])
 
     if not payload.get("line_items"):
         payload["line_items"] = [

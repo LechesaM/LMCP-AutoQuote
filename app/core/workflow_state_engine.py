@@ -5,10 +5,12 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.core.runtime_paths import get_runtime_paths
 from app.domain.workflow import WorkflowEvent, WorkflowStage, WorkflowState
+from app.persistence import jsonl_compat
+from app.persistence.repositories import WorkflowRepository
 
 RUNTIME_DIR = get_runtime_paths().runtime_root
 MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
@@ -138,6 +140,8 @@ def _persist_transition(
 
     _append_jsonl(WORKFLOW_EVENT_LOG_FILE, event)
     _append_jsonl(WORKFLOW_STATE_LOG_FILE, state)
+    jsonl_compat.persist_workflow_transition(event)
+    jsonl_compat.persist_workflow_state(state)
     _emit_audit_event(tender_id=_clean(tender_id), from_stage=from_stage, to_stage=to_stage, actor=_clean(actor), reason=_clean(reason), details=state_details)
     return WorkflowState.validate_payload(state)
 
@@ -193,7 +197,9 @@ def assert_can_transition(from_stage: Any, to_stage: Any) -> None:
 
 
 def get_current_state(tender_id: str) -> WorkflowState:
-    latest = _latest_state_record(tender_id)
+    latest = WorkflowRepository(jsonl_path=WORKFLOW_STATE_LOG_FILE).fetch_latest_state(tender_id)
+    if not latest:
+        latest = _latest_state_record(tender_id)
     if latest:
         return WorkflowState.validate_payload(latest)
     return WorkflowState.validate_payload(
@@ -275,8 +281,12 @@ def archive_workflow(
 
 
 def list_recent_states(limit: int = 100) -> Dict[str, Any]:
-    records = _read_jsonl(WORKFLOW_STATE_LOG_FILE)
-    recent = list(reversed(records[-max(1, int(limit or 100)) :]))
+    repo = WorkflowRepository(jsonl_path=WORKFLOW_STATE_LOG_FILE)
+    records = repo.fetch_recent(limit=limit)
+    if records:
+        recent = records[: max(1, int(limit or 100))]
+    else:
+        recent = list(reversed(_read_jsonl(WORKFLOW_STATE_LOG_FILE)[-max(1, int(limit or 100)) :]))
     return {
         "status": "ok",
         "items": recent,

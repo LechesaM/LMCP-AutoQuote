@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 from app.domain.submission import SubmissionProof
 from app.core.runtime_paths import get_runtime_paths
+from app.persistence import jsonl_compat
 from app.services import submission_review_service
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ def append_submission_proof(record: Dict[str, Any]) -> Dict[str, Any]:
     with _LOCK:
         with SUBMISSION_PROOF_LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+    jsonl_compat.persist_submission_proof(item)
     if _clean(item.get("status")) == "recorded":
         try:
             from app.core.workflow_state_engine import WorkflowStage, record_transition

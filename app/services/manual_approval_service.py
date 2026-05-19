@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 from app.domain.submission import ApprovalRecord
 from app.core.runtime_paths import get_runtime_paths
+from app.persistence import jsonl_compat
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ def append_manual_approval(record: Dict[str, Any]) -> Dict[str, Any]:
     with _LOCK:
         with APPROVAL_LOG_FILE.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+    jsonl_compat.persist_approval(item)
     if (
         _clean(item.get("status")) == "recorded"
         and bool(item.get("manual_approval_recorded", False))

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.runtime_paths import get_runtime_paths
+from app.persistence import jsonl_compat
 from app.services.websocket_broker import publish_dashboard_event
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ async def record_audit_event(
     events = load_audit_events()
     events.append(item)
     save_audit_events(events)
+    jsonl_compat.persist_audit_event(item)
     logger.info(
         "audit_event_recorded type=%s source=%s severity=%s buyer_rfq_number=%s quote_number=%s",
         event_type,

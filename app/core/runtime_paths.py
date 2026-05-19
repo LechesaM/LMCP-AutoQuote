@@ -46,6 +46,7 @@ class RuntimePaths:
     clickable_navigation_runtime_dir: Path
     audit_trail_dir: Path
     submission_history_dir: Path
+    manual_production_db_path: Path
     health_dir: Path
     locks_dir: Path
 
@@ -88,6 +89,10 @@ class RuntimePaths:
                 _clean_env(source, "LMCP_SUBMISSION_HISTORY_DIR", str(runtime_root / "submission_history")),
                 base=project_root,
             ),
+            manual_production_db_path=_resolve_path(
+                _clean_env(source, "LMCP_MANUAL_PRODUCTION_DB_PATH", str(runtime_root / "manual_production" / "lmcp_operations.db")),
+                base=project_root,
+            ),
             health_dir=_resolve_path(_clean_env(source, "LMCP_HEALTH_DIR", str(runtime_root / "health")), base=project_root),
             locks_dir=_resolve_path(_clean_env(source, "LMCP_LOCKS_DIR", str(runtime_root / "locks")), base=project_root),
         )
@@ -110,6 +115,7 @@ class RuntimePaths:
             self.clickable_navigation_runtime_dir,
             self.audit_trail_dir,
             self.submission_history_dir,
+            self.manual_production_db_path.parent,
             self.health_dir,
             self.locks_dir,
             self.operator_auth_db_path.parent,

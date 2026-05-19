@@ -4,7 +4,6 @@ import html
 import hashlib
 import csv
 import json
-import os
 import re
 import uuid
 import zipfile
@@ -12,12 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from app.core.runtime_paths import get_runtime_paths
 from app.services.operator_auth_service import OperatorContext, operator_audit_payload, require_operator_access
 
 
 SERVICE_VERSION = "QUOTE_COMPILATION_LOCAL_SAFE_V1"
-BASE_DIR = Path(__file__).resolve().parents[2]
-RUNTIME_DIR = BASE_DIR / "runtime"
+RUNTIME_DIR = get_runtime_paths().runtime_root
 OUTPUT_ROOT = RUNTIME_DIR / "quote_compilation"
 RFQ_STATE_FILE = RUNTIME_DIR / "rfq_lifecycle" / "rfqs.json"
 MANUAL_PRICING_DIR = RUNTIME_DIR / "manual_pricing"

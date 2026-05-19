@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -8,6 +9,8 @@ from typing import Any, Dict, List
 
 from app.domain.submission import ApprovalRecord
 from app.core.runtime_paths import get_runtime_paths
+
+logger = logging.getLogger(__name__)
 
 RUNTIME_DIR = get_runtime_paths().runtime_root
 MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
@@ -58,7 +61,7 @@ def append_manual_approval(record: Dict[str, Any]) -> Dict[str, Any]:
                 details={"source_log": "approvals.jsonl", "status": _clean(item.get("status"))},
             )
         except Exception:
-            pass
+            logger.warning("workflow transition approval_required -> approved was not recorded", exc_info=True)
     return item
 
 

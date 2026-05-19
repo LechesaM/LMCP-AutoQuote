@@ -9,6 +9,7 @@ import math
 import re
 import traceback
 
+LEGACY_SERVICE = True
 SERVICE_VERSION = "V42_PRICING_TABLE_EXTRACTION_ENGINE"
 DEFAULT_OUTPUT_DIR = Path("runtime/pricing_table_extraction_v42")
 

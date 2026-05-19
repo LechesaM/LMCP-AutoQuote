@@ -13,8 +13,8 @@ from app.domain.workflow import WorkflowEvent, WorkflowStage, WorkflowState
 RUNTIME_DIR = get_runtime_paths().runtime_root
 MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
 MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
-WORKFLOW_EVENT_LOG_FILE = MANUAL_PRODUCTION_DIR / "workflow_events.jsonl"
-WORKFLOW_STATE_LOG_FILE = MANUAL_PRODUCTION_DIR / "workflow_state.jsonl"
+WORKFLOW_EVENT_LOG_FILE = get_runtime_paths().manual_production_file("workflow_events.jsonl")
+WORKFLOW_STATE_LOG_FILE = get_runtime_paths().manual_production_file("workflow_state.jsonl")
 
 _LOCK = Lock()
 
@@ -245,6 +245,8 @@ def refuse_workflow(
     details: Optional[Dict[str, Any]] = None,
 ) -> WorkflowState:
     current = get_current_state(tender_id)
+    if current.stage not in _ACTIVE_STAGES:
+        raise ValueError(f"Cannot refuse workflow for tender {tender_id} from {current.stage.value}")
     return record_transition(
         tender_id=tender_id,
         from_stage=current.stage,

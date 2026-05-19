@@ -9,9 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.core.runtime_paths import get_runtime_paths
 from app.services.quote_compilation_service import _manual_completion_gate, _safe_quote_pack_dir, append_pack_audit_event
 
-RUNTIME_DIR = Path("runtime")
+LEGACY_SERVICE = True
+RUNTIME_DIR = get_runtime_paths().runtime_root
 FINAL_DIR = RUNTIME_DIR / "final_submission_v47_5"
 PROFILE_DIR = RUNTIME_DIR / "playwright_profiles" / "etenders"
 STATE_FILE = RUNTIME_DIR / "playwright_profiles" / "etenders_state.json"

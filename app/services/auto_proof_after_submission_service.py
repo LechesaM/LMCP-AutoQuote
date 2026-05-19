@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
+LEGACY_SERVICE = True
 
 
 def auto_generate_submission_proof(record: Dict[str, Any]) -> Dict[str, Any]:

@@ -115,6 +115,9 @@ class RuntimePaths:
             self.operator_auth_db_path.parent,
         )
 
+    def manual_production_file(self, filename: str) -> Path:
+        return self.manual_production_dir / filename
+
     def ensure_directories(self) -> None:
         for directory in self.required_directories():
             directory.mkdir(parents=True, exist_ok=True)

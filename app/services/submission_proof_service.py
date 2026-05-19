@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
@@ -9,6 +10,8 @@ from typing import Any, Dict, List
 from app.domain.submission import SubmissionProof
 from app.core.runtime_paths import get_runtime_paths
 from app.services import submission_review_service
+
+logger = logging.getLogger(__name__)
 
 
 RUNTIME_DIR = get_runtime_paths().runtime_root
@@ -48,7 +51,7 @@ def append_submission_proof(record: Dict[str, Any]) -> Dict[str, Any]:
                 details={"source_log": "submission_proofs.jsonl", "status": _clean(item.get("status"))},
             )
         except Exception:
-            pass
+            logger.warning("workflow transition review_ready -> proof_recorded was not recorded", exc_info=True)
     return item
 
 

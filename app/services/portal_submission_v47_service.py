@@ -8,9 +8,12 @@ import re
 import shutil
 import traceback
 
+from app.core.runtime_paths import get_runtime_paths
+
+LEGACY_SERVICE = True
 SERVICE_VERSION = "V47_PORTAL_SUBMISSION_ENGINE"
-DEFAULT_OUTPUT_DIR = Path("runtime/portal_submission_v47")
-DEFAULT_HISTORY_PATH = Path("runtime/submission_history/v47_portal_submission_history.json")
+DEFAULT_OUTPUT_DIR = get_runtime_paths().runtime_root / "portal_submission_v47"
+DEFAULT_HISTORY_PATH = get_runtime_paths().runtime_root / "submission_history" / "v47_portal_submission_history.json"
 
 BLOCKED_PORTAL_UPLOAD_EXTENSIONS = {
     ".exe", ".bat", ".cmd", ".sh", ".js", ".vbs"

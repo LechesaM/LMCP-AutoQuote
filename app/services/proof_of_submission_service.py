@@ -17,8 +17,10 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from app.core.runtime_paths import get_runtime_paths
 
-RUNTIME_DIR = Path("runtime")
+LEGACY_SERVICE = True
+RUNTIME_DIR = get_runtime_paths().runtime_root
 SUBMISSION_HISTORY_FILE = RUNTIME_DIR / "submission_history" / "submission_history.json"
 PROOF_DIR = RUNTIME_DIR / "submission_proofs"
 PROOF_DIR.mkdir(parents=True, exist_ok=True)

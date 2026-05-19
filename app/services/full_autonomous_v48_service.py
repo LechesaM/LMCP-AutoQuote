@@ -7,10 +7,13 @@ from typing import Any, Dict, List, Optional
 import json
 import traceback
 
+from app.core.runtime_paths import get_runtime_paths
+
+LEGACY_SERVICE = True
 SERVICE_VERSION = "V48_FULL_AUTONOMOUS_ORCHESTRATOR"
-DEFAULT_OUTPUT_DIR = Path("runtime/full_autonomous_v48")
-DEFAULT_STATE_PATH = Path("runtime/system_control/v48_autonomous_state.json")
-DEFAULT_HISTORY_PATH = Path("runtime/submission_history/v48_autonomous_runs.json")
+DEFAULT_OUTPUT_DIR = get_runtime_paths().runtime_root / "full_autonomous_v48"
+DEFAULT_STATE_PATH = get_runtime_paths().runtime_root / "system_control" / "v48_autonomous_state.json"
+DEFAULT_HISTORY_PATH = get_runtime_paths().runtime_root / "submission_history" / "v48_autonomous_runs.json"
 DEFAULT_CDP_URL = "http://host.docker.internal:9222"
 
 DEFAULT_POLICY = {

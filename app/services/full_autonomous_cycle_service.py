@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+from app.core.runtime_paths import get_runtime_paths
 from app.services.decision_intelligence_service import score_opportunity
 from app.services.pipeline_enforcement_service import (
     enforce_before_quote,
@@ -16,7 +17,8 @@ from app.services.operator_action_service import force_quote
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_DIR = Path("runtime")
+LEGACY_SERVICE = True
+RUNTIME_DIR = get_runtime_paths().runtime_root
 CYCLE_DIR = RUNTIME_DIR / "autonomous_cycle"
 CYCLE_DIR.mkdir(parents=True, exist_ok=True)
 

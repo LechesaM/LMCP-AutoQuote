@@ -62,6 +62,7 @@ class RuntimeConfig:
     def configure_environment(self) -> None:
         os.environ.setdefault("LMCP_PROJECT_ROOT", str(self.project_root))
         os.environ.setdefault("LMCP_RUNTIME_DIR", str(self.paths.runtime_root))
+        os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DIR", str(self.paths.manual_production_dir))
         os.environ.setdefault("LMCP_ENV", self.environment)
         os.environ.setdefault("LMCP_PRODUCTION_MODE", self.mode.value)
 

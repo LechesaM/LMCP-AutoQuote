@@ -12,6 +12,8 @@ import smtplib
 import ssl
 import traceback
 
+LEGACY_SERVICE = True
+
 SERVICE_VERSION = "V46_AUTO_SUBMISSION_ENGINE"
 DEFAULT_OUTPUT_DIR = Path("runtime/auto_submission_v46")
 DEFAULT_HISTORY_PATH = Path("runtime/submission_history/v46_submission_history.json")

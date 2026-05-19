@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "runtime"))
+from app.core.runtime_paths import get_runtime_paths
+from app.domain.pricing import PricingDecision
+
+RUNTIME_DIR = get_runtime_paths().runtime_root
+LEGACY_SERVICE = False
 PRICING_DIR = RUNTIME_DIR / "real_profit_pricing"
 PRICING_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -341,6 +344,15 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
         "minimum_margin_percent": MIN_MARGIN_PERCENT,
         "target_margin_percent": target_margin,
     }
+    payload["pricing_decision"] = PricingDecision(
+        tender_id=_safe_str(buyer_rfq),
+        quantity=1.0,
+        unit_cost=round(estimated_cost, 2),
+        gross_margin_ratio=round(achieved_margin / 100.0, 4),
+        profit_amount=round(target_profit, 2),
+        minimum_profit_required=MIN_PROFIT_REQUIRED,
+        minimum_supply_margin_ratio=MIN_MARGIN_PERCENT / 100.0,
+    ).to_jsonable_dict()
 
     if not payload.get("line_items"):
         payload["line_items"] = [

@@ -49,6 +49,7 @@ class RuntimePaths:
     manual_production_db_path: Path
     health_dir: Path
     locks_dir: Path
+    backups_dir: Path
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str] | None = None) -> "RuntimePaths":
@@ -95,6 +96,7 @@ class RuntimePaths:
             ),
             health_dir=_resolve_path(_clean_env(source, "LMCP_HEALTH_DIR", str(runtime_root / "health")), base=project_root),
             locks_dir=_resolve_path(_clean_env(source, "LMCP_LOCKS_DIR", str(runtime_root / "locks")), base=project_root),
+            backups_dir=_resolve_path(_clean_env(source, "LMCP_BACKUPS_DIR", str(runtime_root / "backups")), base=project_root),
         )
 
     def required_directories(self) -> Tuple[Path, ...]:
@@ -118,6 +120,7 @@ class RuntimePaths:
             self.manual_production_db_path.parent,
             self.health_dir,
             self.locks_dir,
+            self.backups_dir,
             self.operator_auth_db_path.parent,
         )
 

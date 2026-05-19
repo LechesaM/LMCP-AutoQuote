@@ -14,6 +14,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.router_registry import RouterSpec, iter_router_specs
 from app.config import settings
+from app.deployment.deployment_report import build_deployment_report
+from app.deployment.environment_validator import validate_environment
+from app.deployment.graceful_shutdown import run_graceful_shutdown
+from app.deployment.startup_validator import validate_startup
 from app.core.runtime_config import get_runtime_config
 from app.dashboard.dashboard_service import (
     get_dashboard_summary,
@@ -112,6 +116,9 @@ async def lifespan(app: FastAPI):
     settings.ensure_directories()
     app.state.database_startup_degraded = False
     app.state.database_startup_error = ""
+    app.state.environment_validation = validate_environment()
+    app.state.startup_validation = validate_startup(allow_degraded_startup=_allow_degraded_startup())
+    app.state.deployment_report = build_deployment_report()
     ensure_operator_auth_schema()
     try:
         ensure_quote_pack_schema()
@@ -124,6 +131,14 @@ async def lifespan(app: FastAPI):
             "Quote pack schema initialization failed during degraded startup; continuing without database access: %s",
             exc,
         )
+    if app.state.environment_validation.get("status") == "unhealthy":
+        if not _allow_degraded_startup():
+            raise RuntimeError(f"Environment validation failed: {app.state.environment_validation.get('issues', [])}")
+        app.state.database_startup_degraded = True
+    if app.state.startup_validation.get("status") == "unhealthy":
+        if not _allow_degraded_startup():
+            raise RuntimeError(f"Startup validation failed: {app.state.startup_validation.get('issues', [])}")
+        app.state.database_startup_degraded = True
     report = app.state.router_report
     if app.state.database_startup_degraded:
         logger.warning("LMCP AutoQuote API startup complete in degraded mode.")
@@ -143,6 +158,8 @@ async def lifespan(app: FastAPI):
     logger.info("Final submission static path: %s", settings.final_submission_dir)
     logger.info("Proof center static path: %s", settings.proof_center_dir)
     yield
+    app.state.shutdown_snapshot = run_graceful_shutdown(reason="fastapi lifespan shutdown")
+    logger.info("Deployment shutdown snapshot: %s", app.state.shutdown_snapshot.get("status", "unknown"))
     logger.info("LMCP AutoQuote API shutdown complete")
 
 

@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from hashlib import sha256
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Dict, Any
 
 from app.core.runtime_paths import get_runtime_paths
 
@@ -180,3 +181,35 @@ def connection_scope() -> Iterator[sqlite3.Connection]:
         raise
     finally:
         connection.close()
+
+
+def database_integrity_check() -> Dict[str, Any]:
+    try:
+        with connection_scope() as connection:
+            row = connection.execute("PRAGMA integrity_check;").fetchone()
+        result = str(row[0] if row else "").strip().lower()
+        return {
+            "healthy": result == "ok",
+            "status": "healthy" if result == "ok" else "degraded",
+            "result": result or "unknown",
+            "db_path": str(get_database_path()),
+        }
+    except Exception as exc:
+        return {
+            "healthy": False,
+            "status": "degraded",
+            "result": "error",
+            "error": str(exc),
+            "db_path": str(get_database_path()),
+        }
+
+
+def database_checksum(path: Path | None = None) -> str:
+    target = path or get_database_path()
+    if not target.exists():
+        return ""
+    digest = sha256()
+    with target.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

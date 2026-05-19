@@ -111,6 +111,17 @@ def _audit_component() -> Dict[str, Any]:
     }
 
 
+def _deployment_component() -> Dict[str, Any]:
+    from app.deployment.deployment_report import build_deployment_report
+
+    report = build_deployment_report()
+    return {
+        "healthy": report.get("status") != "unhealthy",
+        "status": report.get("status", "unknown"),
+        "report": report,
+    }
+
+
 def _router_registry_component() -> Dict[str, Any]:
     specs = list(iter_router_specs())
     production = [spec for spec in specs if spec.status == "production"]
@@ -136,6 +147,7 @@ _COMPONENTS: Dict[str, Callable[[], Dict[str, Any]]] = {
     "metrics": lambda: {"healthy": True, "status": "healthy", "snapshot": get_metrics_snapshot()},
     "workflow_monitor": lambda: {"healthy": True, "status": "healthy", "summary": get_workflow_summary()},
     "runtime_diagnostics": lambda: {"healthy": True, "status": "healthy", "report": get_runtime_diagnostics()},
+    "deployment": _deployment_component,
 }
 
 

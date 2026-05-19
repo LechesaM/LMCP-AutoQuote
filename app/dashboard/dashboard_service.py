@@ -75,6 +75,9 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
         "pilot_metrics": pilot_metrics,
         "pilot_failures": get_pilot_failures(limit=limit),
         "pilot_readiness_score": pilot_readiness.get("pilot_readiness_score", 0.0),
+        "governance_compliance_score": pilot_readiness.get("governance_compliance_score", 0.0),
+        "manual_governance_integrity_score": pilot_readiness.get("manual_governance_integrity_score", 0.0),
+        "supervised_live_governance_summary": pilot_readiness.get("supervised_live_governance_summary", {}),
         "pilot_warnings": pilot_readiness.get("warnings", []),
         "quality_summary": {
             "rfq_extraction": quality_summary,
@@ -107,5 +110,8 @@ def get_operational_summary(limit: int = 100) -> Dict[str, Any]:
         "persistence": report.get("persistence", {}),
         "monitoring": report.get("runtime_diagnostics", {}),
         "metrics": report.get("metrics", {}),
+        "supervised_live_governance_summary": report.get("pilot", {}).get("supervised_live_governance_summary", {}),
+        "governance_compliance_score": report.get("pilot", {}).get("governance_compliance_score", 0.0),
+        "manual_governance_integrity_score": report.get("pilot", {}).get("manual_governance_integrity_score", 0.0),
         "warnings": report.get("runtime_diagnostics", {}).get("warnings", []),
     }

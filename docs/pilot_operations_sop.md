@@ -2,6 +2,7 @@
 
 ## Purpose
 This SOP defines how supervised pilot operations are run for LMCP AutoQuote when real RFQs are used under manual-production governance.
+The supervised-live pilot pack supports operational execution only and does not alter workflow rules, refusal rules, or pricing thresholds.
 
 ## Pilot Workflow
 1. Confirm pilot mode.
@@ -44,4 +45,4 @@ This SOP defines how supervised pilot operations are run for LMCP AutoQuote when
 ## Go/No-Go Criteria
 - Go only when human supervision, workflow integrity, and proof capture are consistently correct.
 - No-go if any autonomous submission behavior is observed or suspected.
-
+- Final submission remains manual-only in all supervised-live pilot operations.

@@ -22,6 +22,7 @@ class PilotSignoffRecord(StrictBaseModel):
     actor: str = ""
     operator: str = ""
     note: str = ""
+    manual_submission_confirmed: bool = False
     payload: Dict[str, Any] = Field(default_factory=dict)
     created_at: Any = Field(default_factory=utc_now)
     updated_at: Any = Field(default_factory=utc_now)

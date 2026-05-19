@@ -36,6 +36,9 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
         "quality_summary": quality_summary,
         "tender_success_analytics": tender_analytics,
         "operator_recommendations": recommendations,
+        "supervised_live_governance_summary": pilot.get("supervised_live_governance_summary", {}),
+        "governance_compliance_score": pilot.get("governance_compliance_score", 0.0),
+        "manual_governance_integrity_score": pilot.get("manual_governance_integrity_score", 0.0),
         "failure_summary": {
             "workflow_failures": metrics["metrics"].get("workflow_failures", 0),
             "persistence_failures": metrics["metrics"].get("persistence_failures", 0),
@@ -71,6 +74,8 @@ def render_operational_report_text(report: Optional[Dict[str, Any]] = None) -> s
         f"Audit failures: {metrics.get('audit_failures', 0)}",
         f"Pilot mode: {pilot.get('pilot_mode', {}).get('pilot_mode', 'disabled')}",
         f"Pilot readiness score: {pilot.get('pilot_readiness_score', 0.0)}",
+        f"Governance compliance score: {pilot.get('governance_compliance_score', 0.0)}",
+        f"Manual governance integrity score: {pilot.get('manual_governance_integrity_score', 0.0)}",
         f"Pilot failures: {len(pilot.get('pilot_failures', []))}",
         f"Quote pack readiness: {quality.get('quality_score', 0.0)}",
         f"Tender quote conversion: {tender_analytics.get('quote_conversion_rate', 0.0)}",

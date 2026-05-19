@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
+from app.domain.submission import ApprovalRecord, SubmissionReview
 from app.core.runtime_paths import get_runtime_paths
 from app.services import manual_approval_service
 
@@ -210,7 +211,7 @@ def build_submission_review_record(
         "approval_record_present": approval_present,
         "final_submission_still_false": not final_submission_attempted,
     }
-    return {
+    record = {
         "tender_id": _clean(tender_id),
         "tender_root": _clean(tender_root),
         "pricing_file": _clean(pricing_file),
@@ -225,9 +226,12 @@ def build_submission_review_record(
         "final_submission_still_false": checklist["final_submission_still_false"],
         "submission_ready": submission_ready,
         "final_submission_attempted": final_submission_attempted,
-        "approval_record": approval,
+        "approval_record": None,
         "quote_pack_path": str(quote_pack_path) if quote_pack_path else "",
         "submission_pack_path": str(submission_pack_path) if submission_pack_path else "",
         "status": "review_ready" if review_ready else "refused",
         "timestamp": _now_iso(),
     }
+    if approval:
+        record["approval_record"] = ApprovalRecord.validate_payload(approval).to_jsonable_dict()
+    return SubmissionReview.validate_payload(record).to_jsonable_dict()

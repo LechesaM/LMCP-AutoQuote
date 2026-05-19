@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List
 
+from app.domain.submission import SubmissionProof
 from app.core.runtime_paths import get_runtime_paths
 from app.services import submission_review_service
 
@@ -100,4 +101,4 @@ def build_submission_proof_record(
         "status": "recorded" if not blockers else "refused",
         "timestamp": _now_iso(),
     }
-    return record
+    return SubmissionProof.validate_payload(record).to_jsonable_dict()

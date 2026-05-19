@@ -1,3 +1,28 @@
-import{BadgeDollarSign,FileText,Gauge,LineChart,PackageCheck,Percent}from"lucide-react";
-import CommandCentreSidebar from"./components/CommandCentreSidebar";import TopFilterBar from"./components/TopFilterBar";import MetricCard from"./components/MetricCard";import ProvinceHeatMap from"./components/ProvinceHeatMap";import OpportunityRadar from"./components/OpportunityRadar";import AnalyticsPanel from"./components/AnalyticsPanel";import HeatMapInsights from"./components/HeatMapInsights";import{commandMetrics}from"./data/harvestedRfqs";import{rfqRules}from"./utils/tenderFilters";
-export default function App(){return <div className="min-h-screen command-grid"><CommandCentreSidebar/><main className="ml-[290px] min-h-screen p-6"><div className="mb-6 flex items-end justify-between"><div><div className="text-sm font-black uppercase tracking-[.32em] text-command-green">AI-Governed Procurement Operations Platform</div><h1 className="mt-2 text-4xl font-black tracking-tight text-white">LMCP AutoQuote Command Centre</h1><p className="mt-2 max-w-4xl text-sm text-slate-400">Harvest intelligence, RFQ qualification, operator review queues, pricing evidence, quote-pack readiness and manual-governed submission oversight.</p></div><div className="rounded-2xl border border-command-green/30 bg-command-green/10 px-5 py-3 text-right"><div className="text-xs font-black uppercase tracking-[.22em] text-command-green">Production Mode</div><div className="mt-1 text-lg font-black text-white">Supervised Live</div></div></div><TopFilterBar/><section className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-6"><MetricCard title="Total Harvested RFQs" value={commandMetrics.totalHarvested} subtitle="Last 30 days" icon={FileText} accent="cyan"/><MetricCard title="Eligible RFQs" value={commandMetrics.eligibleRfqs} subtitle="Supply & delivery qualified" icon={PackageCheck}/><MetricCard title="Total Estimated Value" value={`R${commandMetrics.estimatedValue}M`} subtitle="Qualified province value" icon={LineChart} accent="cyan"/><MetricCard title="High Profit RFQs" value={commandMetrics.highProfitRfqs} subtitle="Above target threshold" icon={BadgeDollarSign} accent="amber"/><MetricCard title="Avg Estimated Profit" value="R38,920" subtitle="Per eligible RFQ" icon={Gauge}/><MetricCard title="Avg Margin" value={`${commandMetrics.avgMargin}%`} subtitle="Target minimum 25%" icon={Percent}/></section><section className="mt-6 grid gap-6 2xl:grid-cols-[1fr_420px]"><div className="space-y-6"><ProvinceHeatMap/><HeatMapInsights/><OpportunityRadar/></div><AnalyticsPanel/></section><section className="mt-6 glass-card rounded-3xl p-5"><h3 className="text-lg font-black text-white">RFQ Qualification Rules</h3><div className="mt-4 grid gap-3 md:grid-cols-4">{rfqRules.map(rule=><div key={rule} className="rounded-2xl border border-slate-700/60 bg-slate-950/45 px-4 py-3 text-sm text-slate-300">{rule}</div>)}</div></section></main></div>}
+import { lazy, Suspense } from "react";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import CommandCentreRouteLayout from "./layouts/CommandCentreRouteLayout.tsx";
+import RouteLoadingState from "./components/ui/RouteLoadingState.tsx";
+
+const DashboardPage = lazy(() => import("./pages/DashboardPage.tsx"));
+const RFQOperationsPage = lazy(() => import("./pages/RFQOperationsPage.tsx"));
+const ReviewQueuePage = lazy(() => import("./pages/ReviewQueuePage.tsx"));
+const GovernancePage = lazy(() => import("./pages/GovernancePage.tsx"));
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Suspense fallback={<RouteLoadingState label="Loading command centre route" />}>
+        <Routes>
+          <Route element={<CommandCentreRouteLayout />}>
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/operations" element={<RFQOperationsPage />} />
+            <Route path="/review" element={<ReviewQueuePage />} />
+            <Route path="/governance" element={<GovernancePage />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Route>
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
+}

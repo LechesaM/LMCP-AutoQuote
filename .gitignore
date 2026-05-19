@@ -33,5 +33,15 @@ proof_exports/
 # Archives
 *.zip
 
+# Frontend dependencies
+frontend/**/node_modules/
+
+# Frontend builds
+frontend/**/dist/
+frontend/**/.vite/
+
+# Logs
+*.log
+
 # OS
 Thumbs.db

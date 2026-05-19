@@ -10,6 +10,9 @@ const QualificationInsightsPage = lazy(() => import("./pages/QualificationInsigh
 const PricingEvidencePage = lazy(() => import("./pages/PricingEvidencePage.tsx"));
 const ReviewQueuePage = lazy(() => import("./pages/ReviewQueuePage.tsx"));
 const GovernancePage = lazy(() => import("./pages/GovernancePage.tsx"));
+const OperatorOperationsPage = lazy(() => import("./pages/OperatorOperationsPage.tsx"));
+const OperatorAssignmentsPage = lazy(() => import("./pages/OperatorAssignmentsPage.tsx"));
+const ActivityTimelinePage = lazy(() => import("./pages/ActivityTimelinePage.tsx"));
 
 export default function App() {
   return (
@@ -25,6 +28,9 @@ export default function App() {
             <Route path="/pricing-evidence" element={<PricingEvidencePage />} />
             <Route path="/review" element={<ReviewQueuePage />} />
             <Route path="/governance" element={<GovernancePage />} />
+            <Route path="/operator-operations" element={<OperatorOperationsPage />} />
+            <Route path="/operator-assignments" element={<OperatorAssignmentsPage />} />
+            <Route path="/activity-timeline" element={<ActivityTimelinePage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>

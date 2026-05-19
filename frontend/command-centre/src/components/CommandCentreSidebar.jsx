@@ -9,6 +9,8 @@ import {
   Radar,
   ServerCog,
   ShieldCheck,
+  Users2,
+  Clock3,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { commandCentreRoutes } from "../routes/commandCentreRoutes";
@@ -21,6 +23,9 @@ const navIcons = {
   "/pricing-evidence": BadgeDollarSign,
   "/review": ListChecks,
   "/governance": ShieldCheck,
+  "/operator-operations": Users2,
+  "/operator-assignments": ClipboardCheck,
+  "/activity-timeline": Clock3,
 };
 
 const secondaryItems = [
@@ -30,6 +35,8 @@ const secondaryItems = [
   { label: "Review Workflow", Icon: ClipboardCheck },
   { label: "Queue Monitor", Icon: GitBranch },
   { label: "Operational Health", Icon: Gauge },
+  { label: "Operator Operations", Icon: Users2 },
+  { label: "Activity Timeline", Icon: Clock3 },
 ];
 
 export default function CommandCentreSidebar() {

@@ -53,6 +53,8 @@ class PilotReadinessReport(StrictBaseModel):
 
 
 def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
+    from app.dashboard.dashboard_service import get_dashboard_summary
+
     metrics = get_pilot_metrics()
     workflow_metrics = get_metrics_snapshot().get("metrics", {})
     summary = get_pilot_summary(limit=limit)
@@ -61,6 +63,7 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
     runs = get_pilot_runs(limit=limit)
     signoffs = get_pilot_signoffs(limit=limit)
     quality_context = build_quality_context(limit=limit)
+    dashboard_summary = get_dashboard_summary(limit=limit)
     quality_summary = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
     supplier_quality = build_supplier_comparison_summary(quality_context.get("supplier_quotes") or [])
     qualification_result = qualify_rfq(quality_context.get("rfq_payload")) if quality_context.get("rfq_payload") else {}
@@ -98,6 +101,9 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         "persistence_failures": int(metrics.get("persistence_failures", 0)),
         "blocked_workflows": int(metrics.get("blocked_workflows", 0)),
         "operator_interventions": int(metrics.get("operator_interventions", 0)),
+        "operator_actions_recorded": int(dashboard_summary.get("operator_actions_summary", {}).get("total", 0)),
+        "operator_assignments_active": int(dashboard_summary.get("operator_assignments_summary", {}).get("summary", {}).get("active_assignments", 0)),
+        "operator_notifications": int(len(dashboard_summary.get("operator_notifications_summary", {}).get("notifications", []))),
     }
     governance_audit_summary = {
         "approval_compliance_count": approval_signoffs,
@@ -136,6 +142,8 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         "approval_records": int(workflow_metrics.get("approvals_recorded", 0)),
         "review_records": int(workflow_metrics.get("reviews_recorded", 0)),
         "proof_records": int(workflow_metrics.get("proofs_recorded", 0)),
+        "operator_actions_recorded": int(dashboard_summary.get("operator_actions_summary", {}).get("total", 0)),
+        "operator_assignments_active": int(dashboard_summary.get("operator_assignments_summary", {}).get("summary", {}).get("active_assignments", 0)),
         "final_submission_attempts": final_submission_attempts,
         "workflow_skips": workflow_skips,
         "governance_advisory_only": True,
@@ -211,6 +219,8 @@ def render_pilot_readiness_text(report: Optional[Dict[str, Any]] = None) -> str:
             f"Pricing evidence completeness: {report.get('pricing_evidence_summary', {}).get('average_evidence_completeness', 0.0)}",
             f"Pricing traceability count: {report.get('pricing_traceability_summary', {}).get('quote_count', 0)}",
             f"Supervised-live RFQs processed: {report.get('supervised_live_pilot_metrics', {}).get('rfqs_processed', 0)}",
+            f"Operator actions recorded: {report.get('supervised_live_pilot_metrics', {}).get('operator_actions_recorded', 0)}",
+            f"Operator assignments active: {report.get('supervised_live_pilot_metrics', {}).get('operator_assignments_active', 0)}",
             f"Governance audit no autonomous submission: {report.get('governance_audit_summary', {}).get('no_autonomous_submission', False)}",
             f"Incident recovery events: {report.get('incident_summary', {}).get('recovery_events', 0)}",
             f"Governance compliance score: {report.get('governance_compliance_score', 0.0)}",

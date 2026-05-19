@@ -18,6 +18,13 @@ from app.pilot.pilot_metrics import get_pilot_metrics
 from app.pilot.pilot_readiness_report import build_pilot_readiness_report
 from app.pilot.pilot_run_service import get_pilot_failures
 from app.persistence.repositories import WorkflowRepository, get_persistence_health
+from app.operator_ops import (
+    get_operator_actions,
+    get_operator_assignments,
+    get_operator_capacity_snapshot,
+    get_operator_notifications,
+    get_operator_timeline,
+)
 
 
 def _workflow_repo() -> WorkflowRepository:
@@ -91,6 +98,11 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
             "quote_pack": quote_pack_quality,
             "supplier_pricing": supplier_quality,
         },
+        "operator_actions_summary": get_operator_actions(limit=limit),
+        "operator_assignments_summary": get_operator_assignments(limit=limit),
+        "operator_timeline_summary": get_operator_timeline(limit=limit),
+        "operator_notifications_summary": get_operator_notifications(limit=limit),
+        "operator_capacity_snapshot": get_operator_capacity_snapshot(),
         "qualification_summary": build_qualification_summary([qualification_result] if qualification_result else []),
         "qualification_result": qualification_result,
         "qualification_recommendation": qualification_result.get("recommendation", "MANUAL_REVIEW"),
@@ -152,6 +164,11 @@ def get_operational_summary(limit: int = 100) -> Dict[str, Any]:
         "qualification_next_operator_action": report.get("pilot", {}).get("qualification_result", {}).get("next_operator_action", ""),
         "qualification_manual_review_triggers": report.get("pilot", {}).get("qualification_result", {}).get("manual_review_triggers", []),
         "qualification_detected_language_patterns": report.get("pilot", {}).get("qualification_result", {}).get("detected_language_patterns", []),
+        "operator_actions_summary": report.get("operator_actions_summary", {}),
+        "operator_assignments_summary": report.get("operator_assignments_summary", {}),
+        "operator_timeline_summary": report.get("operator_timeline_summary", {}),
+        "operator_notifications_summary": report.get("operator_notifications_summary", {}),
+        "operator_capacity_snapshot": report.get("operator_capacity_snapshot", {}),
         "pricing_evidence_summary": report.get("supplier_pricing_summary", {}).get("pricing_evidence_summary", {}),
         "pricing_validation_summary": report.get("supplier_pricing_summary", {}).get("pricing_validation_summary", {}),
         "pricing_traceability_summary": report.get("supplier_pricing_summary", {}).get("pricing_traceability_summary", {}),

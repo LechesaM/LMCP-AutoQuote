@@ -34,6 +34,21 @@ export const commandCentreRoutes = [
     label: "Governance",
     description: "Manual control and release rules",
   },
+  {
+    path: "/operator-operations",
+    label: "Operator Operations",
+    description: "Controlled action workspace",
+  },
+  {
+    path: "/operator-assignments",
+    label: "Operator Assignments",
+    description: "Queue ownership and workload",
+  },
+  {
+    path: "/activity-timeline",
+    label: "Activity Timeline",
+    description: "Append-only operator history",
+  },
 ] as const;
 
 export function getCommandCentreRouteMeta(pathname) {

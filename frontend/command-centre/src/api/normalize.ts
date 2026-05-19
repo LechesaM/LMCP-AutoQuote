@@ -218,6 +218,190 @@ export function normalizeOperationalHealth(payload, fallback = {}) {
   };
 }
 
+function normalizeOperatorActionRecord(record, index = 0) {
+  return {
+    actionId: stringOrEmpty(record?.action_id ?? record?.actionId ?? `action-${index}`),
+    action: stringOrEmpty(record?.action),
+    operatorId: stringOrEmpty(record?.operator_id ?? record?.operatorId),
+    tenderId: stringOrEmpty(record?.tender_id ?? record?.tenderId),
+    targetType: stringOrEmpty(record?.target_type ?? record?.targetType ?? "rfq"),
+    note: stringOrEmpty(record?.note),
+    status: stringOrEmpty(record?.status ?? "queued_for_manual_followup"),
+    reversible: Boolean(record?.reversible ?? true),
+    reviewable: Boolean(record?.reviewable ?? true),
+    auditEventId: stringOrEmpty(record?.audit_event_id ?? record?.auditEventId),
+    createdAt: stringOrEmpty(record?.created_at ?? record?.createdAt),
+    updatedAt: stringOrEmpty(record?.updated_at ?? record?.updatedAt),
+    details: isObject(record?.details) ? record.details : {},
+  };
+}
+
+export function normalizeOperatorActions(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const actions = Array.isArray(source.actions) && source.actions.length ? source.actions : arrayOrEmpty(fallbackSource.actions);
+  const normalized = actions.map((item, index) => normalizeOperatorActionRecord(item, index));
+  return {
+    status: stringOrEmpty(source.status || fallbackSource.status || "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || fallbackSource.lastUpdatedAt),
+    dataSource: stringOrEmpty(source.data_source || source.dataSource || fallbackSource.dataSource || "runtime_fallback"),
+    actions: normalized,
+    total: numberOrZero(source.total ?? fallbackSource.total ?? normalized.length),
+  };
+}
+
+function normalizeOperatorAssignmentRecord(record, index = 0) {
+  return {
+    assignmentId: stringOrEmpty(record?.assignment_id ?? record?.assignmentId ?? `assignment-${index}`),
+    operatorId: stringOrEmpty(record?.operator_id ?? record?.operatorId),
+    tenderId: stringOrEmpty(record?.tender_id ?? record?.tenderId),
+    status: stringOrEmpty(record?.status ?? "assigned"),
+    priority: numberOrZero(record?.priority),
+    assignedAt: stringOrEmpty(record?.assigned_at ?? record?.assignedAt),
+    dueAt: stringOrEmpty(record?.due_at ?? record?.dueAt),
+    workload: numberOrZero(record?.workload),
+    recommendation: stringOrEmpty(record?.recommendation ?? "manual"),
+    source: stringOrEmpty(record?.source ?? "runtime"),
+    details: isObject(record?.details) ? record.details : {},
+  };
+}
+
+export function normalizeOperatorAssignments(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const assignments = Array.isArray(source.assignments) && source.assignments.length ? source.assignments : arrayOrEmpty(fallbackSource.assignments);
+  const recommendations = Array.isArray(source.recommendations) && source.recommendations.length ? source.recommendations : arrayOrEmpty(fallbackSource.recommendations);
+  const normalizedAssignments = assignments.map((item, index) => normalizeOperatorAssignmentRecord(item, index));
+  return {
+    status: stringOrEmpty(source.status || fallbackSource.status || "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || fallbackSource.lastUpdatedAt),
+    dataSource: stringOrEmpty(source.data_source || source.dataSource || fallbackSource.dataSource || "runtime_fallback"),
+    assignments: normalizedAssignments,
+    recommendations: recommendations.map((item, index) => ({
+      tenderId: stringOrEmpty(item?.tender_id ?? item?.tenderId ?? `recommendation-${index}`),
+      title: stringOrEmpty(item?.title ?? item?.name ?? "Unknown RFQ"),
+      recommendation: stringOrEmpty(item?.recommendation ?? "manual"),
+      priority: numberOrZero(item?.priority),
+      workflowStage: stringOrEmpty(item?.workflow_stage ?? item?.workflowStage ?? "unknown"),
+      owner: stringOrEmpty(item?.owner ?? ""),
+      reason: stringOrEmpty(item?.reason ?? ""),
+      dueAt: stringOrEmpty(item?.due_at ?? item?.dueAt),
+    })),
+    summary: {
+      totalAssignments: numberOrZero(source.summary?.total_assignments ?? fallbackSource.summary?.totalAssignments ?? normalizedAssignments.length),
+      activeAssignments: numberOrZero(source.summary?.active_assignments ?? fallbackSource.summary?.activeAssignments ?? normalizedAssignments.length),
+      operators: numberOrZero(source.summary?.operators ?? fallbackSource.summary?.operators ?? 10),
+      capacity: numberOrZero(source.summary?.capacity ?? fallbackSource.summary?.capacity ?? 1000),
+    },
+    capacity: {
+      teamSize: numberOrZero(source.capacity?.team_size ?? source.capacity?.teamSize ?? fallbackSource.capacity?.teamSize ?? 10),
+      perOperatorDailyCapacity: numberOrZero(source.capacity?.per_operator_daily_capacity ?? source.capacity?.perOperatorDailyCapacity ?? fallbackSource.capacity?.perOperatorDailyCapacity ?? 100),
+      totalDailyCapacity: numberOrZero(source.capacity?.total_daily_capacity ?? source.capacity?.totalDailyCapacity ?? fallbackSource.capacity?.totalDailyCapacity ?? 1000),
+      assignedToday: numberOrZero(source.capacity?.assigned_today ?? source.capacity?.assignedToday ?? fallbackSource.capacity?.assignedToday ?? normalizedAssignments.length),
+      remainingCapacity: numberOrZero(source.capacity?.remaining_capacity ?? source.capacity?.remainingCapacity ?? fallbackSource.capacity?.remainingCapacity ?? Math.max(0, 1000 - normalizedAssignments.length)),
+      overloaded: Boolean(source.capacity?.overloaded ?? fallbackSource.capacity?.overloaded ?? normalizedAssignments.length >= 1000),
+      recommendedLoad: numberOrZero(source.capacity?.recommended_load ?? source.capacity?.recommendedLoad ?? fallbackSource.capacity?.recommendedLoad ?? recommendations.length),
+      generatedAt: stringOrEmpty(
+        source.capacity?.generated_at ??
+          source.capacity?.generatedAt ??
+          fallbackSource.capacity?.generatedAt ??
+          source.generated_at ??
+          source.generatedAt ??
+          fallbackSource.generatedAt,
+      ),
+      dataSource: stringOrEmpty(
+        source.capacity?.data_source ??
+          source.capacity?.dataSource ??
+          fallbackSource.capacity?.dataSource ??
+          source.data_source ??
+          source.dataSource ??
+          fallbackSource.dataSource ??
+          "runtime_fallback",
+      ),
+    },
+  };
+}
+
+function normalizeOperatorTimelineEvent(record, index = 0) {
+  return {
+    eventId: stringOrEmpty(record?.event_id ?? record?.eventId ?? `event-${index}`),
+    eventType: stringOrEmpty(record?.event_type ?? record?.eventType),
+    operatorId: stringOrEmpty(record?.operator_id ?? record?.operatorId),
+    tenderId: stringOrEmpty(record?.tender_id ?? record?.tenderId),
+    title: stringOrEmpty(record?.title ?? "Operator event"),
+    severity: stringOrEmpty(record?.severity ?? "info"),
+    reversible: Boolean(record?.reversible ?? true),
+    reviewable: Boolean(record?.reviewable ?? true),
+    createdAt: stringOrEmpty(record?.created_at ?? record?.createdAt),
+    details: isObject(record?.details) ? record.details : {},
+  };
+}
+
+export function normalizeOperatorTimeline(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const events = Array.isArray(source.events) && source.events.length ? source.events : arrayOrEmpty(fallbackSource.events);
+  const normalized = events.map((item, index) => normalizeOperatorTimelineEvent(item, index));
+  return {
+    status: stringOrEmpty(source.status || fallbackSource.status || "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || fallbackSource.lastUpdatedAt),
+    dataSource: stringOrEmpty(source.data_source || source.dataSource || fallbackSource.dataSource || "runtime_fallback"),
+    events: normalized,
+    total: numberOrZero(source.total ?? fallbackSource.total ?? normalized.length),
+  };
+}
+
+function normalizeOperatorNotificationRecord(record, index = 0) {
+  return {
+    notificationId: stringOrEmpty(record?.notification_id ?? record?.notificationId ?? `notification-${index}`),
+    type: stringOrEmpty(record?.type ?? "info"),
+    severity: stringOrEmpty(record?.severity ?? "info"),
+    title: stringOrEmpty(record?.title ?? ""),
+    message: stringOrEmpty(record?.message ?? ""),
+    tenderId: stringOrEmpty(record?.tender_id ?? record?.tenderId),
+    operatorId: stringOrEmpty(record?.operator_id ?? record?.operatorId),
+    acknowledged: Boolean(record?.acknowledged ?? false),
+    createdAt: stringOrEmpty(record?.created_at ?? record?.createdAt),
+    details: isObject(record?.details) ? record.details : {},
+  };
+}
+
+export function normalizeOperatorNotifications(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const notifications = Array.isArray(source.notifications) && source.notifications.length ? source.notifications : arrayOrEmpty(fallbackSource.notifications);
+  const normalized = notifications.map((item, index) => normalizeOperatorNotificationRecord(item, index));
+  return {
+    status: stringOrEmpty(source.status || fallbackSource.status || "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || fallbackSource.lastUpdatedAt),
+    dataSource: stringOrEmpty(source.data_source || source.dataSource || fallbackSource.dataSource || "runtime_fallback"),
+    notifications: normalized,
+  };
+}
+
+export function normalizeOperatorCapacity(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const teamSize = numberOrZero(source.team_size ?? source.teamSize ?? fallbackSource.teamSize ?? 10);
+  const perOperatorDailyCapacity = numberOrZero(source.per_operator_daily_capacity ?? source.perOperatorDailyCapacity ?? fallbackSource.perOperatorDailyCapacity ?? 100);
+  const totalDailyCapacity = numberOrZero(source.total_daily_capacity ?? source.totalDailyCapacity ?? fallbackSource.totalDailyCapacity ?? 1000);
+  const assignedToday = numberOrZero(source.assigned_today ?? source.assignedToday ?? fallbackSource.assignedToday);
+  const remainingCapacity = numberOrZero(source.remaining_capacity ?? source.remainingCapacity ?? fallbackSource.remainingCapacity ?? Math.max(0, totalDailyCapacity - assignedToday));
+  const recommendedLoad = numberOrZero(source.recommended_load ?? source.recommendedLoad ?? fallbackSource.recommendedLoad);
+  return {
+    status: stringOrEmpty(source.status || fallbackSource.status || "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || fallbackSource.lastUpdatedAt),
+    dataSource: stringOrEmpty(source.data_source || source.dataSource || fallbackSource.dataSource || "runtime_fallback"),
+    teamSize,
+    perOperatorDailyCapacity,
+    totalDailyCapacity,
+    assignedToday,
+    remainingCapacity,
+    overloaded: Boolean(source.overloaded ?? fallbackSource.overloaded ?? assignedToday >= totalDailyCapacity),
+    recommendedLoad,
+  };
+}
+
 export function normalizeRFQWorkflowResponse(payload, fallback = {}) {
   const source = isObject(payload) ? payload : {};
   const fallbackSource = isObject(fallback) ? fallback : {};

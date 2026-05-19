@@ -70,6 +70,7 @@ PRODUCTION_ROUTER_SPECS: Tuple[RouterSpec, ...] = (
     _spec("harvest_router", "app.api.harvest_routes"),
     _spec("telemetry_router", "app.api.telemetry_routes"),
     _spec("operator_workflow_router", "app.api.operator_workflow_routes"),
+    _spec("operator_ops_router", "app.api.operator_ops_routes"),
 )
 
 

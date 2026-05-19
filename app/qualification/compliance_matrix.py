@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
+from app.qualification.rfq_language_intelligence import analyze_rfq_language
+
 
 COMPLIANCE_ITEMS = [
     ("SBD4", True, [r"\bsbd\s*4\b", r"declaration of interest"]),
@@ -53,8 +55,9 @@ def _find_source_phrase(text: str, patterns: List[str]) -> str:
     return ""
 
 
-def build_compliance_matrix(rfq_record_or_dict: Dict[str, Any]) -> Dict[str, Any]:
+def build_compliance_matrix(rfq_record_or_dict: Dict[str, Any], *, language_intelligence: Dict[str, Any] | None = None) -> Dict[str, Any]:
     payload = dict(rfq_record_or_dict or {})
+    language_intelligence = language_intelligence or analyze_rfq_language(payload)
     text = _collect_text(payload)
     category = _normalize(payload.get("category"))
     rows: List[Dict[str, Any]] = []
@@ -62,8 +65,13 @@ def build_compliance_matrix(rfq_record_or_dict: Dict[str, Any]) -> Dict[str, Any
     missing_required = 0
 
     for item_name, required, patterns in COMPLIANCE_ITEMS:
-        detected = bool(_find_source_phrase(text, patterns))
         source_phrase = _find_source_phrase(text, patterns)
+        if not source_phrase:
+            for detected_pattern in language_intelligence.get("detected_patterns", []):
+                if detected_pattern.get("name") and item_name.replace("/", "_").replace(" ", "_").lower() in detected_pattern.get("name", "").lower():
+                    source_phrase = ", ".join(detected_pattern.get("evidence_phrases", [])[:1])
+                    break
+        detected = bool(source_phrase)
         status = "required" if required else ("mentioned" if detected else "optional")
         blocker = bool(required and not detected)
         if blocker:
@@ -95,4 +103,5 @@ def build_compliance_matrix(rfq_record_or_dict: Dict[str, Any]) -> Dict[str, Any
         "missing_required_count": missing_required,
         "compliance_complexity_score": min(100, missing_required * 12 + sum(1 for row in rows if row["detected"]) * 2),
         "status": "degraded" if blockers else "healthy",
+        "language_confidence": float(language_intelligence.get("confidence", 0.0)),
     }

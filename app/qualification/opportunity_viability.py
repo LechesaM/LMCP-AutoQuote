@@ -15,11 +15,18 @@ def assess_opportunity_viability(
     classification: Dict[str, Any],
     compliance_matrix: Dict[str, Any],
     submission_method: Dict[str, Any],
+    *,
+    language_intelligence: Dict[str, Any] | None = None,
+    risk_engine: Dict[str, Any] | None = None,
+    supplier_match: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     payload = dict(rfq_record_or_dict or {})
     category = str(classification.get("category") or "unknown")
     excluded_category = bool(classification.get("excluded_category"))
     manual_review_required = bool(classification.get("manual_review_required"))
+    language_intelligence = language_intelligence or {}
+    risk_engine = risk_engine or {}
+    supplier_match = supplier_match or {}
     estimated_profit = payload.get("estimated_profit")
     gross_margin_ratio = payload.get("gross_margin_ratio")
     estimated_contract_value = payload.get("estimated_contract_value")
@@ -38,6 +45,10 @@ def assess_opportunity_viability(
     technical_complexity_score = 85 if category == "technical_fabrication" else 70 if manual_review_required else 35
     if bool(payload.get("technical_validation_required")):
         technical_complexity_score = max(technical_complexity_score, 80)
+    if "sample_requirement" in set(language_intelligence.get("risk_flags", [])):
+        technical_complexity_score = max(technical_complexity_score, 75)
+    if "oem_accreditation_requirement" in set(language_intelligence.get("risk_flags", [])):
+        technical_complexity_score = max(technical_complexity_score, 78)
     submission_method_name = str(submission_method.get("method") or "unknown")
     submission_complexity_score = {
         "email": 15,
@@ -53,7 +64,9 @@ def assess_opportunity_viability(
             - float(compliance_complexity_score) * 0.35
             - float(technical_complexity_score) * 0.35
             - float(submission_complexity_score) * 0.2
-            - (20.0 if critical_missing else 0.0),
+            - (20.0 if critical_missing else 0.0)
+            - (10.0 if risk_engine.get("risk_level") == "high" else 0.0)
+            + (5.0 if supplier_match.get("supplier_match_score", 0.0) >= 75 else 0.0),
             2,
         ),
     )
@@ -94,4 +107,11 @@ def assess_opportunity_viability(
         "risk_level": risk_level,
         "final_recommendation": recommendation,
         "critical_missing_fields": critical_missing,
+        "reason_chain": [
+            "excluded category" if excluded_category else "",
+            "technical validation required" if bool(payload.get("technical_validation_required")) else "",
+            "missing critical fields" if critical_missing else "",
+            "pricing gate failed" if (not profit_gate or not margin_gate) else "",
+            "supplier match strong" if supplier_match.get("supplier_match_score", 0.0) >= 75 else "",
+        ],
     }

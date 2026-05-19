@@ -16,7 +16,8 @@ DOMAIN_MAP = {
 }
 
 
-def map_supplier_domain(category: str | Dict[str, Any]) -> Dict[str, Any]:
+def map_supplier_domain(category: str | Dict[str, Any], *, language_intelligence: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    language_intelligence = language_intelligence or {}
     if isinstance(category, dict):
         key = str(category.get("category") or category.get("classification", {}).get("category") or "").strip()
     else:
@@ -28,4 +29,6 @@ def map_supplier_domain(category: str | Dict[str, Any]) -> Dict[str, Any]:
         "supplier_domain": domain,
         "excluded_domain": excluded,
         "notes": "advisory mapping only",
+        "supplier_domain_confidence": 0.9 if key in DOMAIN_MAP else 0.5,
+        "language_confidence": float(language_intelligence.get("confidence", 0.0)),
     }

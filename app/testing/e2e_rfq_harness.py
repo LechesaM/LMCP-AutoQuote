@@ -41,6 +41,7 @@ class ProductionValidationResult(StrictBaseModel):
     source_fixture: str = ""
     quality_summary: Dict[str, Any] = Field(default_factory=dict)
     qualification_summary: Dict[str, Any] = Field(default_factory=dict)
+    qualification_result: Dict[str, Any] = Field(default_factory=dict)
     updated_at: Any = None
 
 def _ensure_text_file(path: Path, content: str) -> str:
@@ -280,6 +281,7 @@ class E2ERFQHarness:
             workflow_state_engine.refuse_workflow(tender_id, actor="e2e-harness", reason="blocked rfq", details={"blockers": blockers})
             replay = replay_workflow_history(tender_id)
             current_state = workflow_state_engine.get_current_state(tender_id)
+            qualification_result = self._build_qualification_summary(rfq)
             result = ProductionValidationResult(
                 tender_id=tender_id,
                 passed=False,
@@ -293,7 +295,8 @@ class E2ERFQHarness:
                 manual_submission_preserved=True,
                 source_fixture=str(rfq_record.get("fixture_path") or ""),
                 quality_summary=self._build_quality_summary(rfq, {"artifacts": []}),
-                qualification_summary=self._build_qualification_summary(rfq),
+                qualification_result=qualification_result,
+                qualification_summary=qualification_result,
                 updated_at=utc_now(),
             )
             return result.to_jsonable_dict()
@@ -354,6 +357,7 @@ class E2ERFQHarness:
         current_state = workflow_state_engine.get_current_state(tender_id)
         persistence_verified = not bool(replay.get("persistence_mismatch"))
         audit_verified = not bool(replay.get("missing_audit_events"))
+        qualification_result = self._build_qualification_summary(rfq)
         result = ProductionValidationResult(
             tender_id=tender_id,
             passed=not blockers and current_state.stage is WorkflowStage.PROOF_RECORDED and replay.get("passed", False),
@@ -367,7 +371,8 @@ class E2ERFQHarness:
             manual_submission_preserved=not bool(proof_record.get("final_submission_attempted", False)) if "proof_record" in locals() else True,
             source_fixture=str(rfq_record.get("fixture_path") or ""),
             quality_summary=self._build_quality_summary(rfq, quote_pack if "quote_pack" in locals() else {}),
-            qualification_summary=self._build_qualification_summary(rfq),
+            qualification_result=qualification_result,
+            qualification_summary=qualification_result,
             updated_at=utc_now(),
         )
         return result.to_jsonable_dict()

@@ -8,6 +8,15 @@ The RFQ Qualification Engine is an advisory gating layer that classifies RFQs, c
 
 It does not submit work, approve work, or bypass governed workflow stages.
 
+## Intelligence Refinement
+The engine now incorporates additional advisory signals:
+- RFQ language intelligence
+- submission readiness
+- supplier match intelligence
+- RFQ risk scoring
+
+These signals improve recommendation quality but do not change workflow governance.
+
 ## Classification Rules
 Classification categories:
 - `consumables`
@@ -128,6 +137,10 @@ The dashboard and monitoring reports expose:
 - risk breakdown
 - supplier-domain breakdown
 - submission-method breakdown
+- readiness state
+- next operator action
+- detected language patterns
+- supplier match score
 
 The summaries are advisory only and do not mutate workflow state.
 

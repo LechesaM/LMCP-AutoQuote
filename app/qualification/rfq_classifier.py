@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Tuple
 
+from app.qualification.rfq_language_intelligence import analyze_rfq_language
+
 
 REJECT_KEYWORDS: Dict[str, List[str]] = {
     "catering": ["catering", "canteen", "meal provision", "food service"],
@@ -117,15 +119,25 @@ def _best_category(text: str, category_hint: str) -> Dict[str, Any]:
 def classify_rfq(rfq_record_or_dict: Dict[str, Any]) -> Dict[str, Any]:
     payload = dict(rfq_record_or_dict or {})
     text = _collect_text(payload)
+    language_intelligence = analyze_rfq_language(payload)
     category_hint = str(payload.get("category") or payload.get("title") or "")
     classification = _best_category(text, category_hint)
     manual_review_required = bool(
         classification["manual_review_required"]
         or classification["category"] == "unknown"
         or bool(payload.get("technical_validation_required"))
+        or any(trigger for trigger in language_intelligence.get("manual_review_triggers", []) if trigger)
     )
     if payload.get("technical_validation_required") and "technical validation required" not in classification["reasons"]:
         classification["reasons"].append("technical validation required")
+    if language_intelligence.get("detected_patterns"):
+        classification["reasons"].extend(
+            [
+                f"language pattern: {item['name']}"
+                for item in language_intelligence.get("detected_patterns", [])[:4]
+            ]
+        )
     classification["manual_review_required"] = manual_review_required
     classification["text"] = text
+    classification["language_intelligence"] = language_intelligence
     return classification

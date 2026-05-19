@@ -38,6 +38,7 @@ class PilotReadinessReport(StrictBaseModel):
     governance_compliance_score: float = 0.0
     manual_governance_integrity_score: float = 0.0
     qualification_summary: Dict[str, Any] = Field(default_factory=dict)
+    qualification_result: Dict[str, Any] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -121,6 +122,7 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         governance_compliance_score=governance_compliance_score,
         manual_governance_integrity_score=manual_governance_integrity_score,
         qualification_summary=qualification_summary,
+        qualification_result=qualification_result,
         warnings=warnings,
     )
     return report.to_jsonable_dict()
@@ -140,6 +142,8 @@ def render_pilot_readiness_text(report: Optional[Dict[str, Any]] = None) -> str:
             f"Qualification GO count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('GO', 0)}",
             f"Qualification manual review count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('MANUAL_REVIEW', 0)}",
             f"Qualification reject count: {report.get('qualification_summary', {}).get('recommendation_counts', {}).get('REJECT', 0)}",
+            f"Qualification recommendation: {report.get('qualification_result', {}).get('recommendation', 'MANUAL_REVIEW')}",
+            f"Qualification readiness state: {report.get('qualification_result', {}).get('readiness_state', 'HIGH_RISK')}",
             f"Governance compliance score: {report.get('governance_compliance_score', 0.0)}",
             f"Manual governance integrity score: {report.get('manual_governance_integrity_score', 0.0)}",
             f"Supervised-live governance: advisory only",

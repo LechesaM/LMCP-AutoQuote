@@ -1,0 +1,23 @@
+{
+  "tender_id": "REAL-PILOT-002",
+  "title": "Supply and Delivery of Facility Maintenance Supplies",
+  "buyer_name": "District Services Office",
+  "province": "Western Cape",
+  "category": "supply and delivery",
+  "closing_date": "2026-12-15T12:00:00+00:00",
+  "source_files": ["source_files/real_pilot_valid_facility_supplies_002.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Cleaning detergent",
+      "quantity": 80,
+      "unit": "Bottle",
+      "unit_of_measure": "Bottle",
+      "notes": "5L bottles"
+    }
+  ],
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": true,
+  "pricing_file": "source_files/real_pilot_valid_facility_supplies_002_pricing_schedule.xlsx"
+}

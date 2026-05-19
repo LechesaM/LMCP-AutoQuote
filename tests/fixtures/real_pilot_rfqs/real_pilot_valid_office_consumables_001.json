@@ -1,0 +1,31 @@
+{
+  "tender_id": "REAL-PILOT-001",
+  "title": "Supply and Delivery of Office Consumables",
+  "buyer_name": "Metro Procurement Unit",
+  "province": "Gauteng",
+  "category": "supply and delivery",
+  "closing_date": "2026-11-30T12:00:00+00:00",
+  "source_files": ["source_files/real_pilot_valid_office_consumables_001.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "A4 copy paper",
+      "quantity": 120,
+      "unit": "Box",
+      "unit_of_measure": "Box",
+      "notes": "500 sheets per box"
+    },
+    {
+      "line_number": 2,
+      "description": "Ballpoint pens",
+      "quantity": 60,
+      "unit": "Pack",
+      "unit_of_measure": "Pack",
+      "notes": "Blue ink"
+    }
+  ],
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": true,
+  "pricing_file": "source_files/real_pilot_valid_office_consumables_001_pricing_schedule.xlsx"
+}

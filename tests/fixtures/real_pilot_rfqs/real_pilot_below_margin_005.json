@@ -1,0 +1,23 @@
+{
+  "tender_id": "REAL-PILOT-005",
+  "title": "Supply and Delivery of Stationery and Printing Supplies",
+  "buyer_name": "Municipal Records Unit",
+  "province": "Mpumalanga",
+  "category": "supply and delivery",
+  "closing_date": "2026-12-05T12:00:00+00:00",
+  "source_files": ["source_files/real_pilot_below_margin_005.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Staplers",
+      "quantity": 75,
+      "unit": "Each",
+      "unit_of_measure": "Each",
+      "notes": "Heavy-duty"
+    }
+  ],
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "below_margin",
+  "expected_submission_ready": false,
+  "pricing_file": "source_files/real_pilot_below_margin_005_pricing_schedule.xlsx"
+}

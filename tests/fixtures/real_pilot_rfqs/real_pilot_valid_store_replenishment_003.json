@@ -1,0 +1,31 @@
+{
+  "tender_id": "REAL-PILOT-003",
+  "title": "Supply and Delivery of Store Replenishment Items",
+  "buyer_name": "Regional Stores Division",
+  "province": "KwaZulu-Natal",
+  "category": "supply and delivery",
+  "closing_date": "2026-10-31T12:00:00+00:00",
+  "source_files": ["source_files/real_pilot_valid_store_replenishment_003.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Archive boxes",
+      "quantity": 150,
+      "unit": "Box",
+      "unit_of_measure": "Box",
+      "notes": "Heavy-duty"
+    },
+    {
+      "line_number": 2,
+      "description": "Filing folders",
+      "quantity": 200,
+      "unit": "Pack",
+      "unit_of_measure": "Pack",
+      "notes": "A4 size"
+    }
+  ],
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": true,
+  "pricing_file": "source_files/real_pilot_valid_store_replenishment_003_pricing_schedule.xlsx"
+}

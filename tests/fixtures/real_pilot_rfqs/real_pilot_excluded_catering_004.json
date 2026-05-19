@@ -1,0 +1,23 @@
+{
+  "tender_id": "REAL-PILOT-004",
+  "title": "Catering Services for Staff Workshop",
+  "buyer_name": "Municipal Training Centre",
+  "province": "Eastern Cape",
+  "category": "catering",
+  "closing_date": "2026-11-20T12:00:00+00:00",
+  "source_files": ["source_files/real_pilot_excluded_catering_004.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Lunch service",
+      "quantity": 120,
+      "unit": "Person",
+      "unit_of_measure": "Person",
+      "notes": "Workshop delegates"
+    }
+  ],
+  "expected_exclusion_status": "excluded",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": false,
+  "pricing_file": "source_files/real_pilot_excluded_catering_004_pricing_schedule.xlsx"
+}

@@ -154,15 +154,14 @@ class E2ERFQHarness:
 
     def _build_quality_summary(self, rfq: Dict[str, Any], quote_pack: Dict[str, Any]) -> Dict[str, Any]:
         quality_context = build_quality_context(limit=50)
-        rfq_report = build_rfq_extraction_quality_report(quality_context.get("rfq_payload") or rfq)
+        rfq_report = build_rfq_extraction_quality_report(rfq)
         schedule_report = build_pricing_schedule_quality_report(
-            quality_context.get("schedule_payload")
-            or {
+            {
                 "completed_buyer_schedule_path": quote_pack.get("completed_buyer_schedule_path", ""),
                 "rows": rfq.get("line_items") or [],
             }
         )
-        quote_pack_report = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or quote_pack)
+        quote_pack_report = build_quote_pack_quality_report(quote_pack)
         supplier_report = build_supplier_comparison_summary(quality_context.get("supplier_quotes") or [])
         return {
             "rfq_extraction": rfq_report,

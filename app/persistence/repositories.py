@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from threading import Lock
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
@@ -19,6 +20,62 @@ from app.persistence.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_PERSISTENCE_LOCK = Lock()
+_PERSISTENCE_HEALTH: Dict[str, Any] = {
+    "db_initialized": False,
+    "db_available": False,
+    "write_failures": 0,
+    "read_failures": 0,
+    "fallback_usage": 0,
+    "write_successes": 0,
+    "read_successes": 0,
+}
+
+
+def _record_stat(name: str, amount: int = 1) -> None:
+    with _PERSISTENCE_LOCK:
+        _PERSISTENCE_HEALTH[name] = int(_PERSISTENCE_HEALTH.get(name, 0)) + int(amount)
+
+
+def record_persistence_write_failure(label: str = "") -> None:
+    _record_stat("write_failures")
+
+
+def record_persistence_read_failure(label: str = "") -> None:
+    _record_stat("read_failures")
+
+
+def record_persistence_fallback_usage(label: str = "") -> None:
+    _record_stat("fallback_usage")
+
+
+def record_persistence_write_success(label: str = "") -> None:
+    _record_stat("write_successes")
+
+
+def record_persistence_read_success(label: str = "") -> None:
+    _record_stat("read_successes")
+
+
+def reset_persistence_health() -> None:
+    with _PERSISTENCE_LOCK:
+        for key in list(_PERSISTENCE_HEALTH):
+            _PERSISTENCE_HEALTH[key] = False if isinstance(_PERSISTENCE_HEALTH[key], bool) else 0
+
+
+def get_persistence_health() -> Dict[str, Any]:
+    from app.persistence import db as persistence_db
+
+    db_available = persistence_db.safe_initialize_database()
+    with _PERSISTENCE_LOCK:
+        _PERSISTENCE_HEALTH["db_initialized"] = db_available
+        _PERSISTENCE_HEALTH["db_available"] = db_available
+        snapshot = dict(_PERSISTENCE_HEALTH)
+    snapshot["healthy"] = db_available
+    snapshot["status"] = "healthy" if db_available else "degraded"
+    snapshot["db_path"] = str(persistence_db.get_database_path().name)
+    return snapshot
 
 
 def _now_iso() -> str:
@@ -82,23 +139,28 @@ class BaseRepository:
         payload.setdefault("created_at", _now_iso())
         payload.setdefault("updated_at", payload["created_at"])
         payload_json = json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str)
-        with db.connection_scope() as connection:
-            connection.execute(
-                f"""
-                INSERT INTO {self.table_name} (
-                    tender_id, workflow_stage, actor, operator, payload_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    _safe_str(payload.get("tender_id")),
-                    _safe_str(payload.get("workflow_stage")),
-                    _safe_str(payload.get("actor")),
-                    _safe_str(payload.get("operator")),
-                    payload_json,
-                    _safe_str(payload.get("created_at")),
-                    _safe_str(payload.get("updated_at")),
-                ),
-            )
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    f"""
+                    INSERT INTO {self.table_name} (
+                        tender_id, workflow_stage, actor, operator, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("workflow_stage")),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator")),
+                        payload_json,
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success(self.table_name)
+        except Exception:
+            record_persistence_write_failure(self.table_name)
+            raise
         return payload
 
     def append(self, record: Dict[str, Any]) -> Dict[str, Any]:
@@ -117,8 +179,11 @@ class BaseRepository:
                     """,
                     (_safe_str(tender_id), int(limit or 100)),
                 ).fetchall()
+            record_persistence_read_success(self.table_name)
             return [_to_row_dict(row) for row in rows]
         except Exception:
+            record_persistence_read_failure(self.table_name)
+            record_persistence_fallback_usage(self.table_name)
             logger.warning("DB fetch failed for %s, falling back to JSONL", self.table_name, exc_info=True)
             return self._read_jsonl_fallback(tender_id, limit)
 
@@ -141,8 +206,11 @@ class BaseRepository:
                     """,
                     (int(limit or 100),),
                 ).fetchall()
+            record_persistence_read_success(self.table_name)
             return [_to_row_dict(row) for row in rows]
         except Exception:
+            record_persistence_read_failure(self.table_name)
+            record_persistence_fallback_usage(self.table_name)
             logger.warning("DB recent fetch failed for %s, falling back to JSONL", self.table_name, exc_info=True)
             return self._read_jsonl_fallback("", limit)
 
@@ -180,25 +248,30 @@ class WorkflowRepository(BaseRepository):
         payload.setdefault("payload", payload.get("details") or {})
         payload.setdefault("created_at", payload.get("transitioned_at") or _now_iso())
         payload.setdefault("updated_at", payload.get("transitioned_at") or payload["created_at"])
-        with db.connection_scope() as connection:
-            connection.execute(
-                """
-                INSERT INTO workflow_event_records (
-                    tender_id, workflow_stage, from_stage, to_stage, actor, operator, payload_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    _safe_str(payload.get("tender_id")),
-                    _safe_str(payload.get("workflow_stage")),
-                    _safe_str(payload.get("from_stage")),
-                    _safe_str(payload.get("to_stage")),
-                    _safe_str(payload.get("actor")),
-                    _safe_str(payload.get("operator") or payload.get("actor")),
-                    json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str),
-                    _safe_str(payload.get("created_at")),
-                    _safe_str(payload.get("updated_at")),
-                ),
-            )
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO workflow_event_records (
+                        tender_id, workflow_stage, from_stage, to_stage, actor, operator, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("workflow_stage")),
+                        _safe_str(payload.get("from_stage")),
+                        _safe_str(payload.get("to_stage")),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator") or payload.get("actor")),
+                        json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str),
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("workflow_event_records")
+        except Exception:
+            record_persistence_write_failure("workflow_event_records")
+            raise
         return payload
 
     def fetch_latest_state(self, tender_id: str) -> Dict[str, Any]:
@@ -225,6 +298,8 @@ class WorkflowRepository(BaseRepository):
             }
         except Exception:
             logger.warning("DB workflow state lookup failed, falling back to JSONL", exc_info=True)
+            record_persistence_read_failure("workflow_state_records")
+            record_persistence_fallback_usage("workflow_state_records")
             return self._jsonl_latest_state(tender_id)
 
     def fetch_history(self, tender_id: str, limit: int = 100) -> List[Dict[str, Any]]:
@@ -264,6 +339,8 @@ class WorkflowRepository(BaseRepository):
             ]
         except Exception:
             logger.warning("DB workflow state recent fetch failed, falling back to JSONL", exc_info=True)
+            record_persistence_read_failure("workflow_state_records")
+            record_persistence_fallback_usage("workflow_state_records")
             return [
                 {
                     "tender_id": item.get("tender_id", ""),
@@ -300,26 +377,31 @@ class SubmissionRepository(BaseRepository):
         return self.append(record)
 
     def append_proof(self, record: Dict[str, Any]) -> Dict[str, Any]:
-        with db.connection_scope() as connection:
-            payload = dict(record or {})
-            payload.setdefault("created_at", payload.get("timestamp") or _now_iso())
-            payload.setdefault("updated_at", payload.get("created_at"))
-            connection.execute(
-                """
-                INSERT INTO submission_proof_entities (
-                    tender_id, workflow_stage, actor, operator, payload_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    _safe_str(payload.get("tender_id")),
-                    _safe_str(payload.get("workflow_stage") or "proof_recorded"),
-                    _safe_str(payload.get("actor") or payload.get("submitted_by")),
-                    _safe_str(payload.get("operator") or payload.get("submitted_by")),
-                    json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str),
-                    _safe_str(payload.get("created_at")),
-                    _safe_str(payload.get("updated_at")),
-                ),
-            )
+        payload = dict(record or {})
+        payload.setdefault("created_at", payload.get("timestamp") or _now_iso())
+        payload.setdefault("updated_at", payload.get("created_at"))
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO submission_proof_entities (
+                        tender_id, workflow_stage, actor, operator, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("workflow_stage") or "proof_recorded"),
+                        _safe_str(payload.get("actor") or payload.get("submitted_by")),
+                        _safe_str(payload.get("operator") or payload.get("submitted_by")),
+                        json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str),
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("submission_proof_entities")
+        except Exception:
+            record_persistence_write_failure("submission_proof_entities")
+            raise
         return payload
 
 
@@ -330,28 +412,33 @@ class AuditRepository(BaseRepository):
         payload = dict(record or {})
         payload.setdefault("created_at", payload.get("created_at") or _now_iso())
         payload.setdefault("updated_at", payload.get("updated_at") or payload["created_at"])
-        with db.connection_scope() as connection:
-            connection.execute(
-                """
-                INSERT INTO audit_event_entities (
-                    tender_id, workflow_stage, actor, operator, event_type, source, severity, quote_number,
-                    payload_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    _safe_str(payload.get("tender_id") or payload.get("buyer_rfq_number")),
-                    _safe_str(payload.get("workflow_stage")),
-                    _safe_str(payload.get("actor")),
-                    _safe_str(payload.get("operator") or payload.get("source")),
-                    _safe_str(payload.get("event_type")),
-                    _safe_str(payload.get("source")),
-                    _safe_str(payload.get("severity")),
-                    _safe_str(payload.get("quote_number")),
-                    json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str),
-                    _safe_str(payload.get("created_at")),
-                    _safe_str(payload.get("updated_at")),
-                ),
-            )
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO audit_event_entities (
+                        tender_id, workflow_stage, actor, operator, event_type, source, severity, quote_number,
+                        payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("tender_id") or payload.get("buyer_rfq_number")),
+                        _safe_str(payload.get("workflow_stage")),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator") or payload.get("source")),
+                        _safe_str(payload.get("event_type")),
+                        _safe_str(payload.get("source")),
+                        _safe_str(payload.get("severity")),
+                        _safe_str(payload.get("quote_number")),
+                        json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str),
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("audit_event_entities")
+        except Exception:
+            record_persistence_write_failure("audit_event_entities")
+            raise
         return payload
 
     def fetch_history(self, tender_id: str, limit: int = 100) -> List[Dict[str, Any]]:

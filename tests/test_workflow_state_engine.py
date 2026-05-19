@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from app.core import workflow_state_engine
+from app.core.runtime_config import get_runtime_config
+from app.core.runtime_paths import get_runtime_paths
 from app.domain.workflow import WorkflowStage
 from app.services import manual_approval_service, submission_proof_service, submission_review_service
 
@@ -14,6 +16,13 @@ def _patch_runtime(monkeypatch, tmp_path: Path) -> Path:
     runtime_dir = tmp_path / "runtime"
     manual_dir = runtime_dir / "manual_production"
     manual_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("LMCP_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("LMCP_RUNTIME_DIR", str(runtime_dir))
+    monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DIR", str(manual_dir))
+    monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DB_PATH", str(manual_dir / "lmcp_operations.db"))
+    get_runtime_paths.cache_clear()
+    get_runtime_config.cache_clear()
 
     monkeypatch.setattr(workflow_state_engine, "RUNTIME_DIR", runtime_dir)
     monkeypatch.setattr(workflow_state_engine, "MANUAL_PRODUCTION_DIR", manual_dir)

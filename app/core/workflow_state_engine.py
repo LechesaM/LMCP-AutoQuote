@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.runtime_paths import get_runtime_paths
 from app.domain.workflow import WorkflowEvent, WorkflowStage, WorkflowState
+from app.monitoring.metrics_service import increment_metric
 from app.persistence import jsonl_compat
 from app.persistence.repositories import WorkflowRepository
 
@@ -143,7 +144,27 @@ def _persist_transition(
     jsonl_compat.persist_workflow_transition(event)
     jsonl_compat.persist_workflow_state(state)
     _emit_audit_event(tender_id=_clean(tender_id), from_stage=from_stage, to_stage=to_stage, actor=_clean(actor), reason=_clean(reason), details=state_details)
+    _increment_transition_metrics(from_stage=from_stage, to_stage=to_stage)
     return WorkflowState.validate_payload(state)
+
+
+def _increment_transition_metrics(*, from_stage: WorkflowStage, to_stage: WorkflowStage) -> None:
+    if from_stage == WorkflowStage.DISCOVERED:
+        increment_metric("rfqs_discovered")
+    if to_stage == WorkflowStage.EVALUATED:
+        increment_metric("rfqs_evaluated")
+    if to_stage == WorkflowStage.REFUSED:
+        increment_metric("rfqs_refused")
+    if to_stage == WorkflowStage.QUOTE_GENERATED:
+        increment_metric("quote_packs_generated")
+    if to_stage == WorkflowStage.APPROVED:
+        increment_metric("approvals_recorded")
+    if to_stage == WorkflowStage.REVIEW_READY:
+        increment_metric("reviews_recorded")
+    if to_stage == WorkflowStage.PROOF_RECORDED:
+        increment_metric("proofs_recorded")
+    if to_stage == WorkflowStage.ARCHIVED:
+        increment_metric("archived_workflows")
 
 
 def _emit_audit_event(
@@ -190,9 +211,11 @@ def assert_can_transition(from_stage: Any, to_stage: Any) -> None:
     source = _coerce_stage(from_stage)
     target = _coerce_stage(to_stage)
     if source == target:
+        increment_metric("workflow_failures")
         raise ValueError(f"Transition {source.value} -> {target.value} is not allowed")
     allowed_targets = _ALLOWED_TRANSITIONS.get(source, set())
     if target not in allowed_targets:
+        increment_metric("workflow_failures")
         raise ValueError(f"Transition {source.value} -> {target.value} is not allowed")
 
 
@@ -228,10 +251,12 @@ def record_transition(
     if latest:
         current_stage = _coerce_stage(latest.get("stage"))
         if current_stage != source:
+            increment_metric("workflow_failures")
             raise ValueError(
                 f"Current workflow stage for tender {tender_id} is {current_stage.value}, not {source.value}"
             )
     elif source != WorkflowStage.DISCOVERED:
+        increment_metric("workflow_failures")
         raise ValueError(f"Cannot transition tender {tender_id} from {source.value} without a current state")
 
     return _persist_transition(
@@ -252,6 +277,7 @@ def refuse_workflow(
 ) -> WorkflowState:
     current = get_current_state(tender_id)
     if current.stage not in _ACTIVE_STAGES:
+        increment_metric("workflow_failures")
         raise ValueError(f"Cannot refuse workflow for tender {tender_id} from {current.stage.value}")
     return record_transition(
         tender_id=tender_id,

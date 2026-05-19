@@ -14,6 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from app.api.router_registry import RouterSpec, iter_router_specs
 from app.config import settings
 from app.core.runtime_config import get_runtime_config
+from app.monitoring.health_service import get_system_health
+from app.monitoring.reporting_service import build_operational_report
+from app.monitoring.workflow_monitor import get_workflow_summary
 from app.services.operator_auth_service import ensure_operator_auth_schema
 from app.services.quote_review_service import ensure_quote_pack_schema
 
@@ -211,3 +214,18 @@ def health() -> Dict[str, Any]:
         "database_configured": bool(settings.database_url),
         **_base_status_payload(),
     }
+
+
+@app.get("/health/system")
+def system_health() -> Dict[str, Any]:
+    return get_system_health()
+
+
+@app.get("/health/workflows")
+def workflow_health() -> Dict[str, Any]:
+    return get_workflow_summary()
+
+
+@app.get("/health/operational-report")
+def operational_report() -> Dict[str, Any]:
+    return build_operational_report()

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.runtime_paths import get_runtime_paths
+from app.monitoring.metrics_service import increment_metric
 from app.persistence import jsonl_compat
 from app.services.websocket_broker import publish_dashboard_event
 
@@ -57,7 +58,7 @@ async def record_audit_event(
     events = load_audit_events()
     events.append(item)
     save_audit_events(events)
-    jsonl_compat.persist_audit_event(item)
+    persisted = jsonl_compat.persist_audit_event(item)
     logger.info(
         "audit_event_recorded type=%s source=%s severity=%s buyer_rfq_number=%s quote_number=%s",
         event_type,
@@ -67,11 +68,17 @@ async def record_audit_event(
         quote_number,
     )
 
-    await publish_dashboard_event(
-        event_type="audit_event_recorded",
-        payload=item,
-        source="audit-trail",
-    )
+    try:
+        await publish_dashboard_event(
+            event_type="audit_event_recorded",
+            payload=item,
+            source="audit-trail",
+        )
+    except Exception:
+        increment_metric("audit_failures")
+        raise
+    if not persisted:
+        increment_metric("audit_failures")
 
     return item
 

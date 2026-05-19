@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from app.monitoring.reporting_service import build_operational_report
 from app.monitoring.workflow_monitor import get_workflow_summary
+from app.dashboard.workflow_queue_service import get_queue_overview
 from app.persistence.repositories import WorkflowRepository, get_persistence_health
 
 
@@ -41,9 +42,11 @@ def get_recent_proofs(limit: int = 25) -> List[Dict[str, Any]]:
 def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
     workflow_summary = get_workflow_summary(limit=limit)
     operational = build_operational_report(limit=limit)
+    queue_overview = get_queue_overview(limit=limit)
     return {
         "workflow_summary": workflow_summary,
         "operational_summary": get_operational_summary(limit=limit),
+        "queue_overview": queue_overview,
         "counts_by_stage": workflow_summary.get("stage_counts", {}),
         "pending_approvals": workflow_summary.get("approvals_pending", 0),
         "pending_review_ready": workflow_summary.get("review_ready_pending", 0),
@@ -53,6 +56,8 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
         "operational_warnings": operational.get("runtime_diagnostics", {}).get("warnings", []),
         "persistence_health": get_persistence_health(),
         "workflow_health": workflow_summary,
+        "queue_health": queue_overview.get("health", {}),
+        "queue_summary": queue_overview.get("summary", {}),
     }
 
 

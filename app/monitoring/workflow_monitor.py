@@ -4,9 +4,12 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from pydantic import Field
+
 from app.core.runtime_paths import get_runtime_paths
 from app.domain.base import StrictBaseModel, utc_now
 from app.domain.workflow import WorkflowStage
+from app.orchestration.queue_monitor import get_queue_health, get_queue_summary
 from app.persistence.repositories import WorkflowRepository
 
 _ACTIVE_STAGE_VALUES = {
@@ -32,6 +35,8 @@ class WorkflowMonitorSummary(StrictBaseModel):
     review_ready_pending: int = 0
     proof_capture_pending: int = 0
     updated_at: Any = None
+    queue_health: Dict[str, Any] = Field(default_factory=dict)
+    queue_summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _stage_name(value: Any) -> str:
@@ -80,6 +85,8 @@ def get_workflow_summary(limit: int = 500) -> Dict[str, Any]:
         review_ready_pending=review_ready_pending,
         proof_capture_pending=proof_capture_pending,
         updated_at=utc_now(),
+        queue_health=get_queue_health(limit=limit),
+        queue_summary=get_queue_summary(limit=limit),
     ).to_jsonable_dict()
 
 

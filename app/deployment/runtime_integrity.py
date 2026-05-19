@@ -10,6 +10,7 @@ from app.core import workflow_state_engine
 from app.core.runtime_paths import RuntimePaths, get_runtime_paths
 from app.domain.base import StrictBaseModel, utc_now
 from app.domain.workflow import WorkflowStage
+from app.orchestration.queue_monitor import get_queue_health
 from app.persistence import db
 
 
@@ -29,6 +30,7 @@ class IntegrityReport(StrictBaseModel):
     audit_issues: List[Dict[str, Any]] = Field(default_factory=list)
     db_integrity: Dict[str, Any] = Field(default_factory=dict)
     directory_consistency: Dict[str, Any] = Field(default_factory=dict)
+    queue_health: Dict[str, Any] = Field(default_factory=dict)
     orphaned_workflows: List[str] = Field(default_factory=list)
     corrupted_states: List[str] = Field(default_factory=list)
 
@@ -123,6 +125,7 @@ def run_integrity_checks(*, paths: Optional[RuntimePaths] = None) -> Dict[str, A
             audit_issues.append(_issue("warning", "missing_audit_event", f"Missing audit evidence for stage {stage}"))
 
     db_integrity = db.database_integrity_check()
+    queue_health = get_queue_health(limit=500)
     directory_consistency = {
         "runtime_root_exists": runtime_paths.runtime_root.exists(),
         "manual_production_dir_exists": runtime_paths.manual_production_dir.exists(),
@@ -151,6 +154,7 @@ def run_integrity_checks(*, paths: Optional[RuntimePaths] = None) -> Dict[str, A
         audit_issues=audit_issues,
         db_integrity=db_integrity,
         directory_consistency=directory_consistency,
+        queue_health=queue_health,
         orphaned_workflows=orphaned_workflows,
         corrupted_states=corrupted_states,
     ).to_jsonable_dict()

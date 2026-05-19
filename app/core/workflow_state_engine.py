@@ -66,6 +66,17 @@ def _safe_details(value: Any) -> Dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
+def _normalize_state_payload(record: Dict[str, Any]) -> Dict[str, Any]:
+    if not record:
+        return {}
+    return {
+        "tender_id": _clean(record.get("tender_id")),
+        "stage": _coerce_stage(record.get("stage") or record.get("workflow_stage") or record.get("to_stage") or WorkflowStage.DISCOVERED).value,
+        "updated_at": record.get("updated_at") or record.get("created_at") or _now_iso(),
+        "details": _safe_details(record.get("details") or record.get("payload") or {}),
+    }
+
+
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
     if not path.exists():
@@ -224,7 +235,7 @@ def get_current_state(tender_id: str) -> WorkflowState:
     if not latest:
         latest = _latest_state_record(tender_id)
     if latest:
-        return WorkflowState.validate_payload(latest)
+        return WorkflowState.validate_payload(_normalize_state_payload(latest))
     return WorkflowState.validate_payload(
         {
             "tender_id": _clean(tender_id),
@@ -319,5 +330,23 @@ def list_recent_states(limit: int = 100) -> Dict[str, Any]:
         "total": len(records),
         "log_file": str(WORKFLOW_STATE_LOG_FILE),
         "event_log_file": str(WORKFLOW_EVENT_LOG_FILE),
+        "updated_at": _now_iso(),
+    }
+
+
+def get_transition_history(tender_id: str, limit: int = 100) -> Dict[str, Any]:
+    repo = WorkflowRepository(jsonl_path=WORKFLOW_STATE_LOG_FILE)
+    history = repo.fetch_history(tender_id, limit=limit)
+    if not history:
+        history = [
+            record
+            for record in _read_jsonl(WORKFLOW_STATE_LOG_FILE)
+            if _clean(record.get("tender_id")) == _clean(tender_id)
+        ][-max(1, int(limit or 100)) :]
+    return {
+        "status": "ok",
+        "tender_id": _clean(tender_id),
+        "count": len(history),
+        "items": history,
         "updated_at": _now_iso(),
     }

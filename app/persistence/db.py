@@ -130,6 +130,64 @@ def _create_tables(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS queue_job_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            tender_id TEXT NOT NULL,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            operator TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_queue_job_records_job_created
+            ON queue_job_records (job_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_queue_job_records_status_created
+            ON queue_job_records (status, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS queue_retry_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            tender_id TEXT NOT NULL,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            operator TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS queue_failure_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            tender_id TEXT NOT NULL,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            operator TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS queue_history_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            tender_id TEXT NOT NULL,
+            job_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            actor TEXT NOT NULL DEFAULT '',
+            operator TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
 

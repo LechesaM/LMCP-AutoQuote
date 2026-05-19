@@ -4,6 +4,12 @@ import asyncio
 from typing import Any, Dict, Optional
 
 from app.core import workflow_state_engine
+from app.orchestration.operator_recovery_actions import (
+    acknowledge_queue_warning as queue_acknowledge_warning,
+    archive_failed_job as queue_archive_failed_job,
+    mark_job_blocked as queue_mark_job_blocked,
+    retry_failed_job as queue_retry_failed_job,
+)
 from app.services.audit_trail_service import record_audit_event
 
 
@@ -88,3 +94,19 @@ def acknowledge_warning(tender_id: str, actor: str, warning: str, details: Optio
     except Exception:
         pass
     return {"status": "ok", "tender_id": tender_id, "actor": actor, "warning": warning, "details": details or {}}
+
+
+def retry_failed_job(job_id: str, actor: str, operator: str = "", reason: str = "") -> Dict[str, Any]:
+    return queue_retry_failed_job(job_id=job_id, actor=actor, operator=operator, reason=reason)
+
+
+def archive_failed_job(job_id: str, actor: str, operator: str = "", reason: str = "") -> Dict[str, Any]:
+    return queue_archive_failed_job(job_id=job_id, actor=actor, operator=operator, reason=reason)
+
+
+def mark_job_blocked(job_id: str, actor: str, operator: str = "", reason: str = "") -> Dict[str, Any]:
+    return queue_mark_job_blocked(job_id=job_id, actor=actor, operator=operator, reason=reason)
+
+
+def acknowledge_queue_warning(job_id: str, actor: str, operator: str = "", warning: str = "") -> Dict[str, Any]:
+    return queue_acknowledge_warning(job_id=job_id, actor=actor, operator=operator, warning=warning)

@@ -516,3 +516,143 @@ class QuoteRepository(BaseRepository):
 
     def append_quote_pack(self, record: Dict[str, Any]) -> Dict[str, Any]:
         return self.append(record)
+
+
+class QueueJobRepository(BaseRepository):
+    table_name = "queue_job_records"
+
+    def append_job(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(record or {})
+        payload.setdefault("created_at", _now_iso())
+        payload.setdefault("updated_at", payload["created_at"])
+        payload_json = json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str)
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO queue_job_records (
+                        job_id, tender_id, job_type, status, actor, operator, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("job_id")),
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("job_type")),
+                        _safe_str(payload.get("status")),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator")),
+                        payload_json,
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("queue_job_records")
+        except Exception:
+            record_persistence_write_failure("queue_job_records")
+            raise
+        return payload
+
+
+class QueueRetryRepository(BaseRepository):
+    table_name = "queue_retry_records"
+
+    def append_retry(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(record or {})
+        payload.setdefault("created_at", _now_iso())
+        payload.setdefault("updated_at", payload["created_at"])
+        payload_json = json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str)
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO queue_retry_records (
+                        job_id, tender_id, job_type, status, actor, operator, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("job_id")),
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("job_type")),
+                        _safe_str(payload.get("status") or "retry_pending"),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator")),
+                        payload_json,
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("queue_retry_records")
+        except Exception:
+            record_persistence_write_failure("queue_retry_records")
+            raise
+        return payload
+
+
+class QueueFailureRepository(BaseRepository):
+    table_name = "queue_failure_records"
+
+    def append_failure(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(record or {})
+        payload.setdefault("created_at", _now_iso())
+        payload.setdefault("updated_at", payload["created_at"])
+        payload_json = json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str)
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO queue_failure_records (
+                        job_id, tender_id, job_type, status, actor, operator, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("job_id")),
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("job_type")),
+                        _safe_str(payload.get("status") or "failed"),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator")),
+                        payload_json,
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("queue_failure_records")
+        except Exception:
+            record_persistence_write_failure("queue_failure_records")
+            raise
+        return payload
+
+
+class QueueHistoryRepository(BaseRepository):
+    table_name = "queue_history_records"
+
+    def append_history(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(record or {})
+        payload.setdefault("created_at", _now_iso())
+        payload.setdefault("updated_at", payload["created_at"])
+        payload_json = json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str)
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO queue_history_records (
+                        job_id, tender_id, job_type, status, actor, operator, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("job_id")),
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("job_type")),
+                        _safe_str(payload.get("status")),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator")),
+                        payload_json,
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("queue_history_records")
+        except Exception:
+            record_persistence_write_failure("queue_history_records")
+            raise
+        return payload

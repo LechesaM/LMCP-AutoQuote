@@ -188,6 +188,35 @@ def _create_tables(connection: sqlite3.Connection) -> None:
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS pilot_run_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tender_id TEXT NOT NULL,
+            workflow_stage TEXT NOT NULL DEFAULT '',
+            actor TEXT NOT NULL DEFAULT '',
+            operator TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_pilot_run_records_tender_created
+            ON pilot_run_records (tender_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS pilot_signoff_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tender_id TEXT NOT NULL,
+            workflow_stage TEXT NOT NULL DEFAULT '',
+            actor TEXT NOT NULL DEFAULT '',
+            operator TEXT NOT NULL DEFAULT '',
+            signoff_type TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_pilot_signoff_records_tender_created
+            ON pilot_signoff_records (tender_id, created_at DESC);
         """
     )
 

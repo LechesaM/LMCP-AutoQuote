@@ -9,6 +9,15 @@ from app.orchestration.queue_manager import get_jobs_by_status, get_queue_snapsh
 def get_queue_summary(limit: int = 500) -> Dict[str, Any]:
     snapshot = get_queue_snapshot(limit=limit)
     by_status = snapshot.get("by_status", {})
+    try:
+        from app.pilot.pilot_metrics import get_pilot_metrics
+        from app.pilot.pilot_run_service import get_pilot_failures
+    except Exception:
+        pilot_metrics = {}
+        pilot_failures: List[Dict[str, Any]] = []
+    else:
+        pilot_metrics = get_pilot_metrics()
+        pilot_failures = get_pilot_failures(limit=limit)
     return {
         "status": "ok",
         "total_jobs": snapshot.get("total_jobs", 0),
@@ -19,6 +28,8 @@ def get_queue_summary(limit: int = 500) -> Dict[str, Any]:
         "retry_pending_jobs": by_status.get("retry_pending", 0),
         "blocked_jobs": by_status.get("blocked", 0),
         "archived_jobs": by_status.get("archived", 0),
+        "pilot_metrics": pilot_metrics,
+        "pilot_failures": pilot_failures,
         "snapshot": snapshot,
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -34,6 +45,9 @@ def get_queue_health(limit: int = 500, stalled_after_minutes: int = 240) -> Dict
         "status": status,
         "summary": summary,
         "stalled": stalled,
+        "pilot_blocked_workflows": summary.get("pilot_metrics", {}).get("blocked_workflows", 0),
+        "pilot_operator_interventions": summary.get("pilot_metrics", {}).get("manual_interventions", 0),
+        "pilot_failures": summary.get("pilot_failures", []),
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
 

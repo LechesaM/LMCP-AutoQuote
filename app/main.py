@@ -44,6 +44,10 @@ from app.dashboard.workflow_queue_service import (
 from app.monitoring.health_service import get_system_health
 from app.monitoring.reporting_service import build_operational_report
 from app.monitoring.workflow_monitor import get_workflow_summary
+from app.pilot.pilot_metrics import get_pilot_metrics
+from app.pilot.pilot_readiness_report import build_pilot_readiness_report
+from app.pilot.pilot_run_service import get_pilot_failures, get_pilot_successes, get_pilot_summary
+from app.pilot.pilot_signoff import get_pilot_signoffs, get_signoff_history
 from app.services.operator_auth_service import ensure_operator_auth_schema
 from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
 from app.services.quote_review_service import ensure_quote_pack_schema
@@ -349,3 +353,23 @@ def dashboard_acknowledge_warning_endpoint(request: Request, payload: Dict[str, 
     details = dict(payload.get("details") or {})
     result = dashboard_acknowledge_warning(tender_id=tender_id, actor=operator.display_name, warning=warning, details=details)
     return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}
+
+
+@app.get("/pilot/summary")
+def pilot_summary() -> Dict[str, Any]:
+    return {
+        "pilot_summary": get_pilot_summary(),
+        "pilot_metrics": get_pilot_metrics(),
+        "pilot_failures": get_pilot_failures(),
+        "pilot_successes": get_pilot_successes(),
+    }
+
+
+@app.get("/pilot/readiness")
+def pilot_readiness() -> Dict[str, Any]:
+    return build_pilot_readiness_report()
+
+
+@app.get("/pilot/signoffs")
+def pilot_signoffs() -> Dict[str, Any]:
+    return {"signoffs": get_pilot_signoffs(limit=200)}

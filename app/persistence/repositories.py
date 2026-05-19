@@ -13,6 +13,8 @@ from app.persistence.models import (
     PersistenceEntity,
     PricingDecisionEntity,
     QuotePackEntity,
+    PilotRunEntity,
+    PilotSignoffEntity,
     SubmissionProofEntity,
     SubmissionReviewEntity,
     WorkflowEventRecord,
@@ -516,6 +518,73 @@ class QuoteRepository(BaseRepository):
 
     def append_quote_pack(self, record: Dict[str, Any]) -> Dict[str, Any]:
         return self.append(record)
+
+
+class PilotRunRepository(BaseRepository):
+    table_name = "pilot_run_records"
+
+    def append_run(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(record or {})
+        payload.setdefault("created_at", _now_iso())
+        payload.setdefault("updated_at", payload["created_at"])
+        payload_json = json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str)
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO pilot_run_records (
+                        tender_id, workflow_stage, actor, operator, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("workflow_stage")),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator")),
+                        payload_json,
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("pilot_run_records")
+        except Exception:
+            record_persistence_write_failure("pilot_run_records")
+            raise
+        return payload
+
+
+class PilotSignoffRepository(BaseRepository):
+    table_name = "pilot_signoff_records"
+
+    def append_signoff(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(record or {})
+        payload.setdefault("created_at", _now_iso())
+        payload.setdefault("updated_at", payload["created_at"])
+        payload_json = json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str)
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO pilot_signoff_records (
+                        tender_id, workflow_stage, actor, operator, signoff_type, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("workflow_stage")),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator")),
+                        _safe_str(payload.get("signoff_type")),
+                        payload_json,
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("pilot_signoff_records")
+        except Exception:
+            record_persistence_write_failure("pilot_signoff_records")
+            raise
+        return payload
 
 
 class QueueJobRepository(BaseRepository):

@@ -47,6 +47,9 @@ class RuntimeConfig:
     project_root: Path
     environment: str
     mode: ProductionMode
+    pilot_mode: str
+    pilot_enabled: bool
+    pilot_supervised_live: bool
     paths: RuntimePaths
     debug: bool
     log_level: str
@@ -68,6 +71,7 @@ class RuntimeConfig:
         os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DB_PATH", str(self.paths.manual_production_db_path))
         os.environ.setdefault("LMCP_ENV", self.environment)
         os.environ.setdefault("LMCP_PRODUCTION_MODE", self.mode.value)
+        os.environ.setdefault("LMCP_PILOT_MODE", self.pilot_mode)
         os.environ.setdefault("LMCP_OBSERVABILITY_ENABLED", "1" if self.observability_enabled else "0")
         os.environ.setdefault("LMCP_DEPLOYMENT_HARDENING_ENABLED", "1" if self.deployment_hardening_enabled else "0")
 
@@ -117,10 +121,16 @@ def get_runtime_config() -> RuntimeConfig:
     paths = get_runtime_paths()
     environment = env("LMCP_ENV", env("ENVIRONMENT", "development")).lower()
     mode = ProductionMode.parse(env("LMCP_PRODUCTION_MODE", ""))
+    pilot_mode = env("LMCP_PILOT_MODE", "disabled").lower()
+    if pilot_mode not in {"disabled", "dry_run", "supervised_live"}:
+        pilot_mode = "disabled"
     config = RuntimeConfig(
         project_root=project_root,
         environment=environment,
         mode=mode,
+        pilot_mode=pilot_mode,
+        pilot_enabled=pilot_mode != "disabled",
+        pilot_supervised_live=pilot_mode == "supervised_live",
         paths=paths,
         debug=env_bool("LMCP_DEBUG", False),
         log_level=env("LMCP_LOG_LEVEL", env("LOG_LEVEL", "INFO")).upper(),

@@ -5,6 +5,10 @@ from typing import Any, Dict, List
 from app.monitoring.reporting_service import build_operational_report
 from app.monitoring.workflow_monitor import get_workflow_summary
 from app.dashboard.workflow_queue_service import get_queue_overview
+from app.pilot.pilot_mode import get_pilot_execution_metadata
+from app.pilot.pilot_metrics import get_pilot_metrics
+from app.pilot.pilot_readiness_report import build_pilot_readiness_report
+from app.pilot.pilot_run_service import get_pilot_failures
 from app.persistence.repositories import WorkflowRepository, get_persistence_health
 
 
@@ -43,10 +47,17 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
     workflow_summary = get_workflow_summary(limit=limit)
     operational = build_operational_report(limit=limit)
     queue_overview = get_queue_overview(limit=limit)
+    pilot_readiness = build_pilot_readiness_report(limit=limit)
+    pilot_metrics = get_pilot_metrics()
     return {
         "workflow_summary": workflow_summary,
         "operational_summary": get_operational_summary(limit=limit),
         "queue_overview": queue_overview,
+        "pilot_mode": get_pilot_execution_metadata(),
+        "pilot_metrics": pilot_metrics,
+        "pilot_failures": get_pilot_failures(limit=limit),
+        "pilot_readiness_score": pilot_readiness.get("pilot_readiness_score", 0.0),
+        "pilot_warnings": pilot_readiness.get("warnings", []),
         "counts_by_stage": workflow_summary.get("stage_counts", {}),
         "pending_approvals": workflow_summary.get("approvals_pending", 0),
         "pending_review_ready": workflow_summary.get("review_ready_pending", 0),

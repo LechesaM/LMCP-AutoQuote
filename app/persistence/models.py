@@ -56,3 +56,15 @@ class PricingDecisionEntity(PersistenceEntity):
 
 class QuotePackEntity(PersistenceEntity):
     workflow_stage: str = "quote_generated"
+
+
+class PilotRunEntity(PersistenceEntity):
+    workflow_stage: str = ""
+    pilot_mode: str = ""
+    run_status: str = ""
+
+
+class PilotSignoffEntity(PersistenceEntity):
+    workflow_stage: str = ""
+    signoff_type: str = ""
+    signoff_status: str = ""

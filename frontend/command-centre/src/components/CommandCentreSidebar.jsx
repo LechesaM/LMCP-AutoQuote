@@ -6,8 +6,8 @@ import {
   Gauge,
   LayoutDashboard,
   ListChecks,
-  PackageCheck,
-  Scale,
+  Radar,
+  ServerCog,
   ShieldCheck,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -16,16 +16,19 @@ import { commandCentreRoutes } from "../routes/commandCentreRoutes";
 const navIcons = {
   "/dashboard": LayoutDashboard,
   "/operations": FileSearch,
+  "/source-health": ServerCog,
+  "/qualification-insights": Radar,
+  "/pricing-evidence": BadgeDollarSign,
   "/review": ListChecks,
   "/governance": ShieldCheck,
 };
 
 const secondaryItems = [
-  { label: "Pricing Review", Icon: BadgeDollarSign },
-  { label: "Quote Pack Engine", Icon: PackageCheck },
+  { label: "Source Health", Icon: ServerCog },
+  { label: "Qualification Insights", Icon: Radar },
+  { label: "Pricing Evidence", Icon: BadgeDollarSign },
   { label: "Review Workflow", Icon: ClipboardCheck },
   { label: "Queue Monitor", Icon: GitBranch },
-  { label: "Compliance Review", Icon: Scale },
   { label: "Operational Health", Icon: Gauge },
 ];
 

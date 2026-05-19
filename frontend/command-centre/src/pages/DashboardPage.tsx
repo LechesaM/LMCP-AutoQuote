@@ -5,8 +5,11 @@ import OpportunityRadar from "../components/radar/OpportunityRadar.tsx";
 import AnalyticsPanel from "../components/charts/AnalyticsPanel.tsx";
 import GovernanceRulesGrid from "../components/governance/GovernanceRulesGrid.tsx";
 import OperationalHealthPanel from "../components/health/OperationalHealthPanel.tsx";
+import OperationalAlertsPanel from "../components/workflows/OperationalAlertsPanel.tsx";
 import useTelemetryStore from "../store/telemetryStore";
 import { BadgeDollarSign, FileText, Gauge, LineChart, PackageCheck, Percent } from "lucide-react";
+import { Link } from "react-router-dom";
+import { commandCentreRoutes } from "../routes/commandCentreRoutes";
 
 export default function DashboardPage() {
   const { commandMetrics, dataSource, lastRefreshedAt, stale, loading, refreshing, error } = useTelemetryStore((state) => ({
@@ -50,6 +53,9 @@ export default function DashboardPage() {
       <div className="mt-6">
         <OperationalHealthPanel />
       </div>
+      <div className="mt-6">
+        <OperationalAlertsPanel />
+      </div>
       <section className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-6">
         <MetricCard title="Total Harvested RFQs" value={commandMetrics.totalHarvested} subtitle="Live runtime totals" icon={FileText} accent="cyan" state={metricState} />
         <MetricCard title="Eligible RFQs" value={commandMetrics.eligibleRfqs} subtitle="Supply & delivery qualified" icon={PackageCheck} state={metricState} />
@@ -77,6 +83,17 @@ export default function DashboardPage() {
           <OpportunityRadar />
         </div>
         <AnalyticsPanel />
+      </section>
+      <section className="mt-6 grid gap-4 md:grid-cols-3 xl:grid-cols-5">
+        {commandCentreRoutes
+          .filter((route) => route.path !== "/dashboard" && route.path !== "/governance")
+          .map((route) => (
+            <Link key={route.path} to={route.path} className="glass-card rounded-3xl p-5 transition hover:scale-[1.01] hover:border-command-cyan/30">
+              <div className="text-xs font-black uppercase tracking-[.26em] text-command-cyan">Navigate</div>
+              <div className="mt-2 text-lg font-black text-white">{route.label}</div>
+              <div className="mt-1 text-sm text-slate-400">{route.description}</div>
+            </Link>
+          ))}
       </section>
       <div className="mt-6">
         <GovernanceRulesGrid />

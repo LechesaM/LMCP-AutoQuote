@@ -1,4 +1,8 @@
 import type { DashboardTelemetry } from "../types/telemetry";
+import type { RFQWorkflowDetail, RFQWorkflowResponse } from "../types/rfq";
+import type { QualificationInsightsResponse } from "../types/qualification";
+import type { PricingEvidenceResponse } from "../types/pricingEvidence";
+import type { SourceHealthDetailsResponse } from "../types/sourceHealth";
 
 export type ApiEnvelope<T> = {
   data: T;
@@ -135,3 +139,10 @@ export type OperationalHealthTelemetryResponse = {
 };
 
 export type { DashboardTelemetry };
+export type {
+  RFQWorkflowDetail,
+  RFQWorkflowResponse,
+  QualificationInsightsResponse,
+  PricingEvidenceResponse,
+  SourceHealthDetailsResponse,
+};

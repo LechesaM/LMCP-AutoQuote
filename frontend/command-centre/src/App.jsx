@@ -5,6 +5,9 @@ import RouteLoadingState from "./components/ui/RouteLoadingState.tsx";
 
 const DashboardPage = lazy(() => import("./pages/DashboardPage.tsx"));
 const RFQOperationsPage = lazy(() => import("./pages/RFQOperationsPage.tsx"));
+const SourceHealthPage = lazy(() => import("./pages/SourceHealthPage.tsx"));
+const QualificationInsightsPage = lazy(() => import("./pages/QualificationInsightsPage.tsx"));
+const PricingEvidencePage = lazy(() => import("./pages/PricingEvidencePage.tsx"));
 const ReviewQueuePage = lazy(() => import("./pages/ReviewQueuePage.tsx"));
 const GovernancePage = lazy(() => import("./pages/GovernancePage.tsx"));
 
@@ -17,6 +20,9 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/operations" element={<RFQOperationsPage />} />
+            <Route path="/source-health" element={<SourceHealthPage />} />
+            <Route path="/qualification-insights" element={<QualificationInsightsPage />} />
+            <Route path="/pricing-evidence" element={<PricingEvidencePage />} />
             <Route path="/review" element={<ReviewQueuePage />} />
             <Route path="/governance" element={<GovernancePage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

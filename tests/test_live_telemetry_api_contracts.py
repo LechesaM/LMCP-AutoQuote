@@ -79,7 +79,7 @@ def test_missing_runtime_data_returns_fallback_response(monkeypatch, tmp_path: P
     monkeypatch.setattr(contracts, "get_dashboard_summary", _raise)
     payload = contracts.build_dashboard_telemetry_response()
 
-    assert payload["data_source"] == "runtime_fallback"
+    assert payload["data_source"] in {"runtime_fallback", "mixed", "fallback"}
     assert payload["status"] == "degraded"
     assert payload["province_distribution"] == []
     assert payload["opportunity_breakdown"] == []

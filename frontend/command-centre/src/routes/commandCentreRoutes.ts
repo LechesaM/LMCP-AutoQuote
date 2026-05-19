@@ -10,6 +10,21 @@ export const commandCentreRoutes = [
     description: "Harvest and qualification flow",
   },
   {
+    path: "/source-health",
+    label: "Source Health",
+    description: "Harvest source and parser state",
+  },
+  {
+    path: "/qualification-insights",
+    label: "Qualification Insights",
+    description: "GO / manual / reject intelligence",
+  },
+  {
+    path: "/pricing-evidence",
+    label: "Pricing Evidence",
+    description: "Supplier quote defensibility",
+  },
+  {
     path: "/review",
     label: "Review Queue",
     description: "Operator capacity and queue health",

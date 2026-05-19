@@ -50,3 +50,5 @@ class RFQRecord(StrictBaseModel):
     eligible_for_quoting: bool = True
     extraction_confidence: float = 0.0
     extraction_notes: List[str] = Field(default_factory=list)
+    extraction_quality_score: float = 0.0
+    extraction_quality_notes: List[str] = Field(default_factory=list)

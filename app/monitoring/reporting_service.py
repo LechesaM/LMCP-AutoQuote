@@ -6,6 +6,10 @@ from app.monitoring.health_service import get_system_health
 from app.monitoring.metrics_service import get_metrics_snapshot
 from app.monitoring.runtime_diagnostics import get_runtime_diagnostics
 from app.monitoring.workflow_monitor import find_invalid_workflows, find_stuck_workflows, get_workflow_summary
+from app.analytics.tender_success_analytics import build_tender_success_analytics
+from app.quality.context import build_quality_context
+from app.quality.operator_recommendations import generate_operator_recommendations
+from app.quality.quote_pack_quality import build_quote_pack_quality_report
 from app.pilot.pilot_readiness_report import build_pilot_readiness_report
 from app.persistence.repositories import get_persistence_health
 
@@ -13,6 +17,13 @@ from app.persistence.repositories import get_persistence_health
 def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500) -> Dict[str, Any]:
     metrics = get_metrics_snapshot()
     pilot = build_pilot_readiness_report(limit=limit)
+    tender_analytics = build_tender_success_analytics(limit=limit)
+    quality_context = build_quality_context(limit=limit)
+    quality_summary = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
+    recommendations = generate_operator_recommendations(
+        workflow_summary=get_workflow_summary(limit=limit),
+        quality_summary=quality_summary,
+    )
     return {
         "system_health": get_system_health(),
         "workflow_summary": get_workflow_summary(limit=limit),
@@ -22,6 +33,9 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
         "runtime_diagnostics": get_runtime_diagnostics(),
         "metrics": metrics,
         "pilot": pilot,
+        "quality_summary": quality_summary,
+        "tender_success_analytics": tender_analytics,
+        "operator_recommendations": recommendations,
         "failure_summary": {
             "workflow_failures": metrics["metrics"].get("workflow_failures", 0),
             "persistence_failures": metrics["metrics"].get("persistence_failures", 0),
@@ -40,6 +54,8 @@ def render_operational_report_text(report: Optional[Dict[str, Any]] = None) -> s
     persistence = report.get("persistence", {})
     diagnostics = report.get("runtime_diagnostics", {})
     pilot = report.get("pilot", {})
+    quality = report.get("quality_summary", {})
+    tender_analytics = report.get("tender_success_analytics", {})
     lines = [
         f"System status: {health.get('status', 'unknown')}",
         f"Environment: {health.get('environment', '')} / {health.get('production_mode', '')}",
@@ -56,5 +72,7 @@ def render_operational_report_text(report: Optional[Dict[str, Any]] = None) -> s
         f"Pilot mode: {pilot.get('pilot_mode', {}).get('pilot_mode', 'disabled')}",
         f"Pilot readiness score: {pilot.get('pilot_readiness_score', 0.0)}",
         f"Pilot failures: {len(pilot.get('pilot_failures', []))}",
+        f"Quote pack readiness: {quality.get('quality_score', 0.0)}",
+        f"Tender quote conversion: {tender_analytics.get('quote_conversion_rate', 0.0)}",
     ]
     return "\n".join(lines)

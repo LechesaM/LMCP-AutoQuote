@@ -47,7 +47,7 @@ from app.monitoring.workflow_monitor import get_workflow_summary
 from app.pilot.pilot_metrics import get_pilot_metrics
 from app.pilot.pilot_readiness_report import build_pilot_readiness_report
 from app.pilot.pilot_run_service import get_pilot_failures, get_pilot_successes, get_pilot_summary
-from app.pilot.pilot_signoff import get_pilot_signoffs, get_signoff_history
+from app.pilot.pilot_signoff import get_pilot_signoffs
 from app.services.operator_auth_service import ensure_operator_auth_schema
 from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
 from app.services.quote_review_service import ensure_quote_pack_schema

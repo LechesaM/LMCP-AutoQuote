@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import Field
 
@@ -32,3 +32,6 @@ class SupplierQuote(StrictBaseModel):
     quote_valid_until: Optional[datetime] = None
     confidence_notes: List[str] = Field(default_factory=list)
     lines: List[SupplierQuoteLine] = Field(default_factory=list)
+    confidence_score: float = 0.0
+    price_anomaly_notes: List[str] = Field(default_factory=list)
+    comparison_summary: Dict[str, Any] = Field(default_factory=dict)

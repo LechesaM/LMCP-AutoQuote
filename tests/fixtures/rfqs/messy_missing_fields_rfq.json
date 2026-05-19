@@ -1,0 +1,14 @@
+{
+  "tender_id": "RFQ-MESSY-001",
+  "title": "Office Supplies and Stationery",
+  "buyer_name": "",
+  "province": "Gauteng",
+  "category": "",
+  "closing_date": "",
+  "source_files": ["source_files/messy_missing_fields_rfq.pdf"],
+  "line_items": [],
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": false,
+  "pricing_file": "source_files/messy_missing_fields_pricing_schedule.xlsx"
+}

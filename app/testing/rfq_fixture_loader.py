@@ -19,6 +19,7 @@ class RFQFixture(StrictBaseModel):
     closing_date: str = ""
     source_files: List[str] = Field(default_factory=list)
     line_items: List[Dict[str, Any]] = Field(default_factory=list)
+    buyer_pricing_schedule: Dict[str, Any] = Field(default_factory=dict)
     expected_exclusion_status: str = ""
     expected_minimum_profit_result: str = ""
     expected_submission_ready: bool = False

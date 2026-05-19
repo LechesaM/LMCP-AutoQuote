@@ -1,0 +1,87 @@
+# Production Quality Optimization
+
+## Purpose
+
+This branch improves production-quality outcomes without changing workflow governance, procurement rules, or submission controls.
+
+## RFQ Extraction Scoring
+
+- RFQ extraction is scored for required-field completeness.
+- Missing buyer, missing closing date, missing line items, and ambiguous category generate warnings.
+- Exclusion detection adds confidence for:
+  - medical consumables
+  - IT equipment
+  - petrol
+  - diesel
+  - catering
+  - compulsory briefing sessions
+
+## Buyer Schedule Completion Scoring
+
+- Buyer pricing schedules are checked for:
+  - item description
+  - quantity
+  - unit
+  - unit price
+  - total
+  - VAT where applicable
+  - delivery where applicable
+- Incomplete rows generate warnings and reduce completion score.
+
+## Quote-Pack Readiness Scoring
+
+- Quote packs are scored for professional completeness.
+- Checks include:
+  - company details
+  - buyer details
+  - tender reference
+  - pricing schedule
+  - VAT treatment
+  - validity period
+  - delivery terms
+  - signature/approval placeholder
+- Missing artifacts lower readiness and are reported as warnings.
+
+## Supplier Pricing Confidence
+
+- Supplier quotes are scored for confidence and anomaly risk.
+- Checks include:
+  - zero price
+  - negative price
+  - unusually low price
+  - unusually high price
+  - missing delivery cost
+  - missing VAT clarity
+- Comparison summaries remain advisory only.
+
+## Operator Recommendations
+
+- Operator recommendations are advisory only.
+- Allowed recommendations include:
+  - approve
+  - review
+  - capture proof
+  - refuse
+  - archive
+  - rerun validation
+- Recommendations must not mutate workflow state.
+
+## Tender Success Analytics
+
+- Real tender outcomes are tracked manually.
+- Analytics report:
+  - RFQs processed
+  - RFQs eligible
+  - RFQs refused
+  - quotes generated
+  - reviewed packs
+  - proof captured
+  - submitted manually
+  - won / lost / unknown / cancelled / expired
+- Awards are never inferred automatically.
+
+## Rules
+
+- All recommendations are advisory only.
+- No autonomous final submission.
+- No bypass of manual approval, review-ready, or proof-capture requirements.

@@ -1,0 +1,40 @@
+{
+  "tender_id": "RFQ-INCOMPLETE-SCHEDULE-001",
+  "title": "Supply and Delivery of Consumables",
+  "buyer_name": "Municipality Example",
+  "province": "KwaZulu-Natal",
+  "category": "supply and delivery",
+  "closing_date": "2026-12-31T12:00:00+00:00",
+  "source_files": ["source_files/incomplete_schedule_rfq.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Exercise books",
+      "quantity": 100,
+      "unit": "Box",
+      "unit_of_measure": "Box",
+      "notes": "Missing pricing schedule detail"
+    }
+  ],
+  "buyer_pricing_schedule": {
+    "rows": [
+      {
+        "item_description": "Exercise books",
+        "quantity": 100,
+        "unit": "Box"
+      },
+      {
+        "item_description": "Pens",
+        "quantity": 50,
+        "unit": "Pack",
+        "unit_price": 0,
+        "total": 0,
+        "vat_applicable": true
+      }
+    ]
+  },
+  "expected_exclusion_status": "eligible",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": false,
+  "pricing_file": "source_files/incomplete_schedule_pricing_schedule.xlsx"
+}

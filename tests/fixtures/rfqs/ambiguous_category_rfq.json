@@ -1,0 +1,23 @@
+{
+  "tender_id": "RFQ-AMBIG-001",
+  "title": "Mandatory Briefing Session for General Services",
+  "buyer_name": "City of Example",
+  "province": "Western Cape",
+  "category": "general",
+  "closing_date": "2026-12-31T12:00:00+00:00",
+  "source_files": ["source_files/ambiguous_category_rfq.pdf"],
+  "line_items": [
+    {
+      "line_number": 1,
+      "description": "Briefing pack",
+      "quantity": 1,
+      "unit": "Set",
+      "unit_of_measure": "Set",
+      "notes": "Includes compulsory briefing reference"
+    }
+  ],
+  "expected_exclusion_status": "excluded",
+  "expected_minimum_profit_result": "above_margin",
+  "expected_submission_ready": false,
+  "pricing_file": "source_files/ambiguous_category_pricing_schedule.xlsx"
+}

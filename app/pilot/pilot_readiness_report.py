@@ -9,6 +9,9 @@ from app.pilot.pilot_metrics import calculate_readiness_score, calculate_success
 from app.pilot.pilot_run_service import get_pilot_failures, get_pilot_summary, get_pilot_successes
 from app.pilot.pilot_mode import get_pilot_execution_metadata
 from app.pilot.pilot_signoff import get_pilot_signoffs
+from app.analytics.tender_success_analytics import build_tender_success_analytics
+from app.quality.context import build_quality_context
+from app.quality.quote_pack_quality import build_quote_pack_quality_report
 
 
 class PilotReadinessReport(StrictBaseModel):
@@ -17,6 +20,8 @@ class PilotReadinessReport(StrictBaseModel):
     pilot_mode: Dict[str, Any] = Field(default_factory=dict)
     pilot_metrics: Dict[str, Any] = Field(default_factory=dict)
     pilot_summary: Dict[str, Any] = Field(default_factory=dict)
+    quality_summary: Dict[str, Any] = Field(default_factory=dict)
+    tender_success_analytics: Dict[str, Any] = Field(default_factory=dict)
     pilot_failures: list[Dict[str, Any]] = Field(default_factory=list)
     pilot_successes: list[Dict[str, Any]] = Field(default_factory=list)
     pilot_signoffs: list[Dict[str, Any]] = Field(default_factory=list)
@@ -36,6 +41,9 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
     failures = get_pilot_failures(limit=limit)
     successes = get_pilot_successes(limit=limit)
     signoffs = get_pilot_signoffs(limit=limit)
+    quality_context = build_quality_context(limit=limit)
+    quality_summary = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
+    tender_analytics = build_tender_success_analytics(limit=limit)
     readiness_score = calculate_readiness_score()
     success_rate = calculate_success_rate()
     pilot_mode = get_pilot_execution_metadata()
@@ -57,6 +65,8 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         pilot_mode=pilot_mode,
         pilot_metrics=metrics,
         pilot_summary=summary,
+        quality_summary=quality_summary,
+        tender_success_analytics=tender_analytics,
         pilot_failures=failures,
         pilot_successes=successes,
         pilot_signoffs=signoffs,
@@ -84,5 +94,7 @@ def render_pilot_readiness_text(report: Optional[Dict[str, Any]] = None) -> str:
             f"Refusal handling score: {report.get('refusal_handling_score', 0.0)}",
             f"Recovery readiness score: {report.get('recovery_readiness_score', 0.0)}",
             f"Pilot mode: {report.get('pilot_mode', {}).get('pilot_mode', 'disabled')}",
+            f"Quote pack readiness: {report.get('quality_summary', {}).get('quality_score', 0.0)}",
+            f"Quote conversion rate: {report.get('tender_success_analytics', {}).get('quote_conversion_rate', 0.0)}",
         ]
     )

@@ -14,6 +14,11 @@ from app.domain.quote import QuotePack, QuotePackArtifact
 from app.domain.rfq import RFQRecord
 from app.domain.workflow import WorkflowStage
 from app.persistence import jsonl_compat
+from app.quality.context import build_quality_context
+from app.quality.extraction_quality import build_rfq_extraction_quality_report
+from app.quality.pricing_schedule_quality import build_pricing_schedule_quality_report
+from app.quality.quote_pack_quality import build_quote_pack_quality_report
+from app.quality.supplier_pricing_quality import build_supplier_comparison_summary
 from app.services import manual_approval_service, submission_proof_service, submission_review_service
 from app.testing.rfq_fixture_loader import load_fixture
 from app.testing.workflow_replay import replay_workflow_history
@@ -33,6 +38,7 @@ class ProductionValidationResult(StrictBaseModel):
     audit_verified: bool = False
     manual_submission_preserved: bool = True
     source_fixture: str = ""
+    quality_summary: Dict[str, Any] = Field(default_factory=dict)
     updated_at: Any = None
 
 def _ensure_text_file(path: Path, content: str) -> str:
@@ -146,6 +152,25 @@ class E2ERFQHarness:
         path = _ensure_text_file(runtime_root / f"{rfq_record['tender_id']}_submission_pack_manifest.txt", "submission pack")
         return {"submission_pack_path": path, "submission_pack_present": True, "submission_ready": True}
 
+    def _build_quality_summary(self, rfq: Dict[str, Any], quote_pack: Dict[str, Any]) -> Dict[str, Any]:
+        quality_context = build_quality_context(limit=50)
+        rfq_report = build_rfq_extraction_quality_report(quality_context.get("rfq_payload") or rfq)
+        schedule_report = build_pricing_schedule_quality_report(
+            quality_context.get("schedule_payload")
+            or {
+                "completed_buyer_schedule_path": quote_pack.get("completed_buyer_schedule_path", ""),
+                "rows": rfq.get("line_items") or [],
+            }
+        )
+        quote_pack_report = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or quote_pack)
+        supplier_report = build_supplier_comparison_summary(quality_context.get("supplier_quotes") or [])
+        return {
+            "rfq_extraction": rfq_report,
+            "pricing_schedule": schedule_report,
+            "quote_pack": quote_pack_report,
+            "supplier_pricing": supplier_report,
+        }
+
     def run_lifecycle(self, rfq_record: Dict[str, Any]) -> Dict[str, Any]:
         rfq = self._create_rfq_record(rfq_record)
         tender_id = rfq["tender_id"]
@@ -168,6 +193,7 @@ class E2ERFQHarness:
                 audit_verified=not bool(replay.get("missing_audit_events")),
                 manual_submission_preserved=True,
                 source_fixture=str(rfq_record.get("fixture_path") or ""),
+                quality_summary=self._build_quality_summary(rfq, {"artifacts": []}),
                 updated_at=utc_now(),
             )
             return result.to_jsonable_dict()
@@ -236,6 +262,7 @@ class E2ERFQHarness:
             audit_verified=audit_verified,
             manual_submission_preserved=not bool(proof_record.get("final_submission_attempted", False)) if "proof_record" in locals() else True,
             source_fixture=str(rfq_record.get("fixture_path") or ""),
+            quality_summary=self._build_quality_summary(rfq, quote_pack if "quote_pack" in locals() else {}),
             updated_at=utc_now(),
         )
         return result.to_jsonable_dict()

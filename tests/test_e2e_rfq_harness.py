@@ -99,6 +99,8 @@ def test_valid_rfq_completes_to_proof_recorded(monkeypatch, tmp_path: Path) -> N
     assert result["persistence_verified"] is True
     assert result["audit_verified"] is True
     assert result["workflow_history"]
+    assert "quality_summary" in result
+    assert "rfq_extraction" in result["quality_summary"]
     assert any(path.endswith("__quote_pack.pdf") for path in result["artifacts_created"])
     assert any(path.endswith("__quote_pack.json") for path in result["artifacts_created"])
     assert any(path.endswith("_submission_pack_manifest.txt") for path in result["artifacts_created"])
@@ -199,8 +201,8 @@ def test_readiness_report_calculates_score(monkeypatch, tmp_path: Path) -> None:
     report = build_readiness_report(str(FIXTURES_DIR))
     text = render_readiness_report_text(report)
 
-    assert report["total_fixtures"] == 4
-    assert report["passed_fixtures"] == 1
+    assert report["total_fixtures"] == 7
+    assert report["passed_fixtures"] == 4
     assert report["refused_fixtures"] == 3
     assert report["failed_fixtures"] == 0
     assert report["production_readiness_score"] > 0

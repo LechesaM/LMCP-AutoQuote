@@ -587,6 +587,40 @@ class PilotSignoffRepository(BaseRepository):
         return payload
 
 
+class TenderOutcomeRepository(BaseRepository):
+    table_name = "tender_outcome_records"
+
+    def append_outcome(self, record: Dict[str, Any]) -> Dict[str, Any]:
+        payload = dict(record or {})
+        payload.setdefault("created_at", _now_iso())
+        payload.setdefault("updated_at", payload["created_at"])
+        payload_json = json.dumps(payload.get("payload") or payload, ensure_ascii=False, default=str)
+        try:
+            with db.connection_scope() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO tender_outcome_records (
+                        tender_id, workflow_stage, actor, operator, outcome_status, payload_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        _safe_str(payload.get("tender_id")),
+                        _safe_str(payload.get("workflow_stage")),
+                        _safe_str(payload.get("actor")),
+                        _safe_str(payload.get("operator")),
+                        _safe_str(payload.get("outcome_status")),
+                        payload_json,
+                        _safe_str(payload.get("created_at")),
+                        _safe_str(payload.get("updated_at")),
+                    ),
+                )
+                record_persistence_write_success("tender_outcome_records")
+        except Exception:
+            record_persistence_write_failure("tender_outcome_records")
+            raise
+        return payload
+
+
 class QueueJobRepository(BaseRepository):
     table_name = "queue_job_records"
 

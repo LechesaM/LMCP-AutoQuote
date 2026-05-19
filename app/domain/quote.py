@@ -17,6 +17,8 @@ class BuyerPricingScheduleCompletion(StrictBaseModel):
     completed_buyer_schedule_path: str = ""
     completed: bool = False
     missing_fields: List[str] = Field(default_factory=list)
+    completion_score: float = 0.0
+    warnings: List[str] = Field(default_factory=list)
 
 
 class QuotePack(StrictBaseModel):
@@ -27,3 +29,5 @@ class QuotePack(StrictBaseModel):
     quote_pack_ready: bool = False
     missing_artifacts: List[str] = Field(default_factory=list)
     artifacts: List[QuotePackArtifact] = Field(default_factory=list)
+    quality_score: float = 0.0
+    quality_notes: List[str] = Field(default_factory=list)

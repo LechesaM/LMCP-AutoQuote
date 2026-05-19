@@ -17,6 +17,7 @@ from app.config import settings
 from app.deployment.deployment_report import build_deployment_report
 from app.deployment.environment_validator import validate_environment
 from app.deployment.graceful_shutdown import run_graceful_shutdown
+from app.deployment.production_startup import configure_production_app
 from app.deployment.startup_validator import validate_startup
 from app.core.runtime_config import get_runtime_config
 from app.dashboard.dashboard_service import (
@@ -48,6 +49,7 @@ from app.pilot.pilot_metrics import get_pilot_metrics
 from app.pilot.pilot_readiness_report import build_pilot_readiness_report
 from app.pilot.pilot_run_service import get_pilot_failures, get_pilot_successes, get_pilot_summary
 from app.pilot.pilot_signoff import get_pilot_signoffs
+from app.auth.session_service import ensure_auth_schema
 from app.services.operator_auth_service import ensure_operator_auth_schema
 from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
 from app.services.quote_review_service import ensure_quote_pack_schema
@@ -124,6 +126,7 @@ async def lifespan(app: FastAPI):
     app.state.startup_validation = validate_startup(allow_degraded_startup=_allow_degraded_startup())
     app.state.deployment_report = build_deployment_report()
     ensure_operator_auth_schema()
+    ensure_auth_schema()
     try:
         ensure_quote_pack_schema()
     except Exception as exc:
@@ -169,6 +172,7 @@ async def lifespan(app: FastAPI):
 
 def build_application() -> FastAPI:
     app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
+    configure_production_app(app)
 
     allow_origins = list(settings.cors_origins) if settings.cors_origins else ["*"]
     app.add_middleware(

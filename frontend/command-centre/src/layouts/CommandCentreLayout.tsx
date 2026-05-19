@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { ShieldCheck, Gauge, Layers3, MapPinned, Route } from "lucide-react";
 import CommandCentreSidebar from "../components/layout/CommandCentreSidebar.tsx";
+import UserMenu from "../components/auth/UserMenu.tsx";
 import { applyCommandCentreThemeVars, commandCentreTheme } from "../styles/theme";
 
 export default function CommandCentreLayout({ routeTelemetry, children }) {
@@ -18,9 +19,12 @@ export default function CommandCentreLayout({ routeTelemetry, children }) {
             <h1 className="mt-2 text-4xl font-black tracking-tight text-white">{commandCentreTheme.brand.name} AutoQuote {commandCentreTheme.brand.title}</h1>
             <p className="mt-2 max-w-4xl text-sm text-slate-400">Harvest intelligence, RFQ qualification, operator review queues, pricing evidence, quote-pack readiness and manual-governed submission oversight.</p>
           </div>
-          <div className="rounded-2xl border border-command-green/30 bg-command-green/10 px-5 py-3 text-right">
-            <div className="text-xs font-black uppercase tracking-[.22em] text-command-green">Production Mode</div>
-            <div className="mt-1 text-lg font-black text-white">Supervised Live</div>
+          <div className="flex flex-col gap-3 text-right">
+            <div className="rounded-2xl border border-command-green/30 bg-command-green/10 px-5 py-3">
+              <div className="text-xs font-black uppercase tracking-[.22em] text-command-green">Production Mode</div>
+              <div className="mt-1 text-lg font-black text-white">Supervised Live</div>
+            </div>
+            <UserMenu />
           </div>
         </div>
 

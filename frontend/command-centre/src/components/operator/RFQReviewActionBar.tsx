@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Archive, CheckCircle2, CircleHelp, ClipboardCheck, FileWarning, HandCoins, MessageSquareWarning, RotateCcw, SendToBack } from "lucide-react";
+import useAuthStore from "../../auth/authStore";
 import ActionBadge from "../ui/ActionBadge.tsx";
 import ConfirmationModal from "../ui/ConfirmationModal.tsx";
 
@@ -17,6 +18,7 @@ const ACTIONS = [
 ];
 
 export default function RFQReviewActionBar({ rfq = {}, onAction, loading = false, disabled = false }) {
+  const can = useAuthStore((state) => state.can);
   const [operatorId, setOperatorId] = useState("operator-1");
   const [note, setNote] = useState("");
   const [pendingAction, setPendingAction] = useState(null);
@@ -92,7 +94,20 @@ export default function RFQReviewActionBar({ rfq = {}, onAction, loading = false
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {ACTIONS.map(({ action, label, icon: Icon, tone }) => (
+        {ACTIONS.map(({ action, label, icon: Icon, tone }) => {
+          const permission = action === "assign_operator"
+            ? "assign_operator"
+            : action === "mark_reviewed" || action === "request_clarification" || action === "mark_evidence_incomplete" || action === "mark_supplier_quote_received" || action === "mark_waiting_pricing" || action === "reopen_review"
+              ? "mark_reviewed"
+              : action === "escalate_review"
+                ? "escalate_review"
+                : action === "archive_rfq"
+                  ? "archive_rfq"
+                  : action === "acknowledge_alert"
+                    ? "acknowledge_alert"
+                    : "";
+          const permitted = permission ? can(permission) : true;
+          return (
           <button
             key={action}
             className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-bold transition ${
@@ -104,14 +119,16 @@ export default function RFQReviewActionBar({ rfq = {}, onAction, loading = false
                     ? "border-command-amber/40 bg-command-amber/10 text-command-amber"
                     : "border-command-cyan/40 bg-command-cyan/10 text-command-cyan"
             }`}
-            disabled={disabled || loading}
+            disabled={disabled || loading || !permitted}
             onClick={() => setPendingAction({ action, label })}
             type="button"
+            title={!permitted ? "Your role does not permit this action" : ""}
           >
             <Icon size={14} />
             {label}
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {error ? <div className="mt-4 rounded-2xl border border-command-red/30 bg-command-red/10 px-4 py-3 text-sm text-slate-200">{error}</div> : null}

@@ -10,13 +10,16 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "axios": "^1.16.1",
     "leaflet": "latest",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
     "react-leaflet": "latest",
+    "react-router-dom": "^7.15.1",
     "recharts": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "autoprefixer": "^10.5.0",

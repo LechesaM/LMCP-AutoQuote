@@ -235,6 +235,65 @@ class WorkflowRepository(BaseRepository):
     table_name = "workflow_state_records"
     jsonl_path = None
 
+    def _current_states_from_records(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        current: Dict[str, Dict[str, Any]] = {}
+        for record in records:
+            tender_id = _safe_str(record.get("tender_id"))
+            if tender_id and tender_id not in current:
+                current[tender_id] = record
+        return list(current.values())
+
+    def fetch_current_states(self, limit: int = 100) -> List[Dict[str, Any]]:
+        records = self.fetch_recent(limit=limit)
+        return self._current_states_from_records(records)
+
+    def fetch_current_by_stage(self, stage: str, limit: int = 100) -> List[Dict[str, Any]]:
+        current = self.fetch_current_states(limit=max(1, int(limit or 100)) * 10)
+        return [item for item in current if _safe_str(item.get("stage")) == _safe_str(stage)][: max(1, int(limit or 100))]
+
+    def fetch_by_stage(self, stage: str, limit: int = 100) -> List[Dict[str, Any]]:
+        try:
+            with db.connection_scope() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT *
+                    FROM workflow_state_records
+                    WHERE workflow_stage = ?
+                    ORDER BY updated_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (_safe_str(stage), int(limit or 100)),
+                ).fetchall()
+            record_persistence_read_success("workflow_state_records")
+            records = [
+                {
+                    "tender_id": _to_row_dict(row).get("tender_id", ""),
+                    "stage": _to_row_dict(row).get("workflow_stage") or "",
+                    "updated_at": _to_row_dict(row).get("updated_at") or _to_row_dict(row).get("created_at") or "",
+                    "details": _to_row_dict(row).get("payload") or {},
+                }
+                for row in rows
+            ]
+            return [
+                item
+                for item in self._current_states_from_records(records)
+                if _safe_str(item.get("stage")) == _safe_str(stage)
+            ]
+        except Exception:
+            record_persistence_read_failure("workflow_state_records")
+            record_persistence_fallback_usage("workflow_state_records")
+            logger.warning("DB workflow stage fetch failed, falling back to JSONL", exc_info=True)
+            return [
+                {
+                    "tender_id": item.get("tender_id", ""),
+                    "stage": item.get("stage") or item.get("workflow_stage") or "",
+                    "updated_at": item.get("updated_at") or item.get("created_at") or "",
+                    "details": item.get("details") or item.get("payload") or {},
+                }
+                for item in reversed(_read_jsonl_records(self.jsonl_path))
+                if _safe_str(item.get("stage") or item.get("workflow_stage")) == _safe_str(stage)
+            ][: max(1, int(limit or 100))]
+
     def append_state(self, record: Dict[str, Any]) -> Dict[str, Any]:
         payload = dict(record or {})
         payload.setdefault("workflow_stage", _safe_str(payload.get("stage") or payload.get("workflow_stage")))

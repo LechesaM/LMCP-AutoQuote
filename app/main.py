@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterable, List, Tuple
 
 from fastapi import FastAPI
+from fastapi import Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
@@ -14,10 +15,33 @@ from fastapi.staticfiles import StaticFiles
 from app.api.router_registry import RouterSpec, iter_router_specs
 from app.config import settings
 from app.core.runtime_config import get_runtime_config
+from app.dashboard.dashboard_service import (
+    get_dashboard_summary,
+    get_recent_approvals,
+    get_recent_proofs,
+    get_recent_refusals,
+    get_recent_reviews,
+    get_recent_workflows,
+)
+from app.dashboard.health_views import get_dashboard_health
+from app.dashboard.operator_actions_service import (
+    acknowledge_warning as dashboard_acknowledge_warning,
+    add_operator_note as dashboard_add_operator_note,
+    archive_workflow as dashboard_archive_workflow,
+    refuse_workflow as dashboard_refuse_workflow,
+)
+from app.dashboard.workflow_queue_service import (
+    get_archived_queue,
+    get_pending_approval_queue,
+    get_proof_capture_queue,
+    get_refused_queue,
+    get_review_ready_queue,
+)
 from app.monitoring.health_service import get_system_health
 from app.monitoring.reporting_service import build_operational_report
 from app.monitoring.workflow_monitor import get_workflow_summary
 from app.services.operator_auth_service import ensure_operator_auth_schema
+from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
 from app.services.quote_review_service import ensure_quote_pack_schema
 
 
@@ -229,3 +253,82 @@ def workflow_health() -> Dict[str, Any]:
 @app.get("/health/operational-report")
 def operational_report() -> Dict[str, Any]:
     return build_operational_report()
+
+
+@app.get("/dashboard/summary")
+def dashboard_summary() -> Dict[str, Any]:
+    return get_dashboard_summary()
+
+
+@app.get("/dashboard/workflows")
+def dashboard_workflows() -> Dict[str, Any]:
+    return {
+        "workflows": get_recent_workflows(),
+        "approvals": get_recent_approvals(),
+        "reviews": get_recent_reviews(),
+        "proofs": get_recent_proofs(),
+        "refusals": get_recent_refusals(),
+    }
+
+
+@app.get("/dashboard/refusals")
+def dashboard_refusals() -> Dict[str, Any]:
+    return {
+        "refusals": get_recent_refusals(),
+    }
+
+
+@app.get("/dashboard/health")
+def dashboard_health() -> Dict[str, Any]:
+    return get_dashboard_health()
+
+
+@app.get("/dashboard/queues")
+def dashboard_queues() -> Dict[str, Any]:
+    return {
+        "pending_approvals": get_pending_approval_queue(),
+        "review_ready": get_review_ready_queue(),
+        "proof_capture": get_proof_capture_queue(),
+        "refused": get_refused_queue(),
+        "archived": get_archived_queue(),
+    }
+
+
+@app.post("/dashboard/archive")
+def dashboard_archive(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    operator = resolve_request_operator(request, "dashboard_archive_workflow")
+    tender_id = str(payload.get("tender_id") or "").strip()
+    reason = str(payload.get("reason") or "").strip() or "dashboard archive"
+    details = dict(payload.get("details") or {})
+    result = dashboard_archive_workflow(tender_id=tender_id, actor=operator.display_name, reason=reason, details=details)
+    return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}
+
+
+@app.post("/dashboard/refuse")
+def dashboard_refuse(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    operator = resolve_request_operator(request, "dashboard_refuse_workflow")
+    tender_id = str(payload.get("tender_id") or "").strip()
+    reason = str(payload.get("reason") or "").strip() or "dashboard refuse"
+    details = dict(payload.get("details") or {})
+    result = dashboard_refuse_workflow(tender_id=tender_id, actor=operator.display_name, reason=reason, details=details)
+    return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}
+
+
+@app.post("/dashboard/operator-note")
+def dashboard_operator_note(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    operator = resolve_request_operator(request, "dashboard_operator_note")
+    tender_id = str(payload.get("tender_id") or "").strip()
+    note = str(payload.get("note") or "").strip()
+    details = dict(payload.get("details") or {})
+    result = dashboard_add_operator_note(tender_id=tender_id, actor=operator.display_name, note=note, details=details)
+    return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}
+
+
+@app.post("/dashboard/acknowledge-warning")
+def dashboard_acknowledge_warning_endpoint(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    operator = resolve_request_operator(request, "dashboard_acknowledge_warning")
+    tender_id = str(payload.get("tender_id") or "").strip()
+    warning = str(payload.get("warning") or "").strip()
+    details = dict(payload.get("details") or {})
+    result = dashboard_acknowledge_warning(tender_id=tender_id, actor=operator.display_name, warning=warning, details=details)
+    return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}

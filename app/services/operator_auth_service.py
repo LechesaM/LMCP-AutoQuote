@@ -27,6 +27,10 @@ OPERATOR_ACTION_ALLOWED_ROLES = {
     "submission_proof_export": ("submitter", "admin"),
     "compliance_archive_create": ("admin",),
     "compliance_archive_zip_export": ("admin",),
+    "dashboard_archive_workflow": ("reviewer", "admin"),
+    "dashboard_refuse_workflow": ("reviewer", "admin"),
+    "dashboard_operator_note": ("preparer", "reviewer", "submitter", "admin"),
+    "dashboard_acknowledge_warning": ("preparer", "reviewer", "submitter", "admin"),
 }
 OPERATOR_ACTION_LABELS = {
     "submission_proof_save": "save manual submission proof",

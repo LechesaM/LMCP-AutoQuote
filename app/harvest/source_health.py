@@ -14,6 +14,10 @@ def _now() -> datetime:
 
 
 def _health_path() -> Path:
+    try:
+        get_runtime_paths.cache_clear()
+    except Exception:
+        pass
     return get_runtime_paths().manual_production_file("harvest_source_health.jsonl")
 
 

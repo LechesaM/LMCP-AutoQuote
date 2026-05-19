@@ -27,7 +27,7 @@ function StatTile({ label, value, tone = "slate", description = "" }) {
 
 export default function OperationalHealthPanel({ state }) {
   const health = useOperationalHealth();
-  const panelState = state || health.state;
+  const panelState = state || (health.loading ? "loading" : health.error && !health.dataSource ? "error" : health.stale ? "stale" : health.state);
 
   if (panelState === "loading") {
     return (
@@ -56,9 +56,23 @@ export default function OperationalHealthPanel({ state }) {
     <StateCard
       title="Operational Health"
       state={panelState}
-      description="Source failures, parser failures, queue lag, operator capacity, RFQ aging and stale evidence."
+      description="Source failures, parser failures, queue lag, operator capacity, RFQ aging, stale evidence and system failures."
+      onRetry={health.refresh}
     >
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="mb-4 flex flex-wrap gap-3">
+        <StateBadge state={panelState} />
+        <div className="rounded-full border border-slate-700/60 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[.24em] text-slate-300">
+          {health.dataSource || "runtime_fallback"}
+        </div>
+        <div className="rounded-full border border-slate-700/60 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[.24em] text-slate-300">
+          {health.loading ? "Loading" : health.refreshing ? "Refreshing" : "Ready"}
+        </div>
+        <div className="rounded-full border border-slate-700/60 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[.24em] text-slate-300">
+          Last updated {health.lastUpdated || health.telemetryUpdatedAt || "unknown"}
+        </div>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
         <StatTile
           label="Source Failures"
           value={health.sourceFailures}
@@ -95,6 +109,24 @@ export default function OperationalHealthPanel({ state }) {
           tone={health.staleEvidence > 0 ? "amber" : "green"}
           description="Evidence and alert staleness signals"
         />
+        <StatTile
+          label="Workflow Failures"
+          value={health.workflowFailures || 0}
+          tone={health.workflowFailures > 0 ? "red" : "green"}
+          description="Workflow monitor failures"
+        />
+        <StatTile
+          label="Persistence Failures"
+          value={health.persistenceFailures || 0}
+          tone={health.persistenceFailures > 0 ? "red" : "green"}
+          description="Persistence health warnings"
+        />
+        <StatTile
+          label="Audit Failures"
+          value={health.auditFailures || 0}
+          tone={health.auditFailures > 0 ? "red" : "green"}
+          description="Audit trail and event delivery"
+        />
       </div>
 
       <div className="mt-5 grid gap-3 lg:grid-cols-3">
@@ -122,7 +154,6 @@ export default function OperationalHealthPanel({ state }) {
       </div>
 
       <div className="mt-5 flex flex-wrap gap-3">
-        <StateBadge state={panelState} />
         <div className="rounded-full border border-slate-700/60 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[.24em] text-slate-300">
           <Filter className="mr-1 inline-block" size={12} />
           Governed telemetry only

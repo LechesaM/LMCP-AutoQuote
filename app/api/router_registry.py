@@ -68,6 +68,7 @@ PRODUCTION_ROUTER_SPECS: Tuple[RouterSpec, ...] = (
     _spec("rfq_lifecycle_router", "app.api.rfq_lifecycle_api"),
     _spec("mission_control_compat_router", "app.api.mission_control_compat_api"),
     _spec("harvest_router", "app.api.harvest_routes"),
+    _spec("telemetry_router", "app.api.telemetry_routes"),
 )
 
 

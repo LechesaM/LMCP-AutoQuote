@@ -1,18 +1,40 @@
 import { create } from "zustand";
 import { commandMetrics, opportunityBreakdown, provinceDistribution, recentAlerts, topHighProfitRfqs } from "../data/harvestedRfqs";
 
+const nowIso = () => new Date().toISOString();
+
 const useTelemetryStore = create((set, get) => ({
   commandMetrics,
   opportunityBreakdown,
   provinceDistribution,
   recentAlerts,
   topHighProfitRfqs,
-  lastRefreshedAt: new Date().toISOString(),
+  loading: false,
+  refreshing: false,
+  stale: false,
+  error: "",
+  dataSource: "static_seed",
+  lastRefreshedAt: nowIso(),
   currentRoute: "/dashboard",
   currentRouteLabel: "Dashboard",
   routeViewCount: 0,
-  lastRouteAt: new Date().toISOString(),
+  lastRouteAt: nowIso(),
   routeHistory: [],
+  setTelemetrySnapshot: (snapshot = {}) =>
+    set({
+      commandMetrics: snapshot.commandMetrics || commandMetrics,
+      opportunityBreakdown: snapshot.opportunityBreakdown || opportunityBreakdown,
+      provinceDistribution: snapshot.provinceDistribution || provinceDistribution,
+      recentAlerts: snapshot.recentAlerts || recentAlerts,
+      topHighProfitRfqs: snapshot.topHighProfitRfqs || topHighProfitRfqs,
+      loading: false,
+      refreshing: false,
+      stale: snapshot.dataSource && snapshot.dataSource !== "runtime" ? true : false,
+      error: "",
+      dataSource: snapshot.dataSource || "runtime_fallback",
+      lastRefreshedAt: snapshot.generatedAt || nowIso(),
+    }),
+  setTelemetryStatus: (updates = {}) => set((state) => ({ ...state, ...updates })),
   recordRouteView: (pathname, label = pathname) =>
     set((state) => {
       const lastRoute = state.routeHistory[0];
@@ -43,7 +65,12 @@ const useTelemetryStore = create((set, get) => ({
       provinceDistribution,
       recentAlerts,
       topHighProfitRfqs,
-      lastRefreshedAt: new Date().toISOString(),
+      loading: false,
+      refreshing: false,
+      stale: false,
+      error: "",
+      dataSource: "static_seed",
+      lastRefreshedAt: nowIso(),
     }),
   getTelemetrySnapshot: () => ({
     commandMetrics: get().commandMetrics,
@@ -51,6 +78,11 @@ const useTelemetryStore = create((set, get) => ({
     provinceDistribution: get().provinceDistribution,
     recentAlerts: get().recentAlerts,
     topHighProfitRfqs: get().topHighProfitRfqs,
+    loading: get().loading,
+    refreshing: get().refreshing,
+    stale: get().stale,
+    error: get().error,
+    dataSource: get().dataSource,
     lastRefreshedAt: get().lastRefreshedAt,
     currentRoute: get().currentRoute,
     currentRouteLabel: get().currentRouteLabel,

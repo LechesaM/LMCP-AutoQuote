@@ -3,12 +3,12 @@ import { normalizeHarvestHealth } from "./normalize";
 import useSourceHealthStore from "../store/sourceHealthStore";
 
 export async function fetchSourceHealthData() {
-  const remote = await axiosAdapter("/api/harvest/source-health");
+  const remote = await axiosAdapter("/telemetry/source-health");
   if (remote) {
-    return normalizeHarvestHealth(remote);
+    return normalizeHarvestHealth(remote, useSourceHealthStore.getState());
   }
   return normalizeHarvestHealth({
-    status: "advisory",
+    status: "runtime_fallback",
     sources: useSourceHealthStore.getState().sources,
-  });
+  }, useSourceHealthStore.getState());
 }

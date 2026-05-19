@@ -9,6 +9,14 @@ export type TelemetrySummary = {
 };
 
 export interface DashboardTelemetry {
+  status?: string;
+  generatedAt?: string;
+  dataSource?: string;
+  commandMetrics: TelemetrySummary;
+  provinceDistribution: ProvinceTelemetry[];
+  opportunityBreakdown: OpportunityBreakdownItem[];
+  topHighProfitRfqs: HighProfitRfq[];
+  recentAlerts: string[];
   totalHarvested: number;
   eligibleRfqs: number;
   estimatedValue: number;
@@ -25,4 +33,16 @@ export type ProvinceTelemetry = {
   eligible: number;
   value: number;
   avgMargin: number;
+};
+
+export type OpportunityBreakdownItem = {
+  name: string;
+  value: number;
+};
+
+export type HighProfitRfq = {
+  title: string;
+  province: string;
+  value: string;
+  profit: string;
 };

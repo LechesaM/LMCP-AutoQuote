@@ -4,5 +4,9 @@ export async function axiosAdapter(path, config = {}) {
   if (!hasConfiguredApiBaseUrl()) {
     return null;
   }
-  return requestJson(path, config);
+  try {
+    return await requestJson(path, config);
+  } catch (error) {
+    return null;
+  }
 }

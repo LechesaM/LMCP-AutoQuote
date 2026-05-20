@@ -1,16 +1,24 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { createRefreshHub } from "../services/refresh/refreshHub";
 import { fetchDashboardTelemetry } from "../api/dashboardTelemetryClient";
 import useTelemetryStore from "../store/telemetryStore";
 
 export function useTelemetryRefresh({ intervalMs = 30000, enableWebSocket = false, websocketUrl = "" } = {}) {
+  const activeRef = useRef(true);
+
+  const refreshTelemetry = useCallback(async () => {
+    if (!activeRef.current) {
+      return null;
+    }
+    const nextTelemetry = await fetchDashboardTelemetry();
+    useTelemetryStore.getState().setTelemetrySnapshot(nextTelemetry);
+    return nextTelemetry;
+  }, []);
+
   useEffect(() => {
+    activeRef.current = true;
     useTelemetryStore.getState().setTelemetryStatus({ loading: true, refreshing: true, error: "" });
-    const hub = createRefreshHub(async () => {
-      const nextTelemetry = await fetchDashboardTelemetry();
-      useTelemetryStore.getState().setTelemetrySnapshot(nextTelemetry);
-      return nextTelemetry;
-    }, {
+    const hub = createRefreshHub(refreshTelemetry, {
       intervalMs,
       enableWebSocket,
       websocketUrl,
@@ -26,5 +34,5 @@ export function useTelemetryRefresh({ intervalMs = 30000, enableWebSocket = fals
       });
     });
     return () => hub.stop();
-  }, [intervalMs, enableWebSocket, websocketUrl]);
+  }, [refreshTelemetry, intervalMs, enableWebSocket, websocketUrl]);
 }

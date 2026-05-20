@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchOperationalHealthData } from "../api/operationalHealthClient";
 import useQueueStore from "../store/queueStore";
 import useSourceHealthStore from "../store/sourceHealthStore";
@@ -54,41 +54,83 @@ export function useOperationalHealth() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const activeRef = useRef(true);
+  const remoteHealthRef = useRef(remoteHealth);
+  const loadingRef = useRef(loading);
+  const refreshingRef = useRef(refreshing);
+  const errorRef = useRef(error);
 
-  const loadHealth = async () => {
-    setRefreshing(true);
+  const commitRemoteHealth = useCallback((nextHealth) => {
+    setRemoteHealth((current) => {
+      if (current && nextHealth && JSON.stringify(current) === JSON.stringify(nextHealth)) {
+        return current;
+      }
+      remoteHealthRef.current = nextHealth;
+      return nextHealth;
+    });
+  }, []);
+
+  const commitLoading = useCallback((nextValue) => {
+    setLoading((current) => {
+      if (current === nextValue) {
+        return current;
+      }
+      loadingRef.current = nextValue;
+      return nextValue;
+    });
+  }, []);
+
+  const commitRefreshing = useCallback((nextValue) => {
+    setRefreshing((current) => {
+      if (current === nextValue) {
+        return current;
+      }
+      refreshingRef.current = nextValue;
+      return nextValue;
+    });
+  }, []);
+
+  const commitError = useCallback((message) => {
+    setError((current) => {
+      if (current === message) {
+        return current;
+      }
+      errorRef.current = message;
+      return message;
+    });
+  }, []);
+
+  const loadHealth = useCallback(async () => {
+    if (!activeRef.current) {
+      return null;
+    }
+    commitRefreshing(true);
     try {
       const nextHealth = await fetchOperationalHealthData();
-      setRemoteHealth(nextHealth);
-      setError("");
+      commitRemoteHealth(nextHealth);
+      commitError("");
       return nextHealth;
     } catch (exception) {
       const message = exception instanceof Error ? exception.message : "Unable to refresh operational health";
-      setError(message);
+      commitError(message);
       return null;
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      commitLoading(false);
+      commitRefreshing(false);
     }
-  };
+  }, [commitError, commitLoading, commitRefreshing, commitRemoteHealth]);
 
   useEffect(() => {
-    let active = true;
-    const refresh = async () => {
-      if (!active) {
-        return;
-      }
-      await loadHealth();
-    };
-    refresh();
+    activeRef.current = true;
+    loadHealth().catch(() => {});
     const timer = window.setInterval(() => {
-      refresh().catch(() => {});
+      loadHealth().catch(() => {});
     }, 30000);
     return () => {
-      active = false;
+      activeRef.current = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [loadHealth]);
 
   return useMemo(() => {
     const localHealth = deriveLocalOperationalHealth({
@@ -138,13 +180,13 @@ export function useOperationalHealth() {
 
     return {
       ...merged,
-      loading,
-      refreshing,
-      error,
+      loading: loadingRef.current,
+      refreshing: refreshingRef.current,
+      error: errorRef.current,
       stale: Boolean(error) || merged.state !== "ready" || merged.dataSource !== "runtime",
       dataSource: merged.dataSource || "runtime_fallback",
       lastUpdated: merged.lastUpdated || telemetryUpdatedAt,
       refresh: loadHealth,
     };
-  }, [sources, queueSummary, commandMetrics, recentAlerts, telemetryUpdatedAt, remoteHealth, loading, refreshing, error]);
+  }, [sources, queueSummary, commandMetrics, recentAlerts, telemetryUpdatedAt, remoteHealth, loading, refreshing, error, loadHealth]);
 }

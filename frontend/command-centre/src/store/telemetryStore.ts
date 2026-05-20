@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { commandMetrics, opportunityBreakdown, provinceDistribution, recentAlerts, topHighProfitRfqs } from "../data/harvestedRfqs";
+import { pickTelemetrySnapshot, sameTelemetrySnapshot, sameTelemetryStatus } from "./telemetryGuards.js";
 
 const nowIso = () => new Date().toISOString();
 
@@ -21,20 +22,32 @@ const useTelemetryStore = create((set, get) => ({
   lastRouteAt: nowIso(),
   routeHistory: [],
   setTelemetrySnapshot: (snapshot = {}) =>
-    set({
-      commandMetrics: snapshot.commandMetrics || commandMetrics,
-      opportunityBreakdown: snapshot.opportunityBreakdown || opportunityBreakdown,
-      provinceDistribution: snapshot.provinceDistribution || provinceDistribution,
-      recentAlerts: snapshot.recentAlerts || recentAlerts,
-      topHighProfitRfqs: snapshot.topHighProfitRfqs || topHighProfitRfqs,
-      loading: false,
-      refreshing: false,
-      stale: snapshot.dataSource && snapshot.dataSource !== "runtime" ? true : false,
-      error: "",
-      dataSource: snapshot.dataSource || "runtime_fallback",
-      lastRefreshedAt: snapshot.generatedAt || nowIso(),
+    set((state) => {
+      const next = {
+        ...state,
+        commandMetrics: snapshot.commandMetrics || commandMetrics,
+        opportunityBreakdown: snapshot.opportunityBreakdown || opportunityBreakdown,
+        provinceDistribution: snapshot.provinceDistribution || provinceDistribution,
+        recentAlerts: snapshot.recentAlerts || recentAlerts,
+        topHighProfitRfqs: snapshot.topHighProfitRfqs || topHighProfitRfqs,
+        loading: false,
+        refreshing: false,
+        stale: snapshot.dataSource && snapshot.dataSource !== "runtime" ? true : false,
+        error: "",
+        dataSource: snapshot.dataSource || "runtime_fallback",
+        lastRefreshedAt: snapshot.generatedAt || nowIso(),
+      };
+
+      return sameTelemetrySnapshot(pickTelemetrySnapshot(state), pickTelemetrySnapshot(next)) ? state : next;
     }),
-  setTelemetryStatus: (updates = {}) => set((state) => ({ ...state, ...updates })),
+  setTelemetryStatus: (updates = {}) =>
+    set((state) => {
+      if (sameTelemetryStatus(state, updates)) {
+        return state;
+      }
+
+      return { ...state, ...updates };
+    }),
   recordRouteView: (pathname, label = pathname) =>
     set((state) => {
       const lastRoute = state.routeHistory[0];

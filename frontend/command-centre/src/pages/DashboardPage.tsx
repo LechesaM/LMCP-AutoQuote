@@ -14,15 +14,13 @@ import { Link } from "react-router-dom";
 import { commandCentreRoutes } from "../routes/commandCentreRoutes";
 
 export default function DashboardPage() {
-  const { commandMetrics, dataSource, lastRefreshedAt, stale, loading, refreshing, error } = useTelemetryStore((state) => ({
-    commandMetrics: state.commandMetrics,
-    dataSource: state.dataSource,
-    lastRefreshedAt: state.lastRefreshedAt,
-    stale: state.stale,
-    loading: state.loading,
-    refreshing: state.refreshing,
-    error: state.error,
-  }));
+  const commandMetrics = useTelemetryStore((state) => state.commandMetrics);
+  const dataSource = useTelemetryStore((state) => state.dataSource);
+  const lastRefreshedAt = useTelemetryStore((state) => state.lastRefreshedAt);
+  const stale = useTelemetryStore((state) => state.stale);
+  const loading = useTelemetryStore((state) => state.loading);
+  const refreshing = useTelemetryStore((state) => state.refreshing);
+  const error = useTelemetryStore((state) => state.error);
   const observability = useObservability();
   const telemetryLabel =
     dataSource === "runtime"

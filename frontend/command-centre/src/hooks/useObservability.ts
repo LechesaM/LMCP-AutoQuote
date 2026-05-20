@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchObservabilitySnapshot } from "../api/observabilityClient";
 
 export function useObservability({ intervalMs = 30000 } = {}) {
@@ -6,22 +6,66 @@ export function useObservability({ intervalMs = 30000 } = {}) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const snapshotRef = useRef(snapshot);
+  const loadingRef = useRef(loading);
+  const refreshingRef = useRef(refreshing);
+  const errorRef = useRef(error);
 
-  const refresh = async () => {
-    setRefreshing(true);
+  const commitSnapshot = useCallback((next) => {
+    setSnapshot((current) => {
+      if (JSON.stringify(current ?? {}) === JSON.stringify(next ?? {})) {
+        return current;
+      }
+      snapshotRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const commitLoading = useCallback((nextValue) => {
+    setLoading((current) => {
+      if (current === nextValue) {
+        return current;
+      }
+      loadingRef.current = nextValue;
+      return nextValue;
+    });
+  }, []);
+
+  const commitRefreshing = useCallback((nextValue) => {
+    setRefreshing((current) => {
+      if (current === nextValue) {
+        return current;
+      }
+      refreshingRef.current = nextValue;
+      return nextValue;
+    });
+  }, []);
+
+  const commitError = useCallback((message) => {
+    setError((current) => {
+      if (current === message) {
+        return current;
+      }
+      errorRef.current = message;
+      return message;
+    });
+  }, []);
+
+  const refresh = useCallback(async () => {
+    commitRefreshing(true);
     try {
       const next = await fetchObservabilitySnapshot();
-      setSnapshot(next);
-      setError("");
+      commitSnapshot(next);
+      commitError("");
       return next;
     } catch (exception) {
-      setError(exception instanceof Error ? exception.message : "Unable to refresh observability snapshot");
+      commitError(exception instanceof Error ? exception.message : "Unable to refresh observability snapshot");
       return null;
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      commitLoading(false);
+      commitRefreshing(false);
     }
-  };
+  }, [commitError, commitLoading, commitRefreshing, commitSnapshot]);
 
   useEffect(() => {
     let active = true;
@@ -37,13 +81,13 @@ export function useObservability({ intervalMs = 30000 } = {}) {
       active = false;
       window.clearInterval(timer);
     };
-  }, [intervalMs]);
+  }, [intervalMs, refresh]);
 
   return useMemo(
     () => ({
-      loading,
-      refreshing,
-      error,
+      loading: loadingRef.current,
+      refreshing: refreshingRef.current,
+      error: errorRef.current,
       stale: Boolean(error) || (snapshot?.dataSource || "runtime_fallback") !== "runtime",
       dataSource: snapshot?.dataSource || "runtime_fallback",
       lastUpdated: snapshot?.generatedAt || "",
@@ -59,6 +103,6 @@ export function useObservability({ intervalMs = 30000 } = {}) {
       summary: snapshot?.summary || {},
       refresh,
     }),
-    [snapshot, loading, refreshing, error],
+    [snapshot, loading, refreshing, error, refresh],
   );
 }

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { requestJson, hasConfiguredApiBaseUrl } from "../api/httpClient";
+import { sameRuntimeApiHealth } from "../store/telemetryGuards.js";
 
 const initialHealth = {
   status: hasConfiguredApiBaseUrl() ? "loading" : "degraded",
@@ -13,106 +14,83 @@ const initialHealth = {
 
 export function useRuntimeApiHealth({ intervalMs = 45000 } = {}) {
   const [state, setState] = useState(initialHealth);
+  const stateRef = useRef(state);
+  const activeRef = useRef(true);
+
+  const commitState = useCallback((nextState) => {
+    setState((current) => {
+      if (sameRuntimeApiHealth(current, nextState)) {
+        return current;
+      }
+      stateRef.current = nextState;
+      return nextState;
+    });
+  }, []);
+
+  const refresh = useCallback(async () => {
+    if (!activeRef.current) {
+      return null;
+    }
+    if (!hasConfiguredApiBaseUrl()) {
+      commitState({
+        ...stateRef.current,
+        status: "degraded",
+        dataSource: "runtime_fallback",
+        error: "API base URL is not configured",
+        lastCheckedAt: new Date().toISOString(),
+        route: "/observability/uptime",
+        response: null,
+      });
+      return null;
+    }
+
+    const startedAt = Date.now();
+    try {
+      const response = await requestJson("/observability/uptime");
+      const nextState = {
+        status: response?.status === "healthy" ? "healthy" : "degraded",
+        dataSource: response?.data_source || "runtime",
+        error: response?.status === "healthy" ? "" : response?.message || "API reported a degraded status",
+        latencyMs: Date.now() - startedAt,
+        lastCheckedAt: new Date().toISOString(),
+        route: "/observability/uptime",
+        response,
+      };
+      commitState(nextState);
+      return response;
+    } catch (error) {
+      const nextState = {
+        status: "degraded",
+        dataSource: "runtime_fallback",
+        error: error instanceof Error ? error.message : "Unable to reach API health endpoint",
+        latencyMs: Date.now() - startedAt,
+        lastCheckedAt: new Date().toISOString(),
+        route: "/observability/uptime",
+        response: null,
+      };
+      commitState(nextState);
+      return null;
+    }
+  }, [commitState]);
 
   useEffect(() => {
-    let active = true;
-
-    const refresh = async () => {
-      if (!hasConfiguredApiBaseUrl()) {
-        if (active) {
-          setState((current) => ({
-            ...current,
-            status: "degraded",
-            dataSource: "runtime_fallback",
-            error: "API base URL is not configured",
-            lastCheckedAt: new Date().toISOString(),
-          }));
-        }
-        return;
-      }
-      const startedAt = Date.now();
-      try {
-        const response = await requestJson("/observability/uptime");
-        if (!active) {
-          return;
-        }
-        setState({
-          status: response?.status === "healthy" ? "healthy" : "degraded",
-          dataSource: response?.data_source || "runtime",
-          error: response?.status === "healthy" ? "" : response?.message || "API reported a degraded status",
-          latencyMs: Date.now() - startedAt,
-          lastCheckedAt: new Date().toISOString(),
-          route: "/observability/uptime",
-          response,
-        });
-      } catch (error) {
-        if (!active) {
-          return;
-        }
-        setState({
-          status: "degraded",
-          dataSource: "runtime_fallback",
-          error: error instanceof Error ? error.message : "Unable to reach API health endpoint",
-          latencyMs: Date.now() - startedAt,
-          lastCheckedAt: new Date().toISOString(),
-          route: "/observability/uptime",
-          response: null,
-        });
-      }
-    };
-
-    refresh();
+    activeRef.current = true;
+    refresh().catch(() => {});
     const timer = window.setInterval(refresh, Math.max(15000, Number(intervalMs) || 45000));
 
     return () => {
-      active = false;
+      activeRef.current = false;
       window.clearInterval(timer);
     };
-  }, [intervalMs]);
+  }, [intervalMs, refresh]);
 
   return useMemo(
     () => ({
       ...state,
       healthy: state.status === "healthy",
       degraded: state.status !== "healthy",
-      refresh: async () => {
-        if (!hasConfiguredApiBaseUrl()) {
-          setState((current) => ({
-            ...current,
-            status: "degraded",
-            dataSource: "runtime_fallback",
-            error: "API base URL is not configured",
-            lastCheckedAt: new Date().toISOString(),
-          }));
-          return null;
-        }
-        const startedAt = Date.now();
-        try {
-          const response = await requestJson("/observability/uptime");
-          setState({
-            status: response?.status === "healthy" ? "healthy" : "degraded",
-            dataSource: response?.data_source || "runtime",
-            error: response?.status === "healthy" ? "" : response?.message || "API reported a degraded status",
-            latencyMs: Date.now() - startedAt,
-            lastCheckedAt: new Date().toISOString(),
-            route: "/observability/uptime",
-            response,
-          });
-          return response;
-        } catch (error) {
-          setState({
-            status: "degraded",
-            dataSource: "runtime_fallback",
-            error: error instanceof Error ? error.message : "Unable to reach API health endpoint",
-            latencyMs: Date.now() - startedAt,
-            lastCheckedAt: new Date().toISOString(),
-            route: "/observability/uptime",
-            response: null,
-          });
-          return null;
-        }
-      },
+      refresh,
     }),
-    [state],
+    [state, refresh],
   );
 }

@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request
 from app.auth.auth_models import AuthContext
 from app.auth.rbac import role_has_permission
 from app.auth.session_service import authenticate_credentials, get_current_user_from_request, permissions_for_current_user, revoke_session, seed_demo_users_if_needed
+from app.monitoring.metrics_service import increment_metric
 
 
 class AuthError(HTTPException):
@@ -24,6 +25,7 @@ def authenticate_user(email: str, password: str) -> Dict[str, Any]:
     try:
         user = authenticate_credentials(email, password)
     except ValueError as exc:
+        increment_metric("auth_failures")
         raise AuthError(str(exc), status_code=401) from exc
     return {
         "status": "ok",
@@ -65,6 +67,7 @@ def get_current_user(request: Request) -> Dict[str, Any]:
     try:
         user = get_current_user_from_request(request)
     except ValueError as exc:
+        increment_metric("auth_failures")
         raise AuthError(str(exc), status_code=401) from exc
     return {
         "status": "ok",
@@ -138,4 +141,3 @@ def demo_users_allowed() -> bool:
     from app.auth.session_service import demo_users_enabled
 
     return demo_users_enabled()
-

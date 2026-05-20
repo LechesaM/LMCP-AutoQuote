@@ -18,6 +18,10 @@ _METRICS: Dict[str, int] = {
     "workflow_failures": 0,
     "persistence_failures": 0,
     "audit_failures": 0,
+    "auth_failures": 0,
+    "rate_limit_events": 0,
+    "api_latency_ms": 0,
+    "telemetry_freshness_minutes": 0,
 }
 
 

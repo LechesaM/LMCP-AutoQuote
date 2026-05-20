@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from app.core.runtime_paths import get_runtime_paths
 from app.harvest.source_models import SourceHealthRecord
+from app.harvest.source_registry import load_source_registry
 
 
 def _now() -> datetime:
@@ -118,3 +119,47 @@ def get_source_health(source_id: str) -> SourceHealthRecord:
 def should_disable_source(source_id: str) -> bool:
     record = _coerce(source_id)
     return record.status == "failing" and (record.consecutive_failures >= 5 or record.failure_count >= 10)
+
+
+def get_source_health_summary(limit: int = 100) -> Dict[str, Any]:
+    registry = load_source_registry()
+    sources = registry.list_sources()
+    health_records = [get_source_health(source.id) for source in sources[: max(1, int(limit or 100))]]
+    total = len(health_records)
+    status_counts: Dict[str, int] = {}
+    total_parser_failure_rate = 0.0
+    total_response_time = 0.0
+    recent_failures = []
+    tier_breakdown: Dict[str, int] = {}
+    for source, record in zip(sources, health_records):
+        status_counts[record.status] = status_counts.get(record.status, 0) + 1
+        total_parser_failure_rate += float(record.parser_failure_rate or 0.0)
+        total_response_time += float(record.average_response_time or 0.0)
+        tier = str(source.source_tier)
+        tier_breakdown[tier] = tier_breakdown.get(tier, 0) + 1
+        if record.failure_count or record.status in {"degraded", "failing", "disabled"}:
+            recent_failures.append(
+                {
+                    "source_id": source.id,
+                    "name": source.name,
+                    "status": record.status,
+                    "failure_count": record.failure_count,
+                    "consecutive_failures": record.consecutive_failures,
+                    "parser_failure_rate": record.parser_failure_rate,
+                }
+            )
+    return {
+        "status": "ok" if not status_counts.get("failing", 0) else "degraded",
+        "generated_at": _now().isoformat(),
+        "data_source": "runtime" if sources else "fallback",
+        "total_sources": total,
+        "active_sources": len([source for source in sources if source.is_active]),
+        "healthy_sources": status_counts.get("healthy", 0),
+        "degraded_sources": status_counts.get("degraded", 0),
+        "failing_sources": status_counts.get("failing", 0),
+        "disabled_sources": status_counts.get("disabled", 0),
+        "parser_failure_rate": round(total_parser_failure_rate / max(1, total), 4),
+        "average_response_time_ms": round((total_response_time / max(1, total)) * 1000.0, 2),
+        "recent_source_failures": recent_failures[-max(1, int(limit or 100)) :],
+        "tier_breakdown": tier_breakdown,
+    }

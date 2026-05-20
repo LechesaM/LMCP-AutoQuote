@@ -32,7 +32,8 @@ def load_audit_events() -> List[Dict[str, Any]]:
 def save_audit_events(items: List[Dict[str, Any]]) -> None:
     AUDIT_FILE.write_text(json.dumps(items[-5000:], indent=2, default=str))
 
-async def record_audit_event(
+
+def append_audit_event(
     event_type: str,
     source: str = "system",
     severity: str = "info",
@@ -54,18 +55,41 @@ async def record_audit_event(
         "payload": payload or {},
         "created_at": _now_iso(),
     }
-
     events = load_audit_events()
     events.append(item)
     save_audit_events(events)
     persisted = jsonl_compat.persist_audit_event(item)
     logger.info(
-        "audit_event_recorded type=%s source=%s severity=%s buyer_rfq_number=%s quote_number=%s",
+        "audit_event_appended type=%s source=%s severity=%s buyer_rfq_number=%s quote_number=%s",
         event_type,
         source,
         severity,
         buyer_rfq_number,
         quote_number,
+    )
+    if not persisted:
+        increment_metric("audit_failures")
+    return item
+
+async def record_audit_event(
+    event_type: str,
+    source: str = "system",
+    severity: str = "info",
+    title: str = "",
+    message: str = "",
+    buyer_rfq_number: str = "",
+    quote_number: str = "",
+    payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    item = append_audit_event(
+        event_type=event_type,
+        source=source,
+        severity=severity,
+        title=title,
+        message=message,
+        buyer_rfq_number=buyer_rfq_number,
+        quote_number=quote_number,
+        payload=payload,
     )
 
     try:
@@ -77,8 +101,6 @@ async def record_audit_event(
     except Exception:
         increment_metric("audit_failures")
         raise
-    if not persisted:
-        increment_metric("audit_failures")
 
     return item
 

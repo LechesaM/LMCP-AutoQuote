@@ -218,6 +218,173 @@ export function normalizeOperationalHealth(payload, fallback = {}) {
   };
 }
 
+function normalizeExecutiveTrendRows(rows, fallback = []) {
+  const sourceRows = Array.isArray(rows) && rows.length ? rows : arrayOrEmpty(fallback);
+  return sourceRows.map((row, index) => ({
+    label: stringOrEmpty(row?.label || row?.week || row?.month || `bucket-${index}`),
+    count: numberOrZero(row?.count ?? row?.rfqs),
+    total: numberOrZero(row?.total ?? row?.value),
+    go: numberOrZero(row?.go),
+    manualReview: numberOrZero(row?.manual_review ?? row?.manualReview),
+    reject: numberOrZero(row?.reject),
+  }));
+}
+
+function normalizeGenericArray(rows, fallback = []) {
+  const sourceRows = Array.isArray(rows) && rows.length ? rows : arrayOrEmpty(fallback);
+  return sourceRows.map((row) => (isObject(row) ? row : { value: row }));
+}
+
+function normalizeExecutiveSummary(source, fallback = {}) {
+  const fallbackSummary = fallback.executiveSummary || fallback.summary || fallback.commandMetrics || {};
+  return {
+    rfqsHarvested: numberOrZero(source.rfqs_harvested ?? source.rfqsHarvested ?? fallbackSummary.rfqsHarvested ?? fallbackSummary.totalHarvested),
+    rfqsQualified: numberOrZero(source.rfqs_qualified ?? source.rfqsQualified ?? fallbackSummary.rfqsQualified ?? fallbackSummary.eligibleRfqs),
+    rfqsReviewed: numberOrZero(source.rfqs_reviewed ?? source.rfqsReviewed ?? fallbackSummary.rfqsReviewed),
+    goTrend: numberOrZero(source.go_trend ?? source.goTrend ?? fallbackSummary.goTrend),
+    manualReviewTrend: numberOrZero(source.manual_review_trend ?? source.manualReviewTrend ?? fallbackSummary.manualReviewTrend),
+    rejectTrend: numberOrZero(source.reject_trend ?? source.rejectTrend ?? fallbackSummary.rejectTrend),
+    estimatedProfitability: numberOrZero(source.estimated_profitability ?? source.estimatedProfitability ?? fallbackSummary.estimatedProfitability ?? fallbackSummary.estimatedValue),
+    operatorThroughput: numberOrZero(source.operator_throughput ?? source.operatorThroughput ?? fallbackSummary.operatorThroughput),
+    queuePressure: numberOrZero(source.queue_pressure ?? source.queuePressure ?? fallbackSummary.queuePressure),
+    governanceIncidents: numberOrZero(source.governance_incidents ?? source.governanceIncidents ?? fallbackSummary.governanceIncidents),
+    sourceReliability: numberOrZero(source.source_reliability ?? source.sourceReliability ?? fallbackSummary.sourceReliability),
+    slaHealth: stringOrEmpty(source.sla_health ?? source.slaHealth ?? fallbackSummary.slaHealth ?? "healthy"),
+    qualifiedRate: numberOrZero(source.qualified_rate ?? source.qualifiedRate ?? fallbackSummary.qualifiedRate),
+    manualGovernanceIntegrityScore: numberOrZero(source.manual_governance_integrity_score ?? source.manualGovernanceIntegrityScore ?? fallbackSummary.manualGovernanceIntegrityScore),
+    operationalReliabilityScore: numberOrZero(source.operational_reliability_score ?? source.operationalReliabilityScore ?? fallbackSummary.operationalReliabilityScore),
+    qualityScore: numberOrZero(source.quality_score ?? source.qualityScore ?? fallbackSummary.qualityScore),
+  };
+}
+
+export function normalizeExecutiveAnalytics(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: stringOrEmpty(source.status || fallbackSource.status || "runtime_fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || fallbackSource.lastRefreshedAt),
+    dataSource: stringOrEmpty(source.data_source || source.dataSource || fallbackSource.dataSource || "runtime_fallback"),
+    executiveSummary: normalizeExecutiveSummary(source.executive_summary ?? source.executiveSummary ?? source.summary ?? {}, fallbackSource),
+    weeklyTrend: normalizeExecutiveTrendRows(source.weekly_trend ?? source.weeklyTrend, fallbackSource.weeklyTrend),
+    monthlyTrend: normalizeExecutiveTrendRows(source.monthly_trend ?? source.monthlyTrend, fallbackSource.monthlyTrend),
+    rollingAverages: {
+      weeklyTotal: arrayOrEmpty(source.rolling_averages?.weekly_total ?? source.rollingAverages?.weeklyTotal ?? fallbackSource.rollingAverages?.weeklyTotal).map(numberOrZero),
+      monthlyTotal: arrayOrEmpty(source.rolling_averages?.monthly_total ?? source.rollingAverages?.monthlyTotal ?? fallbackSource.rollingAverages?.monthlyTotal).map(numberOrZero),
+    },
+    profitability: source.profitability ?? source.profitability_summary ?? fallbackSource.profitability ?? {},
+    rfqConversion: source.rfq_conversion ?? source.rfqConversion ?? fallbackSource.rfqConversion ?? {},
+    sourceROI: source.source_roi ?? source.sourceROI ?? fallbackSource.sourceROI ?? {},
+    operatorTrends: source.operator_trends ?? source.operatorTrends ?? fallbackSource.operatorTrends ?? {},
+    governanceTrends: source.governance_trends ?? source.governanceTrends ?? fallbackSource.governanceTrends ?? {},
+    workloadForecast: source.workload_forecast ?? source.workloadForecast ?? fallbackSource.workloadForecast ?? {},
+    opportunityForecast: source.opportunity_forecast ?? source.opportunityForecast ?? fallbackSource.opportunityForecast ?? {},
+    revenueProjection: source.revenue_projection ?? source.revenueProjection ?? fallbackSource.revenueProjection ?? {},
+    historicalTrends: source.historical_trends ?? source.historicalTrends ?? fallbackSource.historicalTrends ?? {},
+    productivity: source.productivity ?? fallbackSource.productivity ?? {},
+    sourceReliability: source.source_reliability ?? source.sourceReliability ?? fallbackSource.sourceReliability ?? {},
+    sla: source.sla ?? fallbackSource.sla ?? {},
+    runtimeMetrics: source.runtime_metrics ?? source.runtimeMetrics ?? fallbackSource.runtimeMetrics ?? {},
+    workflowSummary: source.workflow_summary ?? source.workflowSummary ?? fallbackSource.workflowSummary ?? {},
+    pilotReadiness: source.pilot_readiness ?? source.pilotReadiness ?? fallbackSource.pilotReadiness ?? {},
+    tenderSuccessAnalytics: source.tender_success_analytics ?? source.tenderSuccessAnalytics ?? fallbackSource.tenderSuccessAnalytics ?? {},
+    observabilitySummary: source.observability_summary ?? source.observabilitySummary ?? fallbackSource.observabilitySummary ?? {},
+    strategicHighlights: arrayOrEmpty(source.strategic_highlights ?? source.strategicHighlights ?? fallbackSource.strategicHighlights).map(stringOrEmpty),
+  };
+}
+
+export function normalizeProfitabilityAnalytics(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const summary = source.summary ?? fallbackSource.summary ?? {};
+  return {
+    status: stringOrEmpty(source.status || fallbackSource.status || "runtime_fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || fallbackSource.lastRefreshedAt),
+    dataSource: stringOrEmpty(source.data_source || source.dataSource || fallbackSource.dataSource || "runtime_fallback"),
+    summary: {
+      estimatedTotalProfit: numberOrZero(summary.estimated_total_profit ?? summary.estimatedTotalProfit),
+      averageEstimatedProfit: numberOrZero(summary.average_estimated_profit ?? summary.averageEstimatedProfit),
+      averageMargin: numberOrZero(summary.average_margin ?? summary.averageMargin),
+      highValueRfqCount: numberOrZero(summary.high_value_rfq_count ?? summary.highValueRfqCount),
+      lowConfidenceProfitabilityCount: numberOrZero(summary.low_confidence_profitability_count ?? summary.lowConfidenceProfitabilityCount),
+      stalePricingImpactCount: numberOrZero(summary.stale_pricing_impact_count ?? summary.stalePricingImpactCount),
+      supplierEvidenceImpactAverage: numberOrZero(summary.supplier_evidence_impact_average ?? summary.supplierEvidenceImpactAverage),
+    },
+    estimatedRfqProfitability: normalizeGenericArray(source.estimated_rfq_profitability ?? source.estimatedRfqProfitability, fallbackSource.estimatedRfqProfitability).map((row, index) => ({
+      tenderId: stringOrEmpty(row?.tender_id ?? row?.tenderId ?? `rfq-${index}`),
+      title: stringOrEmpty(row?.title),
+      estimatedProfit: numberOrZero(row?.estimated_profit ?? row?.estimatedProfit),
+      estimatedMargin: numberOrZero(row?.estimated_margin ?? row?.estimatedMargin),
+      province: stringOrEmpty(row?.province),
+      source: stringOrEmpty(row?.source),
+    })),
+    estimatedMarginDistribution: source.estimated_margin_distribution ?? source.estimatedMarginDistribution ?? fallbackSource.estimatedMarginDistribution ?? {},
+    highValueRfqs: normalizeGenericArray(source.high_value_rfqs ?? source.highValueRfqs, fallbackSource.highValueRfqs).map((row, index) => ({
+      tenderId: stringOrEmpty(row?.tender_id ?? row?.tenderId ?? `high-${index}`),
+      title: stringOrEmpty(row?.title),
+      estimatedProfit: numberOrZero(row?.estimated_profit ?? row?.estimatedProfit),
+      estimatedMargin: numberOrZero(row?.estimated_margin ?? row?.estimatedMargin),
+      province: stringOrEmpty(row?.province),
+      source: stringOrEmpty(row?.source),
+    })),
+    lowConfidenceProfitability: normalizeGenericArray(source.low_confidence_profitability ?? source.lowConfidenceProfitability, fallbackSource.lowConfidenceProfitability).map((row, index) => ({
+      tenderId: stringOrEmpty(row?.tender_id ?? row?.tenderId ?? `low-${index}`),
+      title: stringOrEmpty(row?.title),
+      pricingConfidence: numberOrZero(row?.pricing_confidence ?? row?.pricingConfidence),
+    })),
+    stalePricingImpact: normalizeGenericArray(source.stale_pricing_impact ?? source.stalePricingImpact, fallbackSource.stalePricingImpact).map((row, index) => ({
+      tenderId: stringOrEmpty(row?.tender_id ?? row?.tenderId ?? `stale-${index}`),
+      title: stringOrEmpty(row?.title),
+    })),
+    supplierEvidenceImpact: normalizeGenericArray(source.supplier_evidence_impact ?? source.supplierEvidenceImpact, fallbackSource.supplierEvidenceImpact).map((row, index) => ({
+      tenderId: stringOrEmpty(row?.tender_id ?? row?.tenderId ?? `evidence-${index}`),
+      supplierEvidenceScore: numberOrZero(row?.supplier_evidence_score ?? row?.supplierEvidenceScore),
+    })),
+    profitabilityBySource: normalizeGenericArray(source.profitability_by_source ?? source.profitabilityBySource, fallbackSource.profitabilityBySource).map((row, index) => ({
+      source: stringOrEmpty(row?.source ?? row?.name ?? `source-${index}`),
+      estimatedProfit: numberOrZero(row?.estimated_profit ?? row?.estimatedProfit),
+      count: numberOrZero(row?.count),
+    })),
+    profitabilityByProvince: normalizeGenericArray(source.profitability_by_province ?? source.profitabilityByProvince, fallbackSource.profitabilityByProvince).map((row, index) => ({
+      province: stringOrEmpty(row?.province ?? `province-${index}`),
+      estimatedProfit: numberOrZero(row?.estimated_profit ?? row?.estimatedProfit),
+      count: numberOrZero(row?.count),
+    })),
+  };
+}
+
+export function normalizeForecastingAnalytics(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const workload = isObject(source.workload_forecast) ? source.workload_forecast : fallbackSource.workloadForecast || {};
+  const opportunity = isObject(source.opportunity_forecast) ? source.opportunity_forecast : fallbackSource.opportunityForecast || {};
+  const revenue = isObject(source.revenue_projection) ? source.revenue_projection : fallbackSource.revenueProjection || {};
+  const mergedSummary = {
+    queueGrowth: numberOrZero(workload.summary?.queue_growth ?? workload.summary?.queueGrowth ?? fallbackSource.summary?.queueGrowth),
+    operatorWorkload: numberOrZero(workload.summary?.operator_workload ?? workload.summary?.operatorWorkload ?? fallbackSource.summary?.operatorWorkload),
+    rfqThroughput: numberOrZero(workload.summary?.rfq_throughput ?? workload.summary?.rfqThroughput ?? fallbackSource.summary?.rfqThroughput),
+    sourceGrowth: numberOrZero(workload.summary?.source_growth ?? workload.summary?.sourceGrowth ?? fallbackSource.summary?.sourceGrowth),
+    estimatedReviewDemand: numberOrZero(workload.summary?.estimated_review_demand ?? workload.summary?.estimatedReviewDemand ?? fallbackSource.summary?.estimatedReviewDemand),
+    rfqGrowth: numberOrZero(opportunity.summary?.rfq_growth ?? opportunity.summary?.rfqGrowth ?? fallbackSource.summary?.rfqGrowth),
+    reviewDemand: numberOrZero(opportunity.summary?.review_demand ?? opportunity.summary?.reviewDemand ?? fallbackSource.summary?.reviewDemand),
+    opportunityValueProjection: numberOrZero(revenue.summary?.projected_rfq_opportunity_value ?? revenue.summary?.projectedRfqOpportunityValue ?? fallbackSource.summary?.opportunityValueProjection),
+  };
+  return {
+    status: stringOrEmpty(source.status || workload.status || opportunity.status || revenue.status || fallbackSource.status || "runtime_fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || workload.generated_at || opportunity.generated_at || revenue.generated_at || fallbackSource.generatedAt || fallbackSource.lastRefreshedAt),
+    dataSource: stringOrEmpty(source.data_source || source.dataSource || workload.data_source || opportunity.data_source || revenue.data_source || fallbackSource.dataSource || "runtime_fallback"),
+    summary: mergedSummary,
+    forecast: source.forecast ?? {
+      workload: workload.forecast || {},
+      opportunity: opportunity.forecast || {},
+      revenue: revenue.summary || {},
+    },
+    advisoryOnly: Boolean(source.advisory_only ?? source.advisoryOnly ?? true),
+    estimated: Boolean(source.estimated ?? true),
+    nonFinancialAdvice: Boolean(source.non_financial_advice ?? source.nonFinancialAdvice ?? true),
+    heuristic: Boolean(source.heuristic ?? true),
+  };
+}
+
 function normalizeOperatorActionRecord(record, index = 0) {
   return {
     actionId: stringOrEmpty(record?.action_id ?? record?.actionId ?? `action-${index}`),
@@ -562,5 +729,517 @@ export function normalizeSourceHealthDetails(payload, fallback = {}) {
       failingSources: numberOrZero(source.summary?.failing_sources ?? source.summary?.failingSources ?? fallbackSource.summary?.failingSources),
       disabledSources: numberOrZero(source.summary?.disabled_sources ?? source.summary?.disabledSources ?? fallbackSource.summary?.disabledSources),
     },
+  };
+}
+
+export function normalizeRuntimeMetrics(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    metrics: {
+      rfqsHarvestedPerHour: numberOrZero(source.rfqs_harvested_per_hour ?? source.metrics?.rfqsHarvestedPerHour ?? fallbackSource.metrics?.rfqsHarvestedPerHour),
+      reviewThroughput: numberOrZero(source.review_throughput ?? source.metrics?.reviewThroughput ?? fallbackSource.metrics?.reviewThroughput),
+      queueLag: numberOrZero(source.queue_lag ?? source.metrics?.queueLag ?? fallbackSource.metrics?.queueLag),
+      operatorUtilization: numberOrZero(source.operator_utilization ?? source.metrics?.operatorUtilization ?? fallbackSource.metrics?.operatorUtilization),
+      parserFailureRate: numberOrZero(source.parser_failure_rate ?? source.metrics?.parserFailureRate ?? fallbackSource.metrics?.parserFailureRate),
+      sourceAvailability: numberOrZero(source.source_availability ?? source.metrics?.sourceAvailability ?? fallbackSource.metrics?.sourceAvailability),
+      telemetryFreshnessMinutes: numberOrZero(source.telemetry_freshness_minutes ?? source.metrics?.telemetryFreshnessMinutes ?? fallbackSource.metrics?.telemetryFreshnessMinutes),
+      workflowFailures: numberOrZero(source.workflow_failures ?? source.metrics?.workflowFailures ?? fallbackSource.metrics?.workflowFailures),
+      persistenceFailures: numberOrZero(source.persistence_failures ?? source.metrics?.persistenceFailures ?? fallbackSource.metrics?.persistenceFailures),
+      authFailures: numberOrZero(source.auth_failures ?? source.metrics?.authFailures ?? fallbackSource.metrics?.authFailures),
+      rateLimitEvents: numberOrZero(source.rate_limit_events ?? source.metrics?.rateLimitEvents ?? fallbackSource.metrics?.rateLimitEvents),
+      apiLatencyMs: numberOrZero(source.api_latency_ms ?? source.metrics?.apiLatencyMs ?? fallbackSource.metrics?.apiLatencyMs),
+    },
+    systemHealth: source.system_health ?? fallbackSource.systemHealth ?? {},
+    operatorCapacity: source.operator_capacity ?? fallbackSource.operatorCapacity ?? {},
+    queueSummary: source.queue_summary ?? fallbackSource.queueSummary ?? {},
+    sourceSummary: source.source_summary ?? fallbackSource.sourceSummary ?? {},
+    workflowSummary: source.workflow_summary ?? fallbackSource.workflowSummary ?? {},
+    persistence: source.persistence ?? fallbackSource.persistence ?? {},
+  };
+}
+
+export function normalizeRuntimeAlerts(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    alerts: arrayOrEmpty(source.alerts ?? fallbackSource.alerts).map((item, index) => ({
+      alertId: stringOrEmpty(item?.alert_id ?? item?.alertId ?? `alert-${index}`),
+      type: stringOrEmpty(item?.type),
+      severity: stringOrEmpty(item?.severity),
+      title: stringOrEmpty(item?.title),
+      message: stringOrEmpty(item?.message),
+      createdAt: stringOrEmpty(item?.created_at ?? item?.createdAt),
+      acknowledged: Boolean(item?.acknowledged),
+      details: isObject(item?.details) ? item.details : {},
+    })),
+    total: numberOrZero(source.total ?? fallbackSource.total),
+    alertSeverities: arrayOrEmpty(source.alert_severities ?? source.alertSeverities ?? fallbackSource.alertSeverities).map(stringOrEmpty),
+  };
+}
+
+export function normalizeIncidentTracker(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const incidents = arrayOrEmpty(source.incidents ?? fallbackSource.incidents).map((item, index) => ({
+    incidentId: stringOrEmpty(item?.incident_id ?? item?.incidentId ?? `incident-${index}`),
+    incidentType: stringOrEmpty(item?.incident_type ?? item?.incidentType),
+    title: stringOrEmpty(item?.title),
+    severity: stringOrEmpty(item?.severity),
+    status: stringOrEmpty(item?.status),
+    operatorId: stringOrEmpty(item?.operator_id ?? item?.operatorId),
+    createdAt: stringOrEmpty(item?.created_at ?? item?.createdAt),
+    updatedAt: stringOrEmpty(item?.updated_at ?? item?.updatedAt),
+    acknowledgedAt: stringOrEmpty(item?.acknowledged_at ?? item?.acknowledgedAt),
+    acknowledgedBy: stringOrEmpty(item?.acknowledged_by ?? item?.acknowledgedBy),
+    details: isObject(item?.details) ? item.details : {},
+  }));
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    totalIncidents: numberOrZero(source.total_incidents ?? fallbackSource.totalIncidents ?? incidents.length),
+    severityCounts: source.severity_counts ?? source.severityCounts ?? fallbackSource.severityCounts ?? {},
+    statusCounts: source.status_counts ?? source.statusCounts ?? fallbackSource.statusCounts ?? {},
+    activeCriticalIncidents: numberOrZero(source.active_critical_incidents ?? source.activeCriticalIncidents ?? fallbackSource.activeCriticalIncidents),
+    incidents,
+  };
+}
+
+export function normalizeBackupValidation(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    backupCount: numberOrZero(source.backup_count ?? fallbackSource.backupCount),
+    backupDir: stringOrEmpty(source.backup_dir ?? fallbackSource.backupDir),
+    latestBackup: stringOrEmpty(source.latest_backup ?? fallbackSource.latestBackup),
+    latestBackupVerified: Boolean(source.latest_backup_verified ?? fallbackSource.latestBackupVerified),
+    latestBackupAgeDays: numberOrZero(source.latest_backup_age_days ?? fallbackSource.latestBackupAgeDays),
+    auditPersistenceOk: Boolean(source.audit_persistence_ok ?? fallbackSource.auditPersistenceOk),
+    restoreSimulation: isObject(source.restore_simulation) ? source.restore_simulation : fallbackSource.restoreSimulation || {},
+  };
+}
+
+function normalizeSlaMetric(item, index = 0) {
+  return {
+    name: stringOrEmpty(item?.name ?? `metric-${index}`),
+    value: numberOrZero(item?.value),
+    state: normalizeState(item?.state, "healthy"),
+  };
+}
+
+function normalizeRuntimeAnomaly(item, index = 0) {
+  return {
+    anomalyId: stringOrEmpty(item?.anomaly_id ?? item?.anomalyId ?? `anomaly-${index}`),
+    type: stringOrEmpty(item?.type),
+    severity: normalizeState(item?.severity, "warning"),
+    message: stringOrEmpty(item?.message),
+    affectedSystems: arrayOrEmpty(item?.affected_systems ?? item?.affectedSystems).map(stringOrEmpty),
+    evidence: isObject(item?.evidence) ? item.evidence : {},
+    createdAt: stringOrEmpty(item?.created_at ?? item?.createdAt),
+    advisoryOnly: Boolean(item?.advisory_only ?? item?.advisoryOnly ?? true),
+  };
+}
+
+export function normalizeSlaMonitoring(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const slaMetrics = arrayOrEmpty(source.sla_metrics ?? source.slaMetrics ?? fallbackSource.slaMetrics).map(normalizeSlaMetric);
+  const breachedMetrics = arrayOrEmpty(source.breached_metrics ?? source.breachedMetrics ?? fallbackSource.breachedMetrics).map(normalizeSlaMetric);
+  const warningMetrics = arrayOrEmpty(source.warning_metrics ?? source.warningMetrics ?? fallbackSource.warningMetrics).map(normalizeSlaMetric);
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    slaMetrics,
+    breachedMetrics,
+    warningMetrics,
+    summary: {
+      healthy: numberOrZero(source.summary?.healthy ?? fallbackSource.summary?.healthy ?? slaMetrics.filter((item) => item.state === "healthy").length),
+      degraded: numberOrZero(source.summary?.degraded ?? fallbackSource.summary?.degraded ?? warningMetrics.length),
+      failing: numberOrZero(source.summary?.failing ?? fallbackSource.summary?.failing ?? breachedMetrics.length),
+    },
+  };
+}
+
+export function normalizeRuntimeAnomalies(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const anomalies = arrayOrEmpty(source.anomalies ?? fallbackSource.anomalies).map(normalizeRuntimeAnomaly);
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    anomalies,
+    anomalyCount: numberOrZero(source.anomaly_count ?? source.anomalyCount ?? fallbackSource.anomalyCount ?? anomalies.length),
+    severityCounts: source.severity_counts ?? source.severityCounts ?? fallbackSource.severityCounts ?? {},
+    advisoryOnly: Boolean(source.advisory_only ?? source.advisoryOnly ?? fallbackSource.advisoryOnly ?? true),
+  };
+}
+
+export function normalizeAlertRouting(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    alerts: arrayOrEmpty(source.alerts ?? fallbackSource.alerts).map((item, index) => ({
+      alertId: stringOrEmpty(item?.alert_id ?? item?.alertId ?? `alert-${index}`),
+      severity: normalizeState(item?.severity, "info"),
+      category: stringOrEmpty(item?.category ?? item?.type),
+      targets: arrayOrEmpty(item?.targets).map(stringOrEmpty),
+      advisoryOnly: Boolean(item?.advisory_only ?? item?.advisoryOnly ?? true),
+    })),
+    routeCount: numberOrZero(source.route_count ?? source.routeCount ?? fallbackSource.routeCount),
+    categoryCounts: source.category_counts ?? source.categoryCounts ?? fallbackSource.categoryCounts ?? {},
+    targetCounts: source.target_counts ?? source.targetCounts ?? fallbackSource.targetCounts ?? {},
+    advisoryOnly: Boolean(source.advisory_only ?? source.advisoryOnly ?? fallbackSource.advisoryOnly ?? true),
+  };
+}
+
+export function normalizeLogAggregation(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    totalLogs: numberOrZero(source.total_logs ?? source.totalLogs ?? fallbackSource.totalLogs),
+    logSources: source.log_sources ?? source.logSources ?? fallbackSource.logSources ?? {},
+    categoryCounts: source.category_counts ?? source.categoryCounts ?? fallbackSource.categoryCounts ?? {},
+    severityDistribution: source.severity_distribution ?? source.severityDistribution ?? fallbackSource.severityDistribution ?? {},
+    redactedSamples: arrayOrEmpty(source.redacted_samples ?? source.redactedSamples ?? fallbackSource.redactedSamples).map(stringOrEmpty),
+  };
+}
+
+export function normalizeUptimeMonitor(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    apiUptimePercentage: numberOrZero(source.api_uptime_percentage ?? source.apiUptimePercentage ?? fallbackSource.apiUptimePercentage),
+    observedWindowMinutes: numberOrZero(source.observed_window_minutes ?? source.observedWindowMinutes ?? fallbackSource.observedWindowMinutes),
+    systemHealth: source.system_health ?? source.systemHealth ?? fallbackSource.systemHealth ?? {},
+    runtimeMetrics: source.runtime_metrics ?? source.runtimeMetrics ?? fallbackSource.runtimeMetrics ?? {},
+  };
+}
+
+export function normalizeRuntimePerformance(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    apiLatencyMs: numberOrZero(source.api_latency_ms ?? source.apiLatencyMs ?? fallbackSource.apiLatencyMs),
+    queueResponseTimeMs: numberOrZero(source.queue_response_time_ms ?? source.queueResponseTimeMs ?? fallbackSource.queueResponseTimeMs),
+    dbResponseHealth: normalizeState(source.db_response_health ?? source.dbResponseHealth ?? fallbackSource.dbResponseHealth, "unknown"),
+    frontendBuildFreshnessMinutes: numberOrZero(source.frontend_build_freshness_minutes ?? source.frontendBuildFreshnessMinutes ?? fallbackSource.frontendBuildFreshnessMinutes),
+    deploymentHealth: normalizeState(source.deployment_health ?? source.deploymentHealth ?? fallbackSource.deploymentHealth, "degraded"),
+    telemetryFreshnessMinutes: numberOrZero(source.telemetry_freshness_minutes ?? source.telemetryFreshnessMinutes ?? fallbackSource.telemetryFreshnessMinutes),
+  };
+}
+
+export function normalizeObservabilitySnapshot(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const prometheus = isObject(source.prometheus) ? source.prometheus : fallbackSource.prometheus || {};
+  const grafana = isObject(source.grafana) ? source.grafana : fallbackSource.grafana || {};
+  const sentry = isObject(source.sentry) ? source.sentry : fallbackSource.sentry || {};
+  const sla = normalizeSlaMonitoring(source.sla ?? {}, fallbackSource.sla ?? {});
+  const anomalies = normalizeRuntimeAnomalies(source.anomalies ?? {}, fallbackSource.anomalies ?? {});
+  const alerts = normalizeAlertRouting(source.alerts ?? {}, fallbackSource.alerts ?? {});
+  const logs = normalizeLogAggregation(source.logs ?? {}, fallbackSource.logs ?? {});
+  const uptime = normalizeUptimeMonitor(source.uptime ?? {}, fallbackSource.uptime ?? {});
+  const performance = normalizeRuntimePerformance(source.performance ?? {}, fallbackSource.performance ?? {});
+  const prometheusText = stringOrEmpty(prometheus.text ?? fallbackSource.prometheus?.text);
+  const prometheusMetricCount = numberOrZero(
+    prometheus.metrics_count ?? prometheus.metricsCount ?? fallbackSource.prometheus?.metricsCount ?? prometheusText.split("\n").filter((line) => line.startsWith("lmcp_")).length,
+  );
+
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    prometheus: {
+      status: normalizeState(prometheus.status || fallbackSource.prometheus?.status, "runtime_fallback"),
+      generatedAt: stringOrEmpty(prometheus.generated_at || prometheus.generatedAt || fallbackSource.prometheus?.generatedAt || fallbackSource.generatedAt),
+      dataSource: normalizeState(prometheus.data_source || prometheus.dataSource || fallbackSource.prometheus?.dataSource, "runtime_fallback"),
+      metricsCount: prometheusMetricCount,
+      metrics: prometheus.metrics ?? fallbackSource.prometheus?.metrics ?? {},
+      text: prometheusText,
+    },
+    grafana: {
+      status: normalizeState(grafana.status || fallbackSource.grafana?.status, "runtime_fallback"),
+      generatedAt: stringOrEmpty(grafana.generated_at || grafana.generatedAt || fallbackSource.grafana?.generatedAt || fallbackSource.generatedAt),
+      dataSource: normalizeState(grafana.data_source || grafana.dataSource || fallbackSource.grafana?.dataSource, "runtime_fallback"),
+      dashboards: arrayOrEmpty(grafana.dashboards ?? fallbackSource.grafana?.dashboards),
+      count: numberOrZero(grafana.count ?? fallbackSource.grafana?.count),
+    },
+    sentry: {
+      status: normalizeState(sentry.status || fallbackSource.sentry?.status, "fallback"),
+      generatedAt: stringOrEmpty(sentry.generated_at || sentry.generatedAt || fallbackSource.sentry?.generatedAt || fallbackSource.generatedAt),
+      dataSource: normalizeState(sentry.data_source || sentry.dataSource || fallbackSource.sentry?.dataSource, "fallback"),
+      sentry: sentry.sentry ?? fallbackSource.sentry?.sentry ?? {},
+    },
+    sla,
+    anomalies,
+    alerts,
+    logs,
+    uptime,
+    performance,
+    summary: {
+      prometheusMetricsCount: numberOrZero(prometheus.metrics_count ?? prometheus.metricsCount ?? fallbackSource.prometheus?.metricsCount),
+      grafanaDashboards: numberOrZero(grafana.count ?? fallbackSource.grafana?.count),
+      runtimeAlerts: numberOrZero(alerts.routeCount ?? fallbackSource.alerts?.routeCount),
+      anomalyCount: numberOrZero(anomalies.anomalyCount ?? fallbackSource.anomalies?.anomalyCount),
+      logCount: numberOrZero(logs.totalLogs ?? fallbackSource.logs?.totalLogs),
+      uptimePercent: numberOrZero(uptime.apiUptimePercentage ?? fallbackSource.uptime?.apiUptimePercentage),
+      slaStatus: sla.status,
+      anomalyStatus: anomalies.status,
+      performanceStatus: performance.status,
+    },
+  };
+}
+
+function normalizeOperatorWorkloadOperator(row, index = 0) {
+  return {
+    operatorId: stringOrEmpty(row?.operator_id ?? row?.operatorId ?? `operator-${index + 1}`),
+    assigned: numberOrZero(row?.assigned),
+    overdue: numberOrZero(row?.overdue),
+    utilization: numberOrZero(row?.utilization),
+    timelineEvents: numberOrZero(row?.timeline_events ?? row?.timelineEvents),
+    specialization: stringOrEmpty(row?.specialization, "general"),
+    workloadScore: numberOrZero(row?.workload_score ?? row?.workloadScore),
+    averageDueAgeHours: numberOrZero(row?.average_due_age_hours ?? row?.averageDueAgeHours),
+    priorityAverage: numberOrZero(row?.priority_average ?? row?.priorityAverage),
+  };
+}
+
+export function normalizeOperatorWorkload(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const operators = Array.isArray(source.operators) && source.operators.length ? source.operators : arrayOrEmpty(fallbackSource.operators);
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    teamSize: numberOrZero(source.team_size ?? source.teamSize ?? fallbackSource.teamSize ?? 10),
+    totalDailyCapacity: numberOrZero(source.total_daily_capacity ?? source.totalDailyCapacity ?? fallbackSource.totalDailyCapacity ?? 1000),
+    assignedToday: numberOrZero(source.assigned_today ?? source.assignedToday ?? fallbackSource.assignedToday),
+    remainingCapacity: numberOrZero(source.remaining_capacity ?? source.remainingCapacity ?? fallbackSource.remainingCapacity),
+    averageUtilization: numberOrZero(source.average_utilization ?? source.averageUtilization ?? fallbackSource.averageUtilization),
+    averageWorkloadScore: numberOrZero(source.average_workload_score ?? source.averageWorkloadScore ?? fallbackSource.averageWorkloadScore),
+    overloadWarnings: arrayOrEmpty(source.overload_warnings ?? source.overloadWarnings ?? fallbackSource.overloadWarnings).map(stringOrEmpty),
+    underutilizationWarnings: arrayOrEmpty(source.underutilization_warnings ?? source.underutilizationWarnings ?? fallbackSource.underutilizationWarnings).map(stringOrEmpty),
+    operators: operators.map((row, index) => normalizeOperatorWorkloadOperator(row, index)),
+  };
+}
+
+function normalizeReviewQueueOptimizationItem(row, index = 0) {
+  return {
+    tenderId: stringOrEmpty(row?.tender_id ?? row?.tenderId ?? `item-${index + 1}`),
+    title: stringOrEmpty(row?.title, "Unknown RFQ"),
+    buyer: stringOrEmpty(row?.buyer, "Unknown buyer"),
+    province: stringOrEmpty(row?.province, "Unknown"),
+    closingDate: stringOrEmpty(row?.closing_date ?? row?.closingDate),
+    workflowStage: stringOrEmpty(row?.workflow_stage ?? row?.workflowStage, "review_ready"),
+    reviewStatus: stringOrEmpty(row?.review_status ?? row?.reviewStatus, "pending"),
+    pricingConfidence: numberOrZero(row?.pricing_confidence ?? row?.pricingConfidence),
+    queueAgeMinutes: numberOrZero(row?.queue_age_minutes ?? row?.queueAgeMinutes),
+    priorityScore: numberOrZero(row?.priority_score ?? row?.priorityScore),
+    priorityGroup: stringOrEmpty(row?.priority_group ?? row?.priorityGroup, "low"),
+    priorityReason: stringOrEmpty(row?.priority_reason ?? row?.priorityReason),
+    riskLevel: stringOrEmpty(row?.risk_level ?? row?.riskLevel, "medium"),
+    staleEvidence: Boolean(row?.stale_evidence ?? row?.staleEvidence),
+    reviewReadiness: stringOrEmpty(row?.review_readiness ?? row?.reviewReadiness, "manual"),
+    governanceBlocked: Boolean(row?.governance_blocked ?? row?.governanceBlocked),
+    submissionMethod: stringOrEmpty(row?.submission_method ?? row?.submissionMethod, "unknown"),
+    sourceTier: stringOrEmpty(row?.source_tier ?? row?.sourceTier, "Tier 4"),
+    dataSource: stringOrEmpty(row?.data_source ?? row?.dataSource, "runtime"),
+  };
+}
+
+export function normalizeReviewQueueOptimization(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const items = Array.isArray(source.optimized_queue) && source.optimized_queue.length ? source.optimized_queue : arrayOrEmpty(fallbackSource.optimizedQueue);
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    optimizedQueue: items.map((row, index) => normalizeReviewQueueOptimizationItem(row, index)),
+    priorityGroups: source.priority_groups ?? source.priorityGroups ?? fallbackSource.priorityGroups ?? {},
+    overdueReviews: arrayOrEmpty(source.overdue_reviews ?? source.overdueReviews ?? fallbackSource.overdueReviews).map((row, index) => normalizeReviewQueueOptimizationItem(row, index)),
+    staleRfqs: arrayOrEmpty(source.stale_rfqs ?? source.staleRfqs ?? fallbackSource.staleRfqs).map((row, index) => normalizeReviewQueueOptimizationItem(row, index)),
+    overloadedQueue: Boolean(source.overloaded_queue ?? source.overloadedQueue ?? fallbackSource.overloadedQueue),
+    summary: {
+      total: numberOrZero(source.summary?.total ?? fallbackSource.summary?.total ?? items.length),
+      urgent: numberOrZero(source.summary?.urgent ?? fallbackSource.summary?.urgent),
+      high: numberOrZero(source.summary?.high ?? fallbackSource.summary?.high),
+      medium: numberOrZero(source.summary?.medium ?? fallbackSource.summary?.medium),
+      low: numberOrZero(source.summary?.low ?? fallbackSource.summary?.low),
+      averagePriorityScore: numberOrZero(source.summary?.average_priority_score ?? source.summary?.averagePriorityScore ?? fallbackSource.summary?.averagePriorityScore),
+      averageQueueAgeMinutes: numberOrZero(source.summary?.average_queue_age_minutes ?? source.summary?.averageQueueAgeMinutes ?? fallbackSource.summary?.averageQueueAgeMinutes),
+    },
+  };
+}
+
+export function normalizeReviewEfficiency(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    rfqsReviewedPerHour: numberOrZero(source.rfqs_reviewed_per_hour ?? source.rfqsReviewedPerHour ?? fallbackSource.rfqsReviewedPerHour),
+    reviewCompletionTimeMinutes: numberOrZero(source.review_completion_time_minutes ?? source.reviewCompletionTimeMinutes ?? fallbackSource.reviewCompletionTimeMinutes),
+    evidenceHandlingTimeMinutes: numberOrZero(source.evidence_handling_time_minutes ?? source.evidenceHandlingTimeMinutes ?? fallbackSource.evidenceHandlingTimeMinutes),
+    escalationFrequency: numberOrZero(source.escalation_frequency ?? source.escalationFrequency ?? fallbackSource.escalationFrequency),
+    reassignmentFrequency: numberOrZero(source.reassignment_frequency ?? source.reassignmentFrequency ?? fallbackSource.reassignmentFrequency),
+    queueAgingTrends: source.queue_aging_trends ?? source.queueAgingTrends ?? fallbackSource.queueAgingTrends ?? {},
+    operatorThroughputTrends: source.operator_throughput_trends ?? source.operatorThroughputTrends ?? fallbackSource.operatorThroughputTrends ?? {},
+    timelineGapMinutes: numberOrZero(source.timeline_gap_minutes ?? source.timelineGapMinutes ?? fallbackSource.timelineGapMinutes),
+    throughputBottlenecks: arrayOrEmpty(source.throughput_bottlenecks ?? source.throughputBottlenecks ?? fallbackSource.throughputBottlenecks),
+    advisoryOnly: Boolean(source.advisory_only ?? source.advisoryOnly ?? fallbackSource.advisoryOnly ?? true),
+  };
+}
+
+export function normalizeFocusSessions(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const sessions = Array.isArray(source.sessions) && source.sessions.length ? source.sessions : arrayOrEmpty(fallbackSource.sessions);
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    sessions: sessions.map((row) => ({
+      operatorId: stringOrEmpty(row?.operator_id ?? row?.operatorId, "unassigned"),
+      focusedMinutes: numberOrZero(row?.focused_minutes ?? row?.focusedMinutes),
+      reviewThroughput: numberOrZero(row?.review_throughput ?? row?.reviewThroughput),
+      interruptionCount: numberOrZero(row?.interruption_count ?? row?.interruptionCount),
+      completionBursts: numberOrZero(row?.completion_bursts ?? row?.completionBursts),
+      sessionStart: stringOrEmpty(row?.session_start ?? row?.sessionStart),
+      sessionEnd: stringOrEmpty(row?.session_end ?? row?.sessionEnd),
+    })),
+    summary: source.summary ?? fallbackSource.summary ?? {},
+    advisoryOnly: Boolean(source.advisory_only ?? source.advisoryOnly ?? true),
+  };
+}
+
+export function normalizeQueueHeatmap(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    heatmap: arrayOrEmpty(source.heatmap ?? fallbackSource.heatmap).map((row) => ({
+      axis: stringOrEmpty(row?.axis),
+      label: stringOrEmpty(row?.label),
+      value: numberOrZero(row?.value),
+    })),
+    operatorDistribution: source.operator_distribution ?? source.operatorDistribution ?? fallbackSource.operatorDistribution ?? {},
+    sourceDistribution: source.source_distribution ?? source.sourceDistribution ?? fallbackSource.sourceDistribution ?? {},
+    escalationDensity: source.escalation_density ?? source.escalationDensity ?? fallbackSource.escalationDensity ?? {},
+    provinceDensity: source.province_density ?? source.provinceDensity ?? fallbackSource.provinceDensity ?? {},
+  };
+}
+
+export function normalizeReviewPriorities(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const groupKeys = ["urgent", "high", "medium", "low"];
+  const priorityGroups = {};
+  for (const key of groupKeys) {
+    const rows = Array.isArray(source.priority_groups?.[key]) ? source.priority_groups[key] : arrayOrEmpty(fallbackSource.priorityGroups?.[key]);
+    priorityGroups[key] = rows.map((row, index) => normalizeReviewQueueOptimizationItem(row, index));
+  }
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    priorityScore: numberOrZero(source.priority_score ?? source.priorityScore ?? fallbackSource.priorityScore),
+    priorityGroups,
+    escalationRecommendations: arrayOrEmpty(source.escalation_recommendations ?? source.escalationRecommendations ?? fallbackSource.escalationRecommendations),
+    reviewUrgency: stringOrEmpty(source.review_urgency ?? source.reviewUrgency, "normal"),
+    overloadedQueue: Boolean(source.overloaded_queue ?? source.overloadedQueue ?? fallbackSource.overloadedQueue),
+  };
+}
+
+export function normalizeEvidenceAcceleration(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    missingEvidence: arrayOrEmpty(source.missing_evidence ?? source.missingEvidence ?? fallbackSource.missingEvidence).map((row, index) => normalizeReviewQueueOptimizationItem(row, index)),
+    staleEvidence: arrayOrEmpty(source.stale_evidence ?? source.staleEvidence ?? fallbackSource.staleEvidence).map((row, index) => normalizeReviewQueueOptimizationItem(row, index)),
+    supplierQuoteCompleteness: arrayOrEmpty(source.supplier_quote_completeness ?? source.supplierQuoteCompleteness ?? fallbackSource.supplierQuoteCompleteness).map((row) => ({
+      tenderId: stringOrEmpty(row?.tender_id ?? row?.tenderId),
+      title: stringOrEmpty(row?.title),
+      pricingConfidence: numberOrZero(row?.pricing_confidence ?? row?.pricingConfidence),
+      queueAgeMinutes: numberOrZero(row?.queue_age_minutes ?? row?.queueAgeMinutes),
+    })),
+    pricingMismatchSummary: arrayOrEmpty(source.pricing_mismatch_summary ?? source.pricingMismatchSummary ?? fallbackSource.pricingMismatchSummary).map((row, index) => normalizeReviewQueueOptimizationItem(row, index)),
+    groupedWarnings: source.grouped_warnings ?? source.groupedWarnings ?? fallbackSource.groupedWarnings ?? {},
+    summary: source.summary ?? fallbackSource.summary ?? {},
+  };
+}
+
+export function normalizeOperatorShortcuts(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "ok"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    shortcuts: arrayOrEmpty(source.shortcuts ?? fallbackSource.shortcuts).map((row) => ({
+      label: stringOrEmpty(row?.label),
+      key: stringOrEmpty(row?.key),
+      action: stringOrEmpty(row?.action),
+    })),
+    quickActions: arrayOrEmpty(source.quick_actions ?? source.quickActions ?? fallbackSource.quickActions).map(stringOrEmpty),
+    filterPresets: arrayOrEmpty(source.filter_presets ?? source.filterPresets ?? fallbackSource.filterPresets).map(stringOrEmpty),
+    advisoryOnly: Boolean(source.advisory_only ?? source.advisoryOnly ?? fallbackSource.advisoryOnly ?? true),
+  };
+}
+
+export function normalizeProductivitySnapshot(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const workload = normalizeOperatorWorkload(source.workload ?? {}, fallbackSource.workload ?? {});
+  const queueOptimization = normalizeReviewQueueOptimization(source.queueOptimization ?? source.queue_optimization ?? {}, fallbackSource.queueOptimization ?? {});
+  const reviewEfficiency = normalizeReviewEfficiency(source.reviewEfficiency ?? source.review_efficiency ?? {}, fallbackSource.reviewEfficiency ?? {});
+  const focusSessions = normalizeFocusSessions(source.focusSessions ?? source.focus_sessions ?? {}, fallbackSource.focusSessions ?? {});
+  const queueHeatmap = normalizeQueueHeatmap(source.queueHeatmap ?? source.queue_heatmap ?? {}, fallbackSource.queueHeatmap ?? {});
+  const reviewPriorities = normalizeReviewPriorities(source.reviewPriorities ?? source.review_priorities ?? {}, fallbackSource.reviewPriorities ?? {});
+  const evidenceAcceleration = normalizeEvidenceAcceleration(source.evidenceAcceleration ?? source.evidence_acceleration ?? {}, fallbackSource.evidenceAcceleration ?? {});
+  const shortcuts = normalizeOperatorShortcuts(source.shortcuts ?? {}, fallbackSource.shortcuts ?? {});
+  return {
+    status: normalizeState(source.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || workload.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource || workload.dataSource, "runtime_fallback"),
+    workload,
+    queueOptimization,
+    reviewEfficiency,
+    focusSessions,
+    queueHeatmap,
+    reviewPriorities,
+    evidenceAcceleration,
+    shortcuts,
   };
 }

@@ -18,6 +18,8 @@ class DeploymentProfile:
     rate_limit_per_minute: int
     cors_origins: Tuple[str, ...]
     legacy_routers_enabled: bool
+    database_backend: str = "sqlite"
+    queue_backend: str = "local"
 
     def to_jsonable_dict(self) -> Dict[str, object]:
         return {
@@ -30,6 +32,8 @@ class DeploymentProfile:
             "rate_limit_per_minute": self.rate_limit_per_minute,
             "cors_origins": list(self.cors_origins),
             "legacy_routers_enabled": self.legacy_routers_enabled,
+            "database_backend": self.database_backend,
+            "queue_backend": self.queue_backend,
         }
 
 
@@ -54,6 +58,8 @@ def _profile(name: str) -> DeploymentProfile:
         rate_limit_per_minute=int(env("LMCP_RATE_LIMIT_PER_MINUTE", str(profile.rate_limit_per_minute))),
         cors_origins=cors or profile.cors_origins,
         legacy_routers_enabled=runtime.enable_legacy_routers and profile.legacy_routers_enabled,
+        database_backend=env("LMCP_DB_BACKEND", profile.database_backend).lower(),
+        queue_backend=env("LMCP_QUEUE_BACKEND", profile.queue_backend).lower(),
     )
 
 
@@ -70,4 +76,3 @@ def deployment_profiles() -> Dict[str, DeploymentProfile]:
         "supervised_live": get_deployment_profile("supervised_live"),
         "production": get_deployment_profile("production"),
     }
-

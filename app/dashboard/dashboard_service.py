@@ -13,11 +13,32 @@ from app.quality.pricing_schedule_quality import build_pricing_schedule_quality_
 from app.quality.quote_pack_quality import build_quote_pack_quality_report
 from app.quality.supplier_pricing_quality import build_supplier_comparison_summary
 from app.qualification.qualification_engine import build_qualification_summary, qualify_rfq
+from app.productivity.bulk_review_actions import build_bulk_action_preview
+from app.productivity.evidence_review_accelerator import build_evidence_acceleration_summary
+from app.productivity.operator_focus_sessions import build_focus_session_summary
+from app.productivity.operator_shortcuts import build_operator_shortcut_catalog
+from app.productivity.operator_workload_balancer import build_operator_workload_summary
+from app.productivity.review_efficiency_analytics import build_review_efficiency_analytics
+from app.productivity.review_priority_engine import build_review_priority_summary
+from app.productivity.review_queue_optimizer import build_review_queue_optimization_summary
 from app.pilot.pilot_mode import get_pilot_execution_metadata
 from app.pilot.pilot_metrics import get_pilot_metrics
 from app.pilot.pilot_readiness_report import build_pilot_readiness_report
 from app.pilot.pilot_run_service import get_pilot_failures
 from app.persistence.repositories import WorkflowRepository, get_persistence_health
+from app.operations.backup_validation import get_backup_validation_summary
+from app.operations.health_snapshots import get_health_snapshots
+from app.operations.incident_tracker import get_incident_summary
+from app.operations.runtime_alerts import get_runtime_alerts
+from app.operations.runtime_metrics import get_runtime_metrics, get_runtime_snapshots
+from app.observability.metrics_registry import get_observability_overview
+from app.analytics.operator_performance_analytics import build_operator_performance_analytics
+from app.analytics.review_queue_analytics import build_review_queue_analytics
+from app.analytics.source_reliability_analytics import build_source_reliability_analytics
+from app.business_intelligence.executive_dashboard import build_executive_dashboard
+from app.governance.compliance_reporting import build_compliance_report
+from app.governance.governance_risk_register import build_governance_risk_register
+from app.business_intelligence.strategic_reporting import build_strategic_report
 from app.operator_ops import (
     get_operator_actions,
     get_operator_assignments,
@@ -103,6 +124,28 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
         "operator_timeline_summary": get_operator_timeline(limit=limit),
         "operator_notifications_summary": get_operator_notifications(limit=limit),
         "operator_capacity_snapshot": get_operator_capacity_snapshot(),
+        "runtime_metrics_summary": get_runtime_metrics(limit=limit),
+        "runtime_alerts_summary": get_runtime_alerts(limit=limit),
+        "observability_summary": get_observability_overview(limit=limit),
+        "health_snapshot": get_health_snapshots(limit=limit),
+        "runtime_snapshots": get_runtime_snapshots(limit=limit),
+        "backup_validation_summary": get_backup_validation_summary(),
+        "incident_summary_runtime": get_incident_summary(limit=limit),
+        "operator_performance_analytics": build_operator_performance_analytics(limit=limit),
+        "review_queue_analytics": build_review_queue_analytics(limit=limit),
+        "source_reliability_analytics": build_source_reliability_analytics(limit=limit),
+        "business_intelligence_summary": build_executive_dashboard(limit=limit),
+        "strategic_report_summary": build_strategic_report(limit=limit),
+        "productivity_summary": {
+            "workload": build_operator_workload_summary(limit=limit),
+            "queue_optimization": build_review_queue_optimization_summary(limit=limit),
+            "review_efficiency": build_review_efficiency_analytics(limit=limit),
+            "focus_sessions": build_focus_session_summary(limit=limit),
+            "review_priorities": build_review_priority_summary(limit=limit),
+            "evidence_acceleration": build_evidence_acceleration_summary(limit=limit),
+            "shortcuts": build_operator_shortcut_catalog(),
+            "bulk_preview": build_bulk_action_preview(operator_id="", tender_ids=[], action="preview"),
+        },
         "qualification_summary": build_qualification_summary([qualification_result] if qualification_result else []),
         "qualification_result": qualification_result,
         "qualification_recommendation": qualification_result.get("recommendation", "MANUAL_REVIEW"),
@@ -169,6 +212,9 @@ def get_operational_summary(limit: int = 100) -> Dict[str, Any]:
         "operator_timeline_summary": report.get("operator_timeline_summary", {}),
         "operator_notifications_summary": report.get("operator_notifications_summary", {}),
         "operator_capacity_snapshot": report.get("operator_capacity_snapshot", {}),
+        "health_snapshot": report.get("health_snapshot", {}),
+        "runtime_snapshots": report.get("runtime_snapshots", {}),
+        "observability_summary": report.get("observability_summary", {}),
         "pricing_evidence_summary": report.get("supplier_pricing_summary", {}).get("pricing_evidence_summary", {}),
         "pricing_validation_summary": report.get("supplier_pricing_summary", {}).get("pricing_validation_summary", {}),
         "pricing_traceability_summary": report.get("supplier_pricing_summary", {}).get("pricing_traceability_summary", {}),

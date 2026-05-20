@@ -15,6 +15,7 @@ from app.quality.context import build_quality_context
 from app.quality.quote_pack_quality import build_quote_pack_quality_report
 from app.quality.supplier_pricing_quality import build_supplier_comparison_summary
 from app.qualification.qualification_engine import build_qualification_summary, qualify_rfq
+from app.operator_ops import get_operator_actions, get_operator_assignments, get_operator_notifications
 
 
 class PilotReadinessReport(StrictBaseModel):
@@ -53,8 +54,6 @@ class PilotReadinessReport(StrictBaseModel):
 
 
 def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
-    from app.dashboard.dashboard_service import get_dashboard_summary
-
     metrics = get_pilot_metrics()
     workflow_metrics = get_metrics_snapshot().get("metrics", {})
     summary = get_pilot_summary(limit=limit)
@@ -63,7 +62,9 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
     runs = get_pilot_runs(limit=limit)
     signoffs = get_pilot_signoffs(limit=limit)
     quality_context = build_quality_context(limit=limit)
-    dashboard_summary = get_dashboard_summary(limit=limit)
+    operator_actions_summary = get_operator_actions(limit=limit)
+    operator_assignments_summary = get_operator_assignments(limit=limit)
+    operator_notifications_summary = get_operator_notifications(limit=limit)
     quality_summary = build_quote_pack_quality_report(quality_context.get("quote_pack_payload") or {"artifacts": []})
     supplier_quality = build_supplier_comparison_summary(quality_context.get("supplier_quotes") or [])
     qualification_result = qualify_rfq(quality_context.get("rfq_payload")) if quality_context.get("rfq_payload") else {}
@@ -101,9 +102,9 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         "persistence_failures": int(metrics.get("persistence_failures", 0)),
         "blocked_workflows": int(metrics.get("blocked_workflows", 0)),
         "operator_interventions": int(metrics.get("operator_interventions", 0)),
-        "operator_actions_recorded": int(dashboard_summary.get("operator_actions_summary", {}).get("total", 0)),
-        "operator_assignments_active": int(dashboard_summary.get("operator_assignments_summary", {}).get("summary", {}).get("active_assignments", 0)),
-        "operator_notifications": int(len(dashboard_summary.get("operator_notifications_summary", {}).get("notifications", []))),
+        "operator_actions_recorded": int(operator_actions_summary.get("total", 0)),
+        "operator_assignments_active": int(operator_assignments_summary.get("summary", {}).get("active_assignments", 0)),
+        "operator_notifications": int(len(operator_notifications_summary.get("notifications", []))),
     }
     governance_audit_summary = {
         "approval_compliance_count": approval_signoffs,
@@ -142,8 +143,8 @@ def build_pilot_readiness_report(limit: int = 100) -> Dict[str, Any]:
         "approval_records": int(workflow_metrics.get("approvals_recorded", 0)),
         "review_records": int(workflow_metrics.get("reviews_recorded", 0)),
         "proof_records": int(workflow_metrics.get("proofs_recorded", 0)),
-        "operator_actions_recorded": int(dashboard_summary.get("operator_actions_summary", {}).get("total", 0)),
-        "operator_assignments_active": int(dashboard_summary.get("operator_assignments_summary", {}).get("summary", {}).get("active_assignments", 0)),
+        "operator_actions_recorded": int(operator_actions_summary.get("total", 0)),
+        "operator_assignments_active": int(operator_assignments_summary.get("summary", {}).get("active_assignments", 0)),
         "final_submission_attempts": final_submission_attempts,
         "workflow_skips": workflow_skips,
         "governance_advisory_only": True,

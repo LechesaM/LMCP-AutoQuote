@@ -72,6 +72,12 @@ PRODUCTION_ROUTER_SPECS: Tuple[RouterSpec, ...] = (
     _spec("telemetry_router", "app.api.telemetry_routes"),
     _spec("operator_workflow_router", "app.api.operator_workflow_routes"),
     _spec("operator_ops_router", "app.api.operator_ops_routes"),
+    _spec("operations_runtime_router", "app.api.operations_runtime_routes"),
+    _spec("persistence_ops_router", "app.api.persistence_ops_routes"),
+    _spec("observability_router", "app.api.observability_routes"),
+    _spec("operator_productivity_router", "app.api.operator_productivity_routes"),
+    _spec("business_intelligence_router", "app.api.business_intelligence_routes"),
+    _spec("governance_router", "app.api.governance_routes"),
 )
 
 

@@ -6,6 +6,7 @@ import AnalyticsPanel from "../components/charts/AnalyticsPanel.tsx";
 import GovernanceRulesGrid from "../components/governance/GovernanceRulesGrid.tsx";
 import OperationalHealthPanel from "../components/health/OperationalHealthPanel.tsx";
 import OperationalAlertsPanel from "../components/workflows/OperationalAlertsPanel.tsx";
+import { useObservability } from "../hooks/useObservability";
 import useTelemetryStore from "../store/telemetryStore";
 import { BadgeDollarSign, FileText, Gauge, LineChart, PackageCheck, Percent } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -21,6 +22,7 @@ export default function DashboardPage() {
     refreshing: state.refreshing,
     error: state.error,
   }));
+  const observability = useObservability();
   const telemetryLabel =
     dataSource === "runtime"
       ? "Live runtime telemetry"
@@ -52,6 +54,23 @@ export default function DashboardPage() {
       </div>
       <div className="mt-6">
         <OperationalHealthPanel />
+      </div>
+      <div className="mt-6 glass-card rounded-3xl p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black text-white">Observability Summary</h3>
+            <p className="mt-1 text-sm text-slate-400">Prometheus, Grafana, SLA and runtime anomaly visibility for supervised-live operations.</p>
+          </div>
+          <div className="rounded-full border border-slate-700/60 bg-slate-950/55 px-3 py-1 text-[10px] font-black uppercase tracking-[.24em] text-slate-300">
+            {observability.dataSource || "runtime_fallback"}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard title="Prometheus Metrics" value={observability.summary.prometheusMetricsCount || 0} subtitle="Metrics export coverage" icon={LineChart} accent="cyan" state={observability.stale ? "stale" : "ready"} />
+          <MetricCard title="Grafana Dashboards" value={observability.summary.grafanaDashboards || 0} subtitle="Dashboard definitions" icon={Gauge} accent="green" state={observability.stale ? "stale" : "ready"} />
+          <MetricCard title="SLA Breaches" value={observability.sla?.breachedMetrics?.length || 0} subtitle="Service-level warnings" icon={BadgeDollarSign} accent="amber" state={observability.stale ? "stale" : "ready"} />
+          <MetricCard title="Runtime Anomalies" value={observability.summary.anomalyCount || 0} subtitle="Advisory anomaly signals" icon={Percent} accent="red" state={observability.stale ? "stale" : "ready"} />
+        </div>
       </div>
       <div className="mt-6">
         <OperationalAlertsPanel />

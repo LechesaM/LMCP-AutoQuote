@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterator, Dict, Any
 
 from app.core.runtime_paths import get_runtime_paths
+from app.persistence.postgres_config import get_postgres_config
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,17 @@ _INITIALIZED_PATH: Path | None = None
 
 def get_database_path() -> Path:
     return get_runtime_paths().manual_production_db_path
+
+
+def get_database_backend() -> str:
+    return get_postgres_config().backend
+
+
+def database_connection_ready() -> bool:
+    config = get_postgres_config()
+    if config.backend == "postgres":
+        return bool(config.configured and config.database_url)
+    return safe_initialize_database()
 
 
 def _apply_pragmas(connection: sqlite3.Connection) -> None:

@@ -6,6 +6,8 @@ from typing import Deque, Dict
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from app.monitoring.metrics_service import increment_metric
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, *, enabled: bool = False, max_requests: int = 60, window_seconds: int = 60) -> None:
@@ -24,9 +26,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         while bucket and bucket[0] <= now - self.window_seconds:
             bucket.popleft()
         if len(bucket) >= self.max_requests:
+            increment_metric("rate_limit_events")
             from starlette.responses import JSONResponse
 
             return JSONResponse({"status": "rate_limited", "detail": "Too many requests."}, status_code=429)
         bucket.append(now)
         return await call_next(request)
-

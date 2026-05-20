@@ -21,3 +21,50 @@ services:
       - "4173:80"
     depends_on:
       - backend
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["supervised_live", "production"]
+    environment:
+      POSTGRES_DB: ${LMCP_POSTGRES_DB:-lmcp}
+      POSTGRES_USER: ${LMCP_POSTGRES_USER:-lmcp}
+      POSTGRES_PASSWORD: ${LMCP_POSTGRES_PASSWORD:-lmcp}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    profiles: ["supervised_live", "production"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["supervised_live", "production"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./docker/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    profiles: ["supervised_live", "production"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${LMCP_GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${LMCP_GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

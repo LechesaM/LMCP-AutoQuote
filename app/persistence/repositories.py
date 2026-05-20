@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
 from app.persistence import db
+from app.persistence.postgres_config import get_postgres_config
+from app.orchestration.redis_config import get_redis_config, redis_connection_ready
 from app.persistence.models import (
     ApprovalRecordEntity,
     AuditEventEntity,
@@ -70,6 +72,8 @@ def get_persistence_health() -> Dict[str, Any]:
     from app.persistence import db as persistence_db
 
     db_available = persistence_db.safe_initialize_database()
+    postgres_config = get_postgres_config()
+    redis_config = get_redis_config()
     with _PERSISTENCE_LOCK:
         _PERSISTENCE_HEALTH["db_initialized"] = db_available
         _PERSISTENCE_HEALTH["db_available"] = db_available
@@ -77,6 +81,12 @@ def get_persistence_health() -> Dict[str, Any]:
     snapshot["healthy"] = db_available
     snapshot["status"] = "healthy" if db_available else "degraded"
     snapshot["db_path"] = str(persistence_db.get_database_path().name)
+    snapshot["db_ready"] = db_available if postgres_config.backend == "sqlite" else postgres_config.configured
+    snapshot["database_backend"] = postgres_config.backend
+    snapshot["postgres_configured"] = postgres_config.configured
+    snapshot["postgres_ready"] = postgres_config.backend == "postgres" and postgres_config.configured
+    snapshot["queue_backend"] = redis_config.backend
+    snapshot["queue_ready"] = redis_connection_ready()
     return snapshot
 
 

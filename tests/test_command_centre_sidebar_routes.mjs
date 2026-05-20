@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { secondarySidebarNavigationItems } from "../frontend/command-centre/src/routes/sidebarNavigation.js";
+import {
+  adminRuntimeSidebarNavigationItems,
+  getSidebarNavigationSections,
+  operatorPrimarySidebarNavigationItems,
+  operatorSupportSidebarNavigationItems,
+} from "../frontend/command-centre/src/routes/sidebarNavigation.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,15 +36,26 @@ for (const requiredPath of ["/operations", "/review", "/qualification-insights",
 
 assert.ok(appPaths.has("/__debug/navigation"), "Expected /__debug/navigation in App.jsx");
 
-const missingSidebarPaths = secondarySidebarNavigationItems
-  .map((item) => item.path)
-  .filter((routePath) => !routePaths.has(routePath) || !appPaths.has(routePath));
+const visibleOperatorPaths = [
+  ...operatorPrimarySidebarNavigationItems,
+  ...operatorSupportSidebarNavigationItems,
+  ...adminRuntimeSidebarNavigationItems,
+].map((item) => item.path);
+
+const missingSidebarPaths = visibleOperatorPaths.filter((routePath) => !routePaths.has(routePath) || !appPaths.has(routePath));
 
 assert.deepEqual(missingSidebarPaths, [], `Sidebar paths missing from registered frontend routes: ${missingSidebarPaths.join(", ")}`);
+
+const operatorSections = getSidebarNavigationSections("operator");
+assert.equal(operatorSections.length, 2, "Operator should only see procurement and governance sections");
+assert.equal(operatorSections.some((section) => section.label === "Admin Runtime"), false, "Admin Runtime should be hidden from operators");
+
+const supervisorSections = getSidebarNavigationSections("supervisor");
+assert.equal(supervisorSections.some((section) => section.label === "Admin Runtime"), true, "Admin Runtime should be visible to supervisors");
 
 console.log(JSON.stringify({
   status: "passed",
   route_count: routePaths.size,
   app_route_count: appPaths.size,
-  sidebar_item_count: secondarySidebarNavigationItems.length,
+  sidebar_item_count: visibleOperatorPaths.length,
 }, null, 2));

@@ -1,29 +1,58 @@
-export const secondarySidebarNavigationItems = [
+export const SIDEBAR_ADMIN_ROLES = ["supervisor", "admin"];
+
+export const operatorPrimarySidebarNavigationItems = [
+  { label: "Dashboard", path: "/dashboard" },
+  { label: "RFQ Operations", path: "/operations" },
+  { label: "Review Workflow", path: "/review-efficiency" },
+  { label: "Review Queue", path: "/review" },
+  { label: "Pricing Review", path: "/pricing-evidence" },
+  { label: "Approval Centre", path: "/governance" },
+  { label: "Evidence Centre", path: "/audit-defensibility" },
+  { label: "Submission Readiness", path: "/compliance-reporting" },
+];
+
+export const operatorSupportSidebarNavigationItems = [
+  { label: "Operator Assignments", path: "/operator-assignments" },
+  { label: "Governance Compliance", path: "/governance-compliance" },
+];
+
+export const adminRuntimeSidebarNavigationItems = [
   { label: "Source Health", path: "/source-health" },
-  { label: "Executive Dashboard", path: "/executive-dashboard" },
-  { label: "Profitability Analytics", path: "/profitability-analytics" },
-  { label: "Operational Forecasting", path: "/operational-forecasting" },
-  { label: "RFQ Intelligence", path: "/qualification-insights" },
-  { label: "Pricing Evidence", path: "/pricing-evidence" },
-  { label: "Review Workflow", path: "/review" },
-  { label: "Queue Monitor", path: "/review" },
-  { label: "Operational Health", path: "/runtime-operations" },
-  { label: "Operator Operations", path: "/operator-operations" },
-  { label: "Operator Productivity", path: "/operator-productivity" },
-  { label: "Queue Optimization", path: "/queue-optimization" },
-  { label: "Review Efficiency", path: "/review-efficiency" },
-  { label: "Operator Shortcuts", path: "/operator-productivity" },
-  { label: "Governance / Compliance Review", path: "/governance-compliance" },
-  { label: "Audit Defensibility", path: "/audit-defensibility" },
-  { label: "Compliance Reporting", path: "/compliance-reporting" },
   { label: "Runtime Operations", path: "/runtime-operations" },
-  { label: "Operational Analytics", path: "/operational-analytics" },
-  { label: "Incident Management", path: "/incident-management" },
-  { label: "Observability", path: "/observability" },
+  { label: "Runtime Analytics", path: "/operational-analytics" },
+  { label: "Telemetry Internals", path: "/observability" },
   { label: "SLA Monitoring", path: "/sla-monitoring" },
   { label: "Runtime Anomalies", path: "/runtime-anomalies" },
   { label: "Stabilization Operations", path: "/stabilization-operations" },
-  { label: "Operator Feedback", path: "/operator-feedback" },
-  { label: "Runtime Reliability", path: "/runtime-reliability" },
-  { label: "Activity Timeline", path: "/activity-timeline" },
+  { label: "Burn-in Diagnostics", path: "/runtime-reliability" },
 ];
+
+export const secondarySidebarNavigationItems = [
+  ...operatorPrimarySidebarNavigationItems,
+  ...operatorSupportSidebarNavigationItems,
+  ...adminRuntimeSidebarNavigationItems,
+];
+
+export function getSidebarNavigationSections(role = "") {
+  const isAdminRuntimeVisible = SIDEBAR_ADMIN_ROLES.includes(role);
+
+  return [
+    {
+      label: "Procurement Operations",
+      items: operatorPrimarySidebarNavigationItems,
+    },
+    {
+      label: "Governance",
+      items: operatorSupportSidebarNavigationItems,
+    },
+    ...(isAdminRuntimeVisible
+      ? [
+          {
+            label: "Admin Runtime",
+            items: adminRuntimeSidebarNavigationItems,
+          },
+        ]
+      : []),
+  ];
+}
+

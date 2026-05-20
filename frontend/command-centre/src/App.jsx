@@ -66,7 +66,14 @@ export default function App() {
             <Route path="/profitability-analytics" element={<ProfitabilityAnalyticsPage />} />
             <Route path="/operational-forecasting" element={<OperationalForecastingPage />} />
             <Route path="/operations" element={<RFQOperationsPage />} />
-            <Route path="/source-health" element={<SourceHealthPage />} />
+            <Route
+              path="/source-health"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <SourceHealthPage />
+                </RequireRole>
+              }
+            />
             <Route path="/qualification-insights" element={<QualificationInsightsPage />} />
             <Route path="/pricing-evidence" element={<PricingEvidencePage />} />
             <Route path="/review" element={<ReviewQueuePage />} />
@@ -100,15 +107,78 @@ export default function App() {
             />
             <Route path="/operator-operations" element={<OperatorOperationsPage />} />
             <Route path="/operator-assignments" element={<OperatorAssignmentsPage />} />
-            <Route path="/runtime-operations" element={<RuntimeOperationsPage />} />
-            <Route path="/operational-analytics" element={<OperationalAnalyticsPage />} />
-            <Route path="/incident-management" element={<IncidentManagementPage />} />
-            <Route path="/observability" element={<ObservabilityPage />} />
-            <Route path="/sla-monitoring" element={<SLAMonitoringPage />} />
-            <Route path="/runtime-anomalies" element={<RuntimeAnomaliesPage />} />
-            <Route path="/stabilization-operations" element={<StabilizationOperationsPage />} />
-            <Route path="/operator-feedback" element={<OperatorFeedbackPage />} />
-            <Route path="/runtime-reliability" element={<RuntimeReliabilityPage />} />
+            <Route
+              path="/runtime-operations"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <RuntimeOperationsPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/operational-analytics"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <OperationalAnalyticsPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/incident-management"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <IncidentManagementPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/observability"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <ObservabilityPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/sla-monitoring"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <SLAMonitoringPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/runtime-anomalies"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <RuntimeAnomaliesPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/stabilization-operations"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <StabilizationOperationsPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/operator-feedback"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <OperatorFeedbackPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/runtime-reliability"
+              element={
+                <RequireRole roles={["supervisor", "admin"]}>
+                  <RuntimeReliabilityPage />
+                </RequireRole>
+              }
+            />
             <Route path="/activity-timeline" element={<ActivityTimelinePage />} />
             <Route path="/__debug/hit-test" element={<DebugHitTestPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -6,38 +6,32 @@ import {
   Clock3,
   FileSearch,
   Gauge,
-  GitBranch,
   HeartPulse,
-  Keyboard,
   LayoutDashboard,
   ListChecks,
-  Radar,
   Radar as RadarOrbit,
   ServerCog,
   ServerCog as ServerCheck,
   ShieldAlert,
   ShieldCheck,
-  SlidersHorizontal,
   TimerReset,
   Users2,
   Workflow,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { commandCentreRoutes } from "../routes/commandCentreRoutes";
-import { secondarySidebarNavigationItems } from "../routes/sidebarNavigation.js";
+import useAuthStore from "../auth/authStore";
+import {
+  adminRuntimeSidebarNavigationItems,
+  getSidebarNavigationSections,
+  operatorPrimarySidebarNavigationItems,
+  operatorSupportSidebarNavigationItems,
+} from "../routes/sidebarNavigation.js";
 
 const navIcons = {
   "/dashboard": LayoutDashboard,
-  "/executive-dashboard": BarChart3,
-  "/profitability-analytics": BadgeDollarSign,
-  "/operational-forecasting": Gauge,
   "/operations": FileSearch,
-  "/source-health": ServerCog,
-  "/qualification-insights": Radar,
   "/pricing-evidence": BadgeDollarSign,
   "/review": ListChecks,
-  "/operator-productivity": SlidersHorizontal,
-  "/queue-optimization": Workflow,
   "/review-efficiency": TimerReset,
   "/governance": ShieldCheck,
   "/governance-compliance": ShieldCheck,
@@ -45,6 +39,7 @@ const navIcons = {
   "/compliance-reporting": ClipboardCheck,
   "/operator-operations": Users2,
   "/operator-assignments": ClipboardCheck,
+  "/source-health": ServerCog,
   "/runtime-operations": Gauge,
   "/operational-analytics": BarChart3,
   "/incident-management": Activity,
@@ -52,48 +47,48 @@ const navIcons = {
   "/sla-monitoring": Gauge,
   "/runtime-anomalies": Activity,
   "/stabilization-operations": ShieldAlert,
-  "/operator-feedback": HeartPulse,
   "/runtime-reliability": ServerCheck,
+  "/operator-productivity": HeartPulse,
+  "/queue-optimization": Workflow,
+  "/review-efficiency": TimerReset,
+  "/executive-dashboard": BarChart3,
+  "/profitability-analytics": BadgeDollarSign,
+  "/operational-forecasting": Gauge,
+  "/qualification-insights": FileSearch,
+  "/operator-feedback": HeartPulse,
   "/activity-timeline": Clock3,
-};
-
-const secondaryItemIcons = {
-  "Source Health": ServerCog,
-  "Executive Dashboard": BarChart3,
-  "Profitability Analytics": BadgeDollarSign,
-  "Operational Forecasting": Gauge,
-  "RFQ Intelligence": Radar,
-  "Pricing Evidence": BadgeDollarSign,
-  "Review Workflow": ClipboardCheck,
-  "Queue Monitor": GitBranch,
-  "Operational Health": Gauge,
-  "Operator Operations": Users2,
-  "Operator Productivity": SlidersHorizontal,
-  "Queue Optimization": Workflow,
-  "Review Efficiency": TimerReset,
-  "Operator Shortcuts": Keyboard,
-  "Governance / Compliance Review": ShieldCheck,
-  "Audit Defensibility": FileSearch,
-  "Compliance Reporting": ClipboardCheck,
-  "Runtime Operations": Gauge,
-  "Operational Analytics": BarChart3,
-  "Incident Management": Activity,
-  "Observability": RadarOrbit,
-  "SLA Monitoring": Gauge,
-  "Runtime Anomalies": Activity,
-  "Stabilization Operations": ShieldAlert,
-  "Operator Feedback": HeartPulse,
-  "Runtime Reliability": ServerCheck,
-  "Activity Timeline": Clock3,
 };
 
 function isActivePath(currentPath, path) {
   return currentPath === path || (path !== "/dashboard" && currentPath.startsWith(`${path}/`));
 }
 
+function NavigationButton({ label, path, description = "", active, onClick }) {
+  const Icon = navIcons[path] ?? LayoutDashboard;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "group relative z-10 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition-all pointer-events-auto",
+        active
+          ? "border border-command-green/70 bg-command-green text-slate-950 shadow-glow"
+          : "border border-transparent text-slate-500 hover:border-slate-600/50 hover:bg-slate-800/40 hover:text-slate-200",
+      ].join(" ")}
+    >
+      <Icon size={19} className={active ? "text-slate-950" : "text-slate-500 group-hover:text-command-cyan"} />
+      <span>
+        <div>{label}</div>
+        {description ? <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[.2em] opacity-70">{description}</div> : null}
+      </span>
+    </button>
+  );
+}
+
 export default function CommandCentreSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const userRole = useAuthStore((state) => state.user?.role || "");
 
   const handleNavigate = (label, path) => () => {
     window.__LMCP_LAST_NAV_CLICK__ = {
@@ -105,6 +100,9 @@ export default function CommandCentreSidebar() {
     navigate(path);
   };
 
+  const sections = getSidebarNavigationSections(userRole);
+  const visibleAdminRuntime = sections.find((section) => section.label === "Admin Runtime");
+
   return (
     <aside className="fixed left-0 top-0 z-50 h-screen w-[290px] overflow-y-auto border-r border-slate-700/40 bg-gradient-to-b from-[#020817] via-[#06111f] to-black px-5 py-6 shadow-[20px_0_80px_rgba(0,0,0,.45)] pointer-events-auto">
       <div className="mb-8">
@@ -113,55 +111,60 @@ export default function CommandCentreSidebar() {
       </div>
 
       <nav className="relative z-10 space-y-2">
-        {commandCentreRoutes.map((route) => {
-          const Icon = navIcons[route.path] ?? LayoutDashboard;
-          const active = isActivePath(location.pathname, route.path);
-          return (
-            <button
-              key={route.path}
-              type="button"
-              onClick={handleNavigate(route.label, route.path)}
-              className={[
-                "group relative z-10 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition-all pointer-events-auto",
-                active
-                  ? "border border-command-green/70 bg-command-green text-slate-950 shadow-glow"
-                  : "border border-transparent text-slate-500 hover:border-slate-600/50 hover:bg-slate-800/40 hover:text-slate-200",
-              ].join(" ")}
-            >
-              <Icon size={19} className={active ? "text-slate-950" : "text-slate-500 group-hover:text-command-cyan"} />
-              <span>
-                <div>{route.label}</div>
-                <div className="mt-0.5 text-[11px] font-medium uppercase tracking-[.2em] opacity-70">{route.description}</div>
-              </span>
-            </button>
-          );
-        })}
-      </nav>
-
-      <div className="mt-6 rounded-3xl border border-slate-700/60 bg-slate-950/50 p-4">
-        <div className="text-xs font-semibold uppercase tracking-[.26em] text-command-cyan">Command Centre Signals</div>
-        <div className="relative z-10 mt-3 space-y-2">
-          {secondarySidebarNavigationItems.map(({ label, path }) => {
-            const Icon = secondaryItemIcons[label] ?? LayoutDashboard;
+        <div className="space-y-2">
+          {operatorPrimarySidebarNavigationItems.map(({ label, path }) => {
             const active = isActivePath(location.pathname, path);
             return (
-              <button
-                key={`${label}-${path}`}
-                type="button"
+              <NavigationButton
+                key={path}
+                label={label}
+                path={path}
+                active={active}
                 onClick={handleNavigate(label, path)}
-                className={[
-                  "group relative z-10 flex w-full items-center gap-3 rounded-2xl border px-3 py-2 text-sm transition-all pointer-events-auto",
-                  active
-                    ? "border-command-green/70 bg-command-green text-slate-950 shadow-glow"
-                    : "border-slate-800/70 bg-slate-950/40 text-slate-400 hover:border-slate-600/50 hover:bg-slate-800/40 hover:text-slate-200",
-                ].join(" ")}
-              >
-                <Icon size={15} className={active ? "text-slate-950" : "text-command-green"} />
-                <span>{label}</span>
-              </button>
+              />
             );
           })}
         </div>
+
+        <div className="my-4 h-px bg-slate-700/50" />
+
+        <div className="space-y-2">
+          {operatorSupportSidebarNavigationItems.map(({ label, path }) => {
+            const active = isActivePath(location.pathname, path);
+            return (
+              <NavigationButton
+                key={path}
+                label={label}
+                path={path}
+                active={active}
+                onClick={handleNavigate(label, path)}
+              />
+            );
+          })}
+        </div>
+      </nav>
+
+      <div className="mt-6 rounded-3xl border border-slate-700/60 bg-slate-950/50 p-4">
+        <div className="text-xs font-semibold uppercase tracking-[.26em] text-command-cyan">Admin Runtime</div>
+        <div className="mt-1 text-[11px] uppercase tracking-[.22em] text-slate-500">
+          {visibleAdminRuntime ? "Visible to supervisors and admins" : "Hidden from operators"}
+        </div>
+        {visibleAdminRuntime ? (
+          <div className="relative z-10 mt-3 space-y-2">
+            {adminRuntimeSidebarNavigationItems.map(({ label, path }) => {
+              const active = isActivePath(location.pathname, path);
+              return (
+                <NavigationButton
+                  key={path}
+                  label={label}
+                  path={path}
+                  active={active}
+                  onClick={handleNavigate(label, path)}
+                />
+              );
+            })}
+          </div>
+        ) : null}
       </div>
 
       <div className="absolute bottom-5 left-5 right-5 rounded-2xl border border-command-green/20 bg-command-green/5 p-4">

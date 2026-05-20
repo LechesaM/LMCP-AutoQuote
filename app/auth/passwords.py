@@ -32,7 +32,7 @@ def verify_password(password: str, password_hash: str) -> bool:
     stored = str(password_hash or "")
     if not value or not stored:
         return False
-    if _passlib_pbkdf2 is not None and stored.startswith("pbkdf2_sha256$"):
+    if _passlib_pbkdf2 is not None and (stored.startswith("pbkdf2_sha256$") or stored.startswith("$pbkdf2-sha256$")):
         try:
             return bool(_passlib_pbkdf2.verify(value, stored))
         except Exception:
@@ -48,4 +48,3 @@ def verify_password(password: str, password_hash: str) -> bool:
         return hmac.compare_digest(digest, expected)
     except Exception:
         return False
-

@@ -8,11 +8,12 @@ from app.api.router_registry import iter_router_specs
 from app.core import workflow_state_engine
 from app.core.runtime_config import get_runtime_config
 from app.core.runtime_paths import RuntimePaths, get_runtime_paths
-from app.dashboard import dashboard_service
 from app.domain.base import StrictBaseModel, utc_now
 from app.monitoring.reporting_service import build_operational_report
+from app.monitoring.health_service import get_system_health
 from app.monitoring.workflow_monitor import get_workflow_summary
 from app.persistence import db
+from app.persistence.repositories import get_persistence_health
 from app.persistence.repositories import ApprovalRepository, AuditRepository, PricingRepository, QuoteRepository, SubmissionRepository, WorkflowRepository
 
 
@@ -111,7 +112,12 @@ def validate_startup(
             issues.append(_issue("fatal", f"{repo_name}_repository_unavailable", str(exc)))
 
     try:
-        dashboard_service.get_dashboard_summary(limit=1)
+        system_health = get_system_health()
+        if system_health.get("status") not in {"healthy", "warning"}:
+            issues.append(_issue("warning", "system_health_degraded", str(system_health.get("message", "System health check reported a degraded state."))))
+        persistence_health = get_persistence_health()
+        if persistence_health.get("status") not in {"healthy", "warning"}:
+            issues.append(_issue("warning", "persistence_health_degraded", str(persistence_health.get("message", "Persistence health check reported a degraded state."))))
     except Exception as exc:
         issues.append(_issue("fatal", "dashboard_unavailable", str(exc)))
 

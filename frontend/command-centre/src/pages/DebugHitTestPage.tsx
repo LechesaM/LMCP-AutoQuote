@@ -6,6 +6,12 @@ const TARGETS = [
   { x: 1450, y: 300 },
 ];
 
+declare global {
+  interface Window {
+    __LMCP_HIT_TEST__?: unknown;
+  }
+}
+
 function describeElement(element: Element | null) {
   if (!element) {
     return null;
@@ -17,6 +23,7 @@ function describeElement(element: Element | null) {
     tag: element.tagName.toLowerCase(),
     id: element.id || "",
     className: typeof element.className === "string" ? element.className : "",
+    href: element instanceof HTMLAnchorElement ? element.href : "",
     text: (element.textContent || "").trim().slice(0, 120),
     pointerEvents: style.pointerEvents,
     position: style.position,
@@ -87,6 +94,12 @@ export default function DebugHitTestPage() {
     const raf = window.requestAnimationFrame(evaluate);
     return () => window.cancelAnimationFrame(raf);
   }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.__LMCP_HIT_TEST__ = report || null;
+    }
+  }, [report]);
 
   const overlaySummary = useMemo(() => {
     if (!report?.overlays?.length) {

@@ -35,6 +35,7 @@ const OperatorFeedbackPage = lazy(() => import("./pages/OperatorFeedbackPage.tsx
 const RuntimeReliabilityPage = lazy(() => import("./pages/RuntimeReliabilityPage.tsx"));
 const ActivityTimelinePage = lazy(() => import("./pages/ActivityTimelinePage.tsx"));
 const DebugHitTestPage = lazy(() => import("./pages/DebugHitTestPage.tsx"));
+const DebugNavigationPage = lazy(() => import("./pages/DebugNavigationPage.tsx"));
 
 export default function App() {
   const bootstrap = useAuthStore((state) => state.bootstrap);
@@ -51,6 +52,7 @@ export default function App() {
       <Suspense fallback={<RouteLoadingState label="Loading command centre route" />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/__debug/navigation" element={<DebugNavigationPage />} />
           <Route
             element={
               <RequireRole>

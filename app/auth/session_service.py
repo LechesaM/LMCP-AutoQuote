@@ -144,6 +144,79 @@ def seed_demo_users_if_needed() -> None:
             conn.close()
 
 
+def create_user(
+    user_id: str,
+    email: str,
+    display_name: str,
+    role: str,
+    password: str,
+    *,
+    is_active: bool = True,
+    overwrite: bool = False,
+) -> AuthUserRecord:
+    ensure_auth_schema()
+    normalized_user_id = str(user_id or "").strip()
+    normalized_email = str(email or "").strip().lower()
+    normalized_display_name = str(display_name or "").strip()
+    normalized_role = str(role or "").strip().lower()
+    if not normalized_user_id:
+        raise ValueError("user_id is required")
+    if not normalized_email:
+        raise ValueError("email is required")
+    if not normalized_display_name:
+        raise ValueError("display_name is required")
+    if not normalized_role:
+        raise ValueError("role is required")
+    password_hash = hash_password(password)
+    created_at = _now_iso()
+    with _LOCK:
+        conn = _db_conn()
+        try:
+            existing = conn.execute(
+                """
+                SELECT user_id, email, display_name, role, password_hash, is_active, created_at, last_login_at
+                FROM auth_users
+                WHERE lower(email) = lower(?) OR user_id = ?
+                LIMIT 1
+                """,
+                (normalized_email, normalized_user_id),
+            ).fetchone()
+            if existing and not overwrite:
+                return _row_to_user(existing)
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO auth_users (user_id, email, display_name, role, password_hash, is_active, created_at, last_login_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    normalized_user_id,
+                    normalized_email,
+                    normalized_display_name,
+                    normalized_role,
+                    password_hash,
+                    1 if is_active else 0,
+                    existing["created_at"] if existing and existing["created_at"] else created_at,
+                    existing["last_login_at"] if existing and existing["last_login_at"] else "",
+                ),
+            )
+            conn.commit()
+            row = conn.execute(
+                """
+                SELECT user_id, email, display_name, role, password_hash, is_active, created_at, last_login_at
+                FROM auth_users
+                WHERE user_id = ?
+                LIMIT 1
+                """,
+                (normalized_user_id,),
+            ).fetchone()
+            if not row:
+                raise RuntimeError("Unable to create auth user.")
+            return _row_to_user(row)
+        finally:
+            conn.close()
+
+
 def list_users() -> List[AuthUserRecord]:
     seed_demo_users_if_needed()
     with _LOCK:
@@ -320,4 +393,3 @@ def get_current_user_from_request(request: Request | None) -> AuthContext:
 
 def permissions_for_current_user(request: Request | None):
     return get_current_user_from_request(request).permissions
-

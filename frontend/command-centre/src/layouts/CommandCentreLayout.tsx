@@ -11,9 +11,9 @@ export default function CommandCentreLayout({ routeTelemetry, children }) {
   }, []);
 
   return (
-    <div className="min-h-screen command-grid">
+    <div className="relative isolate min-h-screen command-grid">
       <CommandCentreSidebar />
-      <main className="ml-[290px] min-h-screen p-6">
+      <main className="relative z-0 ml-[290px] min-h-screen p-6">
         <RuntimeSafetyLayer />
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>

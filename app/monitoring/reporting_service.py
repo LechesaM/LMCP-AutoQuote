@@ -43,8 +43,16 @@ from app.operator_ops import (
     get_operator_timeline,
 )
 
-
 def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500) -> Dict[str, Any]:
+    from app.stabilization.deployment_stability_checks import build_deployment_stability_report
+    from app.stabilization.fallback_resilience import build_fallback_resilience_report
+    from app.stabilization.governance_consistency_validator import build_governance_consistency_report
+    from app.stabilization.operator_fatigue_monitor import build_operator_fatigue_report
+    from app.stabilization.operator_ux_feedback import build_operator_ux_feedback_report
+    from app.stabilization.runtime_cleanup import build_runtime_cleanup_report
+    from app.stabilization.runtime_stability_engine import build_runtime_stability_report
+    from app.stabilization.telemetry_noise_reduction import build_telemetry_noise_reduction_report
+
     metrics = get_metrics_snapshot()
     pilot = build_pilot_readiness_report(limit=limit)
     tender_analytics = build_tender_success_analytics(limit=limit)
@@ -93,6 +101,16 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
         "backup_validation_summary": get_backup_validation_summary(),
         "persistence_reliability_report": build_persistence_reliability_report(),
         "incident_summary_runtime": get_incident_summary(limit=limit),
+        "stabilization_summary": {
+            "runtime_stability": build_runtime_stability_report(limit=limit),
+            "fallback_resilience": build_fallback_resilience_report(limit=limit),
+            "telemetry_noise": build_telemetry_noise_reduction_report(limit=limit),
+            "governance_consistency": build_governance_consistency_report(limit=limit),
+            "operator_fatigue": build_operator_fatigue_report(limit=limit),
+            "operator_feedback": build_operator_ux_feedback_report(limit=limit),
+            "runtime_cleanup": build_runtime_cleanup_report(limit=limit),
+            "deployment_stability": build_deployment_stability_report(limit=limit),
+        },
         "operator_performance_analytics": build_operator_performance_analytics(limit=limit),
         "review_queue_analytics": build_review_queue_analytics(limit=limit),
         "source_reliability_analytics": build_source_reliability_analytics(limit=limit),
@@ -153,6 +171,7 @@ def render_operational_report_text(report: Optional[Dict[str, Any]] = None) -> s
         f"Backup age days: {report.get('backup_validation_summary', {}).get('latest_backup_age_days', -1)}",
         f"Observability status: {report.get('observability_summary', {}).get('status', 'fallback')}",
         f"Observability alerts: {report.get('observability_summary', {}).get('summary', {}).get('runtime_alerts', 0)}",
+        f"Stability score: {report.get('stabilization_summary', {}).get('runtime_stability', {}).get('stability_score', 0.0)}",
         f"Restore readiness: {report.get('persistence_reliability_report', {}).get('restore_readiness', {}).get('status', 'blocked')}",
         f"Missing runtime directories: {len(diagnostics.get('missing_directories', []))}",
         f"Workflow failures: {metrics.get('workflow_failures', 0)}",

@@ -101,6 +101,19 @@ def get_runtime_metrics(limit: int = 100) -> Dict[str, Any]:
     restore_ready = validate_restore_readiness(backup_status.get("latest_backup_dir", ""))
     workers = get_worker_supervision_report()
     productivity = build_review_efficiency_analytics(limit=limit)
+    fallback_activations = 0
+    if backup_status.get("backup_age_warning"):
+        fallback_activations += 1
+    if persistence.get("status") == "failing" or not restore_ready.get("status") == "healthy":
+        fallback_activations += 1
+    stability_score = 100.0
+    stability_score -= min(25.0, _safe_int(queue.get("queue_lag_minutes", queue.get("summary", {}).get("queueLagMinutes", 0)), 0))
+    stability_score -= min(15.0, _safe_int(sources.get("failing_sources", 0), 0) * 3.0)
+    stability_score -= min(15.0, _safe_int(workers.get("stale_worker_count", 0), 0) * 5.0)
+    stability_score -= min(10.0, _safe_int(metrics.get("rate_limit_events", 0), 0) * 2.0)
+    stability_score -= min(10.0, _safe_int(metrics.get("auth_failures", 0), 0) * 2.0)
+    stability_score -= min(10.0, _safe_int(metrics.get("workflow_failures", 0), 0) * 2.0)
+    stability_score = max(0.0, stability_score)
     runtime = {
         "rfqs_harvested_per_hour": _rfqs_per_hour(),
         "review_throughput": _safe_int(metrics.get("reviews_recorded", 0)),
@@ -119,6 +132,8 @@ def get_runtime_metrics(limit: int = 100) -> Dict[str, Any]:
         "worker_stale_count": _safe_int(workers.get("stale_worker_count", 0)),
         "operator_review_throughput": float(productivity.get("rfqs_reviewed_per_hour", 0.0)),
         "operator_review_efficiency": float(productivity.get("review_completion_time_minutes", 0.0)),
+        "stability_score": float(stability_score),
+        "fallback_activations": _safe_int(fallback_activations, 0),
     }
     latest_snapshot = _read(limit=1)
     generated_at = latest_snapshot[-1].get("generated_at") if latest_snapshot else _now_iso()

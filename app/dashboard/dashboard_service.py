@@ -47,7 +47,6 @@ from app.operator_ops import (
     get_operator_timeline,
 )
 
-
 def _workflow_repo() -> WorkflowRepository:
     from app.core.runtime_paths import get_runtime_paths
 
@@ -80,6 +79,15 @@ def get_recent_proofs(limit: int = 25) -> List[Dict[str, Any]]:
 
 
 def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
+    from app.stabilization.deployment_stability_checks import build_deployment_stability_report
+    from app.stabilization.fallback_resilience import build_fallback_resilience_report
+    from app.stabilization.governance_consistency_validator import build_governance_consistency_report
+    from app.stabilization.operator_fatigue_monitor import build_operator_fatigue_report
+    from app.stabilization.operator_ux_feedback import build_operator_ux_feedback_report
+    from app.stabilization.runtime_cleanup import build_runtime_cleanup_report
+    from app.stabilization.runtime_stability_engine import build_runtime_stability_report
+    from app.stabilization.telemetry_noise_reduction import build_telemetry_noise_reduction_report
+
     workflow_summary = get_workflow_summary(limit=limit)
     operational = build_operational_report(limit=limit)
     queue_overview = get_queue_overview(limit=limit)
@@ -131,6 +139,16 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
         "runtime_snapshots": get_runtime_snapshots(limit=limit),
         "backup_validation_summary": get_backup_validation_summary(),
         "incident_summary_runtime": get_incident_summary(limit=limit),
+        "stabilization_summary": {
+            "runtime_stability": build_runtime_stability_report(limit=limit),
+            "fallback_resilience": build_fallback_resilience_report(limit=limit),
+            "telemetry_noise": build_telemetry_noise_reduction_report(limit=limit),
+            "governance_consistency": build_governance_consistency_report(limit=limit),
+            "operator_fatigue": build_operator_fatigue_report(limit=limit),
+            "operator_feedback": build_operator_ux_feedback_report(limit=limit),
+            "runtime_cleanup": build_runtime_cleanup_report(limit=limit),
+            "deployment_stability": build_deployment_stability_report(limit=limit),
+        },
         "operator_performance_analytics": build_operator_performance_analytics(limit=limit),
         "review_queue_analytics": build_review_queue_analytics(limit=limit),
         "source_reliability_analytics": build_source_reliability_analytics(limit=limit),
@@ -180,6 +198,8 @@ def get_dashboard_summary(limit: int = 100) -> Dict[str, Any]:
         "workflow_health": workflow_summary,
         "queue_health": queue_overview.get("health", {}),
         "queue_summary": queue_overview.get("summary", {}),
+        "governance_compliance_report": build_compliance_report(limit=limit),
+        "governance_risk_register": build_governance_risk_register(),
     }
 
 
@@ -228,4 +248,5 @@ def get_operational_summary(limit: int = 100) -> Dict[str, Any]:
         "governance_compliance_score": report.get("pilot", {}).get("governance_compliance_score", 0.0),
         "manual_governance_integrity_score": report.get("pilot", {}).get("manual_governance_integrity_score", 0.0),
         "warnings": report.get("runtime_diagnostics", {}).get("warnings", []),
+        "stabilization_summary": report.get("stabilization_summary", {}),
     }

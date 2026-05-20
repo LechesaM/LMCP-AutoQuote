@@ -54,12 +54,10 @@ def _due_at() -> str:
 
 
 def recommend_operator_assignments(limit: int = 100) -> Dict[str, Any]:
-    from app.dashboard.workflow_queue_service import get_pending_approval_queue, get_proof_capture_queue, get_review_ready_queue
-
     current = _read()
     assigned_ids = {str(item.get("tender_id")) for item in current}
     candidates = []
-    for row in get_review_ready_queue(limit=limit) + get_pending_approval_queue(limit=limit) + get_proof_capture_queue(limit=limit):
+    for row in current:
         tender_id = str(row.get("tender_id") or row.get("id") or "")
         if not tender_id or tender_id in assigned_ids:
             continue
@@ -68,9 +66,9 @@ def recommend_operator_assignments(limit: int = 100) -> Dict[str, Any]:
                 "tender_id": tender_id,
                 "title": str(row.get("title") or "Unknown"),
                 "recommendation": "manual",
-                "priority": 100 if str(row.get("stage") or "") == "approved" else 75,
-                "workflow_stage": str(row.get("stage") or row.get("workflow_stage") or "unknown"),
-                "owner": "",
+                "priority": int(row.get("priority") or 50),
+                "workflow_stage": str(row.get("workflow_stage") or row.get("stage") or "unknown"),
+                "owner": str(row.get("operator_id") or row.get("operatorId") or ""),
                 "reason": "manual operator attention required",
                 "due_at": _due_at(),
             }

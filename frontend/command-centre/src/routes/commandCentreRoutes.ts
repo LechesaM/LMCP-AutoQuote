@@ -120,6 +120,21 @@ export const commandCentreRoutes = [
     description: "Advisory anomaly detection",
   },
   {
+    path: "/stabilization-operations",
+    label: "Stabilization Operations",
+    description: "Runtime stability and governance consistency",
+  },
+  {
+    path: "/operator-feedback",
+    label: "Operator Feedback",
+    description: "Fatigue and UX refinement signals",
+  },
+  {
+    path: "/runtime-reliability",
+    label: "Runtime Reliability",
+    description: "Fallback and deployment continuity",
+  },
+  {
     path: "/activity-timeline",
     label: "Activity Timeline",
     description: "Append-only operator history",

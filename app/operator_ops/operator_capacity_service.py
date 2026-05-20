@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict
+
+from app.core.runtime_paths import get_runtime_paths
 
 TEAM_SIZE = 10
 PER_OPERATOR_DAILY_CAPACITY = 100
@@ -12,13 +16,31 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_operator_capacity_snapshot() -> Dict[str, Any]:
-    from app.operator_ops.operator_assignment_service import get_operator_assignments, recommend_operator_assignments
+def _assignment_path() -> Path:
+    return get_runtime_paths().manual_production_file("operator_assignments.jsonl")
 
-    assignments = get_operator_assignments(limit=1000).get("assignments", [])
-    recommended = recommend_operator_assignments(limit=25).get("recommended", [])
+
+def _read_assignments() -> list[dict[str, Any]]:
+    path = _assignment_path()
+    if not path.exists():
+        return []
+    records = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            if isinstance(payload, dict):
+                records.append(payload)
+    except Exception:
+        return []
+    return records
+
+
+def get_operator_capacity_snapshot() -> Dict[str, Any]:
+    assignments = _read_assignments()
     assigned_today = len(assignments)
-    recommended_load = len(recommended)
     remaining = max(0, TOTAL_DAILY_CAPACITY - assigned_today)
     return {
         "status": "ok",
@@ -30,7 +52,7 @@ def get_operator_capacity_snapshot() -> Dict[str, Any]:
         "assigned_today": assigned_today,
         "remaining_capacity": remaining,
         "overloaded": assigned_today >= TOTAL_DAILY_CAPACITY,
-        "recommended_load": recommended_load,
+        "recommended_load": 0,
     }
 
 

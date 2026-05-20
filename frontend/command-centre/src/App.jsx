@@ -30,6 +30,9 @@ const IncidentManagementPage = lazy(() => import("./pages/IncidentManagementPage
 const ObservabilityPage = lazy(() => import("./pages/ObservabilityPage.tsx"));
 const SLAMonitoringPage = lazy(() => import("./pages/SLAMonitoringPage.tsx"));
 const RuntimeAnomaliesPage = lazy(() => import("./pages/RuntimeAnomaliesPage.tsx"));
+const StabilizationOperationsPage = lazy(() => import("./pages/StabilizationOperationsPage.tsx"));
+const OperatorFeedbackPage = lazy(() => import("./pages/OperatorFeedbackPage.tsx"));
+const RuntimeReliabilityPage = lazy(() => import("./pages/RuntimeReliabilityPage.tsx"));
 const ActivityTimelinePage = lazy(() => import("./pages/ActivityTimelinePage.tsx"));
 
 export default function App() {
@@ -100,6 +103,9 @@ export default function App() {
             <Route path="/observability" element={<ObservabilityPage />} />
             <Route path="/sla-monitoring" element={<SLAMonitoringPage />} />
             <Route path="/runtime-anomalies" element={<RuntimeAnomaliesPage />} />
+            <Route path="/stabilization-operations" element={<StabilizationOperationsPage />} />
+            <Route path="/operator-feedback" element={<OperatorFeedbackPage />} />
+            <Route path="/runtime-reliability" element={<RuntimeReliabilityPage />} />
             <Route path="/activity-timeline" element={<ActivityTimelinePage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>

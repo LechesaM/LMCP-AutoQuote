@@ -82,4 +82,3 @@ def build_compliance_controls(limit: int = 100) -> Dict[str, Any]:
         "compliance_score": score,
         "manual_governance_only": True,
     }
-

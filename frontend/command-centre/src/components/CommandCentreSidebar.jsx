@@ -18,6 +18,9 @@ import {
   Keyboard,
   Workflow,
   TimerReset,
+  ShieldAlert,
+  HeartPulse,
+  ServerCog as ServerCheck,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { commandCentreRoutes } from "../routes/commandCentreRoutes";
@@ -47,6 +50,9 @@ const navIcons = {
   "/observability": RadarOrbit,
   "/sla-monitoring": Gauge,
   "/runtime-anomalies": Activity,
+  "/stabilization-operations": ShieldAlert,
+  "/operator-feedback": HeartPulse,
+  "/runtime-reliability": ServerCheck,
   "/activity-timeline": Clock3,
 };
 
@@ -74,6 +80,9 @@ const secondaryItems = [
   { label: "Observability", Icon: RadarOrbit },
   { label: "SLA Monitoring", Icon: Gauge },
   { label: "Runtime Anomalies", Icon: Activity },
+  { label: "Stabilization Operations", Icon: ShieldAlert },
+  { label: "Operator Feedback", Icon: HeartPulse },
+  { label: "Runtime Reliability", Icon: ServerCheck },
   { label: "Activity Timeline", Icon: Clock3 },
 ];
 

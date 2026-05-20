@@ -8,6 +8,8 @@ from app.observability.sentry_integration import get_sentry_config
 
 
 def configure_production_app(app) -> None:
+    from app.stabilization.deployment_stability_checks import build_deployment_stability_report
+
     profile = get_deployment_profile()
     app.state.deployment_profile = profile.to_jsonable_dict()
     app.state.infrastructure_profile = {
@@ -21,6 +23,7 @@ def configure_production_app(app) -> None:
         "sentry_configured": bool(sentry.dsn),
         "metrics_export_enabled": True,
     }
+    app.state.stabilization_profile = build_deployment_stability_report(limit=25)
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     if profile.rate_limit_enabled:

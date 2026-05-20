@@ -101,6 +101,9 @@ def _governance_weight(record: Dict[str, Any]) -> float:
 
 def build_review_queue_optimization_summary(limit: int = 200) -> Dict[str, Any]:
     records = _queue_records(limit=limit)
+    from app.stabilization.operator_fatigue_monitor import build_operator_fatigue_report
+
+    fatigue = build_operator_fatigue_report(limit=limit)
     optimized: List[Dict[str, Any]] = []
     for index, record in enumerate(records):
         recommendation = _safe_str(record.get("recommendation") or record.get("qualification_recommendation"), "MANUAL_REVIEW")
@@ -165,5 +168,6 @@ def build_review_queue_optimization_summary(limit: int = 200) -> Dict[str, Any]:
             "average_priority_score": round(mean([item["priority_score"] for item in optimized]) if optimized else 0.0, 2),
             "average_queue_age_minutes": round(mean([item["queue_age_minutes"] for item in optimized]) if optimized else 0.0, 2),
         },
+        "fatigue_signals": fatigue.get("signals", {}),
+        "fatigue_warnings": fatigue.get("warnings", []),
     }
-

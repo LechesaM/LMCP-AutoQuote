@@ -59,12 +59,17 @@ def get_runtime_alerts(limit: int = 100) -> Dict[str, Any]:
         alerts.append(_alert("queue_backend", "warning", "Local queue backend", "Redis-ready queue backend is not configured.", {"queue_backend": redis_config.backend}))
     if not alerts:
         alerts.append(_alert("info", "info", "Operational alert baseline", "No active runtime alerts detected.", {}))
-    severities = sorted({alert["severity"] for alert in alerts})
+    from app.stabilization.telemetry_noise_reduction import reduce_telemetry_noise
+
+    reduced = reduce_telemetry_noise(alerts=alerts, anomalies=[], limit=limit)
+    retained_alerts = reduced.get("alerts", alerts)
+    severities = sorted({alert["severity"] for alert in retained_alerts})
     return {
         "status": "ok" if alerts else "fallback",
         "generated_at": _now_iso(),
         "data_source": "runtime" if alerts else "fallback",
-        "alerts": alerts[: max(1, int(limit or 100))],
-        "total": len(alerts),
+        "alerts": retained_alerts[: max(1, int(limit or 100))],
+        "total": len(retained_alerts),
         "alert_severities": severities,
+        "noise_reduction": reduced,
     }

@@ -1243,3 +1243,256 @@ export function normalizeProductivitySnapshot(payload, fallback = {}) {
     shortcuts,
   };
 }
+
+function normalizeWrappedPayload(payload, key) {
+  const source = isObject(payload) ? payload : {};
+  const wrapped = isObject(source[key]) ? source[key] : source;
+  return { source, wrapped };
+}
+
+function normalizeStabilizationTrendRows(rows, fallback = []) {
+  const sourceRows = Array.isArray(rows) && rows.length ? rows : arrayOrEmpty(fallback);
+  return sourceRows.map((row, index) => ({
+    label: stringOrEmpty(row?.label || row?.name || row?.kind || `trend-${index}`),
+    value: numberOrZero(row?.value),
+    healthy: numberOrZero(row?.healthy),
+    degraded: numberOrZero(row?.degraded),
+    failing: numberOrZero(row?.failing),
+  }));
+}
+
+function normalizeStabilizationCheckRows(rows, fallback = []) {
+  const sourceRows = Array.isArray(rows) && rows.length ? rows : arrayOrEmpty(fallback);
+  return sourceRows.map((row, index) => ({
+    label: stringOrEmpty(row?.label || row?.name || `check-${index}`),
+    status: stringOrEmpty(row?.status || row?.state, "unknown"),
+    passed: Boolean(row?.passed ?? row?.ok ?? row?.compliant),
+    detail: stringOrEmpty(row?.detail || row?.message || row?.description),
+    severity: stringOrEmpty(row?.severity || "info"),
+  }));
+}
+
+function normalizeStabilizationOperatorRows(rows, fallback = []) {
+  const sourceRows = Array.isArray(rows) && rows.length ? rows : arrayOrEmpty(fallback);
+  return sourceRows.map((row, index) => ({
+    operatorId: stringOrEmpty(row?.operator_id ?? row?.operatorId ?? `operator-${index + 1}`),
+    workloadScore: numberOrZero(row?.workload_score ?? row?.workloadScore),
+    fatigueScore: numberOrZero(row?.fatigue_score ?? row?.fatigueScore),
+    warning: stringOrEmpty(row?.warning),
+    recommendation: stringOrEmpty(row?.recommendation),
+    overdueReviews: numberOrZero(row?.overdue_reviews ?? row?.overdueReviews),
+    repeatedEscalations: numberOrZero(row?.repeated_escalations ?? row?.repeatedEscalations),
+    prolongedQueueExposure: numberOrZero(row?.prolonged_queue_exposure ?? row?.prolongedQueueExposure),
+    focusSessionExhaustion: numberOrZero(row?.focus_session_exhaustion ?? row?.focusSessionExhaustion),
+  }));
+}
+
+export function normalizeStabilizationRuntime(payload, fallback = {}) {
+  const { source, wrapped } = normalizeWrappedPayload(payload, "runtime_stability");
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const fallbackWrapped = isObject(fallbackSource.runtime_stability) ? fallbackSource.runtime_stability : fallbackSource;
+  return {
+    status: normalizeState(source.status || wrapped.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || wrapped.generated_at || wrapped.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || wrapped.data_source || wrapped.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    stabilityScore: numberOrZero(wrapped.stability_score ?? wrapped.stabilityScore ?? fallbackWrapped.stabilityScore),
+    degradationTrends: normalizeStabilizationTrendRows(wrapped.degradation_trends ?? wrapped.degradationTrends, fallbackWrapped.degradationTrends),
+    operationalWarnings: arrayOrEmpty(wrapped.operational_warnings ?? wrapped.operationalWarnings ?? fallbackWrapped.operationalWarnings).map(stringOrEmpty),
+    snapshotHealth: wrapped.snapshot_health ?? wrapped.snapshotHealth ?? fallbackWrapped.snapshotHealth ?? {},
+    queueLagMinutes: numberOrZero(wrapped.queue_lag_minutes ?? wrapped.queueLagMinutes ?? fallbackWrapped.queueLagMinutes),
+    telemetryFreshnessMinutes: numberOrZero(wrapped.telemetry_freshness_minutes ?? wrapped.telemetryFreshnessMinutes ?? fallbackWrapped.telemetryFreshnessMinutes),
+    workerStaleCount: numberOrZero(wrapped.worker_stale_count ?? wrapped.workerStaleCount ?? fallbackWrapped.workerStaleCount),
+    sourceFailureCount: numberOrZero(wrapped.source_failure_count ?? wrapped.sourceFailureCount ?? fallbackWrapped.sourceFailureCount),
+    alertCount: numberOrZero(wrapped.alert_count ?? wrapped.alertCount ?? fallbackWrapped.alertCount),
+    anomalyCount: numberOrZero(wrapped.anomaly_count ?? wrapped.anomalyCount ?? fallbackWrapped.anomalyCount),
+    windowSize: numberOrZero(wrapped.window_size ?? wrapped.windowSize ?? fallbackWrapped.windowSize),
+    signals: wrapped.signals ?? fallbackWrapped.signals ?? {},
+  };
+}
+
+export function normalizeStabilizationFallbackHealth(payload, fallback = {}) {
+  const { source, wrapped } = normalizeWrappedPayload(payload, "fallback_health");
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const fallbackWrapped = isObject(fallbackSource.fallback_health) ? fallbackSource.fallback_health : fallbackSource;
+  return {
+    status: normalizeState(source.status || wrapped.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || wrapped.generated_at || wrapped.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || wrapped.data_source || wrapped.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    fallbackHealthSummary: wrapped.fallback_health_summary ?? wrapped.fallbackHealthSummary ?? fallbackWrapped.fallbackHealthSummary ?? {},
+    fallbackActivations: numberOrZero(wrapped.fallback_activations ?? wrapped.fallbackActivations ?? fallbackWrapped.fallbackActivations),
+    staleFallbacks: numberOrZero(wrapped.stale_fallbacks ?? wrapped.staleFallbacks ?? fallbackWrapped.staleFallbacks),
+    runtimeRecoverySuccess: Boolean(wrapped.runtime_recovery_success ?? wrapped.runtimeRecoverySuccess ?? fallbackWrapped.runtimeRecoverySuccess),
+    recoverySuccessRate: numberOrZero(wrapped.recovery_success_rate ?? wrapped.recoverySuccessRate ?? fallbackWrapped.recoverySuccessRate),
+    warnings: arrayOrEmpty(wrapped.warnings ?? fallbackWrapped.warnings).map(stringOrEmpty),
+    blockers: arrayOrEmpty(wrapped.blockers ?? fallbackWrapped.blockers).map(stringOrEmpty),
+    advisoryOnly: Boolean(wrapped.advisory_only ?? wrapped.advisoryOnly ?? fallbackWrapped.advisoryOnly ?? true),
+  };
+}
+
+export function normalizeStabilizationTelemetryNoise(payload, fallback = {}) {
+  const { source, wrapped } = normalizeWrappedPayload(payload, "telemetry_noise");
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const fallbackWrapped = isObject(fallbackSource.telemetry_noise) ? fallbackSource.telemetry_noise : fallbackSource;
+  return {
+    status: normalizeState(source.status || wrapped.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || wrapped.generated_at || wrapped.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || wrapped.data_source || wrapped.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    alerts: arrayOrEmpty(wrapped.alerts ?? fallbackWrapped.alerts).map((row) => ({
+      alertId: stringOrEmpty(row?.alert_id ?? row?.alertId),
+      type: stringOrEmpty(row?.type),
+      severity: stringOrEmpty(row?.severity || "info"),
+      title: stringOrEmpty(row?.title),
+      message: stringOrEmpty(row?.message),
+      createdAt: stringOrEmpty(row?.created_at ?? row?.createdAt),
+      acknowledged: Boolean(row?.acknowledged),
+      details: row?.details ?? {},
+    })),
+    alertGroups: arrayOrEmpty(wrapped.alert_groups ?? wrapped.alertGroups ?? fallbackWrapped.alertGroups).map((row) => ({
+      label: stringOrEmpty(row?.label),
+      count: numberOrZero(row?.count),
+      severity: stringOrEmpty(row?.severity || "info"),
+    })),
+    severityCounts: wrapped.severity_counts ?? wrapped.severityCounts ?? fallbackWrapped.severityCounts ?? {},
+    suppressedCount: numberOrZero(wrapped.suppressed_count ?? wrapped.suppressedCount ?? fallbackWrapped.suppressedCount),
+    retainedCount: numberOrZero(wrapped.retained_count ?? wrapped.retainedCount ?? fallbackWrapped.retainedCount),
+    criticalCount: numberOrZero(wrapped.critical_count ?? wrapped.criticalCount ?? fallbackWrapped.criticalCount),
+    noiseScore: numberOrZero(wrapped.noise_score ?? wrapped.noiseScore ?? fallbackWrapped.noiseScore),
+    advisoryOnly: Boolean(wrapped.advisory_only ?? wrapped.advisoryOnly ?? fallbackWrapped.advisoryOnly ?? true),
+  };
+}
+
+export function normalizeStabilizationGovernanceConsistency(payload, fallback = {}) {
+  const { source, wrapped } = normalizeWrappedPayload(payload, "governance_consistency");
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const fallbackWrapped = isObject(fallbackSource.governance_consistency) ? fallbackSource.governance_consistency : fallbackSource;
+  return {
+    status: normalizeState(source.status || wrapped.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || wrapped.generated_at || wrapped.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || wrapped.data_source || wrapped.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    consistencyScore: numberOrZero(wrapped.consistency_score ?? wrapped.consistencyScore ?? fallbackWrapped.consistencyScore),
+    checks: normalizeStabilizationCheckRows(wrapped.checks ?? fallbackWrapped.checks),
+    inconsistencies: arrayOrEmpty(wrapped.inconsistencies ?? fallbackWrapped.inconsistencies).map(stringOrEmpty),
+    warnings: arrayOrEmpty(wrapped.warnings ?? fallbackWrapped.warnings).map(stringOrEmpty),
+    blockers: arrayOrEmpty(wrapped.blockers ?? fallbackWrapped.blockers).map(stringOrEmpty),
+    auditAttributionMissing: Boolean(wrapped.audit_attribution_missing ?? wrapped.auditAttributionMissing ?? fallbackWrapped.auditAttributionMissing),
+    roleDistribution: wrapped.role_distribution ?? wrapped.roleDistribution ?? fallbackWrapped.roleDistribution ?? {},
+    permissions: wrapped.permissions ?? fallbackWrapped.permissions ?? [],
+  };
+}
+
+export function normalizeStabilizationOperatorFatigue(payload, fallback = {}) {
+  const { source, wrapped } = normalizeWrappedPayload(payload, "operator_fatigue");
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const fallbackWrapped = isObject(fallbackSource.operator_fatigue) ? fallbackSource.operator_fatigue : fallbackSource;
+  const rows = arrayOrEmpty(wrapped.fatigue_rows ?? wrapped.fatigueRows ?? fallbackWrapped.fatigueRows);
+  return {
+    status: normalizeState(source.status || wrapped.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || wrapped.generated_at || wrapped.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || wrapped.data_source || wrapped.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    fatigueScore: numberOrZero(wrapped.fatigue_score ?? wrapped.fatigueScore ?? fallbackWrapped.fatigueScore),
+    warnings: arrayOrEmpty(wrapped.warnings ?? fallbackWrapped.warnings).map(stringOrEmpty),
+    fatigueRows: rows.map((row, index) => ({
+      operatorId: stringOrEmpty(row?.operator_id ?? row?.operatorId ?? `operator-${index + 1}`),
+      workloadScore: numberOrZero(row?.workload_score ?? row?.workloadScore ?? row?.assigned),
+      fatigueScore: numberOrZero(row?.fatigue_score ?? row?.fatigueScore),
+      warning: stringOrEmpty(row?.warning || row?.note || row?.message),
+      recommendation: stringOrEmpty(row?.recommendation || row?.action || row?.status),
+      overdueReviews: numberOrZero(row?.overdue_reviews ?? row?.overdueReviews ?? row?.overdue),
+      repeatedEscalations: numberOrZero(row?.repeated_escalations ?? row?.repeatedEscalations ?? row?.escalations),
+      prolongedQueueExposure: numberOrZero(row?.prolonged_queue_exposure ?? row?.prolongedQueueExposure ?? row?.average_queue_age_minutes ?? row?.averageQueueAgeMinutes),
+      focusSessionExhaustion: numberOrZero(row?.focus_session_exhaustion ?? row?.focusSessionExhaustion),
+    })),
+    workloadRebalanceRecommendations: arrayOrEmpty(wrapped.workload_rebalance_recommendations ?? wrapped.workloadRebalanceRecommendations ?? fallbackWrapped.workloadRebalanceRecommendations).map((row) =>
+      stringOrEmpty(row?.recommendation || row?.reason || row?.action || row),
+    ),
+    signals: wrapped.signals ?? fallbackWrapped.signals ?? {},
+  };
+}
+
+export function normalizeStabilizationOperatorFeedback(payload, fallback = {}) {
+  const { source, wrapped } = normalizeWrappedPayload(payload, "operator_feedback");
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const fallbackWrapped = isObject(fallbackSource.operator_feedback) ? fallbackSource.operator_feedback : fallbackSource;
+  return {
+    status: normalizeState(source.status || wrapped.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || wrapped.generated_at || wrapped.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || wrapped.data_source || wrapped.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    painPoints: arrayOrEmpty(wrapped.pain_points ?? wrapped.painPoints ?? fallbackWrapped.painPoints).map((item) => stringOrEmpty(item?.message || item?.value || item)),
+    trendSummary: wrapped.trend_summary ?? wrapped.trendSummary ?? fallbackWrapped.trendSummary ?? {},
+    feedbackItems: arrayOrEmpty(wrapped.feedback_items ?? wrapped.feedbackItems ?? fallbackWrapped.feedbackItems).map((row) => ({
+      label: stringOrEmpty(row?.label || row?.title || row?.kind || row?.topic),
+      value: stringOrEmpty(row?.value || row?.message || row?.detail || row?.severity),
+    })),
+    operationalSignals: wrapped.operational_signals ?? wrapped.operationalSignals ?? fallbackWrapped.operationalSignals ?? {},
+  };
+}
+
+export function normalizeStabilizationRuntimeCleanup(payload, fallback = {}) {
+  const { source, wrapped } = normalizeWrappedPayload(payload, "runtime_cleanup");
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const fallbackWrapped = isObject(fallbackSource.runtime_cleanup) ? fallbackSource.runtime_cleanup : fallbackSource;
+  return {
+    status: normalizeState(source.status || wrapped.status || fallbackSource.status, "fallback"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || wrapped.generated_at || wrapped.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || wrapped.data_source || wrapped.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    dryRunOnly: Boolean(wrapped.dry_run_only ?? wrapped.dryRunOnly ?? fallbackWrapped.dryRunOnly ?? true),
+    confirmed: Boolean(wrapped.confirmed ?? fallbackWrapped.confirmed),
+    cleanupSummary: wrapped.cleanup_summary ?? wrapped.cleanupSummary ?? fallbackWrapped.cleanupSummary ?? {},
+    wouldCleanup: arrayOrEmpty(wrapped.would_cleanup ?? wrapped.wouldCleanup ?? fallbackWrapped.wouldCleanup).map((row) => ({
+      label: stringOrEmpty(row?.label || row?.name || row?.kind || row?.reason || row?.category || row?.path),
+      count: numberOrZero(row?.count ?? 1),
+    })),
+    warnings: arrayOrEmpty(wrapped.warnings ?? fallbackWrapped.warnings).map(stringOrEmpty),
+    blockers: arrayOrEmpty(wrapped.blockers ?? fallbackWrapped.blockers).map(stringOrEmpty),
+  };
+}
+
+export function normalizeStabilizationDeploymentStability(payload, fallback = {}) {
+  const { source, wrapped } = normalizeWrappedPayload(payload, "deployment_stability");
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const fallbackWrapped = isObject(fallbackSource.deployment_stability) ? fallbackSource.deployment_stability : fallbackSource;
+  return {
+    status: normalizeState(source.status || wrapped.status || fallbackSource.status, "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || wrapped.generated_at || wrapped.generatedAt || fallbackSource.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || wrapped.data_source || wrapped.dataSource || fallbackSource.dataSource, "runtime_fallback"),
+    deploymentStabilityScore: numberOrZero(wrapped.deployment_stability_score ?? wrapped.deploymentStabilityScore ?? fallbackWrapped.deploymentStabilityScore),
+    startupReadiness: wrapped.startup_readiness ?? wrapped.startupReadiness ?? fallbackWrapped.startupReadiness ?? {},
+    runtimeIntegrity: wrapped.runtime_integrity ?? wrapped.runtimeIntegrity ?? fallbackWrapped.runtimeIntegrity ?? {},
+    environmentSummary: wrapped.environment_summary ?? wrapped.environmentSummary ?? fallbackWrapped.environmentSummary ?? {},
+    persistenceHealth: wrapped.persistence_health ?? wrapped.persistenceHealth ?? fallbackWrapped.persistenceHealth ?? {},
+    queueSummary: wrapped.queue_summary ?? wrapped.queueSummary ?? fallbackWrapped.queueSummary ?? {},
+    routeAvailability: wrapped.route_availability ?? wrapped.routeAvailability ?? fallbackWrapped.routeAvailability ?? {},
+    routeNames: arrayOrEmpty(wrapped.route_names ?? wrapped.routeNames ?? fallbackWrapped.routeNames).map(stringOrEmpty),
+    warnings: arrayOrEmpty(wrapped.warnings ?? fallbackWrapped.warnings).map(stringOrEmpty),
+    startupBlockers: arrayOrEmpty(wrapped.startup_blockers ?? wrapped.startupBlockers ?? fallbackWrapped.startupBlockers).map(stringOrEmpty),
+    blockers: arrayOrEmpty(wrapped.blockers ?? fallbackWrapped.blockers).map(stringOrEmpty),
+    authAvailable: Boolean(wrapped.auth_available ?? wrapped.authAvailable ?? fallbackWrapped.authAvailable),
+    persistenceAvailable: Boolean(wrapped.persistence_available ?? wrapped.persistenceAvailable ?? fallbackWrapped.persistenceAvailable),
+    queueAvailable: Boolean(wrapped.queue_available ?? wrapped.queueAvailable ?? fallbackWrapped.queueAvailable),
+    observabilityAvailable: Boolean(wrapped.observability_available ?? wrapped.observabilityAvailable ?? fallbackWrapped.observabilityAvailable),
+  };
+}
+
+export function normalizeRuntimeReliability(payload, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const fallbackSource = isObject(fallback) ? fallback : {};
+  const runtimeStability = normalizeStabilizationRuntime(source.runtimeStability ?? source.runtime_stability ?? {}, fallbackSource.runtimeStability ?? fallbackSource.runtime_stability ?? {});
+  const fallbackHealth = normalizeStabilizationFallbackHealth(source.fallbackHealth ?? source.fallback_health ?? {}, fallbackSource.fallbackHealth ?? fallbackSource.fallback_health ?? {});
+  const telemetryNoise = normalizeStabilizationTelemetryNoise(source.telemetryNoise ?? source.telemetry_noise ?? {}, fallbackSource.telemetryNoise ?? fallbackSource.telemetry_noise ?? {});
+  const deploymentStability = normalizeStabilizationDeploymentStability(source.deploymentStability ?? source.deployment_stability ?? {}, fallbackSource.deploymentStability ?? fallbackSource.deployment_stability ?? {});
+  return {
+    status: normalizeState(source.status || fallbackSource.status || runtimeStability.status, runtimeStability.status || "degraded"),
+    generatedAt: stringOrEmpty(source.generated_at || source.generatedAt || fallbackSource.generatedAt || runtimeStability.generatedAt),
+    dataSource: normalizeState(source.data_source || source.dataSource || fallbackSource.dataSource || runtimeStability.dataSource, "runtime_fallback"),
+    runtimeStability,
+    fallbackHealth,
+    telemetryNoise,
+    deploymentStability,
+    summary: {
+      stabilityScore: runtimeStability.stabilityScore,
+      fallbackActivations: fallbackHealth.fallbackActivations,
+      noiseScore: telemetryNoise.noiseScore,
+      deploymentScore: deploymentStability.deploymentStabilityScore,
+    },
+  };
+}

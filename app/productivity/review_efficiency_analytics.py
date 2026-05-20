@@ -7,7 +7,6 @@ from typing import Any, Dict, List
 
 from app.operator_ops.operator_actions_service import get_operator_actions
 from app.operator_ops.operator_activity_feed import get_operator_timeline
-from app.productivity.review_queue_optimizer import build_review_queue_optimization_summary
 
 
 def _now_iso() -> str:
@@ -27,7 +26,6 @@ def _parse_iso(value: Any) -> datetime | None:
 def build_review_efficiency_analytics(limit: int = 200) -> Dict[str, Any]:
     actions = get_operator_actions(limit=limit).get("actions", [])
     timeline = get_operator_timeline(limit=limit).get("events", [])
-    queue = build_review_queue_optimization_summary(limit=limit)
 
     reviewed = [item for item in actions if str(item.get("action")) == "mark_reviewed"]
     evidence = [item for item in actions if str(item.get("action")) == "mark_evidence_incomplete"]
@@ -48,17 +46,29 @@ def build_review_efficiency_analytics(limit: int = 200) -> Dict[str, Any]:
         throughput_per_hour = float(len(reviewed))
 
     return {
-        "status": "ok" if reviewed else "fallback",
+        "status": "healthy" if reviewed else "fallback",
         "generated_at": _now_iso(),
         "data_source": "runtime" if reviewed else "fallback",
         "rfqs_reviewed_per_hour": throughput_per_hour,
-        "review_completion_time_minutes": round(mean([float(item.get("queue_age_minutes", 0.0)) for item in queue.get("optimized_queue", [])]) if queue.get("optimized_queue") else 0.0, 2),
-        "evidence_handling_time_minutes": round(mean([float(item.get("queue_age_minutes", 0.0)) for item in queue.get("optimized_queue", []) if item.get("stale_evidence")]) if [item for item in queue.get("optimized_queue", []) if item.get("stale_evidence")] else 0.0, 2),
+        "review_completion_time_minutes": round(mean([float(item.get("queue_age_minutes", item.get("age_minutes", 0.0))) for item in reviewed]) if reviewed else 0.0, 2),
+        "evidence_handling_time_minutes": round(mean([float(item.get("queue_age_minutes", item.get("age_minutes", 0.0))) for item in evidence]) if evidence else 0.0, 2),
         "escalation_frequency": len(escalations),
         "reassignment_frequency": len(reassignments),
-        "queue_aging_trends": queue.get("summary", {}),
+        "queue_aging_trends": {
+            "reviewed_count": len(reviewed),
+            "evidence_count": len(evidence),
+            "escalation_count": len(escalations),
+            "reassignment_count": len(reassignments),
+        },
         "operator_throughput_trends": dict(by_operator),
         "timeline_gap_minutes": round(mean(timeline_gaps), 2) if timeline_gaps else 0.0,
-        "throughput_bottlenecks": [item for item in queue.get("stale_rfqs", [])[:10]],
+        "throughput_bottlenecks": [
+            {
+                "operator_id": str(item.get("operator_id") or "unassigned"),
+                "action": str(item.get("action") or ""),
+                "queue_age_minutes": float(item.get("queue_age_minutes", item.get("age_minutes", 0.0)) or 0.0),
+            }
+            for item in reviewed[:10]
+        ],
         "advisory_only": True,
     }

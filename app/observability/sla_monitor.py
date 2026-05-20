@@ -51,13 +51,24 @@ def build_sla_monitoring_report(limit: int = 100) -> Dict[str, Any]:
         status = "failing"
     elif warnings:
         status = "degraded"
+    stability_score = 100.0
+    stability_score -= len(breached) * 12.0
+    stability_score -= len(warnings) * 5.0
+    stability_score -= min(20.0, max(0.0, queue_lag))
+    stability_score -= min(15.0, max(0.0, telemetry_freshness))
+    stability_score = max(0.0, stability_score)
     return {
         "status": status,
         "generated_at": _now_iso(),
         "data_source": payload.get("data_source", "fallback"),
+        "stability_score": round(stability_score, 2),
         "sla_metrics": sla_metrics,
         "breached_metrics": breached,
         "warning_metrics": warnings,
+        "runtime_stability": {
+            "status": status,
+            "stability_score": round(stability_score, 2),
+        },
         "summary": {
             "healthy": len([metric for metric in sla_metrics if metric["state"] == "healthy"]),
             "degraded": len(warnings),

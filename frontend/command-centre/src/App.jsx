@@ -34,6 +34,7 @@ const StabilizationOperationsPage = lazy(() => import("./pages/StabilizationOper
 const OperatorFeedbackPage = lazy(() => import("./pages/OperatorFeedbackPage.tsx"));
 const RuntimeReliabilityPage = lazy(() => import("./pages/RuntimeReliabilityPage.tsx"));
 const ActivityTimelinePage = lazy(() => import("./pages/ActivityTimelinePage.tsx"));
+const DebugHitTestPage = lazy(() => import("./pages/DebugHitTestPage.tsx"));
 
 export default function App() {
   const bootstrap = useAuthStore((state) => state.bootstrap);
@@ -107,6 +108,7 @@ export default function App() {
             <Route path="/operator-feedback" element={<OperatorFeedbackPage />} />
             <Route path="/runtime-reliability" element={<RuntimeReliabilityPage />} />
             <Route path="/activity-timeline" element={<ActivityTimelinePage />} />
+            <Route path="/__debug/hit-test" element={<DebugHitTestPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />

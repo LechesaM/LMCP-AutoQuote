@@ -19,12 +19,6 @@ export default function RFQOperationsPage() {
   const [detailError, setDetailError] = useState("");
 
   useEffect(() => {
-    if (!selectedTenderId && rows.length) {
-      setSelectedTenderId(rows[0].tenderId);
-    }
-  }, [rows, selectedTenderId]);
-
-  useEffect(() => {
     let active = true;
     const loadDetail = async () => {
       if (!selectedTenderId) {

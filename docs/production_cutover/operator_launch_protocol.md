@@ -2,6 +2,28 @@
 
 This protocol describes the operator-facing launch sequence for supervised-live production usage.
 
+## Operator Protocol
+
+Every operator must know:
+
+### Required
+
+- Proof capture is mandatory.
+- `review_ready` is mandatory.
+- review_ready is mandatory.
+- Final submission is manual-only.
+- Escalate uncertainty.
+- Never bypass governance.
+- Use AO tooling daily.
+- Treat stabilization, observability, governance, workload balancing, fatigue monitoring, and runtime resilience panels as operationally critical.
+
+### Prohibited
+
+- Blind approvals
+- Shortcut submissions
+- Evidence skipping
+- Governance overrides
+
 ## Before Login
 
 - Confirm deployment status is approved.

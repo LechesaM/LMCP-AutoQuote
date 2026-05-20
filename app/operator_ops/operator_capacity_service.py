@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from app.core.runtime_paths import get_runtime_paths
+from app.operator_ops.supervised_live_rollout_profile import get_supervised_live_rollout_profile
 
 TEAM_SIZE = 10
 PER_OPERATOR_DAILY_CAPACITY = 100
@@ -53,6 +54,7 @@ def get_operator_capacity_snapshot() -> Dict[str, Any]:
         "remaining_capacity": remaining,
         "overloaded": assigned_today >= TOTAL_DAILY_CAPACITY,
         "recommended_load": 0,
+        "rollout_profile": get_supervised_live_rollout_profile(),
     }
 
 

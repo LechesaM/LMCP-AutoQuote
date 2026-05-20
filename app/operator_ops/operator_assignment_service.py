@@ -9,6 +9,7 @@ from app.core.runtime_paths import get_runtime_paths
 from app.operator_ops.operator_action_models import OperatorAssignmentRecord, new_operator_id
 from app.operator_ops.operator_audit_timeline import record_timeline_event
 from app.operator_ops.operator_capacity_service import TEAM_SIZE, PER_OPERATOR_DAILY_CAPACITY, TOTAL_DAILY_CAPACITY
+from app.operator_ops.supervised_live_rollout_profile import get_supervised_live_rollout_profile
 
 
 def _now() -> datetime:
@@ -84,6 +85,7 @@ def recommend_operator_assignments(limit: int = 100) -> Dict[str, Any]:
             "per_operator_daily_capacity": PER_OPERATOR_DAILY_CAPACITY,
             "total_daily_capacity": TOTAL_DAILY_CAPACITY,
         },
+        "rollout_profile": get_supervised_live_rollout_profile(),
     }
 
 
@@ -127,4 +129,5 @@ def get_operator_assignments(limit: int = 100) -> Dict[str, Any]:
             "capacity": TOTAL_DAILY_CAPACITY,
         },
         "recommendations": recommend_operator_assignments(limit=limit).get("recommended", []),
+        "rollout_profile": get_supervised_live_rollout_profile(),
     }

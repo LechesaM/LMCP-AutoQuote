@@ -16,6 +16,7 @@ from app.services.operator_auth_service import OperatorContext, operator_audit_p
 
 
 SERVICE_VERSION = "QUOTE_COMPILATION_LOCAL_SAFE_V1"
+BASE_DIR = get_runtime_paths().project_root
 RUNTIME_DIR = get_runtime_paths().runtime_root
 OUTPUT_ROOT = RUNTIME_DIR / "quote_compilation"
 RFQ_STATE_FILE = RUNTIME_DIR / "rfq_lifecycle" / "rfqs.json"

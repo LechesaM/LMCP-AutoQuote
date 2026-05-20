@@ -1,15 +1,30 @@
 # Supervised-Live Daily Checklist
 
+For the mandatory morning ritual review, see [production_cutover/daily_operational_rituals.md](production_cutover/daily_operational_rituals.md).
+
 ## Startup Checks
 - Confirm supervised-live pilot mode is active
 - Confirm runtime directories are writable
 - Confirm manual-production database is reachable
 - Confirm audit trail and submission history directories exist
+- Confirm AO tooling is opened before operator work begins
+- Confirm stabilization pages are visible
+- Confirm operational health and observability panels are visible
+- Confirm governance dashboards are visible
+- Confirm workload balancing and fatigue monitoring are visible
+- Confirm runtime resilience panels are visible
 
 ## Runtime Health Checks
 - Confirm monitoring reports are generating
 - Confirm workflow state persistence is healthy
 - Confirm no unexpected workflow failures are present
+- Confirm runtime alerts are reviewed for unresolved items
+- Confirm stale evidence age is understood
+- Confirm source failures and parser issues are visible
+- Confirm anomaly reports are reviewed
+- Confirm degraded-state fallback usage is understood
+- Confirm SLA warnings are reviewed
+- Confirm AO tooling is used daily, not only during incidents
 
 ## Dashboard Checks
 - Confirm dashboard summary loads
@@ -41,6 +56,9 @@
 - Confirm review_ready is recorded before proof capture
 - Confirm submission review remains manual
 - Confirm review evidence is captured
+- Confirm operator attribution is complete
+- Confirm escalations are reasonable
+- Confirm stale reviews are minimized
 
 ## Proof Checks
 - Confirm proof capture occurs after review_ready

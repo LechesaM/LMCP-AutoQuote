@@ -18,6 +18,7 @@ from app.operator_ops.operator_assignment_service import get_operator_assignment
 from app.operator_ops.operator_capacity_service import get_operator_capacity_snapshot
 from app.operator_ops.operator_notifications import get_operator_notifications
 from app.operator_ops.operator_activity_feed import get_operator_timeline
+from app.operator_ops.supervised_live_rollout_profile import get_supervised_live_rollout_profile
 from app.persistence.repositories import WorkflowRepository
 from app.services import audit_trail_service
 from app.qualification.opportunity_viability import assess_opportunity_viability
@@ -206,6 +207,24 @@ def test_operator_actions_do_not_mutate_workflow_state(monkeypatch, tmp_path: Pa
 
     after = repo.fetch_recent(limit=20)
     assert after == before
+
+
+def test_supervised_live_rollout_profile_is_visible_and_conservative(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    _seed_workflow_state()
+
+    profile = get_supervised_live_rollout_profile()
+    capacity = get_operator_capacity_snapshot()
+    assignments = get_operator_assignments(limit=20)
+
+    assert profile["name"] == "initial_supervised_live_rollout"
+    assert profile["scale_status"] == "not_scaling_yet"
+    assert profile["phases"][0]["operators"] == 3
+    assert profile["phases"][0]["target_rfqs_per_day"] == "25-50"
+    assert profile["phases"][-1]["operators"] == 7
+    assert "queue stability" in profile["focus"]
+    assert capacity["rollout_profile"]["name"] == profile["name"]
+    assert assignments["rollout_profile"]["name"] == profile["name"]
 
 
 def test_missing_runtime_data_returns_safe_fallback(monkeypatch, tmp_path: Path) -> None:

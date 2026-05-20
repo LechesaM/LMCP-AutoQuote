@@ -24,3 +24,4 @@ from .operator_activity_feed import get_operator_timeline
 from .operator_audit_timeline import get_operator_audit_timeline
 from .operator_capacity_service import get_operator_capacity_snapshot
 from .operator_notifications import get_operator_notifications
+from .supervised_live_rollout_profile import get_supervised_live_rollout_profile

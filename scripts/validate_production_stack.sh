@@ -29,5 +29,4 @@ do
   fi
 done
 
-python3 -m pytest tests/test_deployment_stack.py -q
-
+STRICT_PRODUCTION_STARTUP=0 python3 -m pytest tests/test_deployment_stack.py -q

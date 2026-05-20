@@ -8,13 +8,15 @@ export default function RequireRole({ children, permissions = [], roles = [] }) 
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const can = useAuthStore((state) => state.can);
+  const sessionExpired = useAuthStore((state) => state.sessionExpired);
+  const sessionExpiredReason = useAuthStore((state) => state.sessionExpiredReason);
 
   if (!hydrated || loading) {
     return <div className="flex min-h-screen items-center justify-center text-sm text-slate-400">Loading session...</div>;
   }
 
   if (!token || !user) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
+    return <Navigate to="/login" replace state={{ from: location, reason: sessionExpired ? sessionExpiredReason || "Your session expired." : "" }} />;
   }
 
   if (roles.length > 0 && !roles.includes(user.role)) {
@@ -27,4 +29,3 @@ export default function RequireRole({ children, permissions = [], roles = [] }) 
 
   return children;
 }
-

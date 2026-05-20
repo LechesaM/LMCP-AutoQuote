@@ -1,5 +1,6 @@
 import axios from "axios";
 import { AUTH_STORAGE_KEY } from "../auth/authConstants";
+import { notifySessionExpired } from "../auth/sessionLifecycle";
 
 const baseURL = import.meta.env.VITE_LMCP_API_BASE_URL || "";
 
@@ -25,6 +26,20 @@ httpClient.interceptors.request.use((config) => {
   }
   return config;
 });
+
+httpClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error?.response?.status;
+    if (status === 401) {
+      notifySessionExpired({
+        reason: error?.response?.data?.detail || error?.response?.data?.message || "Your session expired or is no longer valid.",
+        source: "api",
+      });
+    }
+    return Promise.reject(error);
+  },
+);
 
 export function hasConfiguredApiBaseUrl() {
   return Boolean(baseURL);

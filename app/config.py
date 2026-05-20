@@ -173,6 +173,7 @@ class Settings:
     enable_legacy_routers: bool = runtime_config.enable_legacy_routers
     allow_degraded_startup: bool = runtime_config.allow_degraded_startup
     runtime_safety_enabled: bool = runtime_config.runtime_safety_enabled
+    strict_production_startup: bool = runtime_config.strict_production_startup
 
     def ensure_directories(self) -> None:
         runtime_paths.ensure_directories()

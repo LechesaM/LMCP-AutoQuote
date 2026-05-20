@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -19,6 +20,9 @@ from app.persistence.repositories import get_persistence_health
 from app.persistence.backup_scheduler import get_backup_status
 from app.persistence.restore_validator import validate_restore_readiness
 from app.productivity.review_efficiency_analytics import build_review_efficiency_analytics
+from app.runtime.stale_data_guard import build_stale_data_guard_report
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -88,78 +92,133 @@ def _rfqs_per_hour() -> float:
 
 
 def get_runtime_metrics(limit: int = 100) -> Dict[str, Any]:
-    metrics = get_metrics_snapshot().get("metrics", {})
-    workflow = get_workflow_summary(limit=limit)
-    queue = get_queue_summary(limit=limit)
-    sources = get_source_health_summary(limit=limit)
-    capacity = get_operator_capacity_snapshot()
-    system = get_system_health()
-    persistence = get_persistence_health()
-    queue_backend = get_redis_config()
-    dlq = list_dlq()
-    backup_status = get_backup_status()
-    restore_ready = validate_restore_readiness(backup_status.get("latest_backup_dir", ""))
-    workers = get_worker_supervision_report()
-    productivity = build_review_efficiency_analytics(limit=limit)
-    fallback_activations = 0
-    if backup_status.get("backup_age_warning"):
-        fallback_activations += 1
-    if persistence.get("status") == "failing" or not restore_ready.get("status") == "healthy":
-        fallback_activations += 1
-    stability_score = 100.0
-    stability_score -= min(25.0, _safe_int(queue.get("queue_lag_minutes", queue.get("summary", {}).get("queueLagMinutes", 0)), 0))
-    stability_score -= min(15.0, _safe_int(sources.get("failing_sources", 0), 0) * 3.0)
-    stability_score -= min(15.0, _safe_int(workers.get("stale_worker_count", 0), 0) * 5.0)
-    stability_score -= min(10.0, _safe_int(metrics.get("rate_limit_events", 0), 0) * 2.0)
-    stability_score -= min(10.0, _safe_int(metrics.get("auth_failures", 0), 0) * 2.0)
-    stability_score -= min(10.0, _safe_int(metrics.get("workflow_failures", 0), 0) * 2.0)
-    stability_score = max(0.0, stability_score)
-    runtime = {
-        "rfqs_harvested_per_hour": _rfqs_per_hour(),
-        "review_throughput": _safe_int(metrics.get("reviews_recorded", 0)),
-        "queue_lag": _safe_int(queue.get("queue_lag_minutes", queue.get("summary", {}).get("queueLagMinutes", 0))),
-        "operator_utilization": round((_safe_int(capacity.get("assigned_today", 0)) / max(1, _safe_int(capacity.get("total_daily_capacity", 1000)))) * 100.0, 2),
-        "parser_failure_rate": float(sources.get("parser_failure_rate", 0.0)),
-        "source_availability": round((_safe_int(sources.get("healthy_sources", 0)) / max(1, _safe_int(sources.get("total_sources", 1)))) * 100.0, 2),
-        "telemetry_freshness_minutes": 0,
-        "workflow_failures": _safe_int(metrics.get("workflow_failures", 0)),
-        "persistence_failures": _safe_int(metrics.get("persistence_failures", 0)),
-        "auth_failures": _safe_int(metrics.get("auth_failures", 0)),
-        "rate_limit_events": _safe_int(metrics.get("rate_limit_events", 0)),
-        "api_latency_ms": _safe_int(metrics.get("api_latency_ms", 0)),
-        "backup_age_days": _safe_int(backup_status.get("latest_backup_age_days", -1)),
-        "dlq_count": _safe_int(dlq.get("count", 0)),
-        "worker_stale_count": _safe_int(workers.get("stale_worker_count", 0)),
-        "operator_review_throughput": float(productivity.get("rfqs_reviewed_per_hour", 0.0)),
-        "operator_review_efficiency": float(productivity.get("review_completion_time_minutes", 0.0)),
-        "stability_score": float(stability_score),
-        "fallback_activations": _safe_int(fallback_activations, 0),
-    }
-    latest_snapshot = _read(limit=1)
-    generated_at = latest_snapshot[-1].get("generated_at") if latest_snapshot else _now_iso()
-    return {
-        "status": "ok" if system.get("status") != "unhealthy" else "degraded",
-        "generated_at": _now_iso(),
-        "data_source": "runtime",
-        "runtime_mode": system.get("production_mode", ""),
-        "environment": system.get("environment", ""),
-        "metrics": runtime,
-        "workflow_summary": workflow,
-        "queue_summary": queue,
-        "source_summary": sources,
-        "operator_capacity": capacity,
-        "persistence": persistence,
-        "queue_backend": queue_backend.backend,
-        "queue_backend_ready": redis_connection_ready(),
-        "dlq": dlq,
-        "backup_status": backup_status,
-        "restore_ready": restore_ready,
-        "workers": workers,
-        "productivity": productivity,
-        "system_health": system,
-        "telemetry_freshness_minutes": runtime["telemetry_freshness_minutes"],
-        "last_snapshot_at": generated_at,
-    }
+    try:
+        metrics = get_metrics_snapshot().get("metrics", {})
+        workflow = get_workflow_summary(limit=limit)
+        queue = get_queue_summary(limit=limit)
+        sources = get_source_health_summary(limit=limit)
+        capacity = get_operator_capacity_snapshot()
+        system = get_system_health()
+        persistence = get_persistence_health()
+        queue_backend = get_redis_config()
+        dlq = list_dlq()
+        backup_status = get_backup_status()
+        restore_ready = validate_restore_readiness(backup_status.get("latest_backup_dir", ""))
+        workers = get_worker_supervision_report()
+        productivity = build_review_efficiency_analytics(limit=limit)
+        fallback_activations = 0
+        if backup_status.get("backup_age_warning"):
+            fallback_activations += 1
+        if persistence.get("status") == "failing" or not restore_ready.get("status") == "healthy":
+            fallback_activations += 1
+        stability_score = 100.0
+        stability_score -= min(25.0, _safe_int(queue.get("queue_lag_minutes", queue.get("summary", {}).get("queueLagMinutes", 0)), 0))
+        stability_score -= min(15.0, _safe_int(sources.get("failing_sources", 0), 0) * 3.0)
+        stability_score -= min(15.0, _safe_int(workers.get("stale_worker_count", 0), 0) * 5.0)
+        stability_score -= min(10.0, _safe_int(metrics.get("rate_limit_events", 0), 0) * 2.0)
+        stability_score -= min(10.0, _safe_int(metrics.get("auth_failures", 0), 0) * 2.0)
+        stability_score -= min(10.0, _safe_int(metrics.get("workflow_failures", 0), 0) * 2.0)
+        stability_score = max(0.0, stability_score)
+        runtime = {
+            "rfqs_harvested_per_hour": _rfqs_per_hour(),
+            "review_throughput": _safe_int(metrics.get("reviews_recorded", 0)),
+            "queue_lag": _safe_int(queue.get("queue_lag_minutes", queue.get("summary", {}).get("queueLagMinutes", 0))),
+            "operator_utilization": round((_safe_int(capacity.get("assigned_today", 0)) / max(1, _safe_int(capacity.get("total_daily_capacity", 1000)))) * 100.0, 2),
+            "parser_failure_rate": float(sources.get("parser_failure_rate", 0.0)),
+            "source_availability": round((_safe_int(sources.get("healthy_sources", 0)) / max(1, _safe_int(sources.get("total_sources", 1)))) * 100.0, 2),
+            "telemetry_freshness_minutes": 0,
+            "workflow_failures": _safe_int(metrics.get("workflow_failures", 0)),
+            "persistence_failures": _safe_int(metrics.get("persistence_failures", 0)),
+            "auth_failures": _safe_int(metrics.get("auth_failures", 0)),
+            "rate_limit_events": _safe_int(metrics.get("rate_limit_events", 0)),
+            "api_latency_ms": _safe_int(metrics.get("api_latency_ms", 0)),
+            "backup_age_days": _safe_int(backup_status.get("latest_backup_age_days", -1)),
+            "dlq_count": _safe_int(dlq.get("count", 0)),
+            "worker_stale_count": _safe_int(workers.get("stale_worker_count", 0)),
+            "operator_review_throughput": float(productivity.get("rfqs_reviewed_per_hour", 0.0)),
+            "operator_review_efficiency": float(productivity.get("review_completion_time_minutes", 0.0)),
+            "stability_score": float(stability_score),
+            "fallback_activations": _safe_int(fallback_activations, 0),
+        }
+        current_payload = {
+            "status": "ok" if system.get("status") != "unhealthy" else "degraded",
+            "generated_at": _now_iso(),
+            "data_source": "runtime",
+            "runtime_mode": system.get("production_mode", ""),
+            "environment": system.get("environment", ""),
+            "metrics": runtime,
+            "workflow_summary": workflow,
+            "queue_summary": queue,
+            "source_summary": sources,
+            "operator_capacity": capacity,
+            "persistence": persistence,
+            "queue_backend": queue_backend.backend,
+            "queue_backend_ready": redis_connection_ready(),
+            "dlq": dlq,
+            "backup_status": backup_status,
+            "restore_ready": restore_ready,
+            "workers": workers,
+            "productivity": productivity,
+            "system_health": system,
+            "telemetry_freshness_minutes": runtime["telemetry_freshness_minutes"],
+        }
+        guard = build_stale_data_guard_report("runtime_metrics", current_payload, stale_after_minutes=15)
+        effective = guard.get("effective_snapshot", current_payload)
+        latest_snapshot = _read(limit=1)
+        generated_at = latest_snapshot[-1].get("generated_at") if latest_snapshot else _now_iso()
+        return {
+            **effective,
+            "status": guard.get("status", effective.get("status", "ok")),
+            "generated_at": _now_iso(),
+            "data_source": guard.get("data_source", effective.get("data_source", "runtime")),
+            "stale_telemetry": guard.get("stale", False),
+            "degraded_state": guard.get("stale", False) or guard.get("status") not in {"healthy", "ok"},
+            "last_safe_snapshot_at": guard.get("last_safe_snapshot_at"),
+            "last_safe_snapshot": guard.get("last_safe_snapshot", {}),
+            "telemetry_state": "fresh" if not guard.get("stale") else "stale",
+            "runtime_guard": guard,
+            "telemetry_freshness_minutes": effective.get("telemetry_freshness_minutes", 0),
+            "last_snapshot_at": generated_at,
+        }
+    except Exception as exc:
+        logger.exception("Runtime metrics failed: %s", exc)
+        guard = build_stale_data_guard_report(
+            "runtime_metrics",
+            {"status": "failing", "data_source": "runtime_error", "error": str(exc)},
+            stale_after_minutes=15,
+        )
+        effective = guard.get("effective_snapshot", {})
+        if not isinstance(effective, dict):
+            effective = {}
+        return {
+            **effective,
+            "status": "failing",
+            "generated_at": _now_iso(),
+            "data_source": guard.get("data_source", "fallback"),
+            "stale_telemetry": True,
+            "degraded_state": True,
+            "last_safe_snapshot_at": guard.get("last_safe_snapshot_at"),
+            "last_safe_snapshot": guard.get("last_safe_snapshot", {}),
+            "telemetry_state": "stale",
+            "runtime_guard": guard,
+            "runtime_error": str(exc),
+            "metrics": effective.get("metrics", {}),
+            "workflow_summary": effective.get("workflow_summary", {}),
+            "queue_summary": effective.get("queue_summary", {}),
+            "source_summary": effective.get("source_summary", {}),
+            "operator_capacity": effective.get("operator_capacity", {}),
+            "persistence": effective.get("persistence", {}),
+            "queue_backend": effective.get("queue_backend", "unknown"),
+            "queue_backend_ready": effective.get("queue_backend_ready", False),
+            "dlq": effective.get("dlq", {}),
+            "backup_status": effective.get("backup_status", {}),
+            "restore_ready": effective.get("restore_ready", {"status": "failing"}),
+            "workers": effective.get("workers", {}),
+            "productivity": effective.get("productivity", {}),
+            "system_health": effective.get("system_health", {"status": "unhealthy"}),
+            "telemetry_freshness_minutes": effective.get("telemetry_freshness_minutes", 0),
+            "last_snapshot_at": _now_iso(),
+        }
 
 
 def record_runtime_snapshot(snapshot: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

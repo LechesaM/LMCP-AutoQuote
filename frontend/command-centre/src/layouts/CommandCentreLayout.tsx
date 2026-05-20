@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { ShieldCheck, Gauge, Layers3, MapPinned, Route } from "lucide-react";
 import CommandCentreSidebar from "../components/layout/CommandCentreSidebar.tsx";
 import UserMenu from "../components/auth/UserMenu.tsx";
+import RuntimeSafetyLayer from "../components/runtime/RuntimeSafetyLayer.tsx";
 import { applyCommandCentreThemeVars, commandCentreTheme } from "../styles/theme";
 
 export default function CommandCentreLayout({ routeTelemetry, children }) {
@@ -13,6 +14,7 @@ export default function CommandCentreLayout({ routeTelemetry, children }) {
     <div className="min-h-screen command-grid">
       <CommandCentreSidebar />
       <main className="ml-[290px] min-h-screen p-6">
+        <RuntimeSafetyLayer />
         <div className="mb-6 flex items-end justify-between gap-4">
           <div>
             <div className="text-sm font-black uppercase tracking-[.32em] text-command-green">{commandCentreTheme.brand.position}</div>

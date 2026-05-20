@@ -4,7 +4,7 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$ROOT_DIR"
 
-python3 -m pytest \
+STRICT_PRODUCTION_STARTUP=0 python3 -m pytest \
   tests/test_governance_integrity.py \
   tests/test_no_autonomous_execution.py \
   tests/test_production_readiness_validation.py \
@@ -24,4 +24,3 @@ modules = [
 for module_name in modules:
     importlib.import_module(module_name)
 PY
-

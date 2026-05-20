@@ -20,6 +20,7 @@ class DeploymentProfile:
     legacy_routers_enabled: bool
     database_backend: str = "sqlite"
     queue_backend: str = "local"
+    strict_production_startup: bool = False
 
     def to_jsonable_dict(self) -> Dict[str, object]:
         return {
@@ -34,6 +35,7 @@ class DeploymentProfile:
             "legacy_routers_enabled": self.legacy_routers_enabled,
             "database_backend": self.database_backend,
             "queue_backend": self.queue_backend,
+            "strict_production_startup": self.strict_production_startup,
         }
 
 
@@ -60,6 +62,7 @@ def _profile(name: str) -> DeploymentProfile:
         legacy_routers_enabled=runtime.enable_legacy_routers and profile.legacy_routers_enabled,
         database_backend=env("LMCP_DB_BACKEND", profile.database_backend).lower(),
         queue_backend=env("LMCP_QUEUE_BACKEND", profile.queue_backend).lower(),
+        strict_production_startup=runtime.strict_production_startup,
     )
 
 

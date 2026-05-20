@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { fetchCurrentPermissions, fetchCurrentUser, loginWithCredentials, logoutSession } from "./authClient";
 import { AUTH_STORAGE_KEY } from "./authConstants";
+import { isTokenExpired } from "./sessionLifecycle";
 
 const initialState = {
   hydrated: false,
@@ -10,6 +11,9 @@ const initialState = {
   user: null,
   permissions: [],
   error: "",
+  sessionExpired: false,
+  sessionExpiredReason: "",
+  sessionExpiryAt: "",
 };
 
 const useAuthStore = create(
@@ -23,6 +27,16 @@ const useAuthStore = create(
           set({ hydrated: true, loading: false });
           return null;
         }
+        if (isTokenExpired(token)) {
+          set({
+            ...initialState,
+            hydrated: true,
+            loading: false,
+            sessionExpired: true,
+            sessionExpiredReason: "Your authentication token expired while the app was closed.",
+          });
+          return null;
+        }
         try {
           const session = await fetchCurrentUser();
           const permissions = session?.permissions || [];
@@ -33,10 +47,18 @@ const useAuthStore = create(
             token,
             permissions,
             user: session?.user || null,
+            sessionExpired: false,
+            sessionExpiredReason: "",
           });
           return session;
         } catch (error) {
-          set({ ...initialState, hydrated: true, loading: false });
+          set({
+            ...initialState,
+            hydrated: true,
+            loading: false,
+            sessionExpired: true,
+            sessionExpiredReason: error instanceof Error ? error.message : "Session validation failed",
+          });
           return null;
         }
       },
@@ -51,6 +73,8 @@ const useAuthStore = create(
             token: session?.access_token || "",
             user: session?.user || null,
             permissions: session?.permissions || [],
+            sessionExpired: false,
+            sessionExpiredReason: "",
           });
           return session;
         } catch (error) {
@@ -83,7 +107,24 @@ const useAuthStore = create(
           token: session?.access_token || session?.token || "",
           user: session?.user || null,
           permissions: session?.permissions || [],
+          sessionExpired: false,
+          sessionExpiredReason: "",
         });
+      },
+      markSessionExpired: (reason = "Your authentication session expired.") => {
+        set((state) => ({
+          ...state,
+          loading: false,
+          sessionExpired: true,
+          sessionExpiredReason: reason,
+        }));
+      },
+      clearSessionExpired: () => {
+        set((state) => ({
+          ...state,
+          sessionExpired: false,
+          sessionExpiredReason: "",
+        }));
       },
     }),
     {

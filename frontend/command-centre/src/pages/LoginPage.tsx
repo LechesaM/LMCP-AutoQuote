@@ -1,6 +1,10 @@
 import LoginForm from "../components/auth/LoginForm.tsx";
+import { useLocation } from "react-router-dom";
 
 export default function LoginPage() {
+  const location = useLocation();
+  const reason = location.state?.reason || "";
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.22),_transparent_38%),linear-gradient(180deg,_#081018_0%,_#0b1220_55%,_#050816_100%)] px-6 py-10 text-slate-100">
       <div className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-6xl items-center gap-10 lg:grid-cols-[1.2fr_.8fr]">
@@ -10,6 +14,11 @@ export default function LoginPage() {
           <p className="max-w-2xl text-base leading-7 text-slate-300">
             Sign in to view telemetry, review queues, operator actions, and governance evidence. Final submission remains manual-only.
           </p>
+          {reason ? (
+            <div className="max-w-2xl rounded-3xl border border-command-amber/30 bg-command-amber/10 px-4 py-3 text-sm text-command-amber">
+              {reason}
+            </div>
+          ) : null}
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-3xl border border-slate-700/60 bg-slate-950/45 p-4">
               <div className="text-xs font-black uppercase tracking-[.22em] text-slate-400">Governance</div>
@@ -32,4 +41,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

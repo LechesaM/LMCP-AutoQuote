@@ -10,6 +10,8 @@ __pycache__/
 
 # Runtime
 runtime/
+!app/runtime/
+!app/runtime/**
 logs/
 tmp/
 temp/

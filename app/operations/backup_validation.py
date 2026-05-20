@@ -32,6 +32,8 @@ def validate_backup_restore() -> Dict[str, Any]:
     latest_status = get_backup_status()
     latest_dir = str(latest_status.get("latest_backup_dir") or "").strip()
     latest = Path(latest_dir) if latest_dir else None
+    if not latest or not latest.exists():
+        latest = _latest_backup()
     age = _days_old(latest if latest and latest.exists() else None)
     restore_simulation = {
         "status": "passed" if latest and latest.exists() else "warning",

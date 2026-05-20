@@ -58,6 +58,7 @@ class RuntimeConfig:
     runtime_safety_enabled: bool
     observability_enabled: bool
     deployment_hardening_enabled: bool
+    strict_production_startup: bool
     manual_production_enforced: bool
     final_submission_manual_only: bool
     log_max_bytes: int = 5 * 1024 * 1024
@@ -74,6 +75,7 @@ class RuntimeConfig:
         os.environ.setdefault("LMCP_PILOT_MODE", self.pilot_mode)
         os.environ.setdefault("LMCP_OBSERVABILITY_ENABLED", "1" if self.observability_enabled else "0")
         os.environ.setdefault("LMCP_DEPLOYMENT_HARDENING_ENABLED", "1" if self.deployment_hardening_enabled else "0")
+        os.environ.setdefault("STRICT_PRODUCTION_STARTUP", "1" if self.strict_production_startup else "0")
 
     def ensure_directories(self) -> None:
         self.paths.ensure_directories()
@@ -139,6 +141,7 @@ def get_runtime_config() -> RuntimeConfig:
         runtime_safety_enabled=env_bool("LMCP_RUNTIME_SAFETY_ENABLED", True),
         observability_enabled=env_bool("LMCP_OBSERVABILITY_ENABLED", True),
         deployment_hardening_enabled=env_bool("LMCP_DEPLOYMENT_HARDENING_ENABLED", True),
+        strict_production_startup=env_bool("STRICT_PRODUCTION_STARTUP", False),
         manual_production_enforced=mode.manual_production_enforced,
         final_submission_manual_only=True,
     )

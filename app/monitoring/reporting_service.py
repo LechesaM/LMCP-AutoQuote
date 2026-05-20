@@ -52,6 +52,7 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
     from app.stabilization.runtime_cleanup import build_runtime_cleanup_report
     from app.stabilization.runtime_stability_engine import build_runtime_stability_report
     from app.stabilization.telemetry_noise_reduction import build_telemetry_noise_reduction_report
+    from app.runtime.service_recovery import build_service_recovery_report
 
     metrics = get_metrics_snapshot()
     pilot = build_pilot_readiness_report(limit=limit)
@@ -64,6 +65,7 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
         workflow_summary=get_workflow_summary(limit=limit),
         quality_summary=quality_summary,
     )
+    runtime_metrics_summary = get_runtime_metrics(limit=limit)
     return {
         "system_health": get_system_health(),
         "workflow_summary": get_workflow_summary(limit=limit),
@@ -93,7 +95,8 @@ def build_operational_report(*, stuck_after_minutes: int = 240, limit: int = 500
         "pricing_traceability_summary": supplier_quality.get("pricing_traceability_summary", {}),
         "quote_aging_summary": supplier_quality.get("quote_aging_summary", {}),
         "pricing_confidence_summary": supplier_quality.get("pricing_confidence_summary", {}),
-        "runtime_metrics_summary": get_runtime_metrics(limit=limit),
+        "runtime_metrics_summary": runtime_metrics_summary,
+        "runtime_resilience_summary": build_service_recovery_report("runtime_metrics", runtime_metrics_summary),
         "runtime_alerts_summary": get_runtime_alerts(limit=limit),
         "observability_summary": get_observability_overview(limit=limit),
         "health_snapshot": get_health_snapshots(limit=limit),
@@ -157,6 +160,7 @@ def render_operational_report_text(report: Optional[Dict[str, Any]] = None) -> s
     pilot = report.get("pilot", {})
     quality = report.get("quality_summary", {})
     tender_analytics = report.get("tender_success_analytics", {})
+    resilience = report.get("runtime_resilience_summary", {})
     lines = [
         f"System status: {health.get('status', 'unknown')}",
         f"Environment: {health.get('environment', '')} / {health.get('production_mode', '')}",
@@ -171,6 +175,7 @@ def render_operational_report_text(report: Optional[Dict[str, Any]] = None) -> s
         f"Backup age days: {report.get('backup_validation_summary', {}).get('latest_backup_age_days', -1)}",
         f"Observability status: {report.get('observability_summary', {}).get('status', 'fallback')}",
         f"Observability alerts: {report.get('observability_summary', {}).get('summary', {}).get('runtime_alerts', 0)}",
+        f"Runtime resilience status: {resilience.get('status', 'unknown')}",
         f"Stability score: {report.get('stabilization_summary', {}).get('runtime_stability', {}).get('stability_score', 0.0)}",
         f"Restore readiness: {report.get('persistence_reliability_report', {}).get('restore_readiness', {}).get('status', 'blocked')}",
         f"Missing runtime directories: {len(diagnostics.get('missing_directories', []))}",

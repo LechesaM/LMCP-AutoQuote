@@ -6,6 +6,7 @@ import AnalyticsPanel from "../components/charts/AnalyticsPanel.tsx";
 import GovernanceRulesGrid from "../components/governance/GovernanceRulesGrid.tsx";
 import OperationalHealthPanel from "../components/health/OperationalHealthPanel.tsx";
 import OperationalAlertsPanel from "../components/workflows/OperationalAlertsPanel.tsx";
+import StartupValidationPanel from "../components/runtime/StartupValidationPanel.tsx";
 import { useObservability } from "../hooks/useObservability";
 import useTelemetryStore from "../store/telemetryStore";
 import { BadgeDollarSign, FileText, Gauge, LineChart, PackageCheck, Percent } from "lucide-react";
@@ -54,6 +55,9 @@ export default function DashboardPage() {
       </div>
       <div className="mt-6">
         <OperationalHealthPanel />
+      </div>
+      <div className="mt-6">
+        <StartupValidationPanel />
       </div>
       <div className="mt-6 glass-card rounded-3xl p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">

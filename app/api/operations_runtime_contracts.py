@@ -25,11 +25,17 @@ def build_runtime_metrics_response(limit: int = 100) -> Dict[str, Any]:
         "parser_failure_rate": metrics.get("parser_failure_rate", 0.0),
         "source_availability": metrics.get("source_availability", 0.0),
         "telemetry_freshness_minutes": metrics.get("telemetry_freshness_minutes", 0),
+        "stale_telemetry": payload.get("stale_telemetry", False),
+        "degraded_state": payload.get("degraded_state", False),
+        "telemetry_state": payload.get("telemetry_state", "fresh"),
+        "last_safe_snapshot_at": payload.get("last_safe_snapshot_at"),
+        "last_safe_snapshot": payload.get("last_safe_snapshot", {}),
         "workflow_failures": metrics.get("workflow_failures", 0),
         "persistence_failures": metrics.get("persistence_failures", 0),
         "auth_failures": metrics.get("auth_failures", 0),
         "rate_limit_events": metrics.get("rate_limit_events", 0),
         "api_latency_ms": metrics.get("api_latency_ms", 0),
+        "runtime_guard": payload.get("runtime_guard", {}),
         "system_health": payload.get("system_health", {}),
         "operator_capacity": payload.get("operator_capacity", {}),
         "queue_summary": payload.get("queue_summary", {}),
@@ -105,4 +111,3 @@ def build_backup_validation_response() -> Dict[str, Any]:
         "audit_persistence_ok": payload.get("audit_persistence_ok", False),
         "restore_simulation": payload.get("restore_simulation", {}),
     }
-

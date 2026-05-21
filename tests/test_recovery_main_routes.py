@@ -16,7 +16,12 @@ def test_recovery_main_exposes_incremental_read_only_runtime_routes() -> None:
     assert "/pilot/summary" in paths
     assert "/pilot/readiness" in paths
     assert "/pilot/signoffs" in paths
+    assert "/telemetry/dashboard" in paths
+    assert "/telemetry/review-queue" in paths
+    assert "/telemetry/source-health" in paths
+    assert "/telemetry/operational-health" in paths
 
     assert "/dashboard/summary" in paths
     assert "/auth/login" in paths
     assert "/operator-auth/status" in paths
+    assert "/telemetry/qualification" not in paths

@@ -181,6 +181,30 @@ def build_application() -> FastAPI:
 
         return {"signoffs": get_pilot_signoffs(limit=200)}
 
+    @app.get("/telemetry/dashboard")
+    def telemetry_dashboard(limit: int = 100) -> Dict[str, Any]:
+        from app.api.telemetry_contracts import build_dashboard_telemetry_response
+
+        return build_dashboard_telemetry_response(limit=limit)
+
+    @app.get("/telemetry/review-queue")
+    def telemetry_review_queue(limit: int = 100) -> Dict[str, Any]:
+        from app.api.telemetry_contracts import build_review_queue_telemetry_response
+
+        return build_review_queue_telemetry_response(limit=limit)
+
+    @app.get("/telemetry/source-health")
+    def telemetry_source_health(limit: int = 100) -> Dict[str, Any]:
+        from app.api.telemetry_contracts import build_source_health_telemetry_response
+
+        return build_source_health_telemetry_response(limit=limit)
+
+    @app.get("/telemetry/operational-health")
+    def telemetry_operational_health(limit: int = 100) -> Dict[str, Any]:
+        from app.api.telemetry_contracts import build_operational_health_telemetry_response
+
+        return build_operational_health_telemetry_response(limit=limit)
+
     return app
 
 

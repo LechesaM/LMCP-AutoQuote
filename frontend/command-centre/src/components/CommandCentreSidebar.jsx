@@ -104,13 +104,13 @@ export default function CommandCentreSidebar() {
   const visibleAdminRuntime = sections.find((section) => section.label === "Admin Runtime");
 
   return (
-    <aside className="fixed left-0 top-0 z-50 h-screen w-[290px] overflow-y-auto border-r border-slate-700/40 bg-gradient-to-b from-[#020817] via-[#06111f] to-black px-5 py-6 shadow-[20px_0_80px_rgba(0,0,0,.45)] pointer-events-auto">
-      <div className="mb-8">
+    <aside className="fixed left-0 top-0 z-50 flex h-screen w-[290px] flex-col overflow-y-auto border-r border-slate-700/40 bg-gradient-to-b from-[#020817] via-[#06111f] to-black px-5 py-6 shadow-[20px_0_80px_rgba(0,0,0,.45)] pointer-events-auto">
+      <div className="mb-8 shrink-0">
         <div className="text-3xl font-black tracking-tight text-command-green drop-shadow-[0_0_20px_rgba(34,197,94,.45)]">LMCP</div>
         <div className="mt-1 text-sm font-semibold uppercase tracking-[.34em] text-slate-400">Command Centre</div>
       </div>
 
-      <nav className="relative z-10 space-y-2">
+      <nav className="relative z-10 flex-1 space-y-2">
         <div className="space-y-2">
           {operatorPrimarySidebarNavigationItems.map(({ label, path }) => {
             const active = isActivePath(location.pathname, path);
@@ -144,7 +144,7 @@ export default function CommandCentreSidebar() {
         </div>
       </nav>
 
-      <div className="mt-6 rounded-3xl border border-slate-700/60 bg-slate-950/50 p-4">
+      <div className="mt-6 shrink-0 rounded-3xl border border-slate-700/60 bg-slate-950/50 p-4">
         <div className="text-xs font-semibold uppercase tracking-[.26em] text-command-cyan">Admin Runtime</div>
         <div className="mt-1 text-[11px] uppercase tracking-[.22em] text-slate-500">
           {visibleAdminRuntime ? "Visible to supervisors and admins" : "Hidden from operators"}
@@ -167,7 +167,7 @@ export default function CommandCentreSidebar() {
         ) : null}
       </div>
 
-      <div className="absolute bottom-5 left-5 right-5 rounded-2xl border border-command-green/20 bg-command-green/5 p-4">
+      <div className="mt-6 shrink-0 rounded-2xl border border-command-green/20 bg-command-green/5 p-4">
         <div className="text-xs font-semibold uppercase tracking-[.26em] text-command-green">Governance</div>
         <div className="mt-2 text-sm text-slate-300">Manual approval, review, proof capture and final submission remain human-governed.</div>
       </div>

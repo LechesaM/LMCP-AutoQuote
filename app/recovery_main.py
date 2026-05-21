@@ -13,7 +13,7 @@ from app.deployment.request_id import RequestIdMiddleware
 from app.deployment.security_headers import SecurityHeadersMiddleware
 from app.deployment.rate_limit import RateLimitMiddleware
 from app.core.runtime_config import env, env_bool
-from app.api.route_policy import apply_recovery_route_policy
+from app.api.route_policy import apply_recovery_route_policy, build_recovery_policy_introspection
 from app.auth.session_service import ensure_auth_schema
 from app.services.operator_auth_service import ensure_operator_auth_schema
 
@@ -211,6 +211,10 @@ def build_application() -> FastAPI:
         from app.api.telemetry_contracts import build_qualification_telemetry_response
 
         return build_qualification_telemetry_response(limit=limit)
+
+    @app.get("/system/recovery-policy")
+    def recovery_policy() -> Dict[str, Any]:
+        return build_recovery_policy_introspection(app.routes)
 
     return app
 

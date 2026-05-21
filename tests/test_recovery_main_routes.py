@@ -8,7 +8,7 @@ os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DIR", "/Users/cash/Documents/runti
 os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DB_PATH", "/Users/cash/Documents/runtime/manual_production/lmcp_operations.db")
 
 from app.recovery_main import app
-from app.api.route_policy import RouteCategory, classify_route_path
+from app.api.route_policy import RouteCategory, build_recovery_policy_introspection, classify_route_path
 
 
 def test_recovery_main_exposes_incremental_read_only_runtime_routes() -> None:
@@ -29,6 +29,7 @@ def test_recovery_main_exposes_incremental_read_only_runtime_routes() -> None:
     assert "/telemetry/source-health" in paths
     assert "/telemetry/operational-health" in paths
     assert "/telemetry/qualification" in paths
+    assert "/system/recovery-policy" in paths
 
     assert "/dashboard/summary" in paths
     assert "/auth/login" in paths
@@ -53,3 +54,23 @@ def test_recovery_main_route_policy_blocks_write_routes() -> None:
     assert RouteCategory.RECOVERY_SAFE_ADVISORY.value in categories
     assert RouteCategory.RECOVERY_RESTRICTED.value in categories
     assert classify_route_path("/telemetry/qualification", {"GET"}) == RouteCategory.RECOVERY_SAFE_ADVISORY
+
+
+def test_recovery_policy_endpoint_reports_mounted_and_unmounted_routes() -> None:
+    payload = build_recovery_policy_introspection(app.routes)
+
+    assert payload["mode"] == "recovery"
+    assert payload["mounted_route_count"] > 0
+    assert payload["catalog_route_count"] >= payload["mounted_route_count"]
+
+    routes = {entry["path"]: entry for entry in payload["routes"]}
+    assert routes["/system/recovery-policy"]["mounted_in_recovery"] is True
+    assert routes["/system/recovery-policy"]["policy_class"] == RouteCategory.RECOVERY_SAFE_READONLY.value
+    assert routes["/system/recovery-policy"]["visibility"] == "read-only"
+    assert routes["/telemetry/qualification"]["mounted_in_recovery"] is True
+    assert routes["/telemetry/qualification"]["policy_class"] == RouteCategory.RECOVERY_SAFE_ADVISORY.value
+    assert routes["/telemetry/qualification"]["visibility"] == "advisory"
+    assert any(
+        entry["mounted_in_recovery"] is False and entry["visibility"] == "full-runtime-only"
+        for entry in payload["routes"]
+    )

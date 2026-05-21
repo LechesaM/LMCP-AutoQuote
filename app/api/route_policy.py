@@ -46,6 +46,7 @@ READONLY_PATHS = {
     "/telemetry/operational-health",
     "/telemetry/review-queue",
     "/telemetry/source-health",
+    "/system/recovery-policy",
     "/operator-auth/session",
     "/operator-auth/status",
 }
@@ -95,6 +96,19 @@ FORBIDDEN_TERMS = (
 
 ADVISORY_MUTATION_METHODS = {"POST"}
 READONLY_METHODS = {"GET"}
+
+RECOVERY_POLICY_INTROSPECTION_MANIFEST: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("/dashboard/archive", ("POST",)),
+    ("/dashboard/refuse", ("POST",)),
+    ("/dashboard/operator-note", ("POST",)),
+    ("/dashboard/acknowledge-warning", ("POST",)),
+    ("/governance/legal-hold/register", ("POST",)),
+    ("/governance/legal-hold/release", ("POST",)),
+    ("/governance/attestation/generate", ("POST",)),
+    ("/api/full_autonomous_cycle", ("POST",)),
+    ("/submission/execute", ("POST",)),
+    ("/harvest/execute", ("POST",)),
+)
 
 
 def _normalize_path(path: str) -> str:
@@ -173,6 +187,79 @@ def build_route_policy_report(routes: Iterable[object]) -> dict:
     return {
         "routes": categorized,
         "counts": dict(counts),
+        "allowed_recovery_categories": [
+            RouteCategory.RECOVERY_SAFE_READONLY.value,
+            RouteCategory.RECOVERY_SAFE_ADVISORY.value,
+        ],
+    }
+
+
+def policy_visibility_for_category(category: RouteCategory) -> str:
+    if category == RouteCategory.RECOVERY_SAFE_READONLY:
+        return "read-only"
+    if category == RouteCategory.RECOVERY_SAFE_ADVISORY:
+        return "advisory"
+    if category == RouteCategory.RECOVERY_RESTRICTED:
+        return "restricted"
+    return "full-runtime-only"
+
+
+def policy_rationale_for_route(path: str, category: RouteCategory) -> str:
+    if category == RouteCategory.RECOVERY_SAFE_READONLY:
+        return f"{path} is informational and does not mutate state."
+    if category == RouteCategory.RECOVERY_SAFE_ADVISORY:
+        return f"{path} supports supervised recovery workflows without enabling runtime mutation."
+    if category == RouteCategory.RECOVERY_RESTRICTED:
+        return f"{path} depends on mutable runtime control surfaces and stays out of recovery mode."
+    return f"{path} belongs to the full runtime and is excluded from recovery mode."
+
+
+def _route_identity(route: APIRoute) -> tuple[str, tuple[str, ...]]:
+    return _normalize_path(route.path), tuple(sorted(str(method).upper() for method in (route.methods or []) if str(method or "").strip()))
+
+
+def build_recovery_policy_introspection(routes: Iterable[object]) -> dict:
+    mounted_routes = {
+        _route_identity(route): route
+        for route in routes
+        if isinstance(route, APIRoute)
+    }
+    catalog_routes: list[APIRoute] = list(mounted_routes.values())
+    for path, methods in RECOVERY_POLICY_INTROSPECTION_MANIFEST:
+        catalog_routes.append(
+            APIRoute(
+                endpoint=lambda: None,
+                path=path,
+                methods=set(methods),
+                name=path.strip("/").replace("/", "_") or "root",
+            )
+        )
+
+    entries: list[dict[str, object]] = []
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    for route in catalog_routes:
+        route_id = _route_identity(route)
+        if route_id in seen:
+            continue
+        seen.add(route_id)
+        category = classify_apiroute(route)
+        entries.append(
+            {
+                "path": _normalize_path(route.path),
+                "methods": sorted(str(method).upper() for method in (route.methods or []) if str(method or "").strip()),
+                "policy_class": category.value,
+                "mounted_in_recovery": route_id in mounted_routes,
+                "rationale": policy_rationale_for_route(route.path, category),
+                "visibility": policy_visibility_for_category(category),
+            }
+        )
+
+    entries.sort(key=lambda item: (str(item["path"]), tuple(item["methods"])))
+    return {
+        "mode": "recovery",
+        "routes": entries,
+        "mounted_route_count": sum(1 for item in entries if item["mounted_in_recovery"]),
+        "catalog_route_count": len(entries),
         "allowed_recovery_categories": [
             RouteCategory.RECOVERY_SAFE_READONLY.value,
             RouteCategory.RECOVERY_SAFE_ADVISORY.value,

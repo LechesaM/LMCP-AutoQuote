@@ -60,7 +60,7 @@ export default function App() {
               </RequireRole>
             }
           >
-            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route index element={<Navigate to="/review" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/executive-dashboard" element={<ExecutiveDashboardPage />} />
             <Route path="/profitability-analytics" element={<ProfitabilityAnalyticsPage />} />
@@ -181,9 +181,9 @@ export default function App() {
             />
             <Route path="/activity-timeline" element={<ActivityTimelinePage />} />
             <Route path="/__debug/hit-test" element={<DebugHitTestPage />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/review" replace />} />
           </Route>
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/review" replace />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

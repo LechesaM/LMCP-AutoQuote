@@ -16,7 +16,7 @@ export default function LoginForm() {
     setLocalError("");
     try {
       await login(email, password);
-      navigate("/dashboard", { replace: true });
+      navigate("/review", { replace: true });
     } catch (exception) {
       setLocalError(exception instanceof Error ? exception.message : "Login failed");
     }
@@ -57,4 +57,3 @@ export default function LoginForm() {
     </form>
   );
 }
-

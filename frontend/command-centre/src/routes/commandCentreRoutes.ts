@@ -41,7 +41,7 @@ export const commandCentreRoutes = [
   },
   {
     path: "/review",
-    label: "Review Queue",
+    label: "Work Queue",
     description: "Operator capacity and queue health",
   },
   {
@@ -142,7 +142,7 @@ export const commandCentreRoutes = [
 ] as const;
 
 export function getCommandCentreRouteMeta(pathname) {
-  const normalizedPath = pathname === "/" ? "/dashboard" : pathname.replace(/\/+$/, "") || "/dashboard";
+  const normalizedPath = pathname === "/" ? "/review" : pathname.replace(/\/+$/, "") || "/review";
   return (
     commandCentreRoutes.find((route) => route.path === normalizedPath) ?? commandCentreRoutes[0]
   );

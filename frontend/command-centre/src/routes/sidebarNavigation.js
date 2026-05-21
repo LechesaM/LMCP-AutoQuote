@@ -4,7 +4,7 @@ export const operatorPrimarySidebarNavigationItems = [
   { label: "Dashboard", path: "/dashboard" },
   { label: "RFQ Operations", path: "/operations" },
   { label: "Review Workflow", path: "/review-efficiency" },
-  { label: "Review Queue", path: "/review" },
+  { label: "Work Queue", path: "/review" },
   { label: "Pricing Review", path: "/pricing-evidence" },
   { label: "Approval Centre", path: "/governance" },
   { label: "Evidence Centre", path: "/audit-defensibility" },
@@ -43,16 +43,7 @@ export function getSidebarNavigationSections(role = "") {
     },
     {
       label: "Governance",
-      items: operatorSupportSidebarNavigationItems,
+      items: [...operatorSupportSidebarNavigationItems, ...(isAdminRuntimeVisible ? adminRuntimeSidebarNavigationItems : [])],
     },
-    ...(isAdminRuntimeVisible
-      ? [
-          {
-            label: "Admin Runtime",
-            items: adminRuntimeSidebarNavigationItems,
-          },
-        ]
-      : []),
   ];
 }
-

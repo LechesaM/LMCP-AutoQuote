@@ -4,6 +4,7 @@ import {
   BadgeDollarSign,
   ClipboardCheck,
   Clock3,
+  ChevronDown,
   FileSearch,
   Gauge,
   HeartPulse,
@@ -101,7 +102,7 @@ export default function CommandCentreSidebar() {
   };
 
   const sections = getSidebarNavigationSections(userRole);
-  const visibleAdminRuntime = sections.find((section) => section.label === "Admin Runtime");
+  const governanceSection = sections.find((section) => section.label === "Governance");
 
   return (
     <aside className="fixed left-0 top-0 z-50 flex h-screen w-[290px] flex-col overflow-y-auto border-r border-slate-700/40 bg-gradient-to-b from-[#020817] via-[#06111f] to-black px-5 py-6 shadow-[20px_0_80px_rgba(0,0,0,.45)] pointer-events-auto">
@@ -110,7 +111,7 @@ export default function CommandCentreSidebar() {
         <div className="mt-1 text-sm font-semibold uppercase tracking-[.34em] text-slate-400">Command Centre</div>
       </div>
 
-      <nav className="relative z-10 flex-1 space-y-2">
+      <nav className="relative z-10 flex-1 space-y-3">
         <div className="space-y-2">
           {operatorPrimarySidebarNavigationItems.map(({ label, path }) => {
             const active = isActivePath(location.pathname, path);
@@ -126,51 +127,50 @@ export default function CommandCentreSidebar() {
           })}
         </div>
 
-        <div className="my-4 h-px bg-slate-700/50" />
-
-        <div className="space-y-2">
-          {operatorSupportSidebarNavigationItems.map(({ label, path }) => {
-            const active = isActivePath(location.pathname, path);
-            return (
-              <NavigationButton
-                key={path}
-                label={label}
-                path={path}
-                active={active}
-                onClick={handleNavigate(label, path)}
-              />
-            );
-          })}
-        </div>
-      </nav>
-
-      <div className="mt-6 shrink-0 rounded-3xl border border-slate-700/60 bg-slate-950/50 p-4">
-        <div className="text-xs font-semibold uppercase tracking-[.26em] text-command-cyan">Admin Runtime</div>
-        <div className="mt-1 text-[11px] uppercase tracking-[.22em] text-slate-500">
-          {visibleAdminRuntime ? "Visible to supervisors and admins" : "Hidden from operators"}
-        </div>
-        {visibleAdminRuntime ? (
-          <div className="relative z-10 mt-3 space-y-2">
-            {adminRuntimeSidebarNavigationItems.map(({ label, path }) => {
-              const active = isActivePath(location.pathname, path);
-              return (
-                <NavigationButton
-                  key={path}
-                  label={label}
-                  path={path}
-                  active={active}
-                  onClick={handleNavigate(label, path)}
-                />
-              );
-            })}
-          </div>
+        {governanceSection ? (
+          <details className="rounded-3xl border border-slate-700/60 bg-slate-950/50 px-4 py-3" open>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[.26em] text-command-cyan">
+              <span>Governance</span>
+              <ChevronDown size={14} className="text-slate-500" />
+            </summary>
+            <div className="mt-3 space-y-2">
+              {operatorSupportSidebarNavigationItems.map(({ label, path }) => {
+                const active = isActivePath(location.pathname, path);
+                return (
+                  <NavigationButton
+                    key={path}
+                    label={label}
+                    path={path}
+                    active={active}
+                    onClick={handleNavigate(label, path)}
+                  />
+                );
+              })}
+              {userRole && ["supervisor", "admin"].includes(userRole) ? (
+                <details className="rounded-2xl border border-slate-700/50 bg-slate-900/40 px-3 py-2">
+                  <summary className="cursor-pointer list-none text-[11px] font-semibold uppercase tracking-[.22em] text-slate-400">
+                    Admin Runtime
+                  </summary>
+                  <div className="mt-2 space-y-2">
+                    {adminRuntimeSidebarNavigationItems.map(({ label, path }) => {
+                      const active = isActivePath(location.pathname, path);
+                      return (
+                        <NavigationButton
+                          key={path}
+                          label={label}
+                          path={path}
+                          active={active}
+                          onClick={handleNavigate(label, path)}
+                        />
+                      );
+                    })}
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          </details>
         ) : null}
-      </div>
-
-      <div className="mt-6 shrink-0 rounded-2xl border border-command-green/20 bg-command-green/5 p-4">
-        <div className="text-xs font-semibold uppercase tracking-[.26em] text-command-green">Governance</div>
-        <div className="mt-2 text-sm text-slate-300">Manual approval, review, proof capture and final submission remain human-governed.</div>
-      </div>
+      </nav>
     </aside>
   );
 }

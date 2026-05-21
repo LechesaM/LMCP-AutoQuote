@@ -62,7 +62,7 @@ export default function CommandCentreLayout({ routeTelemetry, children }) {
             </div>
             <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
               <MapPinned size={13} />
-              <span>{routeTelemetry?.currentRoute ?? "/dashboard"}</span>
+              <span>{routeTelemetry?.currentRoute ?? "/review"}</span>
             </div>
           </div>
         </div>

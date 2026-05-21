@@ -49,9 +49,23 @@ assert.deepEqual(missingSidebarPaths, [], `Sidebar paths missing from registered
 const operatorSections = getSidebarNavigationSections("operator");
 assert.equal(operatorSections.length, 2, "Operator should only see procurement and governance sections");
 assert.equal(operatorSections.some((section) => section.label === "Admin Runtime"), false, "Admin Runtime should be hidden from operators");
+const operatorGovernanceSection = operatorSections.find((section) => section.label === "Governance");
+assert.ok(operatorGovernanceSection, "Operator should see a Governance section");
+assert.deepEqual(
+  operatorGovernanceSection.items.map((item) => item.path),
+  operatorSupportSidebarNavigationItems.map((item) => item.path),
+  "Operator Governance section should only expose support routes",
+);
 
 const supervisorSections = getSidebarNavigationSections("supervisor");
-assert.equal(supervisorSections.some((section) => section.label === "Admin Runtime"), true, "Admin Runtime should be visible to supervisors");
+const supervisorGovernanceSection = supervisorSections.find((section) => section.label === "Governance");
+assert.ok(supervisorGovernanceSection, "Supervisor should see a Governance section");
+for (const item of adminRuntimeSidebarNavigationItems) {
+  assert.ok(
+    supervisorGovernanceSection.items.some((sectionItem) => sectionItem.path === item.path),
+    `Supervisor Governance section should expose ${item.path}`,
+  );
+}
 
 console.log(JSON.stringify({
   status: "passed",

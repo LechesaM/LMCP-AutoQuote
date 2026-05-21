@@ -13,6 +13,7 @@ from app.deployment.request_id import RequestIdMiddleware
 from app.deployment.security_headers import SecurityHeadersMiddleware
 from app.deployment.rate_limit import RateLimitMiddleware
 from app.core.runtime_config import env, env_bool
+from app.api.route_policy import apply_recovery_route_policy
 from app.auth.session_service import ensure_auth_schema
 from app.services.operator_auth_service import ensure_operator_auth_schema
 
@@ -205,7 +206,14 @@ def build_application() -> FastAPI:
 
         return build_operational_health_telemetry_response(limit=limit)
 
+    @app.get("/telemetry/qualification")
+    def telemetry_qualification(limit: int = 100) -> Dict[str, Any]:
+        from app.api.telemetry_contracts import build_qualification_telemetry_response
+
+        return build_qualification_telemetry_response(limit=limit)
+
     return app
 
 
 app = build_application()
+app.state.route_policy_report = apply_recovery_route_policy(app)

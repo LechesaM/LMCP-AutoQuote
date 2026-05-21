@@ -13,7 +13,20 @@ def configure_production_app(app) -> None:
     from app.startup.startup_health_report import build_startup_health_report
 
     profile = get_deployment_profile()
-    startup_health = build_startup_health_report()
+    strict_startup = strict_production_startup_enabled()
+    startup_health = build_startup_health_report() if strict_startup else {
+        "status": "degraded",
+        "generated_at": None,
+        "strict_production_startup": False,
+        "environment": {"status": "deferred"},
+        "dependencies": {"status": "deferred"},
+        "startup_validation": {"status": "deferred"},
+        "production_blockers": {"status": "deferred", "blockers": [], "warnings": ["Startup health checks deferred in recovery mode."]},
+        "blockers": [],
+        "warnings": ["Startup health checks deferred in recovery mode."],
+        "critical_blocker_count": 0,
+        "limit": 25,
+    }
     app.state.deployment_profile = profile.to_jsonable_dict()
     app.state.infrastructure_profile = {
         "database_backend": profile.database_backend,
@@ -26,10 +39,16 @@ def configure_production_app(app) -> None:
         "sentry_configured": bool(sentry.dsn),
         "metrics_export_enabled": True,
     }
-    app.state.stabilization_profile = build_deployment_stability_report(limit=25)
+    app.state.stabilization_profile = build_deployment_stability_report(limit=25) if strict_startup else {
+        "status": "deferred",
+        "warnings": ["Deployment stability checks deferred in recovery mode."],
+        "blockers": [],
+        "generated_at": None,
+        "limit": 25,
+    }
     app.state.startup_health_report = startup_health
     app.state.production_blockers = startup_health.get("production_blockers", {})
-    if strict_production_startup_enabled() and startup_health.get("blockers"):
+    if strict_startup and startup_health.get("blockers"):
         raise RuntimeError(f"Strict production startup blocked by: {startup_health.get('blockers', [])}")
     app.add_middleware(RequestIdMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

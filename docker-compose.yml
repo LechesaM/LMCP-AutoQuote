@@ -9,7 +9,15 @@ services:
       - "${LMCP_BACKEND_HOST_PORT:-8001}:8000"
     volumes:
       - ./runtime:/app/runtime
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    command:
+      [
+        "uvicorn",
+        "${LMCP_APP_ENTRYPOINT:-app.main:app}",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
 
   frontend:
     build:

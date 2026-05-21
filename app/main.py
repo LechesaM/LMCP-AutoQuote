@@ -13,46 +13,12 @@ from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 
 from app.api.router_registry import RouterSpec, iter_router_specs
+from app.api.route_policy import build_route_policy_report
 from app.config import settings
-from app.deployment.deployment_report import build_deployment_report
-from app.deployment.environment_validator import validate_environment
 from app.deployment.graceful_shutdown import run_graceful_shutdown
 from app.deployment.production_startup import configure_production_app
-from app.deployment.startup_validator import validate_startup
+from app.startup.production_blockers import strict_production_startup_enabled
 from app.core.runtime_config import get_runtime_config
-from app.dashboard.dashboard_service import (
-    get_dashboard_summary,
-    get_recent_approvals,
-    get_recent_proofs,
-    get_recent_refusals,
-    get_recent_reviews,
-    get_recent_workflows,
-)
-from app.dashboard.health_views import get_dashboard_health
-from app.dashboard.operator_actions_service import (
-    acknowledge_warning as dashboard_acknowledge_warning,
-    add_operator_note as dashboard_add_operator_note,
-    archive_workflow as dashboard_archive_workflow,
-    refuse_workflow as dashboard_refuse_workflow,
-)
-from app.dashboard.workflow_queue_service import (
-    get_archived_queue,
-    get_pending_approval_queue,
-    get_proof_capture_queue,
-    get_refused_queue,
-    get_review_ready_queue,
-)
-from app.monitoring.health_service import get_system_health
-from app.monitoring.reporting_service import build_operational_report
-from app.monitoring.workflow_monitor import get_workflow_summary
-from app.pilot.pilot_metrics import get_pilot_metrics
-from app.pilot.pilot_readiness_report import build_pilot_readiness_report
-from app.pilot.pilot_run_service import get_pilot_failures, get_pilot_successes, get_pilot_summary
-from app.pilot.pilot_signoff import get_pilot_signoffs
-from app.auth.session_service import ensure_auth_schema
-from app.services.operator_auth_service import ensure_operator_auth_schema
-from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
-from app.services.quote_review_service import ensure_quote_pack_schema
 
 
 logger = logging.getLogger(__name__)
@@ -117,36 +83,81 @@ def _allow_degraded_startup() -> bool:
     return runtime_config.allow_degraded_startup
 
 
+RECOVERY_ROUTER_MODULES = {
+    "app.api.auth_routes",
+    "app.api.operator_auth_api",
+}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info("Startup step: ensure_directories")
     settings.ensure_directories()
     app.state.database_startup_degraded = False
     app.state.database_startup_error = ""
-    app.state.environment_validation = validate_environment()
-    app.state.startup_validation = validate_startup(allow_degraded_startup=_allow_degraded_startup())
-    app.state.deployment_report = build_deployment_report()
+    strict_startup = strict_production_startup_enabled()
+    if strict_startup:
+        logger.info("Startup step: validate_environment")
+        from app.deployment.deployment_report import build_deployment_report
+        from app.deployment.environment_validator import validate_environment
+        from app.deployment.startup_validator import validate_startup
+
+        app.state.environment_validation = validate_environment()
+        logger.info("Startup step: validate_startup")
+        app.state.startup_validation = validate_startup(allow_degraded_startup=_allow_degraded_startup())
+        logger.info("Startup step: build_deployment_report")
+        app.state.deployment_report = build_deployment_report()
+    else:
+        app.state.environment_validation = {
+            "status": "deferred",
+            "warnings": ["Environment validation deferred in recovery mode."],
+            "blockers": [],
+        }
+        app.state.startup_validation = {
+            "status": "deferred",
+            "warnings": ["Startup validation deferred in recovery mode."],
+            "blockers": [],
+        }
+        app.state.deployment_report = {
+            "status": "deferred",
+            "warnings": ["Deployment report deferred in recovery mode."],
+            "blockers": [],
+        }
+    logger.info("Startup step: ensure_operator_auth_schema")
+    from app.services.operator_auth_service import ensure_operator_auth_schema, audit_identity_from_request, resolve_request_operator
+
     ensure_operator_auth_schema()
+    logger.info("Startup step: ensure_auth_schema")
+    from app.auth.session_service import ensure_auth_schema
+
     ensure_auth_schema()
-    try:
-        ensure_quote_pack_schema()
-    except Exception as exc:
-        if not _allow_degraded_startup():
-            raise
-        app.state.database_startup_degraded = True
-        app.state.database_startup_error = str(exc)
-        logger.warning(
-            "Quote pack schema initialization failed during degraded startup; continuing without database access: %s",
-            exc,
-        )
-    if app.state.environment_validation.get("status") == "unhealthy":
+    if strict_startup:
+        logger.info("Startup step: ensure_quote_pack_schema")
+        from app.services.quote_review_service import ensure_quote_pack_schema
+
+        try:
+            ensure_quote_pack_schema()
+        except Exception as exc:
+            if not _allow_degraded_startup():
+                raise
+            app.state.database_startup_degraded = True
+            app.state.database_startup_error = str(exc)
+            logger.warning(
+                "Quote pack schema initialization failed during degraded startup; continuing without database access: %s",
+                exc,
+            )
+    else:
+        logger.info("Skipping quote pack schema initialization in recovery mode.")
+    if strict_startup and app.state.environment_validation.get("status") == "unhealthy":
         if not _allow_degraded_startup():
             raise RuntimeError(f"Environment validation failed: {app.state.environment_validation.get('issues', [])}")
         app.state.database_startup_degraded = True
-    if app.state.startup_validation.get("status") == "unhealthy":
+    if strict_startup and app.state.startup_validation.get("status") == "unhealthy":
         if not _allow_degraded_startup():
             raise RuntimeError(f"Startup validation failed: {app.state.startup_validation.get('issues', [])}")
         app.state.database_startup_degraded = True
     report = app.state.router_report
+    logger.info("Startup step: ready_to_yield")
     if app.state.database_startup_degraded:
         logger.warning("LMCP AutoQuote API startup complete in degraded mode.")
     else:
@@ -197,7 +208,12 @@ def build_application() -> FastAPI:
     for mount_path, directory, name in mounts:
         app.mount(mount_path, StaticFiles(directory=str(directory)), name=name)
 
-    app.state.router_report = _include_registered_routers(app, iter_router_specs())
+    strict_startup = strict_production_startup_enabled()
+    router_specs = list(iter_router_specs())
+    if not strict_startup:
+        router_specs = [spec for spec in router_specs if spec.module_path in RECOVERY_ROUTER_MODULES]
+    app.state.router_report = _include_registered_routers(app, router_specs)
+    app.state.route_policy_report = build_route_policy_report(app.routes)
     return app
 
 
@@ -267,26 +283,42 @@ def health() -> Dict[str, Any]:
 
 @app.get("/health/system")
 def system_health() -> Dict[str, Any]:
+    from app.monitoring.health_service import get_system_health
+
     return get_system_health()
 
 
 @app.get("/health/workflows")
 def workflow_health() -> Dict[str, Any]:
+    from app.monitoring.workflow_monitor import get_workflow_summary
+
     return get_workflow_summary()
 
 
 @app.get("/health/operational-report")
 def operational_report() -> Dict[str, Any]:
+    from app.monitoring.reporting_service import build_operational_report
+
     return build_operational_report()
 
 
 @app.get("/dashboard/summary")
 def dashboard_summary() -> Dict[str, Any]:
+    from app.dashboard.dashboard_service import get_dashboard_summary
+
     return get_dashboard_summary()
 
 
 @app.get("/dashboard/workflows")
 def dashboard_workflows() -> Dict[str, Any]:
+    from app.dashboard.dashboard_service import (
+        get_recent_approvals,
+        get_recent_proofs,
+        get_recent_refusals,
+        get_recent_reviews,
+        get_recent_workflows,
+    )
+
     return {
         "workflows": get_recent_workflows(),
         "approvals": get_recent_approvals(),
@@ -298,6 +330,8 @@ def dashboard_workflows() -> Dict[str, Any]:
 
 @app.get("/dashboard/refusals")
 def dashboard_refusals() -> Dict[str, Any]:
+    from app.dashboard.dashboard_service import get_recent_refusals
+
     return {
         "refusals": get_recent_refusals(),
     }
@@ -305,11 +339,21 @@ def dashboard_refusals() -> Dict[str, Any]:
 
 @app.get("/dashboard/health")
 def dashboard_health() -> Dict[str, Any]:
+    from app.dashboard.health_views import get_dashboard_health
+
     return get_dashboard_health()
 
 
 @app.get("/dashboard/queues")
 def dashboard_queues() -> Dict[str, Any]:
+    from app.dashboard.workflow_queue_service import (
+        get_archived_queue,
+        get_pending_approval_queue,
+        get_proof_capture_queue,
+        get_refused_queue,
+        get_review_ready_queue,
+    )
+
     return {
         "pending_approvals": get_pending_approval_queue(),
         "review_ready": get_review_ready_queue(),
@@ -321,6 +365,9 @@ def dashboard_queues() -> Dict[str, Any]:
 
 @app.post("/dashboard/archive")
 def dashboard_archive(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    from app.dashboard.operator_actions_service import archive_workflow as dashboard_archive_workflow
+    from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
+
     operator = resolve_request_operator(request, "dashboard_archive_workflow")
     tender_id = str(payload.get("tender_id") or "").strip()
     reason = str(payload.get("reason") or "").strip() or "dashboard archive"
@@ -331,6 +378,9 @@ def dashboard_archive(request: Request, payload: Dict[str, Any] = Body(default_f
 
 @app.post("/dashboard/refuse")
 def dashboard_refuse(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    from app.dashboard.operator_actions_service import refuse_workflow as dashboard_refuse_workflow
+    from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
+
     operator = resolve_request_operator(request, "dashboard_refuse_workflow")
     tender_id = str(payload.get("tender_id") or "").strip()
     reason = str(payload.get("reason") or "").strip() or "dashboard refuse"
@@ -341,6 +391,9 @@ def dashboard_refuse(request: Request, payload: Dict[str, Any] = Body(default_fa
 
 @app.post("/dashboard/operator-note")
 def dashboard_operator_note(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    from app.dashboard.operator_actions_service import add_operator_note as dashboard_add_operator_note
+    from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
+
     operator = resolve_request_operator(request, "dashboard_operator_note")
     tender_id = str(payload.get("tender_id") or "").strip()
     note = str(payload.get("note") or "").strip()
@@ -351,6 +404,9 @@ def dashboard_operator_note(request: Request, payload: Dict[str, Any] = Body(def
 
 @app.post("/dashboard/acknowledge-warning")
 def dashboard_acknowledge_warning_endpoint(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    from app.dashboard.operator_actions_service import acknowledge_warning as dashboard_acknowledge_warning
+    from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
+
     operator = resolve_request_operator(request, "dashboard_acknowledge_warning")
     tender_id = str(payload.get("tender_id") or "").strip()
     warning = str(payload.get("warning") or "").strip()
@@ -361,6 +417,9 @@ def dashboard_acknowledge_warning_endpoint(request: Request, payload: Dict[str, 
 
 @app.get("/pilot/summary")
 def pilot_summary() -> Dict[str, Any]:
+    from app.pilot.pilot_metrics import get_pilot_metrics
+    from app.pilot.pilot_run_service import get_pilot_failures, get_pilot_successes, get_pilot_summary
+
     return {
         "pilot_summary": get_pilot_summary(),
         "pilot_metrics": get_pilot_metrics(),
@@ -371,9 +430,13 @@ def pilot_summary() -> Dict[str, Any]:
 
 @app.get("/pilot/readiness")
 def pilot_readiness() -> Dict[str, Any]:
+    from app.pilot.pilot_readiness_report import build_pilot_readiness_report
+
     return build_pilot_readiness_report()
 
 
 @app.get("/pilot/signoffs")
 def pilot_signoffs() -> Dict[str, Any]:
+    from app.pilot.pilot_signoff import get_pilot_signoffs
+
     return {"signoffs": get_pilot_signoffs(limit=200)}

@@ -22,7 +22,7 @@ BACKEND_LOG="runtime/logs/local_manual_production_backend.log"
 FRONTEND_LOG="runtime/logs/local_manual_production_frontend.log"
 
 echo "Starting backend at ${BACKEND_URL}"
-nohup python3 -m uvicorn app.main:app --host 127.0.0.1 --port "${BACKEND_PORT}" >"${BACKEND_LOG}" 2>&1 &
+nohup python3 -m uvicorn "${LMCP_APP_ENTRYPOINT:-app.main:app}" --host 127.0.0.1 --port "${BACKEND_PORT}" >"${BACKEND_LOG}" 2>&1 &
 BACKEND_PID=$!
 
 echo "Starting frontend at ${FRONTEND_URL}"

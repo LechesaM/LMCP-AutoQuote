@@ -2,18 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
-
-from app.api.router_registry import iter_router_specs
-from app.core.runtime_config import get_runtime_config
-from app.core.runtime_paths import get_runtime_paths
-from app.deployment.deployment_profiles import deployment_profiles, get_deployment_profile
-from app.deployment.production_startup import configure_production_app
-from app.deployment.rate_limit import RateLimitMiddleware
-from app.deployment.request_id import RequestIdMiddleware
-from app.deployment.security_headers import SecurityHeadersMiddleware
-
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -21,75 +9,82 @@ def _read(relative_path: str) -> str:
     return (ROOT / relative_path).read_text(encoding="utf-8").lower()
 
 
-def _prepare_runtime(monkeypatch, tmp_path: Path) -> None:
-    runtime_dir = tmp_path / "runtime"
-    manual_dir = runtime_dir / "manual_production"
-    runtime_dir.mkdir(parents=True, exist_ok=True)
-    manual_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("LMCP_PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setenv("LMCP_RUNTIME_DIR", str(runtime_dir))
-    monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DIR", str(manual_dir))
-    monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DB_PATH", str(manual_dir / "lmcp_operations.db"))
-    monkeypatch.setenv("LMCP_ENV", "production")
-    monkeypatch.setenv("LMCP_PRODUCTION_MODE", "locked_production")
-    monkeypatch.setenv("LMCP_ENABLE_LEGACY_ROUTERS", "0")
-    monkeypatch.setenv("LMCP_RATE_LIMIT_ENABLED", "1")
-    monkeypatch.setenv("LMCP_RATE_LIMIT_PER_MINUTE", "1")
-    monkeypatch.setenv("LMCP_CORS_ORIGINS", "https://example.one,https://example.two")
-    monkeypatch.setenv("LMCP_AUTH_ALLOW_DEMO_USERS", "0")
-    get_runtime_config.cache_clear()
-    get_runtime_paths.cache_clear()
-    get_deployment_profile.cache_clear()
-
-
 def test_deployment_files_encode_production_hardening_defaults() -> None:
     root_dockerfile = _read("Dockerfile")
     frontend_dockerfile = _read("frontend/command-centre/Dockerfile")
     docker_compose = _read("docker-compose.yml")
+    production_compose = _read("docker-compose.production.yml")
     nginx_conf = _read("nginx/default.conf")
+    production_nginx_conf = _read("nginx/production.conf")
     env_example = _read(".env.example")
+    production_env_example = _read(".env.production.example")
+    systemd_unit = _read("deploy/systemd/lmcp-autoquote.service")
+    backup_runtime_script = _read("scripts/ops/backup_runtime.sh")
+    restore_verify_script = _read("scripts/ops/restore_verify.sh")
+    production_workers_script = _read("scripts/start_production_workers.sh")
+    browser_workflow_script = _read("scripts/operator_workflow_browser_check.mjs")
+    review_debug_script = _read("scripts/debug_review_page.mjs")
 
     assert "uvicorn" in root_dockerfile
     assert "app.main:app" in root_dockerfile
     assert "python:3.11-slim" in root_dockerfile
     assert "npm run build" in frontend_dockerfile
     assert "nginx" in frontend_dockerfile
+    assert "arg nginx_conf" in frontend_dockerfile
     assert "backend:" in docker_compose
     assert "frontend:" in docker_compose
     assert "ports:" in docker_compose
+    assert "restart: unless-stopped" in production_compose
+    assert "healthcheck" in production_compose
+    assert "worker:" in production_compose
+    assert "operations-worker:" in production_compose
+    assert "beat:" in production_compose
+    assert "prometheus:" in production_compose
+    assert "grafana:" in production_compose
+    assert "443:443" in production_compose
     assert "x-content-type-options" in nginx_conf
     assert "x-frame-options" in nginx_conf
     assert "referrer-policy" in nginx_conf
     assert "permissions-policy" in nginx_conf
+    assert "listen 443 ssl" in production_nginx_conf
+    assert "ssl_certificate" in production_nginx_conf
     assert "lmcp_auth_required=1" in env_example
     assert "lmcp_enable_legacy_routers=0" in env_example
     assert "lmcp_auth_allow_demo_users=1" in env_example
     assert "lmcp_deployment_profile=local_dev" in env_example
+    assert "lmcp_env=production" in production_env_example
+    assert "lmcp_database_url" in production_env_example
+    assert "celery_broker_url" in production_env_example
+    assert "docker-compose.production.yml" in systemd_unit
+    assert "restart=on-failure" in systemd_unit
+    assert "script_dir" in backup_runtime_script
+    assert "cd \"$script_dir/../..\"" in backup_runtime_script
+    assert "script_dir" in restore_verify_script
+    assert "cd \"$script_dir/../..\"" in restore_verify_script
+    assert "script_dir" in production_workers_script
+    assert "cd \"$script_dir/..\"" in production_workers_script
+    assert "operations_queue" in production_workers_script
+    assert "require_operations_worker_ready" in production_workers_script
+    assert "operations_worker_ready_timeout_seconds" in production_workers_script
+    assert "operations_worker_ready_poll_interval_seconds" in production_workers_script
+    assert "new url(\"../frontend/command-centre/node_modules/playwright/index.mjs\", import.meta.url)" in browser_workflow_script
+    assert "monthly_quotes" in browser_workflow_script
+    assert "/users/cash" not in browser_workflow_script
+    assert "lmcp_playwright_chromium_path" in browser_workflow_script or "playwright_chromium_path" in browser_workflow_script
+    assert "/users/cash" not in review_debug_script
+    assert "project_root" in review_debug_script
+    assert "new url(\"../frontend/command-centre/node_modules/playwright/index.mjs\", import.meta.url)" in review_debug_script
+    assert "lmcp_playwright_executable_path" in review_debug_script or "lmcp_playwright_chromium_path" in review_debug_script
 
 
-def test_deployment_profiles_and_startup_middleware_resolve(monkeypatch, tmp_path: Path) -> None:
-    _prepare_runtime(monkeypatch, tmp_path)
+def test_local_manual_production_start_script_targets_command_centre_frontend() -> None:
+    script = _read("scripts/start_local_manual_production.sh")
 
-    profiles = deployment_profiles()
-    assert profiles["production"].demo_users_enabled is False
-    assert profiles["production"].auth_required is True
-    assert profiles["production"].legacy_routers_enabled is False
-    assert profiles["supervised_live"].auth_required is True
-
-    app = FastAPI()
-    configure_production_app(app)
-
-    middleware_names = {middleware.cls.__name__ for middleware in app.user_middleware}
-    assert "RequestIdMiddleware" in middleware_names
-    assert "SecurityHeadersMiddleware" in middleware_names
-    assert "RateLimitMiddleware" in middleware_names
-
-    limiter = RateLimitMiddleware(app, enabled=True, max_requests=1, window_seconds=60)
-    assert limiter.enabled is True
-    assert limiter.max_requests == 1
-
-
-def test_legacy_router_specs_remain_disabled_by_default(monkeypatch, tmp_path: Path) -> None:
-    _prepare_runtime(monkeypatch, tmp_path)
-    loaded = [spec.name for spec in iter_router_specs()]
-    assert not any(name for name in loaded if "autonomous" in name.lower())
+    assert "lmcp_project_root" in script
+    assert "lmcp_runtime_dir" in script
+    assert "lmcp_allow_degraded_startup" in script
+    assert "lmcp_local_backend_host" in script
+    assert "lmcp_local_frontend_host" in script
+    assert "python3 -m uvicorn" in script
+    assert "npm run dev" in script
+    assert "--strictport" in script

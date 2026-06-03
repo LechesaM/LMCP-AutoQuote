@@ -4,7 +4,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-export LMCP_ALLOW_DEGRADED_STARTUP=true
+export LMCP_PROJECT_ROOT="${LMCP_PROJECT_ROOT:-$ROOT}"
+export LMCP_RUNTIME_DIR="${LMCP_RUNTIME_DIR:-$ROOT/runtime}"
+export LMCP_MANUAL_PRODUCTION_DIR="${LMCP_MANUAL_PRODUCTION_DIR:-$ROOT/runtime/manual_production}"
+export LMCP_MANUAL_PRODUCTION_DB_PATH="${LMCP_MANUAL_PRODUCTION_DB_PATH:-$ROOT/runtime/manual_production/lmcp_operations.db}"
+export LMCP_APP_ENTRYPOINT="${LMCP_APP_ENTRYPOINT:-app.main:app}"
+export LMCP_ALLOW_DEGRADED_STARTUP="${LMCP_ALLOW_DEGRADED_STARTUP:-true}"
+export LMCP_LOCAL_BACKEND_HOST="${LMCP_LOCAL_BACKEND_HOST:-127.0.0.1}"
+export LMCP_LOCAL_FRONTEND_HOST="${LMCP_LOCAL_FRONTEND_HOST:-127.0.0.1}"
 
 mkdir -p runtime/logs
 
@@ -14,19 +21,21 @@ if [[ -z "${BACKEND_PORT}" ]]; then
   exit 1
 fi
 
-BACKEND_URL="http://127.0.0.1:${BACKEND_PORT}"
+BACKEND_HOST="${LMCP_LOCAL_BACKEND_HOST:-127.0.0.1}"
+BACKEND_URL="http://${BACKEND_HOST}:${BACKEND_PORT}"
 FRONTEND_PORT="${LMCP_LOCAL_FRONTEND_PORT:-5173}"
-FRONTEND_URL="http://127.0.0.1:${FRONTEND_PORT}"
+FRONTEND_HOST="${LMCP_LOCAL_FRONTEND_HOST:-127.0.0.1}"
+FRONTEND_URL="http://${FRONTEND_HOST}:${FRONTEND_PORT}"
 
 BACKEND_LOG="runtime/logs/local_manual_production_backend.log"
 FRONTEND_LOG="runtime/logs/local_manual_production_frontend.log"
 
 echo "Starting backend at ${BACKEND_URL}"
-nohup python3 -m uvicorn "${LMCP_APP_ENTRYPOINT:-app.main:app}" --host 127.0.0.1 --port "${BACKEND_PORT}" >"${BACKEND_LOG}" 2>&1 &
+nohup python3 -m uvicorn "${LMCP_APP_ENTRYPOINT:-app.main:app}" --host "${BACKEND_HOST}" --port "${BACKEND_PORT}" >"${BACKEND_LOG}" 2>&1 &
 BACKEND_PID=$!
 
 echo "Starting frontend at ${FRONTEND_URL}"
-nohup bash -lc "cd frontend && npm run dev -- --host 127.0.0.1 --port '${FRONTEND_PORT}' --strictPort" >"${FRONTEND_LOG}" 2>&1 &
+LMCP_BACKEND_URL="${BACKEND_URL}" nohup bash -lc "cd frontend/command-centre && npm run dev -- --host '${FRONTEND_HOST}' --port '${FRONTEND_PORT}' --strictPort" >"${FRONTEND_LOG}" 2>&1 &
 FRONTEND_PID=$!
 
 STATUS_FILE="runtime/local_system_status.json"

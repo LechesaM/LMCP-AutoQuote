@@ -34,18 +34,24 @@ const fixtureHtml = String.raw`
 async function main() {
   const playwright = await import(PLAYWRIGHT_MODULE_URL.href);
   const { chromium } = playwright;
+  console.log(JSON.stringify({ stage: "playwright_loaded" }, null, 2));
   const browser = await chromium.launch({
     headless: true,
-    args: ["--no-first-run", "--no-default-browser-check"],
+    timeout: 15000,
+    args: ["--no-first-run", "--no-default-browser-check", "--disable-gpu", "--disable-software-rasterizer"],
     dumpio: true,
     ...(process.env.LMCP_PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.LMCP_PLAYWRIGHT_EXECUTABLE_PATH } : {}),
   });
+  console.log(JSON.stringify({ stage: "browser_launched" }, null, 2));
 
   try {
     const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    console.log(JSON.stringify({ stage: "page_created" }, null, 2));
     await page.setContent(fixtureHtml, { waitUntil: "domcontentloaded" });
+    console.log(JSON.stringify({ stage: "fixture_loaded" }, null, 2));
 
     await page.getByRole("heading", { name: "Manual Completion and Proof" }).first().waitFor({ state: "visible", timeout: 10000 });
+    console.log(JSON.stringify({ stage: "heading_visible" }, null, 2));
     const expectedLinks = [
       ["/quote-compilation/status", "Quote Compilation Status"],
       ["/submission-proof/status", "Submission Proof Status"],
@@ -56,11 +62,13 @@ async function main() {
     for (const [href, label] of expectedLinks) {
       const link = page.getByRole("link", { name: label }).first();
       await link.waitFor({ state: "visible", timeout: 10000 });
+      console.log(JSON.stringify({ stage: "link_visible", label }, null, 2));
       const actualHref = await link.getAttribute("href");
       if (actualHref !== href) {
         throw new Error(`Expected ${label} to have href ${href}, received ${actualHref || "<none>"}`);
       }
       await link.click();
+      console.log(JSON.stringify({ stage: "link_clicked", label, href: actualHref }, null, 2));
       actual.push({ label, href: actualHref });
     }
 

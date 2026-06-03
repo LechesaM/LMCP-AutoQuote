@@ -91,8 +91,15 @@ def test_no_active_production_router_has_obvious_duplicate_purpose() -> None:
         "autonomous_execution": set(),
         "system_surface": {"system_stable_router"},
         "manual_submission_pipeline": {"quote_compilation_router"},
-    }
+        }
 
     for group_name, members in overlapping_router_groups.items():
         active_members = production_names & members
         assert active_members == justified[group_name], f"{group_name}: {sorted(active_members)}"
+
+
+def test_supplier_quote_routes_are_split_between_status_and_actions() -> None:
+    production_names = set(_names(PRODUCTION_ROUTER_SPECS))
+
+    assert "supplier_quotes_status_router" in production_names
+    assert "supplier_quotes_router" in production_names

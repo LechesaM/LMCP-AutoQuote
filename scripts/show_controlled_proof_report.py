@@ -37,6 +37,20 @@ def _pick_paths(entries: Any) -> List[str]:
     return paths
 
 
+def _print_section(title: str) -> None:
+    print()
+    print(title)
+    print("-" * len(title))
+
+
+def _print_kv(label: str, value: Any) -> None:
+    if value is None or value == "":
+        rendered = "n/a"
+    else:
+        rendered = str(value)
+    print(f"{label:<28} {rendered}")
+
+
 def show_controlled_proof_report(*, log_path: Optional[str] = None) -> Dict[str, Any]:
     path = Path(log_path).expanduser() if log_path else DEFAULT_PROOF_LOG
     report = _load_json(path)
@@ -92,21 +106,54 @@ def show_controlled_proof_report(*, log_path: Optional[str] = None) -> Dict[str,
 
 def _print_summary(report: Dict[str, Any]) -> None:
     safety = report.get("safety") if isinstance(report.get("safety"), dict) else {}
-    print(f"log_path: {_clean(report.get('log_path'))}")
-    print(f"endpoint_log_path: {_clean(report.get('endpoint_log_path'))}")
-    print(f"runtime_dir: {_clean(report.get('runtime_dir'))}")
-    print(f"controlled_status: {_clean(report.get('controlled_status'))}")
-    print(f"workflow_checks_passed: {report.get('workflow_checks_passed', 0)}")
-    print(f"quote_pack_pdf: {_clean(report.get('quote_pack_pdf'))}")
-    print(f"pricing_files: {', '.join(report.get('pricing_files', [])) or 'none'}")
-    print(f"submission_manifest: {_clean(report.get('submission_manifest'))}")
-    print(f"submission_pack_ready_count: {report.get('submission_pack_ready_count', 0)}")
-    print(
-        "safety: "
-        f"no_portal_upload={str(bool(safety.get('no_portal_upload', False))).lower()}, "
-        f"no_email_send={str(bool(safety.get('no_email_send', False))).lower()}, "
-        f"no_final_submit={str(bool(safety.get('no_final_submit', False))).lower()}"
-    )
+    health = report.get("health") if isinstance(report.get("health"), dict) else {}
+    effective = report.get("effective_status") if isinstance(report.get("effective_status"), dict) else {}
+    workflow = report.get("workflow_health") if isinstance(report.get("workflow_health"), dict) else {}
+    router_health = workflow.get("router_health") if isinstance(workflow.get("router_health"), dict) else {}
+    workflow_checks = workflow.get("workflow_checks") if isinstance(workflow.get("workflow_checks"), dict) else {}
+
+    print("Controlled Proof Report")
+    print("=======================")
+    _print_kv("Log path", report.get("log_path"))
+    _print_kv("Endpoint log", report.get("endpoint_log_path"))
+    _print_kv("Runtime dir", report.get("runtime_dir"))
+    _print_kv("Controlled status", report.get("controlled_status"))
+    _print_kv("Workflow checks passed", f"{report.get('workflow_checks_passed', 0)} / {len(workflow_checks) or 7}")
+
+    _print_section("Runtime Health")
+    _print_kv("Health status", health.get("status"))
+    _print_kv("Effective system status", effective.get("effective_system_status"))
+    _print_kv("Workflow status", workflow.get("status"))
+    loaded_routers = health.get("loaded_routers_count")
+    if loaded_routers is None:
+        loaded_routers = router_health.get("loaded_routers_count")
+    failed_routers = health.get("failed_routers_count")
+    if failed_routers is None:
+        failed_routers = router_health.get("failed_routers_count")
+    duplicate_routes = health.get("duplicate_routes_count")
+    if duplicate_routes is None:
+        duplicate_routes = router_health.get("duplicate_routes_count")
+    _print_kv("Loaded routers", loaded_routers if loaded_routers is not None else 0)
+    _print_kv("Failed routers", failed_routers if failed_routers is not None else 0)
+    _print_kv("Duplicate routes", duplicate_routes if duplicate_routes is not None else 0)
+
+    _print_section("Artifacts")
+    _print_kv("Quote pack PDF", report.get("quote_pack_pdf"))
+    _print_kv("Pricing files", ", ".join(report.get("pricing_files", [])) or "none")
+    _print_kv("Submission manifest", report.get("submission_manifest"))
+    _print_kv("Submission pack ready", report.get("submission_pack_ready_count", 0))
+
+    _print_section("Workflow Checks")
+    if workflow_checks:
+        for name, passed in workflow_checks.items():
+            _print_kv(name, "passed" if bool(passed) else "failed")
+    else:
+        _print_kv("workflow_checks", "n/a")
+
+    _print_section("Safety")
+    _print_kv("Portal upload", "blocked" if bool(safety.get("no_portal_upload", False)) else "allowed")
+    _print_kv("Email send", "blocked" if bool(safety.get("no_email_send", False)) else "allowed")
+    _print_kv("Final submit", "blocked" if bool(safety.get("no_final_submit", False)) else "allowed")
 
 
 def main(argv: Optional[List[str]] = None) -> int:

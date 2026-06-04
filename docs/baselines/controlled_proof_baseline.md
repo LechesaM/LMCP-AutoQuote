@@ -3,6 +3,24 @@
 Captured from the fresh clean-shell controlled proof run on 2026-06-04.
 Commit: `4538333a` (`Add controlled proof workflow`)
 
+| Field | Value |
+| --- | --- |
+| Runtime dir | `/private/tmp/lmcp_runtime` |
+| Controlled status | `controlled` |
+| Workflow checks passed | `7` |
+| Quote pack PDF | `/private/tmp/lmcp_runtime/generated_quotes/CTRL-001__LMCP-CTRL-001/CTRL-001__LMCP-CTRL-001.pdf` |
+| Pricing files | `/private/tmp/lmcp_runtime/quote_compilation/CTRL-001__LMCP-CTRL-001/pricing_schedule_completed.json`, `/private/tmp/lmcp_runtime/quote_compilation/CTRL-001__LMCP-CTRL-001/pricing_schedule_completed.csv` |
+| Submission manifest | `/private/tmp/lmcp_runtime/generated_quotes/CTRL_001_submission_pack_manifest.txt` |
+| Submission pack ready count | `2` |
+| Portal upload | `blocked` |
+| Email send | `blocked` |
+| Final submit | `blocked` |
+| Proof log | `/private/tmp/lmcp_runtime/logs/controlled_runtime_proof.json` |
+| Endpoint log | `/private/tmp/lmcp_runtime/logs/controlled_runtime_endpoints.json` |
+| Report log | `/private/tmp/lmcp_runtime/logs/controlled_runtime_report.json` |
+
+Raw summary:
+
 ```text
 log_path: /private/tmp/lmcp_runtime/logs/controlled_runtime_proof.json
 endpoint_log_path: /private/tmp/lmcp_runtime/logs/controlled_runtime_endpoints.json

@@ -11,6 +11,8 @@ This document records the controlled-production evidence gathered from two fresh
 - Baseline #2: [controlled_proof_baseline_2.md](/Users/Shared/LMCP-AutoQuote-Server/docs/baselines/controlled_proof_baseline_2.md)
 - Controlled proof runner: [scripts/run_controlled_shared_runtime_proof.sh](/Users/Shared/LMCP-AutoQuote-Server/scripts/run_controlled_shared_runtime_proof.sh)
 - Proof report helper: [scripts/show_controlled_proof_report.py](/Users/Shared/LMCP-AutoQuote-Server/scripts/show_controlled_proof_report.py)
+- Regression process: [docs/regression_certification_process.md](/Users/Shared/LMCP-AutoQuote-Server/docs/regression_certification_process.md)
+- Weekly checklist: [docs/weekly_regression_certification_checklist.md](/Users/Shared/LMCP-AutoQuote-Server/docs/weekly_regression_certification_checklist.md)
 
 ## Certification Checklist
 

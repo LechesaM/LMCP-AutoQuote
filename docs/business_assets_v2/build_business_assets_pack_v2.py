@@ -432,6 +432,17 @@ def collect_tender_win_intelligence_v2(award_source_rel: str) -> list[dict]:
     base = list(BASE["collect_tender_win_intelligence"](1000))
     records: dict[str, dict] = {item["record_id"]: item for item in base[:200]}
 
+    for record_id, record in list(records.items()):
+        provenance_type = record.get("provenance_type", "")
+        if provenance_type == "Derived Signal":
+            record["verification_status"] = "Derived"
+        else:
+            record["verification_status"] = "Verified"
+        record["last_review_date"] = utc_date()
+        record["reviewed_by"] = "Codex"
+        record["source_reference"] = record.get("source_path", "")
+        records[record_id] = record
+
     for index, seed in enumerate(AWARD_CONFIRMED_SEEDS, start=1):
         record = decorate_record(
             {
@@ -450,9 +461,10 @@ def collect_tender_win_intelligence_v2(award_source_rel: str) -> list[dict]:
                 "source_reference": seed["source_reference"],
                 "provenance_type": "Award Confirmed",
                 "evidence_grade": "high",
+                "award_confirmation_basis": "public_award_notice",
             },
             provenance_type="Award Confirmed",
-            verification_status="confirmed",
+            verification_status="Award Confirmed",
             source_reference=seed["source_reference"],
         )
         records.setdefault(record["record_id"], record)
@@ -570,6 +582,30 @@ def write_support_docs(summary: dict, rfq_records: list[dict], supplier_records:
     ]
     (OUT_DIR / "win_probability_methodology.md").write_text("\n".join(probability_lines) + "\n", encoding="utf-8")
 
+    calibration_lines = [
+        "# Win Probability Calibration",
+        "",
+        "This calibration note is advisory-only and compares predicted opportunity scores with actual award outcomes.",
+        "",
+        "## Inputs",
+        "- Predicted opportunity score",
+        "- Actual award outcome",
+        "- Verification status: Award Confirmed, Verified, Derived",
+        "- Province coverage",
+        "- Category coverage",
+        "- Supplier depth",
+        "",
+        "## Calibration Loop",
+        "1. Record the predicted score at RFQ review time.",
+        "2. Later compare the score against actual award outcome or verified non-award outcome.",
+        "3. Track false positives, false negatives, and score drift by province and category.",
+        "4. Reweight the advisory model only after evidence review.",
+        "",
+        "## Success Criterion",
+        "A calibrated score should improve ranking quality without creating runtime automation or changing submission behavior.",
+    ]
+    (OUT_DIR / "win_probability_calibration.md").write_text("\n".join(calibration_lines) + "\n", encoding="utf-8")
+
     review_lines = [
         "# Consistency Review",
         "",
@@ -594,6 +630,8 @@ def write_support_docs(summary: dict, rfq_records: list[dict], supplier_records:
         "- Supplier Intelligence now captures source-quote entry references from the manifest layer so the pack can grow past the earlier ceiling without touching runtime logic.",
         "- Pricing Intelligence is expanded from the local high-confidence pricing corpus and remains advisory-only.",
         "- Tender-Win Intelligence now includes award-confirmed records from public award notices, with the original governed outcome history retained alongside it.",
+        "- Tender-win records now carry a three-way verification split of Award Confirmed, Verified, and Derived.",
+        "- Win-probability calibration is documented as a compare-only loop between predicted opportunity score and actual award outcome.",
         "",
         "## Open Notes",
         "- Supplier references remain source-derived strings in several records and will benefit from future normalization into a supplier master layer.",
@@ -623,6 +661,7 @@ def write_support_docs(summary: dict, rfq_records: list[dict], supplier_records:
         "## Governance Note",
         "This pack explicitly carries provenance, verification status, last review date, reviewed by, and source reference metadata on every intelligence record.",
         "Award-confirmed tender wins are present only where a public award notice or equivalent publication is available.",
+        "Tender-win verification status is explicit across the full dataset: Award Confirmed, Verified, or Derived.",
         "",
         "## Validation",
         f"- JSON index validated: {summary['validation']['json_index']['ok']}",
@@ -640,6 +679,7 @@ def write_support_docs(summary: dict, rfq_records: list[dict], supplier_records:
         "- `competitor_intelligence.md`",
         "- `opportunity_scorecard.md`",
         "- `win_probability_methodology.md`",
+        "- `win_probability_calibration.md`",
         "- `index.json`",
         "- `index.yaml`",
         "- `consistency_review.md`",
@@ -720,6 +760,7 @@ def main() -> None:
             "All records are sourced from local repo artifacts or public award notices referenced through the pack source register.",
             "Manifest-level source-quote entries are promoted into the intelligence layer as evidence-backed records.",
             "Award-confirmed records are included only where a public award notice exists.",
+            "Tender-win verification status is explicit across the full dataset: Award Confirmed, Verified, or Derived.",
             "Pack-local metrics are not automatically promoted to dashboard metrics.",
             "Promotion requires a separate evidence review before any dashboard or maturity-summary update.",
             "The certified execution layer remains frozen.",

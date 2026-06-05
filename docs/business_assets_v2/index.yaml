@@ -1,4 +1,4 @@
-generated_at: 2026-06-05T14:52:14.178204+00:00
+generated_at: 2026-06-05T14:56:51.344207+00:00
 pack_name: Business Intelligence Expansion Pack v2
 governance_position:
   status: Controlled Production Candidate
@@ -42,6 +42,7 @@ notes:
   - All records are sourced from local repo artifacts or public award notices referenced through the pack source register.
   - Manifest-level source-quote entries are promoted into the intelligence layer as evidence-backed records.
   - Award-confirmed records are included only where a public award notice exists.
+  - "Tender-win verification status is explicit across the full dataset: Award Confirmed, Verified, or Derived."
   - Pack-local metrics are not automatically promoted to dashboard metrics.
   - Promotion requires a separate evidence review before any dashboard or maturity-summary update.
   - The certified execution layer remains frozen.

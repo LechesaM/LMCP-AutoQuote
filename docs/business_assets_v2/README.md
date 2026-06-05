@@ -18,6 +18,7 @@ This pack extends the non-runtime intelligence layer using local repository evid
 ## Governance Note
 This pack explicitly carries provenance, verification status, last review date, reviewed by, and source reference metadata on every intelligence record.
 Award-confirmed tender wins are present only where a public award notice or equivalent publication is available.
+Tender-win verification status is explicit across the full dataset: Award Confirmed, Verified, or Derived.
 
 ## Validation
 - JSON index validated: True
@@ -35,6 +36,7 @@ Award-confirmed tender wins are present only where a public award notice or equi
 - `competitor_intelligence.md`
 - `opportunity_scorecard.md`
 - `win_probability_methodology.md`
+- `win_probability_calibration.md`
 - `index.json`
 - `index.yaml`
 - `consistency_review.md`

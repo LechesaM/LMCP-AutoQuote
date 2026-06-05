@@ -1,0 +1,47 @@
+generated_at: 2026-06-05T14:52:14.178204+00:00
+pack_name: Business Intelligence Expansion Pack v2
+governance_position:
+  status: Controlled Production Candidate
+  execution_layer: Frozen
+  governance: Active
+  regression_process: Active
+  next_formal_event: "Weekly Regression Run #2 pending valid trigger"
+datasets:
+  rfq_gold_dataset:
+    path: docs/business_assets_v2/datasets/rfq_gold_dataset.jsonl
+    format: jsonl
+    record_count: 247
+    source_count: 52
+  supplier_intelligence:
+    path: docs/business_assets_v2/datasets/supplier_intelligence.jsonl
+    format: jsonl
+    record_count: 294
+    source_count: 20
+  pricing_intelligence:
+    path: docs/business_assets_v2/datasets/pricing_intelligence.jsonl
+    format: jsonl
+    record_count: 500
+    source_count: 4
+  tender_win_intelligence:
+    path: docs/business_assets_v2/datasets/tender_win_intelligence.jsonl
+    format: jsonl
+    record_count: 217
+    source_count: 10
+    record_definition: governed submission, outcome, and award-confirmed intelligence records
+validation:
+  placeholder_scan_passed: True
+  source_path_check_passed: True
+  json_index:
+    ok: True
+    path: docs/business_assets_v2/index.json
+  yaml_index:
+    ok: True
+    path: docs/business_assets_v2/index.yaml
+    stderr: ""
+notes:
+  - All records are sourced from local repo artifacts or public award notices referenced through the pack source register.
+  - Manifest-level source-quote entries are promoted into the intelligence layer as evidence-backed records.
+  - Award-confirmed records are included only where a public award notice exists.
+  - Pack-local metrics are not automatically promoted to dashboard metrics.
+  - Promotion requires a separate evidence review before any dashboard or maturity-summary update.
+  - The certified execution layer remains frozen.

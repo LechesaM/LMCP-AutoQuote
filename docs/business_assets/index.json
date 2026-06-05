@@ -1,0 +1,58 @@
+{
+  "generated_at": "2026-06-05T14:27:44.011587+00:00",
+  "pack_name": "Business Intelligence Expansion Pack v1",
+  "governance_position": {
+    "status": "Controlled Production Candidate",
+    "execution_layer": "Frozen",
+    "governance": "Active",
+    "regression_process": "Active",
+    "next_formal_event": "Weekly Regression Run #2 pending valid trigger"
+  },
+  "datasets": {
+    "rfq_gold_dataset": {
+      "path": "docs/business_assets/datasets/rfq_gold_dataset.jsonl",
+      "format": "jsonl",
+      "record_count": 53,
+      "source_count": 46
+    },
+    "supplier_intelligence": {
+      "path": "docs/business_assets/datasets/supplier_intelligence.jsonl",
+      "format": "jsonl",
+      "record_count": 100,
+      "source_count": 14
+    },
+    "pricing_intelligence": {
+      "path": "docs/business_assets/datasets/pricing_intelligence.jsonl",
+      "format": "jsonl",
+      "record_count": 360,
+      "source_count": 4
+    },
+    "tender_win_intelligence": {
+      "path": "docs/business_assets/datasets/tender_win_intelligence.jsonl",
+      "format": "jsonl",
+      "record_count": 120,
+      "source_count": 9,
+      "record_definition": "governed submission and outcome intelligence records"
+    }
+  },
+  "validation": {
+    "placeholder_scan_passed": true,
+    "source_path_check_passed": true,
+    "json_index": {
+      "ok": true,
+      "path": "docs/business_assets/index.json"
+    },
+    "yaml_index": {
+      "ok": true,
+      "path": "docs/business_assets/index.yaml",
+      "stderr": ""
+    }
+  },
+  "notes": [
+    "All records are sourced from local repo artifacts only.",
+    "Placeholder pricing lines are excluded from the generated datasets.",
+    "Tender-win records are not promoted here as external award confirmations.",
+    "Pack-local metrics are not automatically promoted to dashboard metrics.",
+    "Promotion requires a separate evidence review before any dashboard or maturity-summary update."
+  ]
+}

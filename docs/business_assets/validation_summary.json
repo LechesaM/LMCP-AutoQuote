@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-06-05T14:27:44.011587+00:00",
+  "dataset_validation": {
+    "rfq_gold_dataset": {
+      "dataset": "rfq_gold_dataset",
+      "record_count": 53,
+      "source_count": 46,
+      "placeholder_records": 0,
+      "missing_source_paths": [],
+      "ok": true
+    },
+    "supplier_intelligence": {
+      "dataset": "supplier_intelligence",
+      "record_count": 100,
+      "source_count": 14,
+      "placeholder_records": 0,
+      "missing_source_paths": [],
+      "ok": true
+    },
+    "pricing_intelligence": {
+      "dataset": "pricing_intelligence",
+      "record_count": 360,
+      "source_count": 4,
+      "placeholder_records": 0,
+      "missing_source_paths": [],
+      "ok": true
+    },
+    "tender_win_intelligence": {
+      "dataset": "tender_win_intelligence",
+      "record_count": 120,
+      "source_count": 9,
+      "placeholder_records": 0,
+      "missing_source_paths": [],
+      "ok": true
+    }
+  },
+  "index_validation": {
+    "placeholder_scan_passed": true,
+    "source_path_check_passed": true,
+    "json_index": {
+      "ok": true,
+      "path": "docs/business_assets/index.json"
+    },
+    "yaml_index": {
+      "ok": true,
+      "path": "docs/business_assets/index.yaml",
+      "stderr": ""
+    }
+  }
+}

@@ -31,6 +31,8 @@ READONLY_PATHS = {
     "/health/system",
     "/health/workflows",
     "/operations",
+    "/operations/backup-validation",
+    "/operations/runtime-metrics",
     "/pilot/readiness",
     "/pilot/signoffs",
     "/pilot/summary",
@@ -38,17 +40,33 @@ READONLY_PATHS = {
     "/review",
     "/review-efficiency",
     "/governance",
+    "/governance/compliance-controls",
+    "/governance/compliance-report",
     "/audit-defensibility",
     "/compliance-reporting",
     "/operator-assignments",
     "/governance-compliance",
     "/telemetry/dashboard",
+    "/mission-control/snapshot",
     "/telemetry/operational-health",
     "/telemetry/review-queue",
     "/telemetry/source-health",
     "/system/recovery-policy",
     "/operator-auth/session",
     "/operator-auth/status",
+    "/supplier-quotes/status",
+    "/supplier-quotes/auto-ingest/status",
+    "/supplier-quotes/intelligence/status",
+    "/observability/uptime",
+    "/observability/sla",
+    "/observability/anomalies",
+    "/productivity/review-efficiency",
+    "/productivity/focus-sessions",
+    "/stabilization/runtime",
+    "/stabilization/fallback-health",
+    "/business/executive-summary",
+    "/business/profitability",
+    "/governance/policies",
 }
 
 ADVISORY_PATHS = {
@@ -95,7 +113,6 @@ FORBIDDEN_TERMS = (
 )
 
 ADVISORY_MUTATION_METHODS = {"POST"}
-READONLY_METHODS = {"GET"}
 
 RECOVERY_POLICY_INTROSPECTION_MANIFEST: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("/dashboard/archive", ("POST",)),
@@ -132,6 +149,9 @@ def classify_route_path(path: str, methods: Iterable[str] | None = None) -> Rout
     normalized_path = _normalize_path(path)
     normalized_methods = _normalize_methods(methods)
     lowered = normalized_path.lower()
+
+    if normalized_path.startswith("/operations/rfqs/") and "submission-execution" in lowered:
+        return RouteCategory.FULL_RUNTIME_ONLY
 
     if any(term in lowered for term in FORBIDDEN_TERMS):
         return RouteCategory.RECOVERY_FORBIDDEN
@@ -215,7 +235,9 @@ def policy_rationale_for_route(path: str, category: RouteCategory) -> str:
 
 
 def _route_identity(route: APIRoute) -> tuple[str, tuple[str, ...]]:
-    return _normalize_path(route.path), tuple(sorted(str(method).upper() for method in (route.methods or []) if str(method or "").strip()))
+    return _normalize_path(route.path), tuple(
+        sorted(str(method).upper() for method in (route.methods or []) if str(method or "").strip())
+    )
 
 
 def build_recovery_policy_introspection(routes: Iterable[object]) -> dict:
@@ -247,6 +269,7 @@ def build_recovery_policy_introspection(routes: Iterable[object]) -> dict:
             {
                 "path": _normalize_path(route.path),
                 "methods": sorted(str(method).upper() for method in (route.methods or []) if str(method or "").strip()),
+                "category": category.value,
                 "policy_class": category.value,
                 "mounted_in_recovery": route_id in mounted_routes,
                 "rationale": policy_rationale_for_route(route.path, category),

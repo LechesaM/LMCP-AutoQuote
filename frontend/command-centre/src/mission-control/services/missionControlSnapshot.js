@@ -216,7 +216,101 @@ function normalizeAlerts({ backendStatus, systemOn, blockedCount }) {
   ].filter(Boolean);
 }
 
-export async function fetchMissionControlSnapshot() {
+function normalizeCanonicalProvinceDistribution(value) {
+  const next = Object.fromEntries(PROVINCES.map((province) => [province, 0]));
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return next;
+  }
+
+  for (const province of PROVINCES) {
+    next[province] = readCount(value[province] ?? value[province.toLowerCase()] ?? 0);
+  }
+  return next;
+}
+
+function normalizeCanonicalPipelineStages(snapshot) {
+  const stages = snapshot?.pipelineStages;
+  if (stages && typeof stages === "object" && !Array.isArray(stages)) {
+    return {
+      Harvested: readCount(stages.Harvested ?? 0),
+      Ready: readCount(stages.Ready ?? 0),
+      "Quote Pack": readCount(stages["Quote Pack"] ?? 0),
+      Submitted: readCount(stages.Submitted ?? 0),
+      Blocked: readCount(stages.Blocked ?? 0),
+    };
+  }
+
+  return { Harvested: 0, Ready: 0, "Quote Pack": 0, Submitted: 0, Blocked: 0 };
+}
+
+function normalizeCanonicalRadar(snapshot) {
+  const radar = snapshot?.radar || {};
+  const lifecycle = snapshot?.lifecycle || {};
+  const backendStatus = stringValue(snapshot?.backendStatus || radar?.backendStatus || "unknown");
+  return {
+    status: stringValue(radar?.status || backendStatus || "ok"),
+    serviceVersion: stringValue(radar?.serviceVersion || "mission-control-snapshot-v1"),
+    sources: readCount(radar?.sources ?? snapshot?.harvestedCount ?? 0),
+    eligible: readCount(radar?.eligible ?? snapshot?.quoteReadyCount ?? 0),
+    lifecycleHealthScore: readCount(radar?.lifecycleHealthScore ?? lifecycle?.lifecycle_health_score ?? 0),
+    systemResilienceScore: readCount(radar?.systemResilienceScore ?? 0),
+    workerOnline: Boolean(radar?.workerOnline ?? backendStatus === "healthy"),
+    onlineWorkers: readCount(radar?.onlineWorkers ?? 0),
+    queueBacklog: readCount(radar?.queueBacklog ?? 0),
+    failedRfqs: readCount(radar?.failedRfqs ?? lifecycle?.failed_rfqs ?? 0),
+    reviewRequired: readCount(radar?.reviewRequired ?? lifecycle?.review_required_count ?? lifecycle?.review_required_rfqs ?? 0),
+    proofCaptured: readCount(radar?.proofCaptured ?? lifecycle?.proof_captured_rfqs ?? lifecycle?.proof_archive_count ?? 0),
+    estimatedMonthlyCapacity: readCount(radar?.estimatedMonthlyCapacity ?? lifecycle?.estimated_monthly_capacity ?? 0),
+    uploadReadinessScore: readCount(radar?.uploadReadinessScore ?? 0),
+    statusLabel: stringValue(radar?.statusLabel || backendStatus),
+    backendStatus,
+    generatedAt: stringValue(radar?.generatedAt || ""),
+  };
+}
+
+function normalizeCanonicalSnapshot(snapshot) {
+  const lifecycle = snapshot?.lifecycle || {};
+  const quoteReadyCount = readCount(snapshot?.quoteReadyCount ?? 0);
+  const submittedCount = readCount(snapshot?.submittedCount ?? 0);
+  const backendStatus = stringValue(snapshot?.backendStatus || "unknown");
+  const mode = stringValue(snapshot?.mode || "controlled");
+  const blockedCount =
+    readCount(lifecycle?.queue_by_lifecycle_state?.FAILED ?? 0) +
+    readCount(lifecycle?.queue_by_lifecycle_state?.REVIEW_REQUIRED ?? 0) +
+    readCount(lifecycle?.queue_by_lifecycle_state?.READY_FOR_RETRY ?? 0) +
+    readCount(lifecycle?.queue_by_lifecycle_state?.REJECTED ?? 0);
+
+  return {
+    ...EMPTY_SNAPSHOT,
+    status: "ready",
+    generatedAt: new Date().toISOString(),
+    portals: safeArray(snapshot?.portals),
+    harvestedCount: readCount(snapshot?.harvestedCount ?? 0),
+    provinceDistribution: normalizeCanonicalProvinceDistribution(snapshot?.provinceDistribution),
+    radar: normalizeCanonicalRadar(snapshot),
+    pipelineStages: normalizeCanonicalPipelineStages(snapshot),
+    aiScoring: snapshot?.aiScoring && typeof snapshot.aiScoring === "object" ? snapshot.aiScoring : normalizeAiScoring(),
+    opportunities: [],
+    history: [],
+    lifecycle,
+    submissionReadiness: snapshot?.submissionReadiness && typeof snapshot.submissionReadiness === "object" ? snapshot.submissionReadiness : {},
+    metrics: {
+      backendStatus,
+      displayMode: mode,
+      systemOn: mode !== "off",
+      quoteReadyCount,
+      submittedCount,
+      blockedCount,
+      profitTotal: readCount(snapshot?.estimatedProfit ?? 0),
+      trend: normalizeTrend({ submitted_today: submittedCount, submitted_this_week: submittedCount, submitted_this_month: submittedCount }, submittedCount),
+      alerts: normalizeAlerts({ backendStatus, systemOn: mode !== "off", blockedCount }),
+      portalStatus: safeArray(snapshot?.portals).length ? "live" : "fallback",
+      topOpps: [],
+    },
+  };
+}
+
+async function fetchLegacyMissionControlSnapshot() {
   const [
     health,
     auto,
@@ -345,6 +439,21 @@ export async function fetchMissionControlSnapshot() {
       topOpps: normalizedOpportunities.slice(0, 9),
     },
   };
+}
+
+export async function fetchMissionControlSnapshot() {
+  const canonical = await readJson("/mission-control/snapshot", null);
+  if (canonical && typeof canonical === "object" && !Array.isArray(canonical) && (
+    "harvestedCount" in canonical ||
+    "backendStatus" in canonical ||
+    "mode" in canonical ||
+    "lifecycle" in canonical ||
+    "aiScoring" in canonical
+  )) {
+    return normalizeCanonicalSnapshot(canonical);
+  }
+
+  return fetchLegacyMissionControlSnapshot();
 }
 
 export { EMPTY_SNAPSHOT };

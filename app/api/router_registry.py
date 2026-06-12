@@ -61,6 +61,8 @@ _ALL_ROUTER_SPECS: Tuple[RouterSpec, ...] = (
     RouterSpec("ws_live_router", "app.api.ws_live"),
     RouterSpec("decision_intelligence_router", "app.api.decision_intelligence_api"),
     RouterSpec("operator_actions_router", "app.api.operator_actions_api"),
+    RouterSpec("operator_ops_router", "app.api.operator_ops_routes"),
+    RouterSpec("operator_workflow_router", "app.api.operator_workflow_routes"),
     RouterSpec("operator_auth_router", "app.api.operator_auth_api"),
     RouterSpec("audit_trail_router", "app.api.audit_trail_api"),
     RouterSpec("go_live_guard_router", "app.api.go_live_guard_api"),
@@ -132,6 +134,7 @@ _ALL_ROUTER_SPECS: Tuple[RouterSpec, ...] = (
     RouterSpec("etenders_download_replay_reconstruction_v50_9_8_router", "app.api.etenders_download_replay_reconstruction_v50_9_8_api"),
     RouterSpec("etenders_runtime_download_interceptor_v50_9_9_router", "app.api.etenders_runtime_download_interceptor_v50_9_9_api"),
     RouterSpec("etenders_tender_download_correlation_v50_9_10_router", "app.api.etenders_tender_download_correlation_v50_9_10_api"),
+    RouterSpec("mission_control_snapshot_router", "app.api.mission_control_snapshot_api"),
     RouterSpec("mission_control_compat_router", "app.api.mission_control_compat_api"),
 )
 

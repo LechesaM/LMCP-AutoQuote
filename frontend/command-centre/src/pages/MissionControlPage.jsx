@@ -20,36 +20,6 @@ function compact(value) {
   return String(Math.round(n));
 }
 
-function readCount(obj, keys, fallback = 0) {
-  for (const key of keys) {
-    if (obj && obj[key] !== undefined && obj[key] !== null) return obj[key];
-  }
-  return fallback;
-}
-
-function stageOf(item) {
-  const status = String(item.submission_status || item.pipeline_status || item.status || "new").toLowerCase();
-  if (status.includes("submitted")) return "Submitted";
-  if (status.includes("pack") || status.includes("pdf") || status.includes("quote")) return "Quote Pack";
-  if (status.includes("eligible") || status.includes("ready")) return "Ready";
-  if (status.includes("reject") || status.includes("skip") || status.includes("fail")) return "Blocked";
-  return "Harvested";
-}
-
-function provinceOf(item) {
-  const raw = String(item.province || item.buyer_province || item.location || item.region || "").toUpperCase();
-  if (raw.includes("GAUTENG") || raw === "GP") return "GP";
-  if (raw.includes("FREE STATE") || raw === "FS") return "FS";
-  if (raw.includes("KWAZULU") || raw.includes("KZN")) return "KZN";
-  if (raw.includes("WESTERN CAPE") || raw === "WC") return "WC";
-  if (raw.includes("EASTERN CAPE") || raw === "EC") return "EC";
-  if (raw.includes("NORTHERN CAPE") || raw === "NC") return "NC";
-  if (raw.includes("NORTH WEST") || raw === "NW") return "NW";
-  if (raw.includes("MPUMALANGA") || raw === "MP") return "MP";
-  if (raw.includes("LIMPOPO") || raw === "LP") return "LP";
-  return "FS";
-}
-
 function MiniBars({ data = [] }) {
   const max = Math.max(1, ...data.map((d) => Number(d.value || 0)));
   return <div className="mini-bars">{data.map((d, i) => <span key={i} title={`${d.label}: ${d.value}`} style={{ height: `${18 + (Number(d.value || 0) / max) * 54}px` }} />)}</div>;

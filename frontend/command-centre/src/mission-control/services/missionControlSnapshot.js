@@ -46,6 +46,14 @@ function safeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function extractRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.opportunities)) return payload.opportunities;
+  if (Array.isArray(payload?.rows)) return payload.rows;
+  return [];
+}
+
 function compactStage(item) {
   const status = String(item?.submission_status || item?.pipeline_status || item?.status || "new").toLowerCase();
   if (status.includes("submitted")) return "Submitted";
@@ -70,7 +78,7 @@ function provinceCode(item) {
 }
 
 function normalizeOpportunities(rows) {
-  return safeArray(rows).map((row, index) => ({
+  return extractRows(rows).map((row, index) => ({
     id: stringValue(row?.id || row?.buyer_rfq_number || row?.rfq_number || row?.reference || `opportunity-${index}`),
     buyerRfqNumber: stringValue(row?.buyer_rfq_number || row?.rfq_number || row?.reference || row?.id || `RFQ-${index + 1}`),
     buyerName: stringValue(row?.buyer_name || row?.organisation || row?.department || row?.buyer || "Buyer"),

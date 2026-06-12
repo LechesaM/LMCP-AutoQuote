@@ -1,25 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import BusinessIntelligenceExpansionPackPanel from "../mission-control/components/BusinessIntelligenceExpansionPackPanel.jsx";
 import LiveSubmissionFeedPanel from "../mission-control/components/LiveSubmissionFeedPanel.jsx";
 import "../mission-control/mission-control.css";
-import {
-  API_BASE,
-  getAutonomousStatus,
-  getDashboardSummary,
-  getHealth,
-  getOpportunities,
-  getPortalHealth,
-  getRadarStatus,
-  getRfqLifecycleAnalytics,
-  getRfqLifecycleMissionControl,
-  getRfqLifecycleTelemetry,
-  getSubmissionHistory,
-  getSubmissionProfit,
-  getSubmissionSummary,
-  getPolicy,
-  runAutonomousOnce,
-  updatePolicy,
-} from "../mission-control/services/missionControlApi.js";
+import { fetchMissionControlSnapshot } from "../mission-control/services/missionControlSnapshot.js";
+import { API_BASE, runAutonomousOnce, updatePolicy } from "../mission-control/services/missionControlApi.js";
 
 const REFRESH_MS = 15000;
 const provinces = ["GP", "FS", "KZN", "WC", "EC", "NC", "NW", "MP", "LP"];
@@ -182,14 +166,12 @@ function LifecyclePanel({ lifecycle = {}, analytics = {}, telemetry = {} }) {
 }
 
 export default function MissionControlPage() {
-  const [state, setState] = useState({ loading: true, lastUpdated: null });
+  const [state, setState] = useState({ snapshot: null, loading: true, lastUpdated: null });
   const [busy, setBusy] = useState(false);
 
   async function load() {
-    const [health, auto, summary, opps, subSummary, profit, history, portal, radar, policy, lifecycle, lifecycleAnalytics, lifecycleTelemetry] = await Promise.all([
-      getHealth(), getAutonomousStatus(), getDashboardSummary(), getOpportunities(), getSubmissionSummary(), getSubmissionProfit(), getSubmissionHistory(), getPortalHealth(), getRadarStatus(), getPolicy(), getRfqLifecycleMissionControl(), getRfqLifecycleAnalytics(), getRfqLifecycleTelemetry(),
-    ]);
-    setState({ health, auto, summary, opps, subSummary, profit, history, portal, radar, policy, lifecycle, lifecycleAnalytics, lifecycleTelemetry, loading: false, lastUpdated: new Date() });
+    const snapshot = await fetchMissionControlSnapshot();
+    setState({ snapshot, loading: false, lastUpdated: new Date() });
   }
 
   useEffect(() => {
@@ -198,103 +180,59 @@ export default function MissionControlPage() {
     return () => clearInterval(id);
   }, []);
 
-  const opps = useMemo(() => state.opps || [], [state.opps]);
-  const history = useMemo(() => state.history || [], [state.history]);
-  const lifecycle = useMemo(() => state.lifecycle || {}, [state.lifecycle]);
-  const telemetry = useMemo(() => state.lifecycleTelemetry || {}, [state.lifecycleTelemetry]);
-  const radarPayload = useMemo(() => state.radar?.radar || state.radar || {}, [state.radar]);
-  const queueByState = lifecycle.queue_by_lifecycle_state || {};
-
-  const control = lifecycle?.safety?.system_control || {};
-  const effectiveStatus = String(control.effective_system_status || state.policy?.policy?.mode || "controlled").toLowerCase();
-  const systemOn = Boolean(
-    control.system_on !== undefined
-      ? control.system_on
-      : effectiveStatus === "on" || effectiveStatus === "controlled"
-        ? true
-        : state.policy?.policy?.enabled ?? state.auto?.enabled ?? true
-  );
-
-  const submitted =
-    readCount(lifecycle, ["proof_captured_rfqs", "proof_archive_count"], 0) ||
-    readCount(radarPayload, ["proof_captured"], 0) ||
-    readCount(state.subSummary, ["submitted", "total_submitted", "submitted_count"], 0);
-
-  const harvested =
-    readCount(lifecycle, ["total_rfqs"], 0) ||
-    readCount(state.summary, ["harvested", "total_harvested", "opportunities"], opps.length);
-
-  const quoteReady =
-    readCount(queueByState, ["QUOTE_PACK_READY"], 0) ||
-    readCount(queueByState, ["SUBMISSION_READY"], 0) ||
-    opps.filter((x) => x.quote_ready || stageOf(x) === "Ready" || stageOf(x) === "Quote Pack").length;
-
-  const blocked =
-    readCount(lifecycle, ["failed_rfqs", "review_required_rfqs", "review_required_count"], 0) ||
-    readCount(queueByState, ["FAILED"], 0) ||
-    readCount(queueByState, ["REVIEW_REQUIRED"], 0) ||
-    opps.filter((x) => stageOf(x) === "Blocked").length;
-
-  const profitTotal =
-    readCount(state.profit, ["total_profit", "profit", "estimated_profit"], 0) ||
-    history.reduce((s, x) => s + Number(x.total_profit || x.profit || 0), 0);
-
-  const backendStatus =
-    state.health?.status === "healthy" || telemetry.worker_online || radarPayload.worker_online
-      ? "healthy"
-      : state.health?.status || "unknown";
-
-  const displayMode =
-    lifecycle?.safety?.system_control?.effective_system_status ||
-    state.policy?.policy?.mode ||
-    (systemOn ? "controlled" : "off");
-
-  const stageCounts = useMemo(() => {
-    const queue = lifecycle.queue_by_lifecycle_state || {};
-    const liveCounts = {
-      Harvested:
-        Number(queue.DISCOVERED || 0) +
-        Number(queue.QUALIFIED || 0) +
-        Number(queue.DOCUMENTS_ACQUIRED || 0) +
-        Number(queue.DOCUMENTS_PARSED || 0) +
-        Number(queue.PRICED || 0),
-      Ready:
-        Number(queue.SUBMISSION_READY || 0),
-      "Quote Pack":
-        Number(queue.QUOTE_PACK_READY || 0),
-      Submitted:
-        Number(lifecycle.proof_captured_rfqs || lifecycle.proof_archive_count || 0),
-      Blocked:
-        Number(queue.FAILED || 0) +
-        Number(queue.REVIEW_REQUIRED || 0) +
-        Number(queue.READY_FOR_RETRY || 0) +
-        Number(queue.REJECTED || 0),
-    };
-
-    const hasLiveCounts = Object.values(liveCounts).some((value) => Number(value || 0) > 0);
-    if (hasLiveCounts) return liveCounts;
-
-    const base = { Harvested: 0, Ready: 0, "Quote Pack": 0, Submitted: 0, Blocked: 0 };
-    opps.forEach((x) => { base[stageOf(x)] = (base[stageOf(x)] || 0) + 1; });
-    history.forEach((x) => { if (stageOf(x) === "Submitted") base.Submitted += 1; });
-    return base;
-  }, [opps, history, lifecycle]);
-
-  const provinceCounts = useMemo(() => {
-    const base = Object.fromEntries(provinces.map((p) => [p, 0]));
-    opps.forEach((x) => { base[provinceOf(x)] += 1; });
-    return base;
-  }, [opps]);
-
-  const trend = [
-    { label: "D", value: readCount(state.subSummary, ["today", "daily", "submitted_today"], Math.min(submitted, 4)) },
-    { label: "W", value: readCount(state.subSummary, ["week", "weekly", "submitted_this_week"], Math.min(submitted, 14)) },
-    { label: "M", value: readCount(state.subSummary, ["month", "monthly", "submitted_this_month"], submitted) },
-  ];
+  const snapshot = state.snapshot || {
+    portals: [],
+    harvestedCount: 0,
+    provinceDistribution: Object.fromEntries(provinces.map((p) => [p, 0])),
+    radar: {},
+    pipelineStages: { Harvested: 0, Ready: 0, "Quote Pack": 0, Submitted: 0, Blocked: 0 },
+    aiScoring: { status: "not_configured", items: [] },
+    opportunities: [],
+    lifecycle: {},
+    lifecycleAnalytics: {},
+    lifecycleTelemetry: {},
+    policy: {},
+    auto: {},
+    metrics: {
+      backendStatus: "unknown",
+      displayMode: "controlled",
+      systemOn: true,
+      quoteReadyCount: 0,
+      submittedCount: 0,
+      blockedCount: 0,
+      profitTotal: 0,
+      trend: [
+        { label: "D", value: 0 },
+        { label: "W", value: 0 },
+        { label: "M", value: 0 },
+      ],
+      alerts: [],
+      portalStatus: "fallback",
+      topOpps: [],
+    },
+  };
+  const metrics = snapshot.metrics || {};
+  const topOpps = metrics.topOpps || snapshot.opportunities.slice(0, 9);
+  const portalList = snapshot.portals || [];
+  const alerts = metrics.alerts || [];
+  const systemOn = Boolean(metrics.systemOn);
+  const backendStatus = metrics.backendStatus || "unknown";
+  const displayMode = metrics.displayMode || "controlled";
+  const harvested = snapshot.harvestedCount || 0;
+  const quoteReady = metrics.quoteReadyCount || 0;
+  const submitted = metrics.submittedCount || 0;
+  const blocked = metrics.blockedCount || 0;
+  const profitTotal = metrics.profitTotal || 0;
+  const trend = metrics.trend || [];
+  const stageCounts = snapshot.pipelineStages || {};
+  const provinceCounts = snapshot.provinceDistribution || {};
+  const radarPayload = snapshot.radar || {};
+  const lifecycle = snapshot.lifecycle || {};
+  const telemetry = snapshot.lifecycleTelemetry || {};
 
   async function toggleSystem() {
     setBusy(true);
-    const currentPolicy = state.policy?.policy || { enabled: systemOn, mode: "controlled", allow_email_send: false, allow_portal_upload: true, allow_portal_final_submit: true };
+    const currentPolicy = snapshot.policy?.policy || { enabled: systemOn, mode: "controlled", allow_email_send: false, allow_portal_upload: true, allow_portal_final_submit: true };
     await updatePolicy({ ...currentPolicy, enabled: !systemOn });
     await load();
     setBusy(false);
@@ -306,14 +244,6 @@ export default function MissionControlPage() {
     await load();
     setBusy(false);
   }
-
-  const topOpps = opps.slice(0, 9);
-  const portalList = Array.isArray(state.portal?.portals) ? state.portal.portals.slice(0, 8) : [];
-  const alerts = [
-    backendStatus !== "healthy" && `Backend health: ${backendStatus || "unknown"}`,
-    !systemOn && "Autonomous engine is OFF",
-    blocked > 0 && `${blocked} tender(s) blocked or failed`,
-  ].filter(Boolean);
 
   return (
     <div className="mission-control-page">
@@ -341,14 +271,14 @@ export default function MissionControlPage() {
 
         <section className="main-grid">
           <div className="card radar">
-            <div className="card-head"><h2>Radar</h2><span>{state.radar?.service_version || state.radar?.status || "active"}</span></div>
+            <div className="card-head"><h2>Radar</h2><span>{radarPayload.serviceVersion || radarPayload.statusLabel || "active"}</span></div>
             <div className="radar-scope"><i /><i /><i /><b /></div>
-            <div className="radar-stats"><Stat label="Sources" value={compact(readCount(state.summary, ["sources", "enabled_sources", "total_sources"], 1325))} /><Stat label="Eligible" value={compact(readCount(state.summary, ["eligible", "eligible_count"], quoteReady))} /></div>
+            <div className="radar-stats"><Stat label="Sources" value={compact(radarPayload.sources || 0)} /><Stat label="Eligible" value={compact(radarPayload.eligible || quoteReady)} /></div>
           </div>
 
           <div className="card heatmap">
             <div className="card-head"><h2>South Africa Heatmap</h2><span>Province opportunity density</span></div>
-            <div className="province-grid">{provinces.map((p) => <div className="province" key={p}><b>{p}</b><span>{provinceCounts[p]}</span><em style={{ opacity: Math.min(.95, .25 + provinceCounts[p] / Math.max(1, harvested)) }} /></div>)}</div>
+            <div className="province-grid">{provinces.map((p) => <div className="province" key={p}><b>{p}</b><span>{provinceCounts[p] || 0}</span><em style={{ opacity: Math.min(.95, .25 + (provinceCounts[p] || 0) / Math.max(1, harvested)) }} /></div>)}</div>
           </div>
 
           <div className="card trends">
@@ -369,19 +299,19 @@ export default function MissionControlPage() {
           <div className="lane-grid">{Object.entries(stageCounts).map(([name, count]) => <div className="lane" key={name}><strong>{name}</strong><b>{count}</b><small>{name === "Submitted" ? "delivered" : name === "Blocked" ? "needs review" : "processing"}</small></div>)}</div>
         </section>
 
-        <LifecyclePanel lifecycle={state.lifecycle} analytics={state.lifecycleAnalytics} telemetry={state.lifecycleTelemetry} />
+        <LifecyclePanel lifecycle={lifecycle} analytics={snapshot.lifecycleAnalytics} telemetry={telemetry} />
 
         <BusinessIntelligenceExpansionPackPanel />
 
         <section className="bottom-grid">
           <div className="card table-card">
             <div className="card-head"><h2>Live Tender Stream</h2><span>{topOpps.length} visible</span></div>
-            <table><thead><tr><th>RFQ</th><th>Buyer</th><th>Province</th><th>Stage</th><th>Profit</th></tr></thead><tbody>{topOpps.map((x, i) => <tr key={i}><td>{x.buyer_rfq_number || x.rfq_number || x.reference || "RFQ"}</td><td>{x.buyer_name || x.organisation || x.department || "Buyer"}</td><td>{provinceOf(x)}</td><td><span className="pill">{stageOf(x)}</span></td><td>{money(x.total_profit || x.estimated_profit || 0)}</td></tr>)}</tbody></table>
+            <table><thead><tr><th>RFQ</th><th>Buyer</th><th>Province</th><th>Stage</th><th>Profit</th></tr></thead><tbody>{topOpps.map((x, i) => <tr key={i}><td>{x.buyerRfqNumber}</td><td>{x.buyerName}</td><td>{x.province}</td><td><span className="pill">{x.stage}</span></td><td>{money(x.profit)}</td></tr>)}</tbody></table>
           </div>
 
           <div className="card portal-card">
-            <div className="card-head"><h2>Portal Health</h2><span>{portalList.length ? "live" : "fallback"}</span></div>
-            <div className="portal-list">{(portalList.length ? portalList : [{ name: "eTenders", status: "monitored" }, { name: "SOE portals", status: "monitored" }, { name: "Municipal portals", status: "monitored" }, { name: "Provincial portals", status: "monitored" }]).map((p, i) => <div key={i}><b>{p.name || p.source || `Portal ${i + 1}`}</b><span>{p.status || p.health || "unknown"}</span></div>)}</div>
+            <div className="card-head"><h2>Portal Health</h2><span>{metrics.portalStatus || (portalList.length ? "live" : "fallback")}</span></div>
+            <div className="portal-list">{portalList.map((p, i) => <div key={i}><b>{p.name}</b><span>{p.status}</span></div>)}</div>
           </div>
 
           <div className="card alerts-card">

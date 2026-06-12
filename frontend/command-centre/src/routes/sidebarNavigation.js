@@ -1,6 +1,7 @@
 export const SIDEBAR_ADMIN_ROLES = ["supervisor", "admin"];
 
 export const operatorPrimarySidebarNavigationItems = [
+  { label: "Mission Control", path: "/mission-control" },
   { label: "Dashboard", path: "/dashboard" },
   { label: "RFQ Operations", path: "/operations" },
   { label: "Review Workflow", path: "/review-efficiency" },
@@ -14,6 +15,9 @@ export const operatorPrimarySidebarNavigationItems = [
 export const operatorSupportSidebarNavigationItems = [
   { label: "Operator Assignments", path: "/operator-assignments" },
   { label: "Governance Compliance", path: "/governance-compliance" },
+  { label: "Quote Intelligence", path: "/supplier-quote-intelligence" },
+  { label: "AutoQuote Libraries", path: "/autoquote-libraries" },
+  { label: "Weekly Intelligence Report", path: "/autoquote-weekly-report" },
 ];
 
 export const adminRuntimeSidebarNavigationItems = [
@@ -25,6 +29,7 @@ export const adminRuntimeSidebarNavigationItems = [
   { label: "Runtime Anomalies", path: "/runtime-anomalies" },
   { label: "Stabilization Operations", path: "/stabilization-operations" },
   { label: "Burn-in Diagnostics", path: "/runtime-reliability" },
+  { label: "Demo Seeding", path: "/admin/demo-seed" },
 ];
 
 export const secondarySidebarNavigationItems = [
@@ -35,6 +40,9 @@ export const secondarySidebarNavigationItems = [
 
 export function getSidebarNavigationSections(role = "") {
   const isAdminRuntimeVisible = SIDEBAR_ADMIN_ROLES.includes(role);
+  const adminRuntimeItems = role === "admin"
+    ? adminRuntimeSidebarNavigationItems
+    : adminRuntimeSidebarNavigationItems.filter((item) => item.path !== "/admin/demo-seed");
 
   return [
     {
@@ -43,7 +51,7 @@ export function getSidebarNavigationSections(role = "") {
     },
     {
       label: "Governance",
-      items: [...operatorSupportSidebarNavigationItems, ...(isAdminRuntimeVisible ? adminRuntimeSidebarNavigationItems : [])],
+      items: [...operatorSupportSidebarNavigationItems, ...(isAdminRuntimeVisible ? adminRuntimeItems : [])],
     },
   ];
 }

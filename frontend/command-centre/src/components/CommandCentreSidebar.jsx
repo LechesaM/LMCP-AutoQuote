@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   Clock3,
   ChevronDown,
+  FileDown,
   FileSearch,
   Gauge,
   HeartPulse,
@@ -29,6 +30,7 @@ import {
 } from "../routes/sidebarNavigation.js";
 
 const navIcons = {
+  "/mission-control": RadarOrbit,
   "/dashboard": LayoutDashboard,
   "/operations": FileSearch,
   "/pricing-evidence": BadgeDollarSign,
@@ -49,6 +51,10 @@ const navIcons = {
   "/runtime-anomalies": Activity,
   "/stabilization-operations": ShieldAlert,
   "/runtime-reliability": ServerCheck,
+  "/supplier-quote-intelligence": BadgeDollarSign,
+  "/autoquote-libraries": ClipboardCheck,
+  "/autoquote-weekly-report": FileDown,
+  "/admin/demo-seed": ShieldAlert,
   "/operator-productivity": HeartPulse,
   "/queue-optimization": Workflow,
   "/review-efficiency": TimerReset,
@@ -90,6 +96,9 @@ export default function CommandCentreSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const userRole = useAuthStore((state) => state.user?.role || "");
+  const adminRuntimeItems = userRole === "admin"
+    ? adminRuntimeSidebarNavigationItems
+    : adminRuntimeSidebarNavigationItems.filter((item) => item.path !== "/admin/demo-seed");
 
   const handleNavigate = (label, path) => () => {
     window.__LMCP_LAST_NAV_CLICK__ = {
@@ -152,7 +161,7 @@ export default function CommandCentreSidebar() {
                     Admin Runtime
                   </summary>
                   <div className="mt-2 space-y-2">
-                    {adminRuntimeSidebarNavigationItems.map(({ label, path }) => {
+                    {adminRuntimeItems.map(({ label, path }) => {
                       const active = isActivePath(location.pathname, path);
                       return (
                         <NavigationButton

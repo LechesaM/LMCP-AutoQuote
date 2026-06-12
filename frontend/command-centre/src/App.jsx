@@ -36,6 +36,11 @@ const RuntimeReliabilityPage = lazy(() => import("./pages/RuntimeReliabilityPage
 const ActivityTimelinePage = lazy(() => import("./pages/ActivityTimelinePage.tsx"));
 const DebugHitTestPage = lazy(() => import("./pages/DebugHitTestPage.tsx"));
 const DebugNavigationPage = lazy(() => import("./pages/DebugNavigationPage.tsx"));
+const AdminDemoSeedPage = lazy(() => import("./pages/AdminDemoSeedPage.tsx"));
+const SupplierQuoteIntelligencePage = lazy(() => import("./pages/SupplierQuoteIntelligencePage.tsx"));
+const AutoQuoteLibrariesPage = lazy(() => import("./pages/AutoQuoteLibrariesPage.tsx"));
+const AutoQuoteWeeklyReportPage = lazy(() => import("./pages/AutoQuoteWeeklyReportPage.tsx"));
+const MissionControlPage = lazy(() => import("./pages/MissionControlPage.jsx"));
 
 export default function App() {
   const bootstrap = useAuthStore((state) => state.bootstrap);
@@ -62,10 +67,18 @@ export default function App() {
           >
             <Route index element={<Navigate to="/review" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/mission-control" element={<MissionControlPage />} />
             <Route path="/executive-dashboard" element={<ExecutiveDashboardPage />} />
             <Route path="/profitability-analytics" element={<ProfitabilityAnalyticsPage />} />
             <Route path="/operational-forecasting" element={<OperationalForecastingPage />} />
-            <Route path="/operations" element={<RFQOperationsPage />} />
+            <Route
+              path="/operations"
+              element={
+                <RequireRole permissions={["view_rfqs"]}>
+                  <RFQOperationsPage />
+                </RequireRole>
+              }
+            />
             <Route
               path="/source-health"
               element={
@@ -74,13 +87,41 @@ export default function App() {
                 </RequireRole>
               }
             />
-            <Route path="/qualification-insights" element={<QualificationInsightsPage />} />
-            <Route path="/pricing-evidence" element={<PricingEvidencePage />} />
-            <Route path="/review" element={<ReviewQueuePage />} />
+            <Route
+              path="/qualification-insights"
+              element={
+                <RequireRole permissions={["view_rfqs"]}>
+                  <QualificationInsightsPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/pricing-evidence"
+              element={
+                <RequireRole permissions={["view_rfqs"]}>
+                  <PricingEvidencePage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/review"
+              element={
+                <RequireRole permissions={["view_operator_queue"]}>
+                  <ReviewQueuePage />
+                </RequireRole>
+              }
+            />
             <Route path="/operator-productivity" element={<OperatorProductivityPage />} />
             <Route path="/queue-optimization" element={<QueueOptimizationPage />} />
             <Route path="/review-efficiency" element={<ReviewEfficiencyPage />} />
-            <Route path="/governance" element={<GovernancePage />} />
+            <Route
+              path="/governance"
+              element={
+                <RequireRole permissions={["view_governance"]}>
+                  <GovernancePage />
+                </RequireRole>
+              }
+            />
             <Route
               path="/governance-compliance"
               element={
@@ -105,8 +146,22 @@ export default function App() {
                 </RequireRole>
               }
             />
-            <Route path="/operator-operations" element={<OperatorOperationsPage />} />
-            <Route path="/operator-assignments" element={<OperatorAssignmentsPage />} />
+            <Route
+              path="/operator-operations"
+              element={
+                <RequireRole permissions={["view_operator_review"]}>
+                  <OperatorOperationsPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/operator-assignments"
+              element={
+                <RequireRole permissions={["view_operator_queue"]}>
+                  <OperatorAssignmentsPage />
+                </RequireRole>
+              }
+            />
             <Route
               path="/runtime-operations"
               element={
@@ -179,6 +234,24 @@ export default function App() {
                 </RequireRole>
               }
             />
+            <Route
+              path="/admin/demo-seed"
+              element={
+                <RequireRole roles={["admin"]}>
+                  <AdminDemoSeedPage />
+                </RequireRole>
+              }
+            />
+            <Route
+              path="/supplier-quote-intelligence"
+              element={
+                <RequireRole permissions={["view_supplier_quote_intelligence"]}>
+                  <SupplierQuoteIntelligencePage />
+                </RequireRole>
+              }
+            />
+            <Route path="/autoquote-libraries" element={<AutoQuoteLibrariesPage />} />
+            <Route path="/autoquote-weekly-report" element={<AutoQuoteWeeklyReportPage />} />
             <Route path="/activity-timeline" element={<ActivityTimelinePage />} />
             <Route path="/__debug/hit-test" element={<DebugHitTestPage />} />
             <Route path="*" element={<Navigate to="/review" replace />} />

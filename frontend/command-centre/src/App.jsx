@@ -65,7 +65,7 @@ export default function App() {
               </RequireRole>
             }
           >
-            <Route index element={<Navigate to="/review" replace />} />
+            <Route index element={<Navigate to="/mission-control" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/mission-control" element={<MissionControlPage />} />
             <Route path="/executive-dashboard" element={<ExecutiveDashboardPage />} />

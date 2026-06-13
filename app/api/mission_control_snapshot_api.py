@@ -8,7 +8,12 @@ from fastapi import APIRouter, Query
 from app.api.mission_control_compat_api import portal_health as get_portal_health_snapshot
 from app.api.mission_control_compat_api import radar_status as get_radar_status_snapshot
 from app.services import submission_analytics_service
-from app.services.mission_control_history_service import get_mission_control_history, record_mission_control_snapshot
+from app.services.mission_control_history_service import (
+    build_default_mission_control_trends,
+    build_mission_control_trends,
+    get_mission_control_history,
+    record_mission_control_snapshot,
+)
 from app.services.mission_control_ai_scoring_service import build_default_ai_scoring, build_mission_control_ai_scoring
 from app.services.mission_control_recommendations_service import (
     build_default_mission_control_recommendations,
@@ -210,6 +215,7 @@ def _default_snapshot() -> Dict[str, Any]:
             "competitorSignals": 0,
             "status": "insufficient_history",
         },
+        "trends": build_default_mission_control_trends(),
         "recommendations": build_default_mission_control_recommendations(),
     }
 
@@ -278,7 +284,7 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
         pipeline_stages=pipeline_stages,
     )
 
-    return {
+    snapshot = {
         "harvestedCount": harvested_count,
         "quoteReadyCount": quote_ready_count,
         "submittedCount": submitted_count,
@@ -296,6 +302,8 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
         "quoteIntelligence": quote_intelligence,
         "recommendations": recommendations,
     }
+    snapshot["trends"] = build_mission_control_trends(current_snapshot=snapshot)
+    return snapshot
 
 
 @router.get("/snapshot")

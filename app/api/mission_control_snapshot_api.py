@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Body, Query
 
 from app.api.mission_control_compat_api import portal_health as get_portal_health_snapshot
 from app.api.mission_control_compat_api import radar_status as get_radar_status_snapshot
@@ -13,6 +13,11 @@ from app.services.mission_control_history_service import (
     build_mission_control_trends,
     get_mission_control_history,
     record_mission_control_snapshot,
+)
+from app.services.mission_control_recommendation_effectiveness_service import (
+    build_default_mission_control_recommendation_effectiveness,
+    build_mission_control_recommendation_effectiveness,
+    record_mission_control_recommendation_event,
 )
 from app.services.mission_control_ai_scoring_service import build_default_ai_scoring, build_mission_control_ai_scoring
 from app.services.mission_control_recommendations_service import (
@@ -215,6 +220,7 @@ def _default_snapshot() -> Dict[str, Any]:
             "competitorSignals": 0,
             "status": "insufficient_history",
         },
+        "recommendationEffectiveness": build_default_mission_control_recommendation_effectiveness(),
         "trends": build_default_mission_control_trends(),
         "recommendations": build_default_mission_control_recommendations(),
     }
@@ -300,6 +306,7 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
         "submissionReadiness": submission_readiness,
         "aiScoring": ai_scoring,
         "quoteIntelligence": quote_intelligence,
+        "recommendationEffectiveness": build_mission_control_recommendation_effectiveness(),
         "recommendations": recommendations,
     }
     snapshot["trends"] = build_mission_control_trends(current_snapshot=snapshot)
@@ -337,3 +344,19 @@ def mission_control_history(days: int = Query(default=30, ge=1, le=365)) -> Dict
         return get_mission_control_history(days=days)
     except Exception:
         return {"status": "insufficient_history", "generatedAt": _now_iso(), "days": days, "items": []}
+
+
+@router.get("/recommendation-effectiveness")
+def mission_control_recommendation_effectiveness(days: int = Query(default=30, ge=1, le=365)) -> Dict[str, Any]:
+    try:
+        return build_mission_control_recommendation_effectiveness(days=days)
+    except Exception:
+        return build_default_mission_control_recommendation_effectiveness()
+
+
+@router.post("/recommendation-effectiveness/events")
+def mission_control_recommendation_effectiveness_event(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    try:
+        return record_mission_control_recommendation_event(payload)
+    except Exception:
+        return build_default_mission_control_recommendation_effectiveness()

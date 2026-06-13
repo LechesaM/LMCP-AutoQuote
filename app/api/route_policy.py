@@ -49,6 +49,7 @@ READONLY_PATHS = {
     "/telemetry/dashboard",
     "/mission-control/ai-scoring",
     "/mission-control/history",
+    "/mission-control/recommendation-effectiveness",
     "/mission-control/recommendations",
     "/mission-control/snapshot",
     "/telemetry/operational-health",

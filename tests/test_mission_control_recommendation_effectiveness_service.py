@@ -70,7 +70,13 @@ def test_recommendation_effectiveness_appends_and_summarizes(tmp_path, monkeypat
     assert summary["totals"]["opened"] == 1
     assert summary["totals"]["acted"] == 1
     assert summary["totals"]["completed"] == 1
-    assert summary["byRecommendationType"]["review"] == 4
+    assert summary["byRecommendationType"]["review"]["recommendationType"] == "review"
+    assert summary["byRecommendationType"]["review"]["generated"] == 1
+    assert summary["byRecommendationType"]["review"]["opened"] == 1
+    assert summary["byRecommendationType"]["review"]["acted"] == 1
+    assert summary["byRecommendationType"]["review"]["completed"] == 1
+    assert summary["byRecommendationType"]["review"]["actionRate"] == 100.0
+    assert summary["byRecommendationType"]["review"]["completionRate"] == 100.0
 
 
 def test_recommendation_effectiveness_returns_default_when_empty(tmp_path, monkeypatch) -> None:

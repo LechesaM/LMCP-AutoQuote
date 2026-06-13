@@ -242,12 +242,14 @@ def _build_recommendations(
     quote_intelligence: Dict[str, Any],
     submission_readiness: Dict[str, Any],
     pipeline_stages: Dict[str, Any],
+    recommendation_effectiveness: Dict[str, Any],
 ) -> Dict[str, Any]:
     return build_mission_control_recommendations(
         ai_scoring=ai_scoring,
         quote_intelligence=quote_intelligence,
         submission_readiness=submission_readiness,
         pipeline_stages=pipeline_stages,
+        recommendation_effectiveness=recommendation_effectiveness,
     )
 
 
@@ -283,11 +285,13 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
     submission_readiness = _submission_readiness(lifecycle, quote_ready_count, mode, backend_status)
     ai_scoring = build_mission_control_ai_scoring(live_items)
     quote_intelligence = _quote_intelligence_default()
+    recommendation_effectiveness = build_mission_control_recommendation_effectiveness()
     recommendations = _build_recommendations(
         ai_scoring=ai_scoring,
         quote_intelligence=quote_intelligence,
         submission_readiness=submission_readiness,
         pipeline_stages=pipeline_stages,
+        recommendation_effectiveness=recommendation_effectiveness,
     )
 
     snapshot = {
@@ -306,7 +310,7 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
         "submissionReadiness": submission_readiness,
         "aiScoring": ai_scoring,
         "quoteIntelligence": quote_intelligence,
-        "recommendationEffectiveness": build_mission_control_recommendation_effectiveness(),
+        "recommendationEffectiveness": recommendation_effectiveness,
         "recommendations": recommendations,
     }
     snapshot["trends"] = build_mission_control_trends(current_snapshot=snapshot)

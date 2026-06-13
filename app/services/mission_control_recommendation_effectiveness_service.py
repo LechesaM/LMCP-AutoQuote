@@ -175,10 +175,27 @@ def build_mission_control_recommendation_effectiveness(days: int = 30) -> Dict[s
         return build_default_mission_control_recommendation_effectiveness()
 
     totals = Counter(_normalise_event_type(event.get("eventType") or event.get("event_type")) for event in events)
-    by_recommendation_type = Counter(_safe_str(event.get("recommendationType") or event.get("recommendation_type") or "unknown").lower() for event in events)
+    by_recommendation_type: Dict[str, Counter[str]] = defaultdict(Counter)
     by_priority = Counter(_safe_str(event.get("priority") or "unknown").lower() for event in events)
 
+    for event in events:
+        recommendation_type = _safe_str(event.get("recommendationType") or event.get("recommendation_type") or "unknown").lower()
+        event_type = _normalise_event_type(event.get("eventType") or event.get("event_type"))
+        by_recommendation_type[recommendation_type][event_type] += 1
+
     recent_events = events[:20]
+    recommendation_type_metrics = {
+        recommendation_type: {
+            "recommendationType": recommendation_type,
+            "generated": counts.get("generated", 0),
+            "opened": counts.get("opened", 0),
+            "acted": counts.get("acted", 0),
+            "completed": counts.get("completed", 0),
+            "actionRate": round((counts.get("acted", 0) / counts.get("generated", 0)) * 100.0, 2) if counts.get("generated", 0) else 0.0,
+            "completionRate": round((counts.get("completed", 0) / counts.get("generated", 0)) * 100.0, 2) if counts.get("generated", 0) else 0.0,
+        }
+        for recommendation_type, counts in by_recommendation_type.items()
+    }
     return {
         "status": "configured" if totals else "insufficient_history",
         "generatedAt": _now_iso(),
@@ -191,7 +208,7 @@ def build_mission_control_recommendation_effectiveness(days: int = 30) -> Dict[s
             "completed": totals.get("completed", 0),
         },
         "byEventType": {key: totals.get(key, 0) for key in ("generated", "opened", "acted", "completed")},
-        "byRecommendationType": dict(by_recommendation_type),
+        "byRecommendationType": recommendation_type_metrics,
         "byPriority": dict(by_priority),
         "recentEvents": recent_events,
         "eventLogPath": str(_event_log_path()),

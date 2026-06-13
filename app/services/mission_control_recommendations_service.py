@@ -53,6 +53,10 @@ def _priority_for_score(score: float) -> str:
     return "low"
 
 
+def _priority_rank(priority: str) -> int:
+    return {"high": 0, "medium": 1, "low": 2}.get(_safe_str(priority).lower(), 99)
+
+
 def _recommendation(
     *,
     rec_type: str,
@@ -81,6 +85,48 @@ def _recommendation(
         "reasons": _dedupe(reasons or []),
         "recommendedAction": recommended_action,
     }
+
+
+def _coerce_effectiveness_bucket(bucket: Any) -> Dict[str, Any]:
+    data = _safe_dict(bucket)
+    generated = int(_safe_float(data.get("generated")))
+    opened = int(_safe_float(data.get("opened")))
+    acted = int(_safe_float(data.get("acted")))
+    completed = int(_safe_float(data.get("completed")))
+    action_rate = round((acted / generated) * 100.0, 2) if generated else 0.0
+    completion_rate = round((completed / generated) * 100.0, 2) if generated else 0.0
+    return {
+        "generated": generated,
+        "opened": opened,
+        "acted": acted,
+        "completed": completed,
+        "actionRate": action_rate,
+        "completionRate": completion_rate,
+    }
+
+
+def _effectiveness_by_type(recommendation_effectiveness: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
+    payload = _safe_dict(recommendation_effectiveness)
+    by_type = payload.get("byRecommendationType")
+    if isinstance(by_type, dict) and by_type:
+        result: Dict[str, Dict[str, Any]] = {}
+        for key, value in by_type.items():
+            result[_safe_str(key).lower()] = _coerce_effectiveness_bucket(value)
+        return result
+
+    buckets: Dict[str, Dict[str, Any]] = {}
+    for key, value in _safe_dict(payload.get("recommendationTypeMetrics")).items():
+        buckets[_safe_str(key).lower()] = _coerce_effectiveness_bucket(value)
+    return buckets
+
+
+def _effectiveness_weight(effectiveness: Mapping[str, Any], recommendation_type: str) -> float:
+    bucket = _effectiveness_by_type(effectiveness).get(_safe_str(recommendation_type).lower())
+    if not bucket:
+        return 0.0
+    completion_rate = _safe_float(bucket.get("completionRate"))
+    action_rate = _safe_float(bucket.get("actionRate"))
+    return round((completion_rate * 0.6) + (action_rate * 0.4), 2)
 
 
 def build_default_mission_control_recommendations(status: str = "insufficient_history") -> Dict[str, Any]:
@@ -254,23 +300,50 @@ def build_mission_control_recommendations(
     quote_intelligence: Mapping[str, Any] | None = None,
     submission_readiness: Mapping[str, Any] | None = None,
     pipeline_stages: Mapping[str, Any] | None = None,
+    recommendation_effectiveness: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     ai_scoring = _safe_dict(ai_scoring)
     quote_intelligence = _safe_dict(quote_intelligence)
     submission_readiness = _safe_dict(submission_readiness)
     pipeline_stages = _safe_dict(pipeline_stages)
+    recommendation_effectiveness = _safe_dict(recommendation_effectiveness)
+    effectiveness_by_type = _effectiveness_by_type(recommendation_effectiveness)
 
     items: List[Dict[str, Any]] = []
     items.extend(_submission_recommendations(submission_readiness, pipeline_stages))
     items.extend(_quote_intelligence_recommendations(quote_intelligence))
     items.extend(_ai_scoring_recommendations(ai_scoring))
 
+    for item in items:
+        recommendation_type = _safe_str(item.get("type"))
+        base_score = _safe_float(item.get("score"))
+        effectiveness = effectiveness_by_type.get(recommendation_type)
+        effectiveness_weight = _effectiveness_weight(recommendation_effectiveness, recommendation_type)
+        ai_score_contribution = base_score * 0.65
+        quote_intelligence_contribution = 0.0
+        if _safe_str(item.get("source")) == "quote_intelligence":
+            quote_intelligence_contribution = base_score * 0.15
+        weighted_score = round(
+            min(
+                100.0,
+                max(
+                    0.0,
+                    ai_score_contribution + quote_intelligence_contribution + effectiveness_weight,
+                ),
+            ),
+            2,
+        )
+        item["weightedScore"] = weighted_score
+        if effectiveness:
+            item["effectiveness"] = effectiveness
+
     if not items:
         return build_default_mission_control_recommendations()
 
     items.sort(
         key=lambda item: (
-            {"high": 0, "medium": 1, "low": 2}.get(_safe_str(item.get("priority")).lower(), 99),
+            _priority_rank(item.get("priority")),
+            -_safe_float(item.get("weightedScore") or item.get("score")),
             -_safe_float(item.get("score")),
             _safe_str(item.get("title")),
         )

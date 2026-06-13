@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from app.api.mission_control_compat_api import portal_health as get_portal_health_snapshot
 from app.api.mission_control_compat_api import radar_status as get_radar_status_snapshot
 from app.services import submission_analytics_service
+from app.services.mission_control_history_service import get_mission_control_history, record_mission_control_snapshot
 from app.services.mission_control_ai_scoring_service import build_default_ai_scoring, build_mission_control_ai_scoring
 from app.services.mission_control_recommendations_service import (
     build_default_mission_control_recommendations,
@@ -192,6 +193,7 @@ def _default_snapshot() -> Dict[str, Any]:
         "quoteReadyCount": 0,
         "submittedCount": 0,
         "estimatedProfit": 0.0,
+        "generatedAt": _now_iso(),
         "backendStatus": "degraded",
         "mode": "controlled",
         "portals": [],
@@ -281,6 +283,7 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
         "quoteReadyCount": quote_ready_count,
         "submittedCount": submitted_count,
         "estimatedProfit": estimated_profit,
+        "generatedAt": _now_iso(),
         "backendStatus": backend_status,
         "mode": mode,
         "portals": _safe_list(portal_health.get("portals")),
@@ -298,7 +301,12 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
 @router.get("/snapshot")
 def mission_control_snapshot() -> Dict[str, Any]:
     try:
-        return _mission_control_snapshot_payload()
+        snapshot = _mission_control_snapshot_payload()
+        try:
+            record_mission_control_snapshot(snapshot)
+        except Exception:
+            pass
+        return snapshot
     except Exception:
         return _default_snapshot()
 
@@ -313,3 +321,11 @@ def mission_control_recommendations() -> Dict[str, Any]:
         return build_default_mission_control_recommendations()
     except Exception:
         return build_default_mission_control_recommendations()
+
+
+@router.get("/history")
+def mission_control_history(days: int = Query(default=30, ge=1, le=365)) -> Dict[str, Any]:
+    try:
+        return get_mission_control_history(days=days)
+    except Exception:
+        return {"status": "insufficient_history", "generatedAt": _now_iso(), "days": days, "items": []}

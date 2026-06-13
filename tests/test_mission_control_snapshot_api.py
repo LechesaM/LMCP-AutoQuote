@@ -8,3 +8,5 @@ def test_default_mission_control_snapshot_includes_recommendation_effectiveness(
 
     assert snapshot["recommendationEffectiveness"]["status"] == "insufficient_history"
     assert snapshot["recommendationEffectiveness"]["totals"]["events"] == 0
+    assert snapshot["recommendationOutcomes"]["status"] == "insufficient_history"
+    assert snapshot["recommendationOutcomes"]["totals"]["outcomes"] == 0

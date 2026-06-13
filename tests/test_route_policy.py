@@ -19,7 +19,9 @@ def test_route_policy_classifies_core_recovery_routes() -> None:
     assert classify_route_path("/supplier-quotes/intelligence/status", {"GET"}) == RouteCategory.RECOVERY_SAFE_READONLY
     assert classify_route_path("/mission-control/history", {"GET"}) == RouteCategory.RECOVERY_SAFE_READONLY
     assert classify_route_path("/mission-control/recommendation-effectiveness", {"GET"}) == RouteCategory.RECOVERY_SAFE_READONLY
+    assert classify_route_path("/mission-control/recommendation-outcomes/summary", {"GET"}) == RouteCategory.RECOVERY_SAFE_READONLY
     assert classify_route_path("/mission-control/recommendation-effectiveness/events", {"POST"}) == RouteCategory.RECOVERY_RESTRICTED
+    assert classify_route_path("/mission-control/recommendation-outcomes", {"POST"}) == RouteCategory.RECOVERY_RESTRICTED
     assert classify_route_path("/auth/login", {"POST"}) == RouteCategory.RECOVERY_SAFE_ADVISORY
     assert classify_route_path("/governance/legal-hold/register", {"POST"}) == RouteCategory.RECOVERY_RESTRICTED
     assert classify_route_path("/api/full_autonomous_cycle", {"POST"}) == RouteCategory.RECOVERY_FORBIDDEN

@@ -53,6 +53,21 @@ def test_recommendations_are_weighted_by_effectiveness() -> None:
                 },
             }
         },
+        recommendation_outcomes={
+            "byRecommendationType": {
+                "review": {
+                    "recommendationType": "review",
+                    "generated": 40,
+                    "created": 10,
+                    "submitted": 12,
+                    "won": 8,
+                    "lost": 4,
+                    "no_action": 6,
+                    "actionRate": 60.0,
+                    "completionRate": 20.0,
+                }
+            }
+        },
     )
 
     assert recommendations["status"] == "configured"
@@ -60,3 +75,4 @@ def test_recommendations_are_weighted_by_effectiveness() -> None:
     assert recommendations["items"][0]["type"] == "review"
     assert recommendations["items"][0]["weightedScore"] >= recommendations["items"][-1]["weightedScore"]
     assert recommendations["items"][0]["effectiveness"]["completionRate"] == 25.0
+    assert recommendations["items"][0]["outcomeSummary"]["won"] == 8

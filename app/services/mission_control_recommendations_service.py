@@ -129,6 +129,46 @@ def _effectiveness_weight(effectiveness: Mapping[str, Any], recommendation_type:
     return round((completion_rate * 0.6) + (action_rate * 0.4), 2)
 
 
+def _outcome_by_type(recommendation_outcomes: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
+    payload = _safe_dict(recommendation_outcomes)
+    by_type = payload.get("byRecommendationType")
+    if not isinstance(by_type, dict):
+        return {}
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for key, value in by_type.items():
+        data = _safe_dict(value)
+        generated = int(_safe_float(data.get("generated")))
+        submitted = int(_safe_float(data.get("submitted")))
+        won = int(_safe_float(data.get("won")))
+        lost = int(_safe_float(data.get("lost")))
+        no_action = int(_safe_float(data.get("no_action")))
+        total = generated or (submitted + won + lost + no_action)
+        completion_rate = round((won / total) * 100.0, 2) if total else 0.0
+        action_rate = round(((submitted + won + lost) / total) * 100.0, 2) if total else 0.0
+        result[_safe_str(key).lower()] = {
+            "generated": total,
+            "created": int(_safe_float(data.get("created"))),
+            "submitted": submitted,
+            "won": won,
+            "lost": lost,
+            "no_action": no_action,
+            "completionRate": completion_rate,
+            "actionRate": action_rate,
+        }
+    return result
+
+
+def _outcome_weight(recommendation_outcomes: Mapping[str, Any], recommendation_type: str) -> float:
+    bucket = _outcome_by_type(recommendation_outcomes).get(_safe_str(recommendation_type).lower())
+    if not bucket:
+        return 0.0
+    completion_rate = _safe_float(bucket.get("completionRate"))
+    action_rate = _safe_float(bucket.get("actionRate"))
+    no_action_penalty = _safe_float(bucket.get("no_action"))
+    return round((completion_rate * 0.7) + (action_rate * 0.3) - (no_action_penalty * 0.5), 2)
+
+
 def build_default_mission_control_recommendations(status: str = "insufficient_history") -> Dict[str, Any]:
     return {
         "status": status,
@@ -301,13 +341,16 @@ def build_mission_control_recommendations(
     submission_readiness: Mapping[str, Any] | None = None,
     pipeline_stages: Mapping[str, Any] | None = None,
     recommendation_effectiveness: Mapping[str, Any] | None = None,
+    recommendation_outcomes: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     ai_scoring = _safe_dict(ai_scoring)
     quote_intelligence = _safe_dict(quote_intelligence)
     submission_readiness = _safe_dict(submission_readiness)
     pipeline_stages = _safe_dict(pipeline_stages)
     recommendation_effectiveness = _safe_dict(recommendation_effectiveness)
+    recommendation_outcomes = _safe_dict(recommendation_outcomes)
     effectiveness_by_type = _effectiveness_by_type(recommendation_effectiveness)
+    outcomes_by_type = _outcome_by_type(recommendation_outcomes)
 
     items: List[Dict[str, Any]] = []
     items.extend(_submission_recommendations(submission_readiness, pipeline_stages))
@@ -319,6 +362,8 @@ def build_mission_control_recommendations(
         base_score = _safe_float(item.get("score"))
         effectiveness = effectiveness_by_type.get(recommendation_type)
         effectiveness_weight = _effectiveness_weight(recommendation_effectiveness, recommendation_type)
+        outcome = outcomes_by_type.get(recommendation_type)
+        outcome_weight = _outcome_weight(recommendation_outcomes, recommendation_type)
         ai_score_contribution = base_score * 0.65
         quote_intelligence_contribution = 0.0
         if _safe_str(item.get("source")) == "quote_intelligence":
@@ -328,7 +373,7 @@ def build_mission_control_recommendations(
                 100.0,
                 max(
                     0.0,
-                    ai_score_contribution + quote_intelligence_contribution + effectiveness_weight,
+                    ai_score_contribution + quote_intelligence_contribution + effectiveness_weight + outcome_weight,
                 ),
             ),
             2,
@@ -336,6 +381,8 @@ def build_mission_control_recommendations(
         item["weightedScore"] = weighted_score
         if effectiveness:
             item["effectiveness"] = effectiveness
+        if outcome:
+            item["outcomeSummary"] = outcome
 
     if not items:
         return build_default_mission_control_recommendations()

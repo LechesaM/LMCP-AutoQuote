@@ -19,6 +19,11 @@ from app.services.mission_control_recommendation_effectiveness_service import (
     build_mission_control_recommendation_effectiveness,
     record_mission_control_recommendation_event,
 )
+from app.services.mission_control_recommendation_outcome_service import (
+    build_default_mission_control_recommendation_outcome_summary,
+    build_mission_control_recommendation_outcome_summary,
+    record_mission_control_recommendation_outcome,
+)
 from app.services.mission_control_ai_scoring_service import build_default_ai_scoring, build_mission_control_ai_scoring
 from app.services.mission_control_recommendations_service import (
     build_default_mission_control_recommendations,
@@ -221,6 +226,7 @@ def _default_snapshot() -> Dict[str, Any]:
             "status": "insufficient_history",
         },
         "recommendationEffectiveness": build_default_mission_control_recommendation_effectiveness(),
+        "recommendationOutcomes": build_default_mission_control_recommendation_outcome_summary(),
         "trends": build_default_mission_control_trends(),
         "recommendations": build_default_mission_control_recommendations(),
     }
@@ -243,6 +249,7 @@ def _build_recommendations(
     submission_readiness: Dict[str, Any],
     pipeline_stages: Dict[str, Any],
     recommendation_effectiveness: Dict[str, Any],
+    recommendation_outcomes: Dict[str, Any],
 ) -> Dict[str, Any]:
     return build_mission_control_recommendations(
         ai_scoring=ai_scoring,
@@ -250,6 +257,7 @@ def _build_recommendations(
         submission_readiness=submission_readiness,
         pipeline_stages=pipeline_stages,
         recommendation_effectiveness=recommendation_effectiveness,
+        recommendation_outcomes=recommendation_outcomes,
     )
 
 
@@ -286,12 +294,14 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
     ai_scoring = build_mission_control_ai_scoring(live_items)
     quote_intelligence = _quote_intelligence_default()
     recommendation_effectiveness = build_mission_control_recommendation_effectiveness()
+    recommendation_outcomes = build_mission_control_recommendation_outcome_summary()
     recommendations = _build_recommendations(
         ai_scoring=ai_scoring,
         quote_intelligence=quote_intelligence,
         submission_readiness=submission_readiness,
         pipeline_stages=pipeline_stages,
         recommendation_effectiveness=recommendation_effectiveness,
+        recommendation_outcomes=recommendation_outcomes,
     )
 
     snapshot = {
@@ -311,6 +321,7 @@ def _mission_control_snapshot_payload() -> Dict[str, Any]:
         "aiScoring": ai_scoring,
         "quoteIntelligence": quote_intelligence,
         "recommendationEffectiveness": recommendation_effectiveness,
+        "recommendationOutcomes": recommendation_outcomes,
         "recommendations": recommendations,
     }
     snapshot["trends"] = build_mission_control_trends(current_snapshot=snapshot)
@@ -364,3 +375,19 @@ def mission_control_recommendation_effectiveness_event(payload: Dict[str, Any] =
         return record_mission_control_recommendation_event(payload)
     except Exception:
         return build_default_mission_control_recommendation_effectiveness()
+
+
+@router.get("/recommendation-outcomes/summary")
+def mission_control_recommendation_outcome_summary(days: int = Query(default=30, ge=1, le=365)) -> Dict[str, Any]:
+    try:
+        return build_mission_control_recommendation_outcome_summary(days=days)
+    except Exception:
+        return build_default_mission_control_recommendation_outcome_summary()
+
+
+@router.post("/recommendation-outcomes")
+def mission_control_recommendation_outcome_event(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    try:
+        return record_mission_control_recommendation_outcome(payload)
+    except Exception:
+        return build_default_mission_control_recommendation_outcome_summary()

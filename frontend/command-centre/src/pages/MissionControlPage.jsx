@@ -5,6 +5,7 @@ import BusinessIntelligenceExpansionPackPanel from "../mission-control/component
 import LiveSubmissionFeedPanel from "../mission-control/components/LiveSubmissionFeedPanel.jsx";
 import "../mission-control/mission-control.css";
 import "../mission-control/mission-control-health.css";
+import "../mission-control/mission-control-trends.css";
 import { fetchMissionControlSnapshot } from "../mission-control/services/missionControlSnapshot.js";
 import { API_BASE, runAutonomousOnce, updatePolicy } from "../mission-control/services/missionControlApi.js";
 
@@ -107,6 +108,47 @@ function SnapshotHealthPanel({ snapshot, lastUpdated, loadDurationMs, backendSta
         <div><b>Fetched:</b> {lastUpdated ? lastUpdated.toLocaleTimeString() : "loading"}</div>
         <div><b>Generated:</b> {snapshotGeneratedAt ? new Date(snapshotGeneratedAt).toLocaleTimeString() : "unknown"}</div>
         <div><b>System:</b> {systemOn ? "on" : "off"}</div>
+      </div>
+    </section>
+  );
+}
+
+function TrendCardsPanel() {
+  const metrics = [
+    { label: "RFQs harvested", short: "harvested" },
+    { label: "Quotes submitted", short: "submitted" },
+    { label: "Estimated profit", short: "profit" },
+    { label: "Province activity", short: "province" },
+  ];
+  const windows = ["7-day", "30-day"];
+
+  return (
+    <section className="trend-cards card">
+      <div className="card-head">
+        <h2>Trend Cards</h2>
+        <span>History not yet available</span>
+      </div>
+      <div className="trend-cards-grid">
+        {metrics.map((metric) => (
+          <div key={metric.short} className="trend-card">
+            <div className="trend-card-head">
+              <strong>{metric.label}</strong>
+              <span>status: insufficient_history</span>
+            </div>
+            <div className="trend-card-window-grid">
+              {windows.map((window) => (
+                <div key={`${metric.short}-${window}`} className="trend-card-window">
+                  <span>{window}</span>
+                  <b>insufficient_history</b>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="trend-cards-footer">
+        <div><b>7-day:</b> waiting for reliable snapshot history</div>
+        <div><b>30-day:</b> waiting for reliable snapshot history</div>
       </div>
     </section>
   );
@@ -340,6 +382,8 @@ export default function MissionControlPage() {
           backendStatus={backendStatus}
           systemOn={systemOn}
         />
+
+        <TrendCardsPanel />
 
         <section className="main-grid">
           <div className="card radar">

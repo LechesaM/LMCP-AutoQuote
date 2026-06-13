@@ -17,6 +17,11 @@ const EMPTY_SNAPSHOT = {
     competitorSignals: 0,
     status: "insufficient_history",
   },
+  recommendations: {
+    status: "insufficient_history",
+    generatedAt: "",
+    items: [],
+  },
 };
 
 const PROVINCES = ["GP", "FS", "KZN", "WC", "EC", "NC", "NW", "MP", "LP"];
@@ -207,6 +212,15 @@ function normalizeAiScoring() {
   };
 }
 
+function normalizeRecommendations(source) {
+  const recommendations = source && typeof source === "object" && !Array.isArray(source) ? source : {};
+  return {
+    status: stringValue(recommendations.status || "insufficient_history"),
+    generatedAt: stringValue(recommendations.generatedAt || recommendations.generated_at || ""),
+    items: safeArray(recommendations.items),
+  };
+}
+
 function normalizeQuoteIntelligence(source) {
   const quoteIntelligence = source && typeof source === "object" && !Array.isArray(source) ? source : {};
   const numbers = [
@@ -317,6 +331,7 @@ function normalizeCanonicalSnapshot(snapshot) {
     pipelineStages: normalizeCanonicalPipelineStages(snapshot),
     aiScoring: snapshot?.aiScoring && typeof snapshot.aiScoring === "object" ? snapshot.aiScoring : normalizeAiScoring(),
     quoteIntelligence: normalizeQuoteIntelligence(snapshot?.quoteIntelligence),
+    recommendations: normalizeRecommendations({}),
     opportunities: [],
     history: [],
     lifecycle,
@@ -438,7 +453,8 @@ async function fetchLegacyMissionControlSnapshot() {
     radar: radarSnapshot,
     pipelineStages,
     aiScoring: normalizeAiScoring(),
-    quoteIntelligence: normalizeQuoteIntelligence(snapshot?.quoteIntelligence),
+    quoteIntelligence: normalizeQuoteIntelligence({}),
+    recommendations: normalizeRecommendations(snapshot?.recommendations),
     opportunities: normalizedOpportunities,
     history: safeArray(submissionHistory),
     summary,

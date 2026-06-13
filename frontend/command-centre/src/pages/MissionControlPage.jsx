@@ -156,6 +156,54 @@ function TrendCardsPanel() {
   );
 }
 
+function TopActionsTodayPanel({ recommendations = {} }) {
+  const status = String(recommendations.status || "insufficient_history").toLowerCase();
+  const items = Array.isArray(recommendations.items) ? recommendations.items.slice(0, 4) : [];
+
+  return (
+    <section className="top-actions card" aria-label="Mission Control top actions today">
+      <div className="card-head">
+        <h2>Top Actions Today</h2>
+        <span>{status === "configured" ? `${items.length} ready` : "insufficient history"}</span>
+      </div>
+      <div className="top-actions-grid">
+        {items.length ? items.map((item, index) => {
+          const route = item.targetRoute || "/review";
+          const reasons = Array.isArray(item.reasons) ? item.reasons.slice(0, 2) : [];
+          return (
+            <Link key={item.id || index} className="top-action" to={route}>
+              <div className="top-action-head">
+                <strong>{item.title || "Action"}</strong>
+                <span>{String(item.priority || "low").toUpperCase()}</span>
+              </div>
+              <p>{item.description || "Read-only recommendation from the snapshot."}</p>
+              <div className="top-action-meta">
+                <span>{item.type || "recommendation"}</span>
+                <span>{item.recommendedAction || "review"}</span>
+                <span>{item.relatedRfqId || "n/a"}</span>
+              </div>
+              <div className="top-action-stats">
+                <b>{Number(item.score || 0).toFixed(0)} score</b>
+                <b>{money(item.estimatedProfit || 0)}</b>
+              </div>
+              <div className="top-action-reasons">
+                {(reasons.length ? reasons : ["No reasons supplied"]).map((reason, reasonIndex) => (
+                  <small key={reasonIndex}>{reason}</small>
+                ))}
+              </div>
+            </Link>
+          );
+        }) : (
+          <div className="top-actions-empty">
+            <strong>Insufficient history</strong>
+            <span>Recommendation generation stays read-only until snapshot history is reliable.</span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SparkLine({ values = [] }) {
   const safe = values.length ? values : [1, 2, 1, 3, 2, 4, 3];
   const max = Math.max(...safe, 1);
@@ -287,6 +335,11 @@ export default function MissionControlPage() {
       competitorSignals: 0,
       status: "insufficient_history",
     },
+    recommendations: {
+      status: "insufficient_history",
+      generatedAt: "",
+      items: [],
+    },
     opportunities: [],
     lifecycle: {},
     lifecycleAnalytics: {},
@@ -395,6 +448,8 @@ export default function MissionControlPage() {
         <TrendCardsPanel />
 
         <MissionControlQuoteIntelligencePanel quoteIntelligence={snapshot.quoteIntelligence || {}} />
+
+        <TopActionsTodayPanel recommendations={snapshot.recommendations || {}} />
 
         <section className="main-grid">
           <div className="card radar">

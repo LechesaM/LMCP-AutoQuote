@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import MissionControlAiScoringPanel from "../mission-control/components/MissionControlAiScoringPanel.jsx";
 import BusinessIntelligenceExpansionPackPanel from "../mission-control/components/BusinessIntelligenceExpansionPackPanel.jsx";
 import LiveSubmissionFeedPanel from "../mission-control/components/LiveSubmissionFeedPanel.jsx";
 import "../mission-control/mission-control.css";
@@ -268,6 +269,8 @@ export default function MissionControlPage() {
           <div className="card-head"><h2>Tender Lanes</h2><span>Harvest → Ready → Pack → Submit</span></div>
           <div className="lane-grid">{Object.entries(stageCounts).map(([name, count]) => <div className="lane" key={name}><strong>{name}</strong><b>{count}</b><small>{name === "Submitted" ? "delivered" : name === "Blocked" ? "needs review" : "processing"}</small></div>)}</div>
         </section>
+
+        <MissionControlAiScoringPanel aiScoring={snapshot.aiScoring || {}} />
 
         <LifecyclePanel lifecycle={lifecycle} analytics={snapshot.lifecycleAnalytics} telemetry={telemetry} />
 

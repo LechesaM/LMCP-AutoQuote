@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import MissionControlAiScoringPanel from "../mission-control/components/MissionControlAiScoringPanel.jsx";
 import BusinessIntelligenceExpansionPackPanel from "../mission-control/components/BusinessIntelligenceExpansionPackPanel.jsx";
 import LiveSubmissionFeedPanel from "../mission-control/components/LiveSubmissionFeedPanel.jsx";
@@ -8,6 +9,28 @@ import { API_BASE, runAutonomousOnce, updatePolicy } from "../mission-control/se
 
 const REFRESH_MS = 15000;
 const provinces = ["GP", "FS", "KZN", "WC", "EC", "NC", "NW", "MP", "LP"];
+const quickActions = [
+  {
+    label: "Open Review Queue",
+    description: "Operator queue, approvals and manual review.",
+    to: "/review",
+  },
+  {
+    label: "Open RFQ Operations",
+    description: "Harvest, qualification and operational flow.",
+    to: "/operations",
+  },
+  {
+    label: "Submission Readiness",
+    description: "Review-ready status and blockers.",
+    to: "/review",
+  },
+  {
+    label: "Quote Intelligence",
+    description: "Supplier quote pipeline and pricing signals.",
+    to: "/supplier-quote-intelligence",
+  },
+];
 
 function money(value) {
   const n = Number(value || 0);
@@ -238,6 +261,21 @@ export default function MissionControlPage() {
           <Stat label="Est. Profit" value={money(profitTotal)} tone="gold" />
           <Stat label="Backend" value={backendStatus} tone={backendStatus === "healthy" ? "good" : "bad"} />
           <Stat label="Mode" value={displayMode} />
+        </section>
+
+        <section className="quick-actions card" aria-label="Mission Control quick actions">
+          <div className="card-head">
+            <h2>Quick Actions</h2>
+            <span>Read-only navigation</span>
+          </div>
+          <div className="quick-actions-grid">
+            {quickActions.map((action) => (
+              <Link key={action.label} className="quick-action-link" to={action.to}>
+                <strong>{action.label}</strong>
+                <span>{action.description}</span>
+              </Link>
+            ))}
+          </div>
         </section>
 
         <section className="main-grid">

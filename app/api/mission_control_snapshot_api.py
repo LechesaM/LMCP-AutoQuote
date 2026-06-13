@@ -9,6 +9,10 @@ from app.api.mission_control_compat_api import portal_health as get_portal_healt
 from app.api.mission_control_compat_api import radar_status as get_radar_status_snapshot
 from app.services import submission_analytics_service
 from app.services.mission_control_ai_scoring_service import build_default_ai_scoring, build_mission_control_ai_scoring
+from app.services.mission_control_recommendations_service import (
+    build_default_mission_control_recommendations,
+    build_mission_control_recommendations,
+)
 from app.services.live_rfq_store import LiveRFQStore
 from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.portal_radar_service import get_portal_radar_summary
@@ -197,52 +201,115 @@ def _default_snapshot() -> Dict[str, Any]:
         "lifecycle": {},
         "submissionReadiness": {},
         "aiScoring": build_default_ai_scoring(),
+        "quoteIntelligence": {
+            "supplierCoverage": 0,
+            "pricingFreshness": 0,
+            "awardSignals": 0,
+            "competitorSignals": 0,
+            "status": "insufficient_history",
+        },
+        "recommendations": build_default_mission_control_recommendations(),
+    }
+
+
+def _quote_intelligence_default() -> Dict[str, Any]:
+    return {
+        "supplierCoverage": 0,
+        "pricingFreshness": 0,
+        "awardSignals": 0,
+        "competitorSignals": 0,
+        "status": "insufficient_history",
+    }
+
+
+def _build_recommendations(
+    *,
+    ai_scoring: Dict[str, Any],
+    quote_intelligence: Dict[str, Any],
+    submission_readiness: Dict[str, Any],
+    pipeline_stages: Dict[str, Any],
+) -> Dict[str, Any]:
+    return build_mission_control_recommendations(
+        ai_scoring=ai_scoring,
+        quote_intelligence=quote_intelligence,
+        submission_readiness=submission_readiness,
+        pipeline_stages=pipeline_stages,
+    )
+
+
+def _mission_control_snapshot_payload() -> Dict[str, Any]:
+    lifecycle_service = RfqLifecycleService()
+    lifecycle = lifecycle_service.mission_control_summary()
+    profit_tracking = submission_analytics_service.get_submission_profit_tracking(submitted_only=True)
+    system_health = get_system_health()
+    system_control = _safe_dict(lifecycle.get("safety", {}).get("system_control")) or SystemControlService().get_status()
+    portal_health = get_portal_health_snapshot()
+    portal_radar = get_portal_radar_summary()
+    radar_status = get_radar_status_snapshot()
+    live_items = _enrich_live_items(_extract_live_rfq_items())
+
+    harvested_count = _safe_int(lifecycle.get("total_rfqs"))
+    quote_ready_count = _quote_ready_count(lifecycle)
+    submitted_count = _submitted_count(lifecycle, profit_tracking)
+    estimated_profit = _safe_float(profit_tracking.get("estimated_profit"))
+    backend_status = _backend_status(system_health, lifecycle, portal_radar)
+    mode = _mode(system_control)
+
+    radar = _radar_snapshot(
+        backend_status=backend_status,
+        harvested_count=harvested_count,
+        quote_ready_count=quote_ready_count,
+        lifecycle=lifecycle,
+        portal_radar=portal_radar,
+        portal_health=portal_health,
+        radar_status=radar_status,
+        system_health=system_health,
+    )
+    pipeline_stages = _pipeline_stages(lifecycle)
+    submission_readiness = _submission_readiness(lifecycle, quote_ready_count, mode, backend_status)
+    ai_scoring = build_mission_control_ai_scoring(live_items)
+    quote_intelligence = _quote_intelligence_default()
+    recommendations = _build_recommendations(
+        ai_scoring=ai_scoring,
+        quote_intelligence=quote_intelligence,
+        submission_readiness=submission_readiness,
+        pipeline_stages=pipeline_stages,
+    )
+
+    return {
+        "harvestedCount": harvested_count,
+        "quoteReadyCount": quote_ready_count,
+        "submittedCount": submitted_count,
+        "estimatedProfit": estimated_profit,
+        "backendStatus": backend_status,
+        "mode": mode,
+        "portals": _safe_list(portal_health.get("portals")),
+        "provinceDistribution": count_province_distribution(live_items),
+        "radar": radar,
+        "pipelineStages": pipeline_stages,
+        "lifecycle": lifecycle,
+        "submissionReadiness": submission_readiness,
+        "aiScoring": ai_scoring,
+        "quoteIntelligence": quote_intelligence,
+        "recommendations": recommendations,
     }
 
 
 @router.get("/snapshot")
 def mission_control_snapshot() -> Dict[str, Any]:
     try:
-        lifecycle_service = RfqLifecycleService()
-        lifecycle = lifecycle_service.mission_control_summary()
-        profit_tracking = submission_analytics_service.get_submission_profit_tracking(submitted_only=True)
-        system_health = get_system_health()
-        system_control = _safe_dict(lifecycle.get("safety", {}).get("system_control")) or SystemControlService().get_status()
-        portal_health = get_portal_health_snapshot()
-        portal_radar = get_portal_radar_summary()
-        radar_status = get_radar_status_snapshot()
-        live_items = _enrich_live_items(_extract_live_rfq_items())
-
-        harvested_count = _safe_int(lifecycle.get("total_rfqs"))
-        quote_ready_count = _quote_ready_count(lifecycle)
-        submitted_count = _submitted_count(lifecycle, profit_tracking)
-        estimated_profit = _safe_float(profit_tracking.get("estimated_profit"))
-        backend_status = _backend_status(system_health, lifecycle, portal_radar)
-        mode = _mode(system_control)
-
-        return {
-            "harvestedCount": harvested_count,
-            "quoteReadyCount": quote_ready_count,
-            "submittedCount": submitted_count,
-            "estimatedProfit": estimated_profit,
-            "backendStatus": backend_status,
-            "mode": mode,
-            "portals": _safe_list(portal_health.get("portals")),
-            "provinceDistribution": count_province_distribution(live_items),
-            "radar": _radar_snapshot(
-                backend_status=backend_status,
-                harvested_count=harvested_count,
-                quote_ready_count=quote_ready_count,
-                lifecycle=lifecycle,
-                portal_radar=portal_radar,
-                portal_health=portal_health,
-                radar_status=radar_status,
-                system_health=system_health,
-            ),
-            "pipelineStages": _pipeline_stages(lifecycle),
-            "lifecycle": lifecycle,
-            "submissionReadiness": _submission_readiness(lifecycle, quote_ready_count, mode, backend_status),
-            "aiScoring": build_mission_control_ai_scoring(live_items),
-        }
+        return _mission_control_snapshot_payload()
     except Exception:
         return _default_snapshot()
+
+
+@router.get("/recommendations")
+def mission_control_recommendations() -> Dict[str, Any]:
+    try:
+        snapshot = _mission_control_snapshot_payload()
+        recommendations = snapshot.get("recommendations")
+        if isinstance(recommendations, dict):
+            return recommendations
+        return build_default_mission_control_recommendations()
+    except Exception:
+        return build_default_mission_control_recommendations()

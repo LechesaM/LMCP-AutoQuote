@@ -1,0 +1,28 @@
+.mission-control-page .quote-intelligence{margin-bottom:8px;padding-bottom:10px}
+.mission-control-page .qi-status{border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);padding:7px 10px;font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+.mission-control-page .qi-status.configured{border-color:rgba(24,230,166,.24);background:rgba(24,230,166,.08);color:#9ff4d9}
+.mission-control-page .qi-status.insufficient_history{border-color:rgba(138,153,171,.24);background:rgba(138,153,171,.08);color:#d6dee7}
+.mission-control-page .qi-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:10px 12px 4px}
+.mission-control-page .qi-tile{display:grid;gap:6px;text-align:left;border-radius:14px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.08);padding:10px;cursor:pointer;color:#eef7ff;transition:transform .16s ease,border-color .16s ease,background .16s ease}
+.mission-control-page .qi-tile:hover{transform:translateY(-1px);border-color:rgba(24,230,166,.28);background:rgba(24,230,166,.08)}
+.mission-control-page .qi-tile.selected{border-color:rgba(24,230,166,.38);background:rgba(24,230,166,.12)}
+.mission-control-page .qi-tile span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9fb2c8}
+.mission-control-page .qi-tile b{display:block;font-size:18px;line-height:1.1}
+.mission-control-page .qi-detail{margin:4px 12px 0;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.035);padding:10px}
+.mission-control-page .qi-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.mission-control-page .qi-detail-eyebrow{display:block;margin-bottom:4px;font-size:10px;text-transform:uppercase;letter-spacing:.16em;color:#8da8bc}
+.mission-control-page .qi-detail-head h3{margin:0;font-size:15px;line-height:1.25}
+.mission-control-page .qi-detail-status{border-radius:999px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#b6c8da;white-space:nowrap}
+.mission-control-page .qi-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mission-control-page .qi-detail-row{border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);padding:9px}
+.mission-control-page .qi-detail-row span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#92a8bd}
+.mission-control-page .qi-detail-row b{display:block;margin-top:5px;font-size:11px;line-height:1.45;color:#dbe6f0}
+
+@media(max-width:1100px){
+  .mission-control-page .qi-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .mission-control-page .qi-detail-grid{grid-template-columns:1fr}
+}
+
+@media(max-width:720px){
+  .mission-control-page .qi-summary-grid{grid-template-columns:1fr}
+}

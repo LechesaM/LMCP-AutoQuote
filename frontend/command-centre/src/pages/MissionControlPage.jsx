@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import MissionControlAiScoringPanel from "../mission-control/components/MissionControlAiScoringPanel.jsx";
+import MissionControlQuoteIntelligencePanel from "../mission-control/components/MissionControlQuoteIntelligencePanel.jsx";
 import BusinessIntelligenceExpansionPackPanel from "../mission-control/components/BusinessIntelligenceExpansionPackPanel.jsx";
 import LiveSubmissionFeedPanel from "../mission-control/components/LiveSubmissionFeedPanel.jsx";
 import "../mission-control/mission-control.css";
 import "../mission-control/mission-control-health.css";
 import "../mission-control/mission-control-trends.css";
+import "../mission-control/mission-control-quote-intelligence.css";
 import { fetchMissionControlSnapshot } from "../mission-control/services/missionControlSnapshot.js";
 import { API_BASE, runAutonomousOnce, updatePolicy } from "../mission-control/services/missionControlApi.js";
 
@@ -278,6 +280,13 @@ export default function MissionControlPage() {
     radar: {},
     pipelineStages: { Harvested: 0, Ready: 0, "Quote Pack": 0, Submitted: 0, Blocked: 0 },
     aiScoring: { status: "not_configured", items: [] },
+    quoteIntelligence: {
+      supplierCoverage: 0,
+      pricingFreshness: 0,
+      awardSignals: 0,
+      competitorSignals: 0,
+      status: "insufficient_history",
+    },
     opportunities: [],
     lifecycle: {},
     lifecycleAnalytics: {},
@@ -384,6 +393,8 @@ export default function MissionControlPage() {
         />
 
         <TrendCardsPanel />
+
+        <MissionControlQuoteIntelligencePanel quoteIntelligence={snapshot.quoteIntelligence || {}} />
 
         <section className="main-grid">
           <div className="card radar">

@@ -10,6 +10,13 @@ const EMPTY_SNAPSHOT = {
     status: "not_configured",
     items: [],
   },
+  quoteIntelligence: {
+    supplierCoverage: 0,
+    pricingFreshness: 0,
+    awardSignals: 0,
+    competitorSignals: 0,
+    status: "insufficient_history",
+  },
 };
 
 const PROVINCES = ["GP", "FS", "KZN", "WC", "EC", "NC", "NW", "MP", "LP"];
@@ -200,6 +207,25 @@ function normalizeAiScoring() {
   };
 }
 
+function normalizeQuoteIntelligence(source) {
+  const quoteIntelligence = source && typeof source === "object" && !Array.isArray(source) ? source : {};
+  const numbers = [
+    quoteIntelligence.supplierCoverage ?? quoteIntelligence.supplier_coverage ?? 0,
+    quoteIntelligence.pricingFreshness ?? quoteIntelligence.pricing_freshness ?? 0,
+    quoteIntelligence.awardSignals ?? quoteIntelligence.award_signals ?? 0,
+    quoteIntelligence.competitorSignals ?? quoteIntelligence.competitor_signals ?? 0,
+  ];
+  const hasData = numbers.some((value) => Number(value || 0) > 0);
+
+  return {
+    supplierCoverage: readCount(quoteIntelligence.supplierCoverage ?? quoteIntelligence.supplier_coverage ?? 0),
+    pricingFreshness: readCount(quoteIntelligence.pricingFreshness ?? quoteIntelligence.pricing_freshness ?? 0),
+    awardSignals: readCount(quoteIntelligence.awardSignals ?? quoteIntelligence.award_signals ?? 0),
+    competitorSignals: readCount(quoteIntelligence.competitorSignals ?? quoteIntelligence.competitor_signals ?? 0),
+    status: stringValue(quoteIntelligence.status || (hasData ? "configured" : "insufficient_history")),
+  };
+}
+
 function normalizeTrend(submissionSummary, submittedCount) {
   return [
     { label: "D", value: readCount(submissionSummary?.today ?? submissionSummary?.daily ?? submissionSummary?.submitted_today ?? Math.min(submittedCount, 4), Math.min(submittedCount, 4)) },
@@ -290,6 +316,7 @@ function normalizeCanonicalSnapshot(snapshot) {
     radar: normalizeCanonicalRadar(snapshot),
     pipelineStages: normalizeCanonicalPipelineStages(snapshot),
     aiScoring: snapshot?.aiScoring && typeof snapshot.aiScoring === "object" ? snapshot.aiScoring : normalizeAiScoring(),
+    quoteIntelligence: normalizeQuoteIntelligence(snapshot?.quoteIntelligence),
     opportunities: [],
     history: [],
     lifecycle,
@@ -411,6 +438,7 @@ async function fetchLegacyMissionControlSnapshot() {
     radar: radarSnapshot,
     pipelineStages,
     aiScoring: normalizeAiScoring(),
+    quoteIntelligence: normalizeQuoteIntelligence(snapshot?.quoteIntelligence),
     opportunities: normalizedOpportunities,
     history: safeArray(submissionHistory),
     summary,

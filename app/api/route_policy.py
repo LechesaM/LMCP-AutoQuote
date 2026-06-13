@@ -47,6 +47,7 @@ READONLY_PATHS = {
     "/operator-assignments",
     "/governance-compliance",
     "/telemetry/dashboard",
+    "/mission-control/ai-scoring",
     "/mission-control/snapshot",
     "/telemetry/operational-health",
     "/telemetry/review-queue",

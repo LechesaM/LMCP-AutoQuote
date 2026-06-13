@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from app.api.mission_control_compat_api import portal_health as get_portal_health_snapshot
 from app.api.mission_control_compat_api import radar_status as get_radar_status_snapshot
 from app.services import submission_analytics_service
+from app.services.mission_control_ai_scoring_service import build_default_ai_scoring, build_mission_control_ai_scoring
 from app.services.live_rfq_store import LiveRFQStore
 from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.portal_radar_service import get_portal_radar_summary
@@ -195,7 +196,7 @@ def _default_snapshot() -> Dict[str, Any]:
         "pipelineStages": {"Harvested": 0, "Ready": 0, "Quote Pack": 0, "Submitted": 0, "Blocked": 0},
         "lifecycle": {},
         "submissionReadiness": {},
-        "aiScoring": {"status": "not_configured", "items": []},
+        "aiScoring": build_default_ai_scoring(),
     }
 
 
@@ -241,7 +242,7 @@ def mission_control_snapshot() -> Dict[str, Any]:
             "pipelineStages": _pipeline_stages(lifecycle),
             "lifecycle": lifecycle,
             "submissionReadiness": _submission_readiness(lifecycle, quote_ready_count, mode, backend_status),
-            "aiScoring": {"status": "not_configured", "items": []},
+            "aiScoring": build_mission_control_ai_scoring(live_items),
         }
     except Exception:
         return _default_snapshot()

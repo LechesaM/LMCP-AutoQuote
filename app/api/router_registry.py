@@ -134,6 +134,7 @@ _ALL_ROUTER_SPECS: Tuple[RouterSpec, ...] = (
     RouterSpec("etenders_download_replay_reconstruction_v50_9_8_router", "app.api.etenders_download_replay_reconstruction_v50_9_8_api"),
     RouterSpec("etenders_runtime_download_interceptor_v50_9_9_router", "app.api.etenders_runtime_download_interceptor_v50_9_9_api"),
     RouterSpec("etenders_tender_download_correlation_v50_9_10_router", "app.api.etenders_tender_download_correlation_v50_9_10_api"),
+    RouterSpec("mission_control_ai_scoring_router", "app.api.mission_control_ai_scoring_api"),
     RouterSpec("mission_control_snapshot_router", "app.api.mission_control_snapshot_api"),
     RouterSpec("mission_control_compat_router", "app.api.mission_control_compat_api"),
 )

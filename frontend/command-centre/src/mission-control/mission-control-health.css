@@ -1,0 +1,13 @@
+.mission-control-page .snapshot-health{margin-bottom:8px;padding-bottom:10px}
+.mission-control-page .snapshot-health-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:10px 12px 4px}
+.mission-control-page .snapshot-health-footer{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:0 12px 10px;font-size:10px;color:#b6c8da}
+.mission-control-page .snapshot-health-footer div{border-radius:10px;background:rgba(255,255,255,.045);padding:7px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+@media(max-width:1100px){
+  .mission-control-page .snapshot-health-grid{grid-template-columns:repeat(2,1fr)}
+}
+
+@media(max-width:720px){
+  .mission-control-page .snapshot-health-grid,
+  .mission-control-page .snapshot-health-footer{grid-template-columns:1fr}
+}

@@ -4,6 +4,7 @@ import MissionControlAiScoringPanel from "../mission-control/components/MissionC
 import BusinessIntelligenceExpansionPackPanel from "../mission-control/components/BusinessIntelligenceExpansionPackPanel.jsx";
 import LiveSubmissionFeedPanel from "../mission-control/components/LiveSubmissionFeedPanel.jsx";
 import "../mission-control/mission-control.css";
+import "../mission-control/mission-control-health.css";
 import { fetchMissionControlSnapshot } from "../mission-control/services/missionControlSnapshot.js";
 import { API_BASE, runAutonomousOnce, updatePolicy } from "../mission-control/services/missionControlApi.js";
 
@@ -44,6 +45,31 @@ function compact(value) {
   return String(Math.round(n));
 }
 
+function formatDuration(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1000) return `${Math.round(n)}ms`;
+  return `${(n / 1000).toFixed(1)}s`;
+}
+
+function formatAge(from, to = new Date()) {
+  const start = from ? new Date(from) : null;
+  if (!start || Number.isNaN(start.getTime())) return "—";
+  const diff = Math.max(0, to.getTime() - start.getTime());
+  if (diff < 1000) return "just now";
+  if (diff < 60 * 1000) return `${Math.round(diff / 1000)}s ago`;
+  if (diff < 60 * 60 * 1000) return `${Math.round(diff / 60000)}m ago`;
+  return `${(diff / 3600000).toFixed(1)}h ago`;
+}
+
+function freshnessLabel(ageMs) {
+  const n = Number(ageMs);
+  if (!Number.isFinite(n)) return "unknown";
+  if (n < 60000) return "fresh";
+  if (n < 300000) return "warm";
+  return "stale";
+}
+
 function MiniBars({ data = [] }) {
   const max = Math.max(1, ...data.map((d) => Number(d.value || 0)));
   return <div className="mini-bars">{data.map((d, i) => <span key={i} title={`${d.label}: ${d.value}`} style={{ height: `${18 + (Number(d.value || 0) / max) * 54}px` }} />)}</div>;
@@ -56,6 +82,34 @@ function Donut({ percent = 0, label }) {
 
 function Stat({ label, value, tone = "" }) {
   return <div className={`stat ${tone}`}><span>{label}</span><b>{value}</b></div>;
+}
+
+function SnapshotHealthPanel({ snapshot, lastUpdated, loadDurationMs, backendStatus, systemOn }) {
+  const snapshotGeneratedAt = snapshot?.generatedAt || snapshot?.radar?.generatedAt || snapshot?.radar?.generated_at || null;
+  const backendDependencyStatus = String(snapshot?.health?.status || snapshot?.radar?.backendStatus || backendStatus || "unknown");
+  const snapshotAgeSource = snapshotGeneratedAt || lastUpdated;
+  const snapshotAgeMs = snapshotAgeSource ? Math.max(0, Date.now() - new Date(snapshotAgeSource).getTime()) : NaN;
+  const freshness = freshnessLabel(snapshotAgeMs);
+
+  return (
+    <section className="snapshot-health card">
+      <div className="card-head">
+        <h2>Snapshot Health</h2>
+        <span>{freshness}</span>
+      </div>
+      <div className="snapshot-health-grid">
+        <Stat label="Snapshot Age" value={formatAge(snapshotAgeSource)} tone={freshness === "fresh" ? "good" : freshness === "warm" ? "gold" : "bad"} />
+        <Stat label="Response Time" value={formatDuration(loadDurationMs)} tone="blue" />
+        <Stat label="Data Freshness" value={freshness} tone={freshness === "fresh" ? "good" : freshness === "warm" ? "gold" : "bad"} />
+        <Stat label="Backend Dependency" value={backendDependencyStatus} tone={backendDependencyStatus === "healthy" || backendDependencyStatus === "ok" ? "good" : "bad"} />
+      </div>
+      <div className="snapshot-health-footer">
+        <div><b>Fetched:</b> {lastUpdated ? lastUpdated.toLocaleTimeString() : "loading"}</div>
+        <div><b>Generated:</b> {snapshotGeneratedAt ? new Date(snapshotGeneratedAt).toLocaleTimeString() : "unknown"}</div>
+        <div><b>System:</b> {systemOn ? "on" : "off"}</div>
+      </div>
+    </section>
+  );
 }
 
 function SparkLine({ values = [] }) {
@@ -160,12 +214,13 @@ function LifecyclePanel({ lifecycle = {}, analytics = {}, telemetry = {} }) {
 }
 
 export default function MissionControlPage() {
-  const [state, setState] = useState({ snapshot: null, loading: true, lastUpdated: null });
+  const [state, setState] = useState({ snapshot: null, loading: true, lastUpdated: null, loadDurationMs: null });
   const [busy, setBusy] = useState(false);
 
   async function load() {
+    const started = Date.now();
     const snapshot = await fetchMissionControlSnapshot();
-    setState({ snapshot, loading: false, lastUpdated: new Date() });
+    setState({ snapshot, loading: false, lastUpdated: new Date(), loadDurationMs: Date.now() - started });
   }
 
   useEffect(() => {
@@ -277,6 +332,14 @@ export default function MissionControlPage() {
             ))}
           </div>
         </section>
+
+        <SnapshotHealthPanel
+          snapshot={snapshot}
+          lastUpdated={state.lastUpdated}
+          loadDurationMs={state.loadDurationMs}
+          backendStatus={backendStatus}
+          systemOn={systemOn}
+        />
 
         <section className="main-grid">
           <div className="card radar">

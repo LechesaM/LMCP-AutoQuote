@@ -10,12 +10,18 @@
 .mission-control-page .ai-top-list{padding:4px 12px 12px}
 .mission-control-page .ai-top-head{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px;font-size:10px;color:#92a8bd;text-transform:uppercase;letter-spacing:.08em}
 .mission-control-page .ai-top-head span:last-child{text-transform:none;letter-spacing:0}
+.mission-control-page .ai-drilldown-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(320px,.9fr);gap:8px;align-items:start;padding:4px 12px 12px}
+.mission-control-page .ai-top-list{padding:0}
 .mission-control-page .ai-table-wrap{overflow:auto;border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
 .mission-control-page .ai-table{width:100%;border-collapse:collapse;font-size:11px}
 .mission-control-page .ai-table th,.mission-control-page .ai-table td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top}
 .mission-control-page .ai-table th{color:#8ba4bb;font-size:10px;text-transform:uppercase;letter-spacing:.08em}
 .mission-control-page .ai-table td strong{display:block;font-size:11px;color:#eef7ff;line-height:1.35}
 .mission-control-page .ai-table td small{display:block;margin-top:4px;color:#91a9bf;font-size:10px;line-height:1.35}
+.mission-control-page .ai-table tbody tr{cursor:pointer;transition:background .15s ease,transform .15s ease}
+.mission-control-page .ai-table tbody tr:hover{background:rgba(24,230,166,.06)}
+.mission-control-page .ai-table tbody tr:focus-visible{outline:2px solid rgba(24,230,166,.5);outline-offset:-2px}
+.mission-control-page .ai-table tbody tr.selected{background:rgba(24,230,166,.09)}
 .mission-control-page .ai-table td:nth-child(2),.mission-control-page .ai-table td:nth-child(3){white-space:nowrap}
 .mission-control-page .ai-chip{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;border:1px solid rgba(255,255,255,.1);padding:5px 8px;font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.08em}
 .mission-control-page .ai-chip.good{border-color:rgba(24,230,166,.24);background:rgba(24,230,166,.08);color:#9ff4d9}
@@ -23,11 +29,29 @@
 .mission-control-page .ai-chip.gold{border-color:rgba(255,211,106,.24);background:rgba(255,211,106,.08);color:#ffe39c}
 .mission-control-page .ai-chip.bad{border-color:rgba(255,112,112,.24);background:rgba(255,112,112,.08);color:#ffc4c4}
 .mission-control-page .ai-empty{padding:14px 12px 12px;color:#9fb2c8;font-size:11px}
+.mission-control-page .ai-empty-detail{min-height:180px;display:grid;place-items:center;text-align:center;border-radius:14px;border:1px dashed rgba(255,255,255,.1);background:rgba(255,255,255,.03)}
+.mission-control-page .ai-detail-card{border-radius:14px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.04);padding:12px;min-height:100%;box-shadow:0 14px 32px rgba(0,0,0,.18)}
+.mission-control-page .ai-detail-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.mission-control-page .ai-detail-eyebrow{display:block;margin-bottom:4px;font-size:10px;text-transform:uppercase;letter-spacing:.16em;color:#8da8bc}
+.mission-control-page .ai-detail-head h3{margin:0;font-size:15px;line-height:1.25}
+.mission-control-page .ai-detail-body{display:grid;gap:10px}
+.mission-control-page .ai-detail-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mission-control-page .ai-detail-meta div,.mission-control-page .ai-detail-metrics div,.mission-control-page .ai-detail-section{border-radius:12px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);padding:9px}
+.mission-control-page .ai-detail-meta span,.mission-control-page .ai-detail-metrics span{display:block;font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#92a8bd}
+.mission-control-page .ai-detail-meta b,.mission-control-page .ai-detail-metrics b{display:block;margin-top:5px;font-size:12px;line-height:1.35;color:#eef7ff}
+.mission-control-page .ai-detail-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.mission-control-page .ai-detail-section h4{margin:0 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:#8da8bc}
+.mission-control-page .ai-detail-section p,.mission-control-page .ai-detail-section li{margin:0;color:#dbe6f0;font-size:11px;line-height:1.45}
+.mission-control-page .ai-detail-section ul{margin:0;padding-left:16px;display:grid;gap:5px}
 .mission-control-page .ai-scoring .card-head{padding-bottom:0}
 .mission-control-page .ai-scoring .card-head div{min-width:0}
 .mission-control-page .ai-scoring .card-head span{display:inline-flex;align-items:center;flex:0 0 auto}
 @media(max-width:1100px){
   .mission-control-page .ai-summary-grid{grid-template-columns:1fr}
   .mission-control-page .ai-top-head{flex-direction:column}
+  .mission-control-page .ai-drilldown-grid{grid-template-columns:1fr}
   .mission-control-page .ai-table td:nth-child(2),.mission-control-page .ai-table td:nth-child(3){white-space:normal}
+}
+@media(max-width:720px){
+  .mission-control-page .ai-detail-meta,.mission-control-page .ai-detail-metrics{grid-template-columns:1fr}
 }

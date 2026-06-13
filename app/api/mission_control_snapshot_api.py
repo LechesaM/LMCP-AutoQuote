@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List
 
@@ -12,9 +11,9 @@ from app.services import submission_analytics_service
 from app.services.live_rfq_store import LiveRFQStore
 from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.portal_radar_service import get_portal_radar_summary
+from app.services.province_enrichment import count_province_distribution, infer_province_code, infer_province_name
 from app.services.submission_package_service import evaluate_submission_gate
 from app.services.system_control_service import SystemControlService
-from app.services.tender_scoring import detect_province
 from app.monitoring.health_service import get_system_health
 
 router = APIRouter(prefix="/mission-control", tags=["Mission Control"])
@@ -71,26 +70,17 @@ def _extract_live_rfq_items() -> List[Dict[str, Any]]:
     return [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
 
 
-def _province_distribution(items: Iterable[Dict[str, Any]]) -> Dict[str, int]:
-    counts = Counter({province: 0 for province in PROVINCES})
+def _enrich_live_items(items: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    enriched: List[Dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        fields = [
-            item.get("province"),
-            item.get("buyer_province"),
-            item.get("location"),
-            item.get("region"),
-            item.get("buyer"),
-            item.get("buyer_name"),
-            item.get("department"),
-            item.get("title"),
-            item.get("description"),
-        ]
-        code = detect_province(" ".join(_safe_str(field) for field in fields if _safe_str(field)))
-        if code in counts:
-            counts[code] += 1
-    return dict(counts)
+        row = dict(item)
+        province_name = infer_province_name(row)
+        row["province"] = province_name or "Unknown"
+        row["province_code"] = infer_province_code(row) or ""
+        enriched.append(row)
+    return enriched
 
 
 def _pipeline_stages(lifecycle: Dict[str, Any]) -> Dict[str, int]:
@@ -220,7 +210,7 @@ def mission_control_snapshot() -> Dict[str, Any]:
         portal_health = get_portal_health_snapshot()
         portal_radar = get_portal_radar_summary()
         radar_status = get_radar_status_snapshot()
-        live_items = _extract_live_rfq_items()
+        live_items = _enrich_live_items(_extract_live_rfq_items())
 
         harvested_count = _safe_int(lifecycle.get("total_rfqs"))
         quote_ready_count = _quote_ready_count(lifecycle)
@@ -237,7 +227,7 @@ def mission_control_snapshot() -> Dict[str, Any]:
             "backendStatus": backend_status,
             "mode": mode,
             "portals": _safe_list(portal_health.get("portals")),
-            "provinceDistribution": _province_distribution(live_items),
+            "provinceDistribution": count_province_distribution(live_items),
             "radar": _radar_snapshot(
                 backend_status=backend_status,
                 harvested_count=harvested_count,

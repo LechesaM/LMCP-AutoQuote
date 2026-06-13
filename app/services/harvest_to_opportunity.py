@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
+from app.services.province_enrichment import infer_province_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -444,34 +446,7 @@ def infer_submission_method(item: Dict[str, Any]) -> str:
 
 
 def infer_province(item: Dict[str, Any]) -> str:
-    text = " ".join(
-        [
-            str(item.get("province") or ""),
-            str(item.get("location") or ""),
-            str(item.get("address") or ""),
-            str(item.get("description") or ""),
-        ]
-    ).lower()
-
-    provinces = {
-        "eastern cape": "Eastern Cape",
-        "free state": "Free State",
-        "gauteng": "Gauteng",
-        "kwazulu-natal": "KwaZulu-Natal",
-        "kwa-zulu natal": "KwaZulu-Natal",
-        "kzn": "KwaZulu-Natal",
-        "limpopo": "Limpopo",
-        "mpumalanga": "Mpumalanga",
-        "north west": "North West",
-        "northern cape": "Northern Cape",
-        "western cape": "Western Cape",
-    }
-
-    for needle, proper in provinces.items():
-        if needle in text:
-            return proper
-
-    return ""
+    return infer_province_name(item)
 
 
 def infer_city(item: Dict[str, Any]) -> str:

@@ -22,6 +22,26 @@ const EMPTY_SNAPSHOT = {
     generatedAt: "",
     items: [],
   },
+  trends: {
+    status: "insufficient_history",
+    generatedAt: "",
+    windows: {
+      "7d": {
+        status: "insufficient_history",
+        rfqsHarvested: { status: "insufficient_history" },
+        quotesSubmitted: { status: "insufficient_history" },
+        estimatedProfit: { status: "insufficient_history" },
+        provinceActivity: { status: "insufficient_history" },
+      },
+      "30d": {
+        status: "insufficient_history",
+        rfqsHarvested: { status: "insufficient_history" },
+        quotesSubmitted: { status: "insufficient_history" },
+        estimatedProfit: { status: "insufficient_history" },
+        provinceActivity: { status: "insufficient_history" },
+      },
+    },
+  },
 };
 
 const PROVINCES = ["GP", "FS", "KZN", "WC", "EC", "NC", "NW", "MP", "LP"];
@@ -221,6 +241,44 @@ function normalizeRecommendations(source) {
   };
 }
 
+function normalizeTrendMetric(source) {
+  const metric = source && typeof source === "object" && !Array.isArray(source) ? source : {};
+  const status = stringValue(metric.status || "configured");
+  if (status !== "configured") {
+    return { status: "insufficient_history" };
+  }
+  return {
+    status,
+    current: readCount(metric.current ?? 0),
+    previous: readCount(metric.previous ?? 0),
+    change: readCount(metric.change ?? 0),
+    direction: stringValue(metric.direction || "flat"),
+  };
+}
+
+function normalizeTrendWindow(source) {
+  const window = source && typeof source === "object" && !Array.isArray(source) ? source : {};
+  return {
+    status: stringValue(window.status || "insufficient_history"),
+    rfqsHarvested: normalizeTrendMetric(window.rfqsHarvested),
+    quotesSubmitted: normalizeTrendMetric(window.quotesSubmitted),
+    estimatedProfit: normalizeTrendMetric(window.estimatedProfit),
+    provinceActivity: normalizeTrendMetric(window.provinceActivity),
+  };
+}
+
+function normalizeTrends(source) {
+  const trends = source && typeof source === "object" && !Array.isArray(source) ? source : {};
+  return {
+    status: stringValue(trends.status || "insufficient_history"),
+    generatedAt: stringValue(trends.generatedAt || trends.generated_at || ""),
+    windows: {
+      "7d": normalizeTrendWindow(trends.windows?.["7d"]),
+      "30d": normalizeTrendWindow(trends.windows?.["30d"]),
+    },
+  };
+}
+
 function normalizeQuoteIntelligence(source) {
   const quoteIntelligence = source && typeof source === "object" && !Array.isArray(source) ? source : {};
   const numbers = [
@@ -331,7 +389,8 @@ function normalizeCanonicalSnapshot(snapshot) {
     pipelineStages: normalizeCanonicalPipelineStages(snapshot),
     aiScoring: snapshot?.aiScoring && typeof snapshot.aiScoring === "object" ? snapshot.aiScoring : normalizeAiScoring(),
     quoteIntelligence: normalizeQuoteIntelligence(snapshot?.quoteIntelligence),
-    recommendations: normalizeRecommendations({}),
+    recommendations: normalizeRecommendations(snapshot?.recommendations),
+    trends: normalizeTrends(snapshot?.trends),
     opportunities: [],
     history: [],
     lifecycle,
@@ -454,7 +513,8 @@ async function fetchLegacyMissionControlSnapshot() {
     pipelineStages,
     aiScoring: normalizeAiScoring(),
     quoteIntelligence: normalizeQuoteIntelligence({}),
-    recommendations: normalizeRecommendations(snapshot?.recommendations),
+    recommendations: normalizeRecommendations({}),
+    trends: normalizeTrends({}),
     opportunities: normalizedOpportunities,
     history: safeArray(submissionHistory),
     summary,

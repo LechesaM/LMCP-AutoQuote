@@ -115,33 +115,48 @@ function SnapshotHealthPanel({ snapshot, lastUpdated, loadDurationMs, backendSta
   );
 }
 
-function TrendCardsPanel() {
+function trendMetricLabel(metric, key) {
+  if (!metric || metric.status !== "configured") {
+    return "insufficient_history";
+  }
+
+  const current = key === "profit" ? money(metric.current ?? 0) : compact(metric.current ?? 0);
+  const previous = key === "profit" ? money(metric.previous ?? 0) : compact(metric.previous ?? 0);
+  const change = Number(metric.change ?? 0);
+  const sign = change > 0 ? "+" : "";
+
+  return `${current} vs ${previous} (${sign}${change.toFixed(1)}%) ${metric.direction || "flat"}`;
+}
+
+function TrendCardsPanel({ trends = {} }) {
+  const windowData = trends.windows || {};
   const metrics = [
     { label: "RFQs harvested", short: "harvested" },
     { label: "Quotes submitted", short: "submitted" },
     { label: "Estimated profit", short: "profit" },
     { label: "Province activity", short: "province" },
   ];
-  const windows = ["7-day", "30-day"];
+  const windowLabels = ["7-day", "30-day"];
+  const windowKeys = ["7d", "30d"];
 
   return (
     <section className="trend-cards card">
       <div className="card-head">
         <h2>Trend Cards</h2>
-        <span>History not yet available</span>
+        <span>{trends.status === "configured" ? "History available" : "History not yet available"}</span>
       </div>
       <div className="trend-cards-grid">
         {metrics.map((metric) => (
           <div key={metric.short} className="trend-card">
             <div className="trend-card-head">
               <strong>{metric.label}</strong>
-              <span>status: insufficient_history</span>
+              <span>{windowData["7d"]?.status === "configured" || windowData["30d"]?.status === "configured" ? "configured" : "status: insufficient_history"}</span>
             </div>
             <div className="trend-card-window-grid">
-              {windows.map((window) => (
-                <div key={`${metric.short}-${window}`} className="trend-card-window">
-                  <span>{window}</span>
-                  <b>insufficient_history</b>
+              {windowKeys.map((windowKey, index) => (
+                <div key={`${metric.short}-${windowKey}`} className="trend-card-window">
+                  <span>{windowLabels[index]}</span>
+                  <b>{trendMetricLabel(windowData[windowKey]?.[metric.short === "harvested" ? "rfqsHarvested" : metric.short === "submitted" ? "quotesSubmitted" : metric.short === "profit" ? "estimatedProfit" : "provinceActivity"], metric.short)}</b>
                 </div>
               ))}
             </div>
@@ -149,8 +164,8 @@ function TrendCardsPanel() {
         ))}
       </div>
       <div className="trend-cards-footer">
-        <div><b>7-day:</b> waiting for reliable snapshot history</div>
-        <div><b>30-day:</b> waiting for reliable snapshot history</div>
+        <div><b>7-day:</b> {windowData["7d"]?.status === "configured" ? "computed from daily snapshots" : "waiting for reliable snapshot history"}</div>
+        <div><b>30-day:</b> {windowData["30d"]?.status === "configured" ? "computed from daily snapshots" : "waiting for reliable snapshot history"}</div>
       </div>
     </section>
   );
@@ -340,6 +355,26 @@ export default function MissionControlPage() {
       generatedAt: "",
       items: [],
     },
+    trends: {
+      status: "insufficient_history",
+      generatedAt: "",
+      windows: {
+        "7d": {
+          status: "insufficient_history",
+          rfqsHarvested: { status: "insufficient_history" },
+          quotesSubmitted: { status: "insufficient_history" },
+          estimatedProfit: { status: "insufficient_history" },
+          provinceActivity: { status: "insufficient_history" },
+        },
+        "30d": {
+          status: "insufficient_history",
+          rfqsHarvested: { status: "insufficient_history" },
+          quotesSubmitted: { status: "insufficient_history" },
+          estimatedProfit: { status: "insufficient_history" },
+          provinceActivity: { status: "insufficient_history" },
+        },
+      },
+    },
     opportunities: [],
     lifecycle: {},
     lifecycleAnalytics: {},
@@ -445,7 +480,7 @@ export default function MissionControlPage() {
           systemOn={systemOn}
         />
 
-        <TrendCardsPanel />
+        <TrendCardsPanel trends={snapshot.trends || {}} />
 
         <MissionControlQuoteIntelligencePanel quoteIntelligence={snapshot.quoteIntelligence || {}} />
 

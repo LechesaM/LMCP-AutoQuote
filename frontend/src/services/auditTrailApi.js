@@ -1,5 +1,5 @@
 const API_BASE =
-  (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+  (import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8011").replace(/\/$/, "");
 
 async function requestJson(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {

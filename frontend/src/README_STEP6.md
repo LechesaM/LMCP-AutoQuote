@@ -30,7 +30,7 @@ The component is built to call these endpoints:
 Set this in your frontend `.env` file:
 
 ```env
-VITE_API_BASE_URL=http://127.0.0.1:8000
+VITE_API_BASE_URL=http://127.0.0.1:8011
 ```
 
 ## Fast install

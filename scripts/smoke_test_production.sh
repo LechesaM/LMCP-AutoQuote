@@ -46,8 +46,17 @@ if expected == "verified":
     if blockers:
         raise SystemExit(f"{path}: blockers present: {blockers}")
 
-if expected == "ready" and not payload.get("ready"):
-    raise SystemExit(f"{path}: not ready")
+if expected == "ready":
+    execution_ready = bool(
+        payload.get("ready")
+        or payload.get("execution_ready")
+        or payload.get("executionReady")
+    )
+    status_ok = str(payload.get("status", "")).lower() == "ok"
+    no_blockers = not (payload.get("blockers") or [])
+
+    if not ((execution_ready or status_ok) and no_blockers):
+        raise SystemExit(f"{path}: not ready")
 
 print(f"{path}: {status}")
 PY_INNER

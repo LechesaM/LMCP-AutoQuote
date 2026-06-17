@@ -19,10 +19,23 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ensure_storage() -> None:
-    _HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-    if not _HISTORY_FILE.exists():
-        _HISTORY_FILE.write_text("[]", encoding="utf-8")
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(_RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
+def _ensure_storage(runtime_dir: Optional[str] = None) -> None:
+    history_dir = _resolve_runtime_path(_HISTORY_DIR, runtime_dir)
+    history_file = _resolve_runtime_path(_HISTORY_FILE, runtime_dir)
+    history_dir.mkdir(parents=True, exist_ok=True)
+    if not history_file.exists():
+        history_file.write_text("[]", encoding="utf-8")
 
 
 def _safe_list(value: Any) -> List[Any]:
@@ -35,6 +48,10 @@ def _safe_list(value: Any) -> List[Any]:
 
 def _safe_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _safe_list(value: Any) -> List[Any]:
+    return value if isinstance(value, list) else []
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -127,10 +144,11 @@ def _extract_financials_from_sources(*sources: Any) -> Dict[str, float]:
     }
 
 
-def _read_all() -> List[Dict[str, Any]]:
-    _ensure_storage()
+def _read_all(runtime_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+    _ensure_storage(runtime_dir)
     try:
-        raw = _HISTORY_FILE.read_text(encoding="utf-8").strip()
+        history_file = _resolve_runtime_path(_HISTORY_FILE, runtime_dir)
+        raw = history_file.read_text(encoding="utf-8").strip()
         if not raw:
             return []
         data = json.loads(raw)
@@ -141,9 +159,10 @@ def _read_all() -> List[Dict[str, Any]]:
         return []
 
 
-def _write_all(records: List[Dict[str, Any]]) -> None:
-    _ensure_storage()
-    _HISTORY_FILE.write_text(
+def _write_all(records: List[Dict[str, Any]], runtime_dir: Optional[str] = None) -> None:
+    _ensure_storage(runtime_dir)
+    history_file = _resolve_runtime_path(_HISTORY_FILE, runtime_dir)
+    history_file.write_text(
         json.dumps(records, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
@@ -152,6 +171,52 @@ def _write_all(records: List[Dict[str, Any]]) -> None:
 def _normalize_submission_record(payload: Dict[str, Any]) -> Dict[str, Any]:
     raw_result = _safe_dict(payload.get("raw_result"))
     metadata = _safe_dict(payload.get("metadata"))
+    proof_artifacts = _safe_dict(payload.get("proof_artifacts"))
+
+    submission_method = str(payload.get("submission_method") or raw_result.get("submission_method") or metadata.get("submission_method") or "").strip()
+    submission_channel = str(
+        payload.get("submission_channel")
+        or raw_result.get("submission_channel")
+        or metadata.get("submission_channel")
+        or submission_method
+        or ""
+    ).strip()
+    proof_path = str(
+        payload.get("proof_path")
+        or raw_result.get("proof_path")
+        or metadata.get("proof_path")
+        or proof_artifacts.get("receipt_pdf_path")
+        or ""
+    ).strip()
+    receipt_text = str(
+        payload.get("receipt_text")
+        or raw_result.get("receipt_text")
+        or metadata.get("receipt_text")
+        or ""
+    ).strip()
+    receipt_timestamp = str(
+        payload.get("receipt_timestamp")
+        or raw_result.get("receipt_timestamp")
+        or metadata.get("receipt_timestamp")
+        or payload.get("updated_at")
+        or _utc_now_iso()
+    ).strip()
+    buyer_confirmation_reference = str(
+        payload.get("buyer_confirmation_reference")
+        or raw_result.get("buyer_confirmation_reference")
+        or metadata.get("buyer_confirmation_reference")
+        or raw_result.get("message_id")
+        or ""
+    ).strip()
+    submitted_files = [
+        str(x).strip()
+        for x in _safe_list(
+            payload.get("submitted_files")
+            or raw_result.get("submitted_files")
+            or metadata.get("submitted_files")
+        )
+        if str(x).strip()
+    ]
 
     financials = _extract_financials_from_sources(
         payload,
@@ -187,41 +252,50 @@ def _normalize_submission_record(payload: Dict[str, Any]) -> Dict[str, Any]:
         "quote_number": str(payload.get("quote_number") or "").strip(),
         "title": str(payload.get("title") or "").strip(),
         "submission_method": str(payload.get("submission_method") or "").strip(),
+        "submission_channel": submission_channel,
         "recipient_email": str(payload.get("recipient_email") or "").strip(),
         "portal_name": str(payload.get("portal_name") or "").strip(),
         "status": str(payload.get("status") or "unknown").strip(),
         "status_message": str(payload.get("status_message") or "").strip(),
         "document_path": str(payload.get("document_path") or "").strip(),
-        "proof_path": str(payload.get("proof_path") or "").strip(),
+        "proof_path": proof_path,
+        "buyer_confirmation_reference": buyer_confirmation_reference,
+        "receipt_text": receipt_text,
+        "receipt_timestamp": receipt_timestamp,
+        "submitted_files": submitted_files,
         "submission_log_path": str(payload.get("submission_log_path") or "").strip(),
         "attachments": [str(x) for x in _safe_list(payload.get("attachments")) if str(x).strip()],
         "artifacts": [str(x) for x in _safe_list(payload.get("artifacts")) if str(x).strip()],
         "source": str(payload.get("source") or "").strip(),
         "submitted_by": str(payload.get("submitted_by") or "system").strip(),
         "retry_count": int(payload.get("retry_count") or 0),
+        "submission_proof_directory": str(payload.get("submission_proof_directory") or proof_artifacts.get("proof_directory") or "").strip(),
+        "submission_receipt_json_path": str(payload.get("submission_receipt_json_path") or proof_artifacts.get("receipt_json_path") or "").strip(),
+        "submission_receipt_txt_path": str(payload.get("submission_receipt_txt_path") or proof_artifacts.get("receipt_txt_path") or "").strip(),
+        "submission_receipt_pdf_path": str(payload.get("submission_receipt_pdf_path") or proof_artifacts.get("receipt_pdf_path") or "").strip(),
         "raw_result": raw_result,
         "metadata": metadata,
     }
 
 
-def log_submission_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+def log_submission_event(payload: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     record = _normalize_submission_record(payload)
 
     with _LOCK:
-        records = _read_all()
+        records = _read_all(runtime_dir=runtime_dir)
         records.insert(0, record)
-        _write_all(records)
+        _write_all(records, runtime_dir=runtime_dir)
 
     return record
 
 
-def update_submission_event(history_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def update_submission_event(history_id: str, updates: Dict[str, Any], runtime_dir: Optional[str] = None) -> Optional[Dict[str, Any]]:
     history_id = str(history_id or "").strip()
     if not history_id:
         return None
 
     with _LOCK:
-        records = _read_all()
+        records = _read_all(runtime_dir=runtime_dir)
         for idx, record in enumerate(records):
             if str(record.get("id")) == history_id:
                 merged = dict(record)
@@ -236,18 +310,18 @@ def update_submission_event(history_id: str, updates: Dict[str, Any]) -> Optiona
                 normalized["updated_at"] = _utc_now_iso()
 
                 records[idx] = normalized
-                _write_all(records)
+                _write_all(records, runtime_dir=runtime_dir)
                 return normalized
 
     return None
 
 
-def get_submission_history_item(history_id: str) -> Optional[Dict[str, Any]]:
+def get_submission_history_item(history_id: str, runtime_dir: Optional[str] = None) -> Optional[Dict[str, Any]]:
     history_id = str(history_id or "").strip()
     if not history_id:
         return None
 
-    for record in _read_all():
+    for record in _read_all(runtime_dir=runtime_dir):
         if str(record.get("id")) == history_id:
             return record
     return None
@@ -262,8 +336,9 @@ def list_submission_history(
     submission_method: Optional[str] = None,
     limit: int = 100,
     offset: int = 0,
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    records = _read_all()
+    records = _read_all(runtime_dir=runtime_dir)
 
     def _matches(record: Dict[str, Any]) -> bool:
         if status and str(record.get("status") or "").lower() != status.lower():
@@ -293,8 +368,8 @@ def list_submission_history(
     }
 
 
-def get_submission_summary() -> Dict[str, Any]:
-    records = _read_all()
+def get_submission_summary(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    records = _read_all(runtime_dir=runtime_dir)
 
     summary = {
         "total": len(records),
@@ -304,7 +379,7 @@ def get_submission_summary() -> Dict[str, Any]:
         "queued": 0,
         "unknown": 0,
         "recent": records[:10],
-        "history_file": str(_HISTORY_FILE),
+        "history_file": str(_resolve_runtime_path(_HISTORY_FILE, runtime_dir)),
     }
 
     for record in records:
@@ -317,32 +392,33 @@ def get_submission_summary() -> Dict[str, Any]:
     return summary
 
 
-def get_submission_history_by_rfq(buyer_rfq_number: str) -> List[Dict[str, Any]]:
+def get_submission_history_by_rfq(buyer_rfq_number: str, runtime_dir: Optional[str] = None) -> List[Dict[str, Any]]:
     target = str(buyer_rfq_number or "").strip().lower()
     if not target:
         return []
 
     return [
         r
-        for r in _read_all()
+        for r in _read_all(runtime_dir=runtime_dir)
         if str(r.get("buyer_rfq_number") or "").strip().lower() == target
     ]
 
 
 
 
-def search_submission_history_by_buyer_rfq(buyer_rfq_number: str) -> Optional[Dict[str, Any]]:
+def search_submission_history_by_buyer_rfq(buyer_rfq_number: str, runtime_dir: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     Returns the most recent record for an RFQ, or None.
     Added for Channel 2 duplicate-submission prevention compatibility.
     """
-    items = get_submission_history_by_rfq(buyer_rfq_number)
+    items = get_submission_history_by_rfq(buyer_rfq_number, runtime_dir=runtime_dir)
     return items[0] if items else None
 
 
 def has_recent_submission_retry_lock(
     buyer_rfq_number: str,
     statuses: Optional[List[str]] = None,
+    runtime_dir: Optional[str] = None,
 ) -> bool:
     """
     Simple retry lock:
@@ -350,11 +426,9 @@ def has_recent_submission_retry_lock(
     treat it as locked against blind retry.
     """
     statuses = statuses or ["queued", "submitted", "manual_action_required"]
-    latest = search_submission_history_by_buyer_rfq(buyer_rfq_number)
+    latest = search_submission_history_by_buyer_rfq(buyer_rfq_number, runtime_dir=runtime_dir)
     if not latest:
         return False
     return str(latest.get("status") or "").strip().lower() in {
         s.strip().lower() for s in statuses
     }
-
-

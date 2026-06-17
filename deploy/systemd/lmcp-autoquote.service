@@ -1,0 +1,19 @@
+[Unit]
+Description=LMCP AutoQuote production stack
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/LMCP-AutoQuote
+Environment=LMCP_USE_DOCKER=1
+Environment=LMCP_TLS_CERT_DIR=/opt/LMCP-AutoQuote/runtime/certs
+ExecStart=/opt/LMCP-AutoQuote/scripts/ops/production_start.sh
+ExecStop=/usr/bin/docker compose --env-file /opt/LMCP-AutoQuote/.env.production -f /opt/LMCP-AutoQuote/docker-compose.production.yml down
+TimeoutStartSec=0
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -37,6 +37,9 @@ def operator_auth_login(payload: Optional[Dict[str, Any]] = Body(default=None)) 
     except OperatorAuthError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     token = result.pop("session_token", "")
+    if token:
+        result["access_token"] = token
+        result["token"] = token
     response = JSONResponse(content=result)
     if token:
         apply_login_cookie(response, {"_session_token": token})

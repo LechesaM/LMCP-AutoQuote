@@ -1,0 +1,457 @@
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import (
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+
+
+RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "/tmp/lmcp_runtime")).expanduser().resolve()
+SUBMISSION_HISTORY_FILE = RUNTIME_DIR / "submission_history" / "submission_history.json"
+PROOF_DIR = RUNTIME_DIR / "submission_proofs"
+PROOF_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    try:
+        text = str(value).strip()
+        return text if text else default
+    except Exception:
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        if isinstance(value, str):
+            value = (
+                value.replace("R", "")
+                .replace("ZAR", "")
+                .replace("zar", "")
+                .replace(",", "")
+                .strip()
+            )
+        return float(value)
+    except Exception:
+        return default
+
+
+def _safe_filename(value: Any, default: str = "UNKNOWN") -> str:
+    text = _safe_str(value, default)
+    cleaned = []
+    for char in text:
+        if char.isalnum() or char in {"-", "_", "."}:
+            cleaned.append(char)
+        elif char.isspace() or char in {"/", "\\", ":"}:
+            cleaned.append("-")
+    result = "".join(cleaned).strip("-._")
+    return result or default
+
+
+def _read_json(path: Path, default: Any = None) -> Any:
+    if default is None:
+        default = []
+    try:
+        if not path.exists() or not path.is_file():
+            return default
+        text = path.read_text(encoding="utf-8").strip()
+        if not text:
+            return default
+        return json.loads(text)
+    except Exception:
+        return default
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _normalise_records(data: Any) -> List[Dict[str, Any]]:
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        for key in ["items", "submissions", "recent", "history"]:
+            value = data.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+    return []
+
+
+def _record_key(record: Dict[str, Any]) -> str:
+    return "|".join(
+        [
+            _safe_str(record.get("buyer_rfq_number")).lower(),
+            _safe_str(record.get("quote_number")).lower(),
+            _safe_str(record.get("submitted_at")),
+            _safe_str(record.get("recipient_email")).lower(),
+        ]
+    )
+
+
+def load_submission_history() -> List[Dict[str, Any]]:
+    return _normalise_records(_read_json(SUBMISSION_HISTORY_FILE, default=[]))
+
+
+def find_submission_record(
+    *,
+    buyer_rfq_number: str = "",
+    quote_number: str = "",
+    submitted_at: str = "",
+) -> Optional[Dict[str, Any]]:
+    buyer_rfq_number = _safe_str(buyer_rfq_number).lower()
+    quote_number = _safe_str(quote_number).lower()
+    submitted_at = _safe_str(submitted_at)
+
+    records = load_submission_history()
+
+    for record in records:
+        if quote_number and _safe_str(record.get("quote_number")).lower() == quote_number:
+            return record
+
+    for record in records:
+        if buyer_rfq_number and _safe_str(record.get("buyer_rfq_number")).lower() == buyer_rfq_number:
+            if not submitted_at or _safe_str(record.get("submitted_at")) == submitted_at:
+                return record
+
+    return records[0] if records else None
+
+
+def _extract_attachments(record: Dict[str, Any]) -> List[str]:
+    attachments: List[str] = []
+
+    for key in ["attachments", "submission_attachments", "supporting_documents", "artifacts"]:
+        value = record.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    path = _safe_str(item.get("path") or item.get("file_path") or item.get("filename"))
+                else:
+                    path = _safe_str(item)
+                if path:
+                    attachments.append(path)
+
+    raw = record.get("raw_result") if isinstance(record.get("raw_result"), dict) else {}
+    pack = raw.get("submission_pack") if isinstance(raw.get("submission_pack"), dict) else {}
+    for key in ["submission_attachments", "supporting_documents"]:
+        value = pack.get(key)
+        if isinstance(value, list):
+            for item in value:
+                attachments.append(_safe_str(item))
+
+    pdf_path = _safe_str(record.get("pdf_path") or record.get("document_path") or raw.get("final_pdf_path") or raw.get("pdf_path"))
+    if pdf_path:
+        attachments.insert(0, pdf_path)
+
+    cleaned: List[str] = []
+    seen = set()
+    for item in attachments:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        cleaned.append(item)
+    return cleaned
+
+
+def _proof_metadata_path(pdf_path: Path) -> Path:
+    return pdf_path.with_suffix(".json")
+
+
+def _build_pdf(record: Dict[str, Any], pdf_path: Path) -> None:
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "LMCPTitle",
+        parent=styles["Title"],
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=10,
+    )
+    subtitle_style = ParagraphStyle(
+        "LMCPSubtitle",
+        parent=styles["Normal"],
+        fontSize=10,
+        leading=13,
+        textColor=colors.HexColor("#475569"),
+        spaceAfter=14,
+    )
+    body_style = ParagraphStyle(
+        "LMCPBody",
+        parent=styles["Normal"],
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#111827"),
+    )
+    small_style = ParagraphStyle(
+        "LMCPSmall",
+        parent=styles["Normal"],
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#475569"),
+    )
+
+    doc = SimpleDocTemplate(
+        str(pdf_path),
+        pagesize=A4,
+        rightMargin=16 * mm,
+        leftMargin=16 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+        title="LMCP Proof of Submission",
+        author="Lechesa Manaba Consulting and Projects (Pty) Ltd",
+    )
+
+    story: List[Any] = []
+
+    story.append(Paragraph("LMCP Proof of Submission", title_style))
+    story.append(
+        Paragraph(
+            "Generated by LMCP AutoQuote System. This document records the submission event, "
+            "recipient, attached files, and system trace for audit purposes.",
+            subtitle_style,
+        )
+    )
+
+    status = _safe_str(record.get("status") or record.get("submission_status"), "unknown")
+    status_color = colors.HexColor("#16A34A") if status.lower() == "submitted" else colors.HexColor("#DC2626")
+
+    summary_data = [
+        ["Submission Status", status.upper()],
+        ["Buyer / Entity", _safe_str(record.get("buyer_name"), "Unknown buyer")],
+        ["RFQ Number", _safe_str(record.get("buyer_rfq_number"), "UNKNOWN")],
+        ["Quote Number", _safe_str(record.get("quote_number"), "")],
+        ["Title", _safe_str(record.get("title"), "Submitted RFQ")],
+        ["Submission Method", _safe_str(record.get("submission_method"), "email")],
+        ["Recipient Email", _safe_str(record.get("recipient_email"), "")],
+        ["Submitted At", _safe_str(record.get("submitted_at"), "")],
+        ["Submission Message", _safe_str(record.get("submission_message") or record.get("status_message"), "")],
+        ["Total Profit", f"R {_safe_float(record.get('total_profit'), 0.0):,.2f}"],
+        ["Total Incl. VAT", f"R {_safe_float(record.get('total_sell_incl_vat'), 0.0):,.2f}"],
+    ]
+
+    table = Table(summary_data, colWidths=[45 * mm, 125 * mm])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E2E8F0")),
+                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#111827")),
+                ("TEXTCOLOR", (1, 0), (1, 0), status_color),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTNAME", (1, 0), (1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("LEADING", (0, 0), (-1, -1), 11),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+                ("ROWBACKGROUNDS", (1, 0), (1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    story.append(table)
+    story.append(Spacer(1, 8 * mm))
+
+    story.append(Paragraph("Attached / Referenced Documents", styles["Heading2"]))
+    attachments = _extract_attachments(record)
+    if attachments:
+        attachment_rows = [["#", "Path"]]
+        for i, attachment in enumerate(attachments, start=1):
+            attachment_rows.append([str(i), Paragraph(attachment, small_style)])
+        attachment_table = Table(attachment_rows, colWidths=[10 * mm, 160 * mm])
+        attachment_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        story.append(attachment_table)
+    else:
+        story.append(Paragraph("No attachment paths were recorded on this submission record.", body_style))
+
+    story.append(Spacer(1, 8 * mm))
+    story.append(Paragraph("Audit Declaration", styles["Heading2"]))
+    story.append(
+        Paragraph(
+            "This proof document was generated from the LMCP AutoQuote submission history and pipeline logs. "
+            "It is intended as an internal audit artifact confirming the system's record of submission.",
+            body_style,
+        )
+    )
+
+    story.append(Spacer(1, 6 * mm))
+    story.append(Paragraph(f"Proof generated at: {_now()}", small_style))
+    story.append(Paragraph("Generated by: LMCP AutoQuote System", small_style))
+
+    doc.build(story)
+
+
+def generate_proof_for_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    buyer_rfq_raw = _safe_str(record.get("buyer_rfq_number"), "UNKNOWN-RFQ")
+    quote_raw = _safe_str(record.get("quote_number"), "UNKNOWN-QUOTE")
+
+    # 🔥 LIMIT LENGTH (VERY IMPORTANT)
+    buyer_rfq = _safe_filename(buyer_rfq_raw[:50], "UNKNOWN-RFQ")
+    quote_number = _safe_filename(quote_raw[:50], "UNKNOWN-QUOTE")
+    raw_submitted_at = record.get("submitted_at")
+
+    if raw_submitted_at:
+        submitted_at_clean = str(raw_submitted_at).replace(":", "-")
+    else:
+        submitted_at_clean = _now().replace(":", "-")
+
+    submitted_at = _safe_filename(submitted_at_clean, "NO-DATE")
+
+    proof_folder = PROOF_DIR / buyer_rfq
+    proof_folder.mkdir(parents=True, exist_ok=True)
+
+    timestamp = _now().replace(":", "-").replace(".", "-")[:19]
+
+    pdf_path = proof_folder / f"{buyer_rfq}__{quote_number}__{timestamp}.pdf"
+    metadata_path = _proof_metadata_path(pdf_path)
+
+    _build_pdf(record, pdf_path)
+
+    metadata = {
+        "status": "ok",
+        "proof_generated": True,
+        "proof_pdf_path": str(pdf_path),
+        "proof_metadata_path": str(metadata_path),
+        "buyer_rfq_number": record.get("buyer_rfq_number"),
+        "quote_number": record.get("quote_number"),
+        "submitted_at": record.get("submitted_at"),
+        "generated_at": _now(),
+        "record_key": _record_key(record),
+    }
+    _write_json(metadata_path, metadata)
+
+    return metadata
+
+
+def generate_latest_proof() -> Dict[str, Any]:
+    records = load_submission_history()
+    if not records:
+        return {
+            "status": "error",
+            "message": "No submission history records found.",
+            "history_file": str(SUBMISSION_HISTORY_FILE),
+        }
+
+    records = sorted(records, key=lambda x: _safe_str(x.get("submitted_at")), reverse=True)
+    return generate_proof_for_record(records[0])
+
+
+def generate_proof(
+    *,
+    buyer_rfq_number: str = "",
+    quote_number: str = "",
+    submitted_at: str = "",
+    submission_record_json: str = "",
+) -> Dict[str, Any]:
+
+    # V2 direct-record mode
+    if submission_record_json:
+        try:
+            import json
+            from pathlib import Path
+
+            p = Path(submission_record_json)
+
+            if p.exists():
+                record = json.loads(p.read_text())
+                return generate_proof_for_record(record)
+
+        except Exception as exc:
+            return {
+                "status": "error",
+                "message": "Could not load submission_record_json.",
+                "submission_record_json": submission_record_json,
+                "error": str(exc),
+            }
+
+    # legacy lookup mode
+    record = find_submission_record(
+        buyer_rfq_number=buyer_rfq_number,
+        quote_number=quote_number,
+        submitted_at=submitted_at,
+    )
+
+    if not record:
+        return {
+            "status": "error",
+            "message": "Submission record not found.",
+            "buyer_rfq_number": buyer_rfq_number,
+            "quote_number": quote_number,
+            "submitted_at": submitted_at,
+        }
+
+    return generate_proof_for_record(record)
+
+
+def generate_all_proofs(limit: int = 100) -> Dict[str, Any]:
+    records = load_submission_history()
+    records = sorted(records, key=lambda x: _safe_str(x.get("submitted_at")), reverse=True)
+    records = records[: max(1, int(limit or 100))]
+
+    results = []
+    for record in records:
+        try:
+            results.append(generate_proof_for_record(record))
+        except Exception as exc:
+            results.append(
+                {
+                    "status": "error",
+                    "buyer_rfq_number": record.get("buyer_rfq_number"),
+                    "quote_number": record.get("quote_number"),
+                    "error": str(exc),
+                }
+            )
+
+    return {
+        "status": "ok",
+        "count": len(results),
+        "proofs": results,
+        "proof_dir": str(PROOF_DIR),
+    }
+
+
+def get_proof_status() -> Dict[str, Any]:
+    proofs = sorted(PROOF_DIR.rglob("*proof_of_submission.pdf")) if PROOF_DIR.exists() else []
+    return {
+        "status": "ok",
+        "proof_dir": str(PROOF_DIR),
+        "proof_count": len(proofs),
+        "latest": str(proofs[-1]) if proofs else None,
+        "history_file": str(SUBMISSION_HISTORY_FILE),
+        "history_available": SUBMISSION_HISTORY_FILE.exists(),
+    }

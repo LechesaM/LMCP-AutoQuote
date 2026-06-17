@@ -10,8 +10,19 @@ from typing import Any, Callable, Dict, Optional, Sequence
 
 from app.core.runtime_paths import get_runtime_paths
 
-RUNTIME_DIR = get_runtime_paths().runtime_root
-LOCAL_SYSTEM_STATUS_FILE = RUNTIME_DIR / "local_system_status.json"
+
+DEFAULT_RUNTIME_DIR = get_runtime_paths().runtime_root
+
+
+def _runtime_dir(runtime_dir: Optional[str] = None) -> Path:
+    return Path(runtime_dir) if runtime_dir else DEFAULT_RUNTIME_DIR
+
+
+def _status_file(runtime_dir: Optional[str] = None) -> Path:
+    return _runtime_dir(runtime_dir) / "local_system_status.json"
+
+
+LOCAL_SYSTEM_STATUS_FILE = _status_file()
 
 BACKEND_HOST = "127.0.0.1"
 BACKEND_PORTS: Sequence[int] = (8000, 8001, 8002)
@@ -157,14 +168,14 @@ def build_local_system_status(
     }
 
 
-def write_local_system_status(status: Dict[str, Any], status_path: Path = LOCAL_SYSTEM_STATUS_FILE) -> Path:
+def write_local_system_status(status: Dict[str, Any], status_path: Path = _status_file()) -> Path:
     status_path = Path(status_path)
     status_path.parent.mkdir(parents=True, exist_ok=True)
     status_path.write_text(json.dumps(status, indent=2, default=str), encoding="utf-8")
     return status_path
 
 
-def load_local_system_status(status_path: Path = LOCAL_SYSTEM_STATUS_FILE) -> Dict[str, Any]:
+def load_local_system_status(status_path: Path = _status_file()) -> Dict[str, Any]:
     status_path = Path(status_path)
     if not status_path.exists():
         return {}
@@ -184,7 +195,7 @@ def refresh_local_system_status(
     frontend_pid: Optional[int] = None,
     backend_command: str = "",
     frontend_command: str = "",
-    status_path: Path = LOCAL_SYSTEM_STATUS_FILE,
+    status_path: Path = _status_file(),
     backend_probe_fn: Callable[[str], Dict[str, Any]] = probe_backend_health,
     frontend_probe_fn: Callable[[str], Dict[str, Any]] = probe_frontend,
 ) -> Dict[str, Any]:

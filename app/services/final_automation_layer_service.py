@@ -14,6 +14,11 @@ COMPLIANCE_DIR = RUNTIME_DIR / "compliance"
 FINAL_AUTOMATION_DIR = RUNTIME_DIR / "final_automation"
 FINAL_AUTOMATION_LOGS = FINAL_AUTOMATION_DIR / "logs"
 STANDARD_CSD_REPORT = COMPLIANCE_DIR / "CSD_Report.pdf"
+QUOTE_PACK_PROOF_CANDIDATES = [
+    FINAL_AUTOMATION_DIR / "clean_quote_pack_proof.json",
+    FINAL_AUTOMATION_DIR / "quote_pack_generation_proof.json",
+    FINAL_AUTOMATION_DIR / "quote_pack_proof.json",
+]
 
 for folder in (COMPLIANCE_DIR, FINAL_AUTOMATION_DIR, FINAL_AUTOMATION_LOGS):
     folder.mkdir(parents=True, exist_ok=True)
@@ -57,6 +62,16 @@ def _find_pdf(patterns: List[str]) -> str:
     return str(files[0])
 
 
+def _load_json_dict(path: Path) -> Dict[str, Any]:
+    try:
+        if not path.exists() or not path.is_file():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def _standardize_csd_if_possible(csd_path: str) -> str:
     if not csd_path:
         return ""
@@ -71,6 +86,43 @@ def _standardize_csd_if_possible(csd_path: str) -> str:
         return str(STANDARD_CSD_REPORT)
     except Exception:
         return str(source)
+
+
+def check_quote_pack_generation_proof() -> Dict[str, Any]:
+    found_path = ""
+    proof_data: Dict[str, Any] = {}
+
+    for candidate in QUOTE_PACK_PROOF_CANDIDATES:
+        if candidate.exists() and candidate.is_file():
+            found_path = str(candidate)
+            proof_data = _load_json_dict(candidate)
+            break
+
+    if not found_path:
+        return {
+            "status": "blocked",
+            "checked_at": _now(),
+            "proof_path": "",
+            "message": "Clean quote-pack generation has not been proven yet.",
+            "missing_required": ["clean_quote_pack_proof"],
+        }
+
+    generation_flag = bool(
+        proof_data.get("clean_quote_pack_generated")
+        or proof_data.get("quote_pack_generated")
+        or proof_data.get("quote_pack_ready")
+    )
+    status_value = str(proof_data.get("status", "")).strip().lower()
+    ready = generation_flag and status_value in {"", "ok", "ready", "proven", "passed"}
+
+    return {
+        "status": "ready" if ready else "blocked",
+        "checked_at": _now(),
+        "proof_path": found_path,
+        "proof": proof_data,
+        "message": "Clean quote-pack generation proof found." if ready else "Quote-pack proof file exists but does not confirm a clean generation run.",
+        "missing_required": [] if ready else ["clean_quote_pack_proof"],
+    }
 
 
 def check_compliance_pack_readiness() -> Dict[str, Any]:
@@ -169,8 +221,10 @@ def get_autonomous_status() -> Dict[str, Any]:
 
 def final_go_live_check() -> Dict[str, Any]:
     compliance = check_compliance_pack_readiness()
+    quote_pack_proof = check_quote_pack_generation_proof()
     csd = get_csd_status()
     autonomous = get_autonomous_status()
+    manual_guard_enabled = str(os.getenv("LMCP_ALLOW_FINAL_AUTOMATION", "")).strip().lower() in {"1", "true", "yes", "on"}
 
     blockers = []
     if compliance.get("status") != "ready":
@@ -186,6 +240,19 @@ def final_go_live_check() -> Dict[str, Any]:
             "message": "CSD report is not available. Place a CSD PDF into runtime/compliance or name it CSD_Report.pdf.",
         })
 
+    if quote_pack_proof.get("status") != "ready":
+        blockers.append({
+            "area": "quote_pack_proof",
+            "message": "Clean quote-pack generation has not been proven. Create runtime/final_automation/clean_quote_pack_proof.json after a clean run.",
+            "missing": quote_pack_proof.get("missing_required", []),
+        })
+
+    if not manual_guard_enabled:
+        blockers.append({
+            "area": "manual_guard",
+            "message": "Final automation remains guarded/manual. Set LMCP_ALLOW_FINAL_AUTOMATION=true only when you intentionally enable live final automation.",
+        })
+
     ready = len(blockers) == 0
     result = {
         "status": "ready" if ready else "blocked",
@@ -196,6 +263,7 @@ def final_go_live_check() -> Dict[str, Any]:
         "autonomous": autonomous,
         "csd": csd,
         "compliance": compliance,
+        "quote_pack_proof": quote_pack_proof,
     }
     _write_log("go_live_check", result)
     return result

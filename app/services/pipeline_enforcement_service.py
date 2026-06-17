@@ -18,22 +18,36 @@ ENFORCEMENT_DIR.mkdir(parents=True, exist_ok=True)
 ENFORCEMENT_EVENTS_FILE = ENFORCEMENT_DIR / "enforcement_events.json"
 
 
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _load_events() -> list[Dict[str, Any]]:
-    if not ENFORCEMENT_EVENTS_FILE.exists():
+def _load_events(runtime_dir: Optional[str] = None) -> list[Dict[str, Any]]:
+    events_file = _resolve_runtime_path(ENFORCEMENT_EVENTS_FILE, runtime_dir)
+    if not events_file.exists():
         return []
     try:
-        data = json.loads(ENFORCEMENT_EVENTS_FILE.read_text())
+        data = json.loads(events_file.read_text())
         return data if isinstance(data, list) else []
     except Exception:
         return []
 
 
-def _save_events(items: list[Dict[str, Any]]) -> None:
-    ENFORCEMENT_EVENTS_FILE.write_text(json.dumps(items[-5000:], indent=2, default=str))
+def _save_events(items: list[Dict[str, Any]], runtime_dir: Optional[str] = None) -> None:
+    events_file = _resolve_runtime_path(ENFORCEMENT_EVENTS_FILE, runtime_dir)
+    events_file.parent.mkdir(parents=True, exist_ok=True)
+    events_file.write_text(json.dumps(items[-5000:], indent=2, default=str))
 
 
 async def record_enforcement_event(
@@ -42,6 +56,7 @@ async def record_enforcement_event(
     payload: Dict[str, Any],
     guard_result: Optional[Dict[str, Any]] = None,
     message: str = "",
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     item = {
         "stage": stage,
@@ -55,9 +70,9 @@ async def record_enforcement_event(
         "created_at": _now_iso(),
     }
 
-    events = _load_events()
+    events = _load_events(runtime_dir=runtime_dir)
     events.append(item)
-    _save_events(events)
+    _save_events(events, runtime_dir=runtime_dir)
 
     try:
         from app.services.websocket_broker import publish_dashboard_event
@@ -80,6 +95,7 @@ async def record_enforcement_event(
             buyer_rfq_number=item.get("buyer_rfq_number") or "",
             quote_number=item.get("quote_number") or "",
             payload=item,
+            runtime_dir=runtime_dir,
         )
     except Exception:
         pass
@@ -88,7 +104,8 @@ async def record_enforcement_event(
 
 
 async def enforce_before_quote(payload: Dict[str, Any]) -> Dict[str, Any]:
-    guard = evaluate_pipeline_guard(payload)
+    runtime_dir = payload.get("runtime_dir")
+    guard = evaluate_pipeline_guard(payload, runtime_dir=runtime_dir)
     allowed = bool(guard.get("allowed"))
     message = "Quote generation allowed by go-live guards." if allowed else "Quote generation blocked by go-live guards."
 
@@ -98,13 +115,15 @@ async def enforce_before_quote(payload: Dict[str, Any]) -> Dict[str, Any]:
         payload=payload,
         guard_result=guard,
         message=message,
+        runtime_dir=runtime_dir,
     )
 
     return {"status": "ok", "stage": "before_quote", "allowed": allowed, "message": message, "guard": guard}
 
 
 async def enforce_before_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
-    guard = evaluate_pipeline_guard(payload)
+    runtime_dir = payload.get("runtime_dir")
+    guard = evaluate_pipeline_guard(payload, runtime_dir=runtime_dir)
 
     try:
         from app.services.sbd_completion_engine import evaluate_sbd_completion
@@ -143,6 +162,7 @@ async def enforce_before_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
         payload=payload,
         guard_result=combined_guard,
         message=message,
+        runtime_dir=runtime_dir,
     )
 
     return {
@@ -157,7 +177,8 @@ async def enforce_before_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 async def enforce_before_harvest_source(source: Dict[str, Any]) -> Dict[str, Any]:
     source_name = source.get("source_name") or source.get("name") or source.get("source") or ""
-    paused = is_source_paused(str(source_name))
+    runtime_dir = source.get("runtime_dir")
+    paused = is_source_paused(str(source_name), runtime_dir=runtime_dir)
 
     result = {
         "status": "ok",
@@ -175,6 +196,7 @@ async def enforce_before_harvest_source(source: Dict[str, Any]) -> Dict[str, Any
         payload={"source_name": source_name, **source},
         guard_result=result,
         message=result["message"],
+        runtime_dir=runtime_dir,
     )
 
     return result
@@ -182,7 +204,8 @@ async def enforce_before_harvest_source(source: Dict[str, Any]) -> Dict[str, Any
 
 async def enforce_before_rfq_processing(payload: Dict[str, Any]) -> Dict[str, Any]:
     buyer_rfq_number = payload.get("buyer_rfq_number") or payload.get("rfq_number") or payload.get("tender_number") or ""
-    rejected = is_rfq_rejected(str(buyer_rfq_number))
+    runtime_dir = payload.get("runtime_dir")
+    rejected = is_rfq_rejected(str(buyer_rfq_number), runtime_dir=runtime_dir)
 
     result = {
         "status": "ok",
@@ -199,6 +222,7 @@ async def enforce_before_rfq_processing(payload: Dict[str, Any]) -> Dict[str, An
         payload=payload,
         guard_result=result,
         message=result["message"],
+        runtime_dir=runtime_dir,
     )
 
     return result
@@ -213,6 +237,7 @@ async def mark_submission_completed(payload: Dict[str, Any]) -> Dict[str, Any]:
         quote_number=quote_number,
         reason=payload.get("reason") or "submission_completed",
         metadata=payload,
+        runtime_dir=payload.get("runtime_dir"),
     )
 
     event = await record_enforcement_event(
@@ -221,13 +246,14 @@ async def mark_submission_completed(payload: Dict[str, Any]) -> Dict[str, Any]:
         payload=payload,
         guard_result={"submission_lock": lock},
         message="Submission completed and duplicate lock created.",
+        runtime_dir=payload.get("runtime_dir"),
     )
 
     return {"status": "ok", "stage": "after_submission", "message": "Submission lock created.", "lock": lock, "event": event}
 
 
-def get_enforcement_summary(limit: int = 100) -> Dict[str, Any]:
-    events = _load_events()
+def get_enforcement_summary(limit: int = 100, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    events = _load_events(runtime_dir=runtime_dir)
 
     def count(status: str) -> int:
         return len([x for x in events if x.get("status") == status])
@@ -249,6 +275,6 @@ def get_enforcement_summary(limit: int = 100) -> Dict[str, Any]:
             "after_submission": count_stage("after_submission"),
         },
         "recent_events": list(reversed(events[-limit:])),
-        "history_file": str(ENFORCEMENT_EVENTS_FILE),
+        "history_file": str(_resolve_runtime_path(ENFORCEMENT_EVENTS_FILE, runtime_dir)),
         "updated_at": _now_iso(),
     }

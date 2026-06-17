@@ -100,3 +100,16 @@ def system_control_resume_all(reason: Optional[str] = Body(default=None, embed=T
     return _ok_response(state, "all services resumed")
 
 
+
+
+@router.get("/policy")
+def get_policy():
+    return {
+        "status": "ok",
+        "enabled": False,
+        "mode": "safe",
+        "allow_final_submit": False,
+        "manual_review_required": True,
+        "source": "system_control_compat_get_policy",
+    }
+

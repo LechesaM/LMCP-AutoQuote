@@ -130,6 +130,12 @@ def evaluate_verified_rfq_for_promotion(
     verified_quantity_status = quantity_status in VERIFIED_QUANTITY_STATUSES
     verified_line_items = _has_verified_line_items(item)
     verified_quantities = verified_quantity_status or verified_line_items
+    nav_result = item.get("v50_7_navigation_result") if isinstance(item.get("v50_7_navigation_result"), dict) else {}
+    nav_status = _safe_lower(item.get("v50_7_navigation_status") or nav_result.get("recommended_action"))
+    nav_blockers = item.get("v50_7_navigation_blockers") if isinstance(item.get("v50_7_navigation_blockers"), list) else []
+    nav_reasons = item.get("v50_7_navigation_reasons") if isinstance(item.get("v50_7_navigation_reasons"), dict) else {}
+    extended_resolution_status = _safe_lower(item.get("v50_8_extended_resolution_status"))
+    extended_resolution_summary = item.get("v50_8_extended_resolution_summary") if isinstance(item.get("v50_8_extended_resolution_summary"), dict) else {}
 
     if eligible:
         reasons.append("eligible_true")
@@ -156,6 +162,27 @@ def evaluate_verified_rfq_for_promotion(
     else:
         blockers.append("quantity_verification_required")
 
+    if nav_status == "detail_navigation_required":
+        blockers.append("detail_navigation_required")
+        if extended_resolution_status == "no_verified_resolution":
+            blockers.append("no_verified_detail_or_document_link")
+    if nav_status == "navigation_failed":
+        blockers.append("navigation_failed")
+    if nav_status == "safe_detail_link":
+        reasons.append("safe_detail_link_verified")
+    if nav_status == "safe_document_link":
+        reasons.append("safe_document_link_verified")
+    if extended_resolution_status == "verified_tenderdetails_document":
+        reasons.append("verified_tenderdetails_document")
+    elif extended_resolution_status == "verified_document":
+        reasons.append("verified_document_resolution")
+    elif extended_resolution_status == "verified_detail":
+        reasons.append("verified_detail_resolution")
+    for blocker in nav_blockers:
+        blocker = _safe_lower(blocker)
+        if blocker:
+            blockers.append(blocker)
+
     if pipeline_status in BLOCKED_PIPELINE_STATUSES:
         blockers.append(f"blocked_pipeline_status:{pipeline_status}")
 
@@ -165,6 +192,20 @@ def evaluate_verified_rfq_for_promotion(
 
     if item.get("briefing_required") is True:
         blockers.append("briefing_required")
+
+    stalled_stage = "hold"
+    if not eligible:
+        stalled_stage = "eligibility_gate"
+    elif "detail_navigation_required" in blockers or "navigation_failed" in blockers:
+        stalled_stage = "detail_navigation"
+    elif "quantity_verification_required" in blockers:
+        stalled_stage = "quantity_verification"
+    elif "minimum_profit_not_met" in blockers or "confidence_below_policy" in blockers:
+        stalled_stage = "score_or_profit"
+    elif len(blockers) == 0:
+        stalled_stage = "quote_pack_ready" if quote_ready else "quote_pack_preparation"
+    else:
+        stalled_stage = "manual_review"
 
     # Submission permission decision
     can_prepare_quote = len(blockers) == 0
@@ -213,12 +254,27 @@ def evaluate_verified_rfq_for_promotion(
         "quantity_source": quantity_source,
         "verified_quantities": verified_quantities,
         "verified_line_items": verified_line_items,
+        "navigation_status": nav_status,
+        "navigation_blockers": nav_blockers,
+        "navigation_reasons": nav_reasons,
+        "extended_resolution_status": extended_resolution_status,
+        "extended_resolution_summary": extended_resolution_summary,
         "can_prepare_quote": can_prepare_quote,
         "can_prepare_submission_pack": can_prepare_submission_pack,
         "can_send_email": can_send_email,
         "can_upload_portal": can_upload_portal,
         "can_final_submit": can_final_submit,
         "next_action": next_action,
+        "stalled_stage": stalled_stage,
+        "blocker_summary": {
+            "eligible": eligible,
+            "quote_ready": quote_ready,
+            "verified_quantities": verified_quantities,
+            "navigation_status": nav_status,
+            "pipeline_status": pipeline_status,
+            "extended_resolution_status": extended_resolution_status,
+            "extended_resolution_summary": extended_resolution_summary,
+        },
         "promotion_allowed": can_prepare_quote,
         "submission_gate_allowed": can_send_email or can_upload_portal,
         "final_submit_gate_allowed": can_final_submit,

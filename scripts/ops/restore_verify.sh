@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /Users/Shared/LMCP-AutoQuote-Server
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${LMCP_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+cd "$PROJECT_ROOT"
 
 BUNDLE_DIR="${1:-}"
 if [[ -z "$BUNDLE_DIR" ]]; then

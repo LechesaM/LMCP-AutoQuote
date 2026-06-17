@@ -1,0 +1,69 @@
+{
+  "tender_id": "REAL-PILOT-001",
+  "comparison_status": "partial_evidence",
+  "comparison_ready": true,
+  "supplier_quotes_count": 2,
+  "supplier_quotes": [
+    {
+      "supplier_name": "Acme Office Supplies",
+      "quote_reference": "Acme-Office-Supplies-REAL-PILOT-001",
+      "quoted_total": 48500.0,
+      "source_file": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/source_quotes/Acme_Office_Supplies_quote.txt",
+      "traceability_chain": [
+        {
+          "evidence_type": "supplier_quote_file",
+          "file_path": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/source_quotes/Acme_Office_Supplies_quote.txt"
+        },
+        {
+          "evidence_type": "pricing_payload",
+          "item_number": 1,
+          "description": "Tender supply and delivery line item",
+          "line_total": 48500.0
+        }
+      ]
+    },
+    {
+      "supplier_name": "Bright Stationers",
+      "quote_reference": "",
+      "quoted_total": null,
+      "source_file": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/source_quotes/Bright_Stationers_quote.txt",
+      "traceability_chain": [
+        {
+          "evidence_type": "supplier_quote_file",
+          "file_path": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/source_quotes/Bright_Stationers_quote.txt"
+        }
+      ]
+    }
+  ],
+  "recommended_supplier": {
+    "supplier_name": "Acme Office Supplies",
+    "quote_reference": "Acme-Office-Supplies-REAL-PILOT-001",
+    "quoted_total": 48500.0,
+    "source_file": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/source_quotes/Acme_Office_Supplies_quote.txt",
+    "traceability_chain": [
+      {
+        "evidence_type": "supplier_quote_file",
+        "file_path": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/source_quotes/Acme_Office_Supplies_quote.txt"
+      },
+      {
+        "evidence_type": "pricing_payload",
+        "item_number": 1,
+        "description": "Tender supply and delivery line item",
+        "line_total": 48500.0
+      }
+    ]
+  },
+  "runner_up_supplier": {
+    "supplier_name": "Bright Stationers",
+    "quote_reference": "",
+    "quoted_total": null,
+    "source_file": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/source_quotes/Bright_Stationers_quote.txt",
+    "traceability_chain": [
+      {
+        "evidence_type": "supplier_quote_file",
+        "file_path": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/source_quotes/Bright_Stationers_quote.txt"
+      }
+    ]
+  },
+  "estimated_savings_vs_runner_up": null
+}

@@ -12,6 +12,14 @@ def _clean_env(environ: Mapping[str, str], name: str, default: str) -> str:
     return value or default
 
 
+def _first_env(environ: Mapping[str, str], names: tuple[str, ...], default: str) -> str:
+    for name in names:
+        value = str(environ.get(name, "")).strip()
+        if value:
+            return value
+    return default
+
+
 def _resolve_path(value: str, *, base: Path) -> Path:
     path = Path(value).expanduser()
     if not path.is_absolute():
@@ -22,7 +30,7 @@ def _resolve_path(value: str, *, base: Path) -> Path:
 def resolve_project_root(environ: Mapping[str, str] | None = None) -> Path:
     source = environ if environ is not None else os.environ
     default_root = Path(__file__).resolve().parents[2]
-    raw = _clean_env(source, "LMCP_PROJECT_ROOT", str(default_root))
+    raw = _first_env(source, ("LMCP_PROJECT_ROOT", "PROJECT_ROOT"), str(default_root))
     return _resolve_path(raw, base=default_root)
 
 
@@ -46,16 +54,21 @@ class RuntimePaths:
     clickable_navigation_runtime_dir: Path
     audit_trail_dir: Path
     submission_history_dir: Path
-    manual_production_db_path: Path
     health_dir: Path
     locks_dir: Path
-    backups_dir: Path
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str] | None = None) -> "RuntimePaths":
         source = environ if environ is not None else os.environ
         project_root = resolve_project_root(source)
-        runtime_root = _resolve_path(_clean_env(source, "LMCP_RUNTIME_DIR", str(project_root / "runtime")), base=project_root)
+        runtime_root = _resolve_path(
+            _first_env(
+                source,
+                ("LMCP_RUNTIME_DIR", "RUNTIME_DIR", "SUPPLY_COMMAND_RUNTIME", "DATA_DIR"),
+                str(project_root / "runtime"),
+            ),
+            base=project_root,
+        )
         return cls(
             project_root=project_root,
             runtime_root=runtime_root,
@@ -90,13 +103,8 @@ class RuntimePaths:
                 _clean_env(source, "LMCP_SUBMISSION_HISTORY_DIR", str(runtime_root / "submission_history")),
                 base=project_root,
             ),
-            manual_production_db_path=_resolve_path(
-                _clean_env(source, "LMCP_MANUAL_PRODUCTION_DB_PATH", str(runtime_root / "manual_production" / "lmcp_operations.db")),
-                base=project_root,
-            ),
             health_dir=_resolve_path(_clean_env(source, "LMCP_HEALTH_DIR", str(runtime_root / "health")), base=project_root),
             locks_dir=_resolve_path(_clean_env(source, "LMCP_LOCKS_DIR", str(runtime_root / "locks")), base=project_root),
-            backups_dir=_resolve_path(_clean_env(source, "LMCP_BACKUPS_DIR", str(runtime_root / "backups")), base=project_root),
         )
 
     def required_directories(self) -> Tuple[Path, ...]:
@@ -117,23 +125,49 @@ class RuntimePaths:
             self.clickable_navigation_runtime_dir,
             self.audit_trail_dir,
             self.submission_history_dir,
-            self.manual_production_db_path.parent,
             self.health_dir,
             self.locks_dir,
-            self.backups_dir,
             self.operator_auth_db_path.parent,
         )
-
-    def manual_production_file(self, filename: str) -> Path:
-        return self.manual_production_dir / filename
 
     def ensure_directories(self) -> None:
         for directory in self.required_directories():
             directory.mkdir(parents=True, exist_ok=True)
 
+    def manual_production_file(self, name: str) -> Path:
+        return self.manual_production_dir / name
+
+    @property
+    def manual_production_db_path(self) -> Path:
+        return self.manual_production_file("lmcp_operations.db")
+
 
 @lru_cache(maxsize=1)
 def get_runtime_paths() -> RuntimePaths:
     paths = RuntimePaths.from_environ()
-    paths.ensure_directories()
+    try:
+        paths.ensure_directories()
+    except (PermissionError, OSError):
+        fallback_project_root = Path(__file__).resolve().parents[2]
+        fallback_runtime = fallback_project_root / "runtime"
+        os.environ["LMCP_PROJECT_ROOT"] = str(fallback_project_root)
+        os.environ["LMCP_RUNTIME_DIR"] = str(fallback_runtime)
+        os.environ["LMCP_MONTHLY_QUOTES_DIR"] = str(fallback_project_root / "monthly_quotes")
+        os.environ["LMCP_LOG_DIR"] = str(fallback_runtime / "logs")
+        os.environ["LMCP_HANDWRITING_RUNTIME_DIR"] = str(fallback_runtime / "handwriting_simulation")
+        os.environ["LMCP_TENDER_FORM_RUNTIME_DIR"] = str(fallback_runtime / "tender_form_intelligence")
+        os.environ["LMCP_CLICKABLE_NAVIGATION_RUNTIME_DIR"] = str(fallback_runtime / "clickable_navigation_v40")
+        os.environ["LMCP_SUBMISSION_PROOFS_DIR"] = str(fallback_runtime / "submission_proofs")
+        os.environ["LMCP_PORTAL_SUBMISSION_DIR"] = str(fallback_runtime / "portal_submission")
+        os.environ["LMCP_FINAL_SUBMISSION_DIR"] = str(fallback_runtime / "final_submission_v47_5")
+        os.environ["LMCP_PROOF_CENTER_DIR"] = str(fallback_runtime / "proof_center")
+        os.environ["LMCP_AUDIT_TRAIL_DIR"] = str(fallback_runtime / "audit_trail")
+        os.environ["LMCP_SUBMISSION_HISTORY_DIR"] = str(fallback_runtime / "submission_history")
+        os.environ["LMCP_HEALTH_DIR"] = str(fallback_runtime / "health")
+        os.environ["LMCP_LOCKS_DIR"] = str(fallback_runtime / "locks")
+        os.environ["LMCP_TEMP_DIR"] = str(fallback_runtime / "tmp")
+        os.environ["LMCP_EXPORTS_DIR"] = str(fallback_runtime / "exports")
+        os.environ["LMCP_OPERATOR_AUTH_DB_PATH"] = str(fallback_runtime / "operator_auth" / "operator_auth.sqlite3")
+        paths = RuntimePaths.from_environ()
+        paths.ensure_directories()
     return paths

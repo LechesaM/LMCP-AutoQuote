@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+
+os.environ.setdefault("LMCP_PROJECT_ROOT", "/Users/cash/Documents")
+os.environ.setdefault("LMCP_RUNTIME_DIR", "/Users/cash/Documents/runtime")
+os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DIR", "/Users/cash/Documents/runtime/manual_production")
+os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DB_PATH", "/Users/cash/Documents/runtime/manual_production/lmcp_operations.db")
 
 from app.api import telemetry_contracts as contracts
 from app.api import telemetry_routes
@@ -103,3 +109,25 @@ def test_telemetry_calls_do_not_mutate_workflows(monkeypatch, tmp_path: Path) ->
 
     after = repo.fetch_recent(limit=20)
     assert after == before
+
+
+def test_telemetry_routes_timeout_fallbacks(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+
+    def _fake_timeout(callback, timeout_seconds, timeout_label, fallback=None):
+        return fallback() if fallback is not None else {"status": "timeout", "data_source": "timeout"}
+
+    monkeypatch.setattr(telemetry_routes, "run_with_timeout", _fake_timeout)
+
+    dashboard = telemetry_routes.get_dashboard_telemetry()
+    source_health = telemetry_routes.get_source_health_telemetry()
+    review_queue = telemetry_routes.get_review_queue_telemetry()
+    qualification = telemetry_routes.get_qualification_telemetry()
+    operational = telemetry_routes.get_operational_health_telemetry()
+
+    assert dashboard["status"] == "degraded"
+    assert dashboard["data_source"] == "runtime_fallback"
+    assert source_health["status"] == "degraded"
+    assert review_queue["status"] == "degraded"
+    assert qualification["status"] == "degraded"
+    assert operational["status"] == "degraded"

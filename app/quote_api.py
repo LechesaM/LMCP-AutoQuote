@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""LEGACY ROOT ROUTER: unsupported and quarantined from active runtime."""
+
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -12,6 +14,7 @@ from app.quote_store import get_quote, list_quotes, save_quote
 from app.storage import list_opportunities
 
 router = APIRouter(tags=["quotes"])
+LEGACY_ROUTER_SURFACE = True
 
 
 def _utc_now() -> str:

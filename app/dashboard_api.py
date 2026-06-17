@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""LEGACY ROOT ROUTER: unsupported and quarantined from active runtime."""
+
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
@@ -9,8 +11,15 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import Opportunity, QuoteDraft
+from app.services.tender_harvester import get_source_health_overview
+from app.services.etenders_ajax_datatables_resolver_v50_8_1_service import get_v50_8_1_status
+from app.services.etenders_document_url_reconstruction_v50_8_2_service import get_v50_8_2_status
+from app.services.etenders_hidden_api_discovery_v50_9_6_service import get_v50_9_6_status
+from app.services.etenders_tenderdetails_json_v50_9_1_service import get_v50_9_1_status
+from app.services.true_etenders_detail_resolution_v50_8_service import get_v50_8_status
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard Mission Control"])
+LEGACY_ROUTER_SURFACE = True
 
 
 def get_db():
@@ -248,3 +257,43 @@ def dashboard_system_health(db: Session = Depends(get_db)) -> Dict[str, Any]:
         "api_ok": True,
         "dashboard_ok": True,
     }
+
+
+@router.get("/source-health")
+def dashboard_source_health(limit: int = 15) -> Dict[str, Any]:
+    """
+    Source acquisition telemetry for the dashboard.
+    """
+    try:
+        return get_source_health_overview(limit=limit)
+    except Exception as exc:
+        return {
+            "timestamp": _now_iso(),
+            "status": "failed",
+            "error": str(exc),
+        }
+
+
+@router.get("/resolver-status")
+def dashboard_resolver_status() -> Dict[str, Any]:
+    """
+    Resolver capability snapshot for controlled and live navigation work.
+    """
+    try:
+        return {
+            "timestamp": _now_iso(),
+            "status": "ok",
+            "resolvers": {
+                "v50_8_true_detail": get_v50_8_status(),
+                "v50_8_1_ajax": get_v50_8_1_status(),
+                "v50_8_2_reconstruction": get_v50_8_2_status(),
+                "v50_9_1_tenderdetails": get_v50_9_1_status(),
+                "v50_9_6_hidden_api": get_v50_9_6_status(),
+            },
+        }
+    except Exception as exc:
+        return {
+            "timestamp": _now_iso(),
+            "status": "failed",
+            "error": str(exc),
+        }

@@ -70,6 +70,7 @@ async function main() {
       await link.click();
       console.log(JSON.stringify({ stage: "link_clicked", label, href: actualHref }, null, 2));
       actual.push({ label, href: actualHref });
+      await page.setContent(fixtureHtml, { waitUntil: "domcontentloaded" });
     }
 
     console.log(

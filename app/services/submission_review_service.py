@@ -1,28 +1,34 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-from app.domain.submission import ApprovalRecord, SubmissionReview
-from app.core.runtime_paths import get_runtime_paths
-from app.persistence import jsonl_compat
 from app.services import manual_approval_service
+from app.persistence import db as persistence_db
 
-logger = logging.getLogger(__name__)
 
-
-RUNTIME_DIR = get_runtime_paths().runtime_root
-MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
+RUNTIME_DIR = Path("runtime")
+MANUAL_PRODUCTION_DIR = RUNTIME_DIR / "manual_production"
 MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
 SUBMISSION_REVIEW_LOG_FILE = MANUAL_PRODUCTION_DIR / "submission_reviews.jsonl"
 
 _LOCK = Lock()
 
 SUPPORTED_RFQ_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".zip", ".txt"}
+
+
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
 
 
 def _now_iso() -> str:
@@ -58,37 +64,28 @@ def _slug_variants(value: str) -> List[str]:
     return variants
 
 
-def append_submission_review(record: Dict[str, Any]) -> Dict[str, Any]:
+def append_submission_review(record: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     item = dict(record or {})
     item.setdefault("timestamp", _now_iso())
-    MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
+    review_log = _resolve_runtime_path(SUBMISSION_REVIEW_LOG_FILE, runtime_dir)
+    review_log.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(item, ensure_ascii=False, default=str)
     with _LOCK:
-        with SUBMISSION_REVIEW_LOG_FILE.open("a", encoding="utf-8") as handle:
+        with review_log.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
-    jsonl_compat.persist_submission_review(item)
-    if _clean(item.get("status")) == "review_ready":
-        try:
-            from app.core.workflow_state_engine import WorkflowStage, record_transition
-
-            record_transition(
-                tender_id=_clean(item.get("tender_id")),
-                from_stage=WorkflowStage.APPROVED,
-                to_stage=WorkflowStage.REVIEW_READY,
-                actor=_clean(item.get("operator_name")) or "submission_review_service",
-                reason="submission review marked review_ready",
-                details={"source_log": "submission_reviews.jsonl", "status": _clean(item.get("status"))},
-            )
-        except Exception:
-            logger.warning("workflow transition approved -> review_ready was not recorded", exc_info=True)
+    try:
+        persistence_db.insert_json_record("submission_review_entities", item)
+    except Exception:
+        pass
     return item
 
 
-def list_recent_submission_reviews(limit: int = 20) -> Dict[str, Any]:
+def list_recent_submission_reviews(limit: int = 20, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    review_log = _resolve_runtime_path(SUBMISSION_REVIEW_LOG_FILE, runtime_dir)
     records: List[Dict[str, Any]] = []
-    if SUBMISSION_REVIEW_LOG_FILE.exists():
+    if review_log.exists():
         try:
-            for line in SUBMISSION_REVIEW_LOG_FILE.read_text(encoding="utf-8").splitlines():
+            for line in review_log.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if not line:
                     continue
@@ -102,13 +99,13 @@ def list_recent_submission_reviews(limit: int = 20) -> Dict[str, Any]:
         "status": "ok",
         "items": recent,
         "total": len(records),
-        "log_file": str(SUBMISSION_REVIEW_LOG_FILE),
+        "log_file": str(review_log),
         "updated_at": _now_iso(),
     }
 
 
-def find_latest_submission_review(tender_id: str, tender_root: str) -> Dict[str, Any]:
-    records = _read_jsonl(SUBMISSION_REVIEW_LOG_FILE)
+def find_latest_submission_review(tender_id: str, tender_root: str, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    records = _read_jsonl(_resolve_runtime_path(SUBMISSION_REVIEW_LOG_FILE, runtime_dir))
     for record in reversed(records):
         if not isinstance(record, dict):
             continue
@@ -138,8 +135,8 @@ def _match_tender(record: Dict[str, Any], tender_id: str, tender_root: str) -> b
     return _clean(record.get("tender_id")) == _clean(tender_id) and _clean(record.get("tender_root")) == _clean(tender_root)
 
 
-def find_latest_approval(tender_id: str, tender_root: str, pricing_file: str = "") -> Dict[str, Any]:
-    records = _read_jsonl(manual_approval_service.APPROVAL_LOG_FILE)
+def find_latest_approval(tender_id: str, tender_root: str, pricing_file: str = "", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    records = _read_jsonl(_resolve_runtime_path(manual_approval_service.APPROVAL_LOG_FILE, runtime_dir))
     for record in reversed(records):
         if not isinstance(record, dict):
             continue
@@ -198,8 +195,9 @@ def build_submission_review_record(
     tender_root: str,
     pricing_file: str = "",
     operator_name: str = "",
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    approval = find_latest_approval(tender_id, tender_root, pricing_file=pricing_file)
+    approval = find_latest_approval(tender_id, tender_root, pricing_file=pricing_file, runtime_dir=runtime_dir)
     quote_pack_path = _artifact_exists(_quote_pack_candidates(tender_id, tender_root))
     submission_pack_path = _artifact_exists(_submission_pack_candidates(tender_id, tender_root))
     source_rfq_present = _source_rfq_present(tender_root)
@@ -230,7 +228,7 @@ def build_submission_review_record(
         "approval_record_present": approval_present,
         "final_submission_still_false": not final_submission_attempted,
     }
-    record = {
+    return {
         "tender_id": _clean(tender_id),
         "tender_root": _clean(tender_root),
         "pricing_file": _clean(pricing_file),
@@ -245,12 +243,9 @@ def build_submission_review_record(
         "final_submission_still_false": checklist["final_submission_still_false"],
         "submission_ready": submission_ready,
         "final_submission_attempted": final_submission_attempted,
-        "approval_record": None,
+        "approval_record": approval,
         "quote_pack_path": str(quote_pack_path) if quote_pack_path else "",
         "submission_pack_path": str(submission_pack_path) if submission_pack_path else "",
         "status": "review_ready" if review_ready else "refused",
         "timestamp": _now_iso(),
     }
-    if approval:
-        record["approval_record"] = ApprovalRecord.validate_payload(approval).to_jsonable_dict()
-    return SubmissionReview.validate_payload(record).to_jsonable_dict()

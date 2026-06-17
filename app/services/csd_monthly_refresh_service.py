@@ -60,28 +60,61 @@ def _safe_int(value: Any, default: int = 1) -> int:
         return default
 
 
-def _write_status(status: Dict[str, Any]) -> Dict[str, Any]:
+def _runtime_root(runtime_dir: Optional[str] = None) -> Path:
+    if runtime_dir:
+        return Path(runtime_dir).expanduser().resolve()
+    return PROJECT_ROOT / "runtime"
+
+
+def _compliance_dir(runtime_dir: Optional[str] = None) -> Path:
+    return _runtime_root(runtime_dir) / "compliance"
+
+
+def _csd_runtime_dir(runtime_dir: Optional[str] = None) -> Path:
+    return _runtime_root(runtime_dir) / "csd_monthly_refresh"
+
+
+def _download_dir(runtime_dir: Optional[str] = None) -> Path:
+    return _csd_runtime_dir(runtime_dir) / "downloads"
+
+
+def _proof_dir(runtime_dir: Optional[str] = None) -> Path:
+    return _csd_runtime_dir(runtime_dir) / "proof"
+
+
+def _status_file(runtime_dir: Optional[str] = None) -> Path:
+    return _compliance_dir(runtime_dir) / "csd_refresh_status.json"
+
+
+def _report_target(runtime_dir: Optional[str] = None) -> Path:
+    return _compliance_dir(runtime_dir) / "CSD_Report.pdf"
+
+
+def _write_status(status: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     status = dict(status or {})
     status.setdefault("service_version", SERVICE_VERSION)
     status.setdefault("checked_at", _utc_now_iso())
-    CSD_STATUS_FILE.write_text(json.dumps(status, indent=2, default=str), encoding="utf-8")
+    status_file = _status_file(runtime_dir)
+    status_file.parent.mkdir(parents=True, exist_ok=True)
+    status_file.write_text(json.dumps(status, indent=2, default=str), encoding="utf-8")
     return status
 
 
-def _read_status() -> Dict[str, Any]:
+def _read_status(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     try:
-        if CSD_STATUS_FILE.exists():
-            data = json.loads(CSD_STATUS_FILE.read_text(encoding="utf-8"))
+        status_file = _status_file(runtime_dir)
+        if status_file.exists():
+            data = json.loads(status_file.read_text(encoding="utf-8"))
             return data if isinstance(data, dict) else {}
     except Exception:
         return {}
     return {}
 
 
-def should_run_monthly_csd_refresh(today: Optional[datetime] = None) -> Dict[str, Any]:
+def should_run_monthly_csd_refresh(today: Optional[datetime] = None, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     today = today or datetime.now()
     refresh_day = _safe_int(os.getenv("CSD_REFRESH_DAY", "1"), 1)
-    last_status = _read_status()
+    last_status = _read_status(runtime_dir=runtime_dir)
     last_success = _safe_str(last_status.get("last_success_month"))
     current_month = today.strftime("%Y-%m")
     should_run = today.day == refresh_day and last_success != current_month
@@ -96,12 +129,16 @@ def should_run_monthly_csd_refresh(today: Optional[datetime] = None) -> Dict[str
     }
 
 
-def _candidate_csd_files() -> List[Path]:
+def _candidate_csd_files(runtime_dir: Optional[str] = None) -> List[Path]:
+    compliance_dir = _compliance_dir(runtime_dir)
+    csd_runtime_dir = _csd_runtime_dir(runtime_dir)
+    download_dir = _download_dir(runtime_dir)
+    runtime_root = _runtime_root(runtime_dir)
     folders = [
-        COMPLIANCE_DIR,
-        DOWNLOAD_DIR,
-        PROJECT_ROOT / "runtime" / "compliance_docs",
-        PROJECT_ROOT / "runtime" / "company_docs",
+        compliance_dir,
+        download_dir,
+        runtime_root / "compliance_docs",
+        runtime_root / "company_docs",
         LOCAL_PROJECT_ROOT / "runtime" / "compliance",
     ]
     patterns = [
@@ -139,13 +176,14 @@ def _candidate_csd_files() -> List[Path]:
     return clean
 
 
-def _copy_to_standard_csd_report(source: Path) -> str:
-    COMPLIANCE_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, CSD_REPORT_TARGET)
-    return str(CSD_REPORT_TARGET)
+def _copy_to_standard_csd_report(source: Path, runtime_dir: Optional[str] = None) -> str:
+    report_target = _report_target(runtime_dir)
+    report_target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, report_target)
+    return str(report_target)
 
 
-def _run_playwright_csd_download() -> Dict[str, Any]:
+def _run_playwright_csd_download(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     login_url = _safe_str(os.getenv("CSD_LOGIN_URL"), "https://secure.csd.gov.za")
     username = _safe_str(os.getenv("CSD_USERNAME"))
     password = _safe_str(os.getenv("CSD_PASSWORD"))
@@ -178,7 +216,7 @@ def _run_playwright_csd_download() -> Dict[str, Any]:
             page.goto(login_url, wait_until="domcontentloaded", timeout=90000)
             page.wait_for_timeout(3000)
 
-            proof_start = PROOF_DIR / f"csd_start_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
+            proof_start = _proof_dir(runtime_dir) / f"csd_start_{datetime.now().strftime('%Y%m%d%H%M%S')}.png"
             try:
                 page.screenshot(path=str(proof_start), full_page=True)
             except Exception:
@@ -305,21 +343,22 @@ def _run_playwright_csd_download() -> Dict[str, Any]:
                 pass
 
 
-def refresh_csd_report(force: bool = False) -> Dict[str, Any]:
+def refresh_csd_report(force: bool = False, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     now = datetime.now()
-    schedule = should_run_monthly_csd_refresh(now)
+    schedule = should_run_monthly_csd_refresh(now, runtime_dir=runtime_dir)
+    report_target = _report_target(runtime_dir)
 
     if not force and not schedule.get("should_run"):
         return _write_status({
             "status": "skipped",
             "message": "CSD refresh not due today.",
             "schedule": schedule,
-            "existing_csd_report": str(CSD_REPORT_TARGET) if CSD_REPORT_TARGET.exists() else "",
-            "existing_csd_report_found": CSD_REPORT_TARGET.exists(),
-        })
+            "existing_csd_report": str(report_target) if report_target.exists() else "",
+            "existing_csd_report_found": report_target.exists(),
+        }, runtime_dir=runtime_dir)
 
     try:
-        result = _run_playwright_csd_download()
+        result = _run_playwright_csd_download(runtime_dir=runtime_dir)
 
         if result.get("status") == "ok":
             result.update({
@@ -327,11 +366,11 @@ def refresh_csd_report(force: bool = False) -> Dict[str, Any]:
                 "last_success_month": now.strftime("%Y-%m"),
                 "next_refresh_due_day": _safe_int(os.getenv("CSD_REFRESH_DAY", "1"), 1),
             })
-            return _write_status(result)
+            return _write_status(result, runtime_dir=runtime_dir)
 
-        candidates = _candidate_csd_files()
+        candidates = _candidate_csd_files(runtime_dir=runtime_dir)
         if candidates:
-            standard = _copy_to_standard_csd_report(candidates[0])
+            standard = _copy_to_standard_csd_report(candidates[0], runtime_dir=runtime_dir)
             return _write_status({
                 "status": "ok_with_existing_report",
                 "message": "Auto-download did not complete, but existing CSD report was standardized.",
@@ -340,13 +379,13 @@ def refresh_csd_report(force: bool = False) -> Dict[str, Any]:
                 "standard_csd_report": standard,
                 "last_success_at": _utc_now_iso(),
                 "last_success_month": now.strftime("%Y-%m"),
-            })
+            }, runtime_dir=runtime_dir)
 
         return _write_status({
             **result,
             "last_attempt_at": _utc_now_iso(),
             "standard_csd_report": "",
-        })
+        }, runtime_dir=runtime_dir)
 
     except Exception as exc:
         return _write_status({
@@ -354,31 +393,32 @@ def refresh_csd_report(force: bool = False) -> Dict[str, Any]:
             "message": str(exc),
             "traceback": traceback.format_exc(),
             "last_attempt_at": _utc_now_iso(),
-        })
+        }, runtime_dir=runtime_dir)
 
 
-def get_csd_refresh_status() -> Dict[str, Any]:
+def get_csd_refresh_status(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    compliance_dir = _compliance_dir(runtime_dir)
+    report_target = _report_target(runtime_dir)
     return {
         "status": "ok",
         "service_version": SERVICE_VERSION,
         "checked_at": _utc_now_iso(),
         "csd_login_url": _safe_str(os.getenv("CSD_LOGIN_URL"), "https://secure.csd.gov.za"),
-        "compliance_dir": str(COMPLIANCE_DIR),
-        "standard_csd_report": str(CSD_REPORT_TARGET),
-        "standard_csd_report_exists": CSD_REPORT_TARGET.exists(),
-        "schedule": should_run_monthly_csd_refresh(),
-        "last_status": _read_status(),
+        "compliance_dir": str(compliance_dir),
+        "standard_csd_report": str(report_target),
+        "standard_csd_report_exists": report_target.exists(),
+        "schedule": should_run_monthly_csd_refresh(runtime_dir=runtime_dir),
+        "last_status": _read_status(runtime_dir=runtime_dir),
     }
 
 
-def run_monthly_csd_refresh_if_due() -> Dict[str, Any]:
-    return refresh_csd_report(force=False)
+def run_monthly_csd_refresh_if_due(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    return refresh_csd_report(force=False, runtime_dir=runtime_dir)
 
 
-def run(force: bool = False) -> Dict[str, Any]:
-    return refresh_csd_report(force=force)
+def run(force: bool = False, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    return refresh_csd_report(force=force, runtime_dir=runtime_dir)
 
 
 if __name__ == "__main__":
     print(json.dumps(refresh_csd_report(force=True), indent=2, default=str))
-

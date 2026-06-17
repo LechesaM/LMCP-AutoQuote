@@ -1,0 +1,331 @@
+from __future__ import annotations
+
+import json
+import mimetypes
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+
+RUNTIME_DIR = Path("runtime")
+PROOF_CENTER_DIR = RUNTIME_DIR / "proof_center"
+PROOF_CENTER_DIR.mkdir(parents=True, exist_ok=True)
+
+FINAL_PROOF_DIR = RUNTIME_DIR / "final_submission_v47_5" / "proofs"
+PORTAL_PROOF_DIR = RUNTIME_DIR / "portal_submission" / "proofs"
+SUBMISSION_PROOF_DIR = RUNTIME_DIR / "submission_proofs"
+
+INDEX_FILE = PROOF_CENTER_DIR / "proof_index.json"
+LAST_SCAN_FILE = PROOF_CENTER_DIR / "last_scan.json"
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    text = str(value).strip()
+    return text if text else default
+
+
+def _safe_lower(value: Any) -> str:
+    return _safe_str(value).lower()
+
+
+def _slug(value: Any, fallback: str = "proof") -> str:
+    text = _safe_str(value, fallback)
+    text = re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("._-")
+    return text[:140] or fallback
+
+
+def _read_json(path: Optional[Path], default: Any) -> Any:
+    try:
+        if not path or not path.exists():
+            return default
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+
+
+def _write_json(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _resolve_path(path_value: Any) -> Optional[Path]:
+    text = _safe_str(path_value)
+    if not text:
+        return None
+
+    candidates = [
+        Path(text),
+        Path("/app") / text,
+        Path.cwd() / text,
+        Path("/Users/Shared/LMCP-AutoQuote-Server") / text,
+    ]
+
+    for candidate in candidates:
+        try:
+            if candidate.exists() and candidate.is_file():
+                return candidate.resolve()
+        except Exception:
+            continue
+
+    return None
+
+
+def _file_info(path: Optional[Path]) -> Dict[str, Any]:
+    if not path:
+        return {"exists": False, "path": ""}
+
+    try:
+        stat = path.stat()
+        return {
+            "exists": True,
+            "path": str(path),
+            "name": path.name,
+            "size_bytes": stat.st_size,
+            "modified_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
+            "mime_type": mimetypes.guess_type(str(path))[0] or "application/octet-stream",
+        }
+    except Exception as exc:
+        return {"exists": False, "path": str(path), "error": str(exc)}
+
+
+def _get_nested(record: Dict[str, Any], key: str) -> Any:
+    if key in record:
+        return record.get(key)
+    final_result = record.get("final_submission_result")
+    if isinstance(final_result, dict) and key in final_result:
+        return final_result.get(key)
+    return None
+
+
+def _extract_screenshot_paths(record: Dict[str, Any]) -> List[str]:
+    keys = [
+        "opened_screenshot",
+        "after_start_screenshot",
+        "after_upload_screenshot",
+        "after_submit_screenshot",
+        "proof_screenshot",
+        "captcha_screenshot",
+    ]
+
+    paths: List[str] = []
+    for key in keys:
+        value = _get_nested(record, key)
+        if value:
+            paths.append(_safe_str(value))
+
+    seen = set()
+    output = []
+    for p in paths:
+        if p and p not in seen:
+            seen.add(p)
+            output.append(p)
+    return output
+
+
+def _record_from_json(path: Path) -> Dict[str, Any]:
+    data = _read_json(path, {})
+    if not isinstance(data, dict):
+        data = {}
+
+    buyer_rfq = _get_nested(data, "buyer_rfq_number")
+    quote_number = _get_nested(data, "quote_number")
+
+    submitted = bool(
+        data.get("submitted") is True
+        or data.get("portal_auto_submitted") is True
+        or _get_nested(data, "submitted") is True
+        or _get_nested(data, "portal_auto_submitted") is True
+    )
+
+    status = _safe_str(_get_nested(data, "submission_status") or _get_nested(data, "status"))
+    proof_info = _file_info(path)
+
+    screenshots = []
+    for screenshot in _extract_screenshot_paths(data):
+        resolved = _resolve_path(screenshot)
+        screenshots.append(
+            {
+                "path": screenshot,
+                "resolved_path": str(resolved) if resolved else "",
+                "exists": bool(resolved),
+                "name": Path(screenshot).name,
+            }
+        )
+
+    record_id_seed = f"{buyer_rfq or ''}__{quote_number or ''}__{path.name}"
+    record_id = _slug(record_id_seed)
+
+    return {
+        "record_id": record_id,
+        "buyer_rfq_number": _safe_str(buyer_rfq, "UNKNOWN-RFQ"),
+        "quote_number": _safe_str(quote_number, "UNKNOWN-QUOTE"),
+        "submitted": submitted,
+        "submission_status": status or ("submitted" if submitted else "unknown"),
+        "portal_url": _safe_str(_get_nested(data, "portal_url")),
+        "portal_domain": _safe_str(_get_nested(data, "portal_domain")),
+        "proof_file": str(path),
+        "proof_file_info": proof_info,
+        "screenshots": screenshots,
+        "screenshot_count": len([s for s in screenshots if s.get("exists")]),
+        "submitted_at": _safe_str(_get_nested(data, "submitted_at")),
+        "created_at": proof_info.get("modified_at", ""),
+        "verification_level": _safe_str(_get_nested(data, "verification_level")),
+        "verification_note": _safe_str(_get_nested(data, "verification_note")),
+        "source": str(path.parent),
+    }
+
+
+def _scan_json_files() -> List[Path]:
+    roots = [FINAL_PROOF_DIR, PORTAL_PROOF_DIR, SUBMISSION_PROOF_DIR]
+    files: List[Path] = []
+
+    for root in roots:
+        try:
+            if root.exists():
+                files.extend([p for p in root.rglob("*.json") if p.is_file()])
+        except Exception:
+            continue
+
+    unique = {}
+    for p in files:
+        try:
+            unique[str(p.resolve())] = p.resolve()
+        except Exception:
+            unique[str(p)] = p
+
+    return list(unique.values())
+
+
+def scan_proof_center() -> Dict[str, Any]:
+    records = []
+
+    for path in _scan_json_files():
+        try:
+            records.append(_record_from_json(path))
+        except Exception as exc:
+            records.append(
+                {
+                    "record_id": _slug(path.name),
+                    "buyer_rfq_number": "UNKNOWN-RFQ",
+                    "quote_number": "UNKNOWN-QUOTE",
+                    "submitted": False,
+                    "submission_status": "scan_error",
+                    "proof_file": str(path),
+                    "error": str(exc),
+                }
+            )
+
+    records = sorted(records, key=lambda r: _safe_str(r.get("created_at") or r.get("submitted_at")), reverse=True)
+
+    submitted_total = len([r for r in records if r.get("submitted") is True])
+    pending_total = len(records) - submitted_total
+
+    payload = {
+        "status": "ok",
+        "service_version": "PRODUCTION_PROOF_CENTER_V1",
+        "summary": {
+            "proof_total": len(records),
+            "submitted_total": submitted_total,
+            "pending_or_unverified_total": pending_total,
+            "screenshot_total": sum(int(r.get("screenshot_count") or 0) for r in records),
+        },
+        "records": records,
+        "scanned_at": _now(),
+        "scan_roots": {
+            "final_proofs": str(FINAL_PROOF_DIR),
+            "portal_proofs": str(PORTAL_PROOF_DIR),
+            "submission_proofs": str(SUBMISSION_PROOF_DIR),
+        },
+        "files": {"index": str(INDEX_FILE), "last_scan": str(LAST_SCAN_FILE)},
+    }
+
+    _write_json(INDEX_FILE, payload)
+    _write_json(LAST_SCAN_FILE, {"status": "ok", "scanned_at": payload["scanned_at"], "summary": payload["summary"]})
+    return payload
+
+
+def get_proof_center(limit: int = 100, submitted_only: bool = False, q: str = "") -> Dict[str, Any]:
+    index = _read_json(INDEX_FILE, None)
+    if not isinstance(index, dict):
+        index = scan_proof_center()
+
+    records = index.get("records", [])
+    if not isinstance(records, list):
+        records = []
+
+    if submitted_only:
+        records = [r for r in records if r.get("submitted") is True]
+
+    query = _safe_lower(q)
+    if query:
+        records = [
+            r for r in records
+            if query in _safe_lower(r.get("buyer_rfq_number"))
+            or query in _safe_lower(r.get("quote_number"))
+            or query in _safe_lower(r.get("portal_url"))
+            or query in _safe_lower(r.get("submission_status"))
+        ]
+
+    limit = max(1, min(int(limit or 100), 500))
+    return {
+        "status": "ok",
+        "service_version": "PRODUCTION_PROOF_CENTER_V1",
+        "summary": {
+            **(index.get("summary", {}) if isinstance(index.get("summary"), dict) else {}),
+            "returned": min(len(records), limit),
+            "filtered_total": len(records),
+        },
+        "records": records[:limit],
+        "last_scan": _read_json(LAST_SCAN_FILE, {}),
+        "updated_at": _now(),
+    }
+
+
+def get_proof_record(record_id: str) -> Dict[str, Any]:
+    index = get_proof_center(limit=500)
+    for record in index.get("records", []):
+        if record.get("record_id") == record_id:
+            proof_path = _resolve_path(record.get("proof_file"))
+            raw = _read_json(proof_path, {}) if proof_path else {}
+            return {"status": "ok", "record": record, "raw_proof": raw, "updated_at": _now()}
+
+    return {"status": "not_found", "record_id": record_id, "message": "Proof record not found."}
+
+
+def resolve_download_path(record_id: str, kind: str = "proof", screenshot_index: int = 0) -> Dict[str, Any]:
+    found = get_proof_record(record_id)
+    if found.get("status") != "ok":
+        return found
+
+    record = found["record"]
+
+    if kind == "proof":
+        path = _resolve_path(record.get("proof_file"))
+    elif kind == "screenshot":
+        screenshots = record.get("screenshots", [])
+        if not isinstance(screenshots, list) or not screenshots:
+            return {"status": "not_found", "message": "No screenshots available for this proof."}
+        screenshot_index = max(0, int(screenshot_index or 0))
+        if screenshot_index >= len(screenshots):
+            return {"status": "not_found", "message": "Screenshot index out of range."}
+        item = screenshots[screenshot_index]
+        path = _resolve_path(item.get("path") or item.get("resolved_path"))
+    else:
+        return {"status": "error", "message": "kind must be 'proof' or 'screenshot'."}
+
+    if not path:
+        return {"status": "not_found", "message": "Download file not found on disk."}
+
+    return {
+        "status": "ok",
+        "path": str(path),
+        "filename": path.name,
+        "media_type": mimetypes.guess_type(str(path))[0] or "application/octet-stream",
+    }

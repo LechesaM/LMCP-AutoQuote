@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RETRY_LIMIT = int(str(os.getenv("SUBMISSION_RETRY_BATCH_LIMIT", "10")).strip() or "10")
 AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED = (
-    str(os.getenv("AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED", "true")).strip().lower() == "true"
+    str(os.getenv("AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED", "false")).strip().lower() == "true"
 )
 
 
@@ -116,7 +116,6 @@ def run_submission_retry_cycle(limit: int | None = None) -> Dict[str, Any]:
         "scheduler": str(result.get("scheduler") or "autonomous_submission_loop"),
         **result,
     }
-
 
 
 

@@ -1,0 +1,38 @@
+{
+  "tender_id": "RFQ_004",
+  "comparison_status": "ready",
+  "comparison_ready": true,
+  "supplier_quotes_count": 1,
+  "supplier_quotes": [
+    {
+      "supplier_name": "Industrial Pump Supplies",
+      "quote_reference": "Industrial-Pump-Supplies-RFQ-004",
+      "quoted_total": 140000.0,
+      "source_file": "",
+      "traceability_chain": [
+        {
+          "evidence_type": "pricing_payload",
+          "item_number": 1,
+          "description": "Damsakke complete with pump",
+          "line_total": 140000.0
+        }
+      ]
+    }
+  ],
+  "recommended_supplier": {
+    "supplier_name": "Industrial Pump Supplies",
+    "quote_reference": "Industrial-Pump-Supplies-RFQ-004",
+    "quoted_total": 140000.0,
+    "source_file": "",
+    "traceability_chain": [
+      {
+        "evidence_type": "pricing_payload",
+        "item_number": 1,
+        "description": "Damsakke complete with pump",
+        "line_total": 140000.0
+      }
+    ]
+  },
+  "runner_up_supplier": {},
+  "estimated_savings_vs_runner_up": null
+}

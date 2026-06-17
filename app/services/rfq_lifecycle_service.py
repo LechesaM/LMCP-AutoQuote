@@ -17,19 +17,27 @@ from urllib.request import Request, urlopen
 
 from app.services.rfq_recovery_service import RfqRecoveryService, classify_failure
 from app.services.rfq_state_store import PROJECT_ROOT, RfqStateStore, utc_now_iso
+from app.services.live_rfq_store import summarize_rfq_document_intelligence as _summarize_rfq_document_intelligence
 
 
 LIFECYCLE_STATES = [
     "DISCOVERED",
     "QUALIFIED",
+    "DOCUMENT_ACQUISITION_PENDING",
+    "DOCUMENT_ACQUISITION_BLOCKED",
+    "BUYER_PACK_VERIFIED",
     "DOCUMENTS_ACQUIRED",
     "DOCUMENTS_PARSED",
     "PRICED",
     "PRICING_VERIFIED",
+    "QUANTITY_VERIFICATION_REQUIRED",
+    "COMMERCIAL_VERIFICATION_REQUIRED",
     "SBD_COMPLETED",
     "QUOTE_PACK_READY",
+    "APPROVAL_READY",
     "SUBMISSION_READY_MANUAL",
     "SUBMISSION_READY",
+    "EXTERNALLY_SUBMITTED",
     "SUBMITTED",
     "PROOF_CAPTURED",
     "ARCHIVED",
@@ -42,14 +50,21 @@ LIFECYCLE_STATES = [
 ADVANCE_ORDER = [
     "DISCOVERED",
     "QUALIFIED",
+    "DOCUMENT_ACQUISITION_PENDING",
+    "DOCUMENT_ACQUISITION_BLOCKED",
+    "BUYER_PACK_VERIFIED",
     "DOCUMENTS_ACQUIRED",
     "DOCUMENTS_PARSED",
     "PRICED",
     "PRICING_VERIFIED",
+    "QUANTITY_VERIFICATION_REQUIRED",
+    "COMMERCIAL_VERIFICATION_REQUIRED",
     "SBD_COMPLETED",
     "QUOTE_PACK_READY",
+    "APPROVAL_READY",
     "SUBMISSION_READY_MANUAL",
     "SUBMISSION_READY",
+    "EXTERNALLY_SUBMITTED",
 ]
 
 EXCLUDED_KEYWORDS = {
@@ -96,13 +111,20 @@ DOCUMENT_URL_KEYS = (
 LIFECYCLE_QUEUE_MAP = {
     "DISCOVERED": "acquisition_queue",
     "QUALIFIED": "acquisition_queue",
+    "DOCUMENT_ACQUISITION_PENDING": "acquisition_queue",
+    "DOCUMENT_ACQUISITION_BLOCKED": "retry_queue",
+    "BUYER_PACK_VERIFIED": "parsing_queue",
     "DOCUMENTS_ACQUIRED": "parsing_queue",
     "DOCUMENTS_PARSED": "pricing_queue",
     "PRICED": "pricing_queue",
     "PRICING_VERIFIED": "pricing_queue",
+    "QUANTITY_VERIFICATION_REQUIRED": "pricing_queue",
+    "COMMERCIAL_VERIFICATION_REQUIRED": "pricing_queue",
     "QUOTE_PACK_READY": "proof_queue",
+    "APPROVAL_READY": "proof_queue",
     "SUBMISSION_READY_MANUAL": "proof_queue",
     "SUBMISSION_READY": "proof_queue",
+    "EXTERNALLY_SUBMITTED": "proof_queue",
     "FAILED": "retry_queue",
     "REVIEW_REQUIRED": "retry_queue",
     "READY_FOR_RETRY": "retry_queue",
@@ -169,6 +191,7 @@ def _extract_items(payload: Any) -> List[Dict[str, Any]]:
 def _margin_percent(payload: Dict[str, Any]) -> float:
     margin = _safe_float(
         payload.get("estimated_margin")
+        or payload.get("estimated_margin_percent")
         or payload.get("estimated_margin_pct")
         or payload.get("margin")
         or payload.get("margin_percent"),
@@ -223,6 +246,50 @@ def _http_urls_from_payload(payload: Dict[str, Any]) -> List[str]:
         if url.startswith(("http://", "https://")) and url not in output:
             output.append(url)
     return output
+
+
+def _buyer_pack_downloaded_from_payload(payload: Dict[str, Any]) -> bool:
+    explicit = payload.get("buyer_pack_downloaded")
+    if explicit is True:
+        return True
+    if explicit is False:
+        return False
+
+    verified = payload.get("buyer_pack_verified")
+    if verified is True:
+        return True
+
+    status = str(payload.get("document_acquisition_status") or "").strip().lower()
+    if status in {"buyer_pack_verified", "buyer_pack_downloaded", "downloaded", "verified", "completed"}:
+        return True
+    if status in {"document_acquisition_failed", "document_acquisition_blocked", "blocked"}:
+        return False
+
+    for key in ("buyer_pack_path", "live_buyer_pack_path", "document_acquisition_report_path"):
+        path_value = str(payload.get(key) or "").strip()
+        if not path_value:
+            continue
+        if path_value.startswith("simulation://"):
+            return True
+        try:
+            if Path(path_value).exists():
+                return True
+        except Exception:
+            continue
+
+    for path_value in payload.get("document_paths") if isinstance(payload.get("document_paths"), list) else []:
+        path_text = str(path_value or "").strip()
+        if not path_text:
+            continue
+        if path_text.startswith("simulation://"):
+            return True
+        try:
+            if Path(path_text).exists():
+                return True
+        except Exception:
+            continue
+
+    return False
 
 
 def _slug(value: str) -> str:
@@ -294,14 +361,67 @@ class RfqLifecycleService:
         status = str(payload.get("pipeline_status") or payload.get("status") or "").lower()
         return any(token in status for token in ["eligible", "quote_ready", "qualified"])
 
+    def _quote_ready_gate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        summary = _summarize_rfq_document_intelligence(payload if isinstance(payload, dict) else {})
+        return {
+            "buyer_pack_downloaded": bool(summary.get("buyer_pack_downloaded")),
+            "boq_detected": bool(summary.get("boq_detected")),
+            "pricing_schedule_detected": bool(summary.get("pricing_schedule_detected")),
+            "returnables_detected": bool(summary.get("returnables_detected")),
+            "quote_pack_generated": bool(summary.get("quote_pack_generated")),
+            "quote_ready": bool(
+                summary.get("buyer_pack_downloaded")
+                and summary.get("boq_detected")
+                and summary.get("pricing_schedule_detected")
+                and summary.get("returnables_detected")
+                and summary.get("quote_pack_generated")
+            ),
+            "acquisition_readiness_score": int(summary.get("acquisition_readiness_score") or 0),
+            "lifecycle_stage": str(summary.get("lifecycle_stage") or "DISCOVERED"),
+            "quote_pack_readiness_components": summary.get("quote_pack_readiness_components") if isinstance(summary.get("quote_pack_readiness_components"), dict) else {},
+        }
+
+    def _resolve_lifecycle_state(self, payload: Dict[str, Any], summary: Dict[str, Any], explicit_state: str = "") -> str:
+        state = str(explicit_state or payload.get("current_state") or payload.get("lifecycle_state") or "").upper()
+        buyer_pack = bool(summary.get("buyer_pack_downloaded"))
+        boq = bool(summary.get("boq_detected"))
+        pricing = bool(summary.get("pricing_schedule_detected"))
+        returnables = bool(summary.get("returnables_detected"))
+        quote_pack = bool(summary.get("quote_pack_generated"))
+        quote_ready = buyer_pack and boq and pricing and returnables and quote_pack
+        submission_ready = quote_ready and bool(payload.get("submission_ready") or payload.get("submission_status") in {"submitted", "ready", "ready_manual_review_no_send"})
+
+        if state in {"EXTERNALLY_SUBMITTED", "SUBMITTED", "PROOF_CAPTURED", "ARCHIVED"}:
+            return state
+        if submission_ready:
+            return "SUBMISSION_READY"
+        if quote_ready:
+            return "QUOTE_PACK_READY"
+        if quote_pack:
+            return "PRICING_VERIFIED"
+        if returnables:
+            return "PRICED"
+        if pricing:
+            return "DOCUMENTS_PARSED"
+        if boq:
+            return "DOCUMENTS_ACQUIRED"
+        if buyer_pack:
+            return "BUYER_PACK_VERIFIED"
+        if str(payload.get("document_acquisition_status") or "").strip().lower() in {"document_acquisition_blocked", "blocked", "failed", "no_documents_downloaded", "document_acquisition_failed"}:
+            return "DOCUMENT_ACQUISITION_BLOCKED"
+        if state in {"DOCUMENT_ACQUISITION_PENDING", "DOCUMENT_ACQUISITION_BLOCKED", "REVIEW_REQUIRED", "READY_FOR_RETRY", "REJECTED"}:
+            return state
+        return "DISCOVERED"
+
     def _normalize_item(self, payload: Dict[str, Any], source: str = "api_ingest") -> Dict[str, Any]:
         now = utc_now_iso()
         rfq_id = _stable_id(payload)
         accepted, policy_reasons = self._policy_check(payload)
         document_confidence_score = self._document_confidence_score(payload)
-        current_state = str(payload.get("current_state") or ("DISCOVERED" if accepted else "REVIEW_REQUIRED")).upper()
+        doc_summary = _summarize_rfq_document_intelligence(payload)
+        current_state = self._resolve_lifecycle_state(payload, doc_summary, str(payload.get("current_state") or "").upper())
         if current_state not in LIFECYCLE_STATES:
-            current_state = "DISCOVERED" if accepted else "REVIEW_REQUIRED"
+            current_state = "REVIEW_REQUIRED" if not accepted else "DISCOVERED"
 
         item = {
             "rfq_id": rfq_id,
@@ -316,14 +436,21 @@ class RfqLifecycleService:
             "max_retries": int(payload.get("max_retries") or 3),
             "failure_reason": str(payload.get("failure_reason") or ";".join(policy_reasons)),
             "failure_classification": classify_failure(";".join(policy_reasons)),
+            "eligibility_failure_reason": ";".join(policy_reasons),
             "qualification_score": _safe_float(payload.get("qualification_score") or payload.get("confidence_score") or payload.get("ai_score")),
             "estimated_profit": _profit_value(payload),
             "estimated_margin": _margin_percent(payload),
             "document_paths": payload.get("document_paths") if isinstance(payload.get("document_paths"), list) else [],
             "document_urls": _http_urls_from_payload(payload),
             "document_confidence_score": document_confidence_score,
-            "document_verification_status": str(payload.get("document_verification_status") or ("verified" if document_confidence_score >= MIN_DOCUMENT_CONFIDENCE else "pending")),
-            "quote_candidate_status": str(payload.get("quote_candidate_status") or ("document_verified" if document_confidence_score >= MIN_DOCUMENT_CONFIDENCE else "needs_review")),
+            "buyer_pack_downloaded": bool(doc_summary.get("buyer_pack_downloaded")),
+            "buyer_pack_verified": bool(payload.get("buyer_pack_verified") or doc_summary.get("buyer_pack_downloaded")),
+            "document_acquisition_status": str(
+                payload.get("document_acquisition_status")
+                or ("downloaded" if doc_summary.get("buyer_pack_downloaded") else "document_acquisition_pending")
+            ),
+            "document_verification_status": str(payload.get("document_verification_status") or ("verified" if doc_summary.get("buyer_pack_downloaded") else "pending")),
+            "quote_candidate_status": str(payload.get("quote_candidate_status") or ("document_verified" if doc_summary.get("buyer_pack_downloaded") else "needs_review")),
             "quote_pack_path": str(payload.get("quote_pack_path") or ""),
             "submission_status": str(payload.get("submission_status") or "not_submitted"),
             "proof_path": str(payload.get("proof_path") or ""),
@@ -367,6 +494,7 @@ class RfqLifecycleService:
                 "policy_reasons": policy_reasons,
             },
         }
+        item.update(_summarize_rfq_document_intelligence(item))
         audit_row = {
             "at": now,
             "event": "ingested",
@@ -966,9 +1094,24 @@ class RfqLifecycleService:
 
     def _price_step(self, enriched: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            from app.services.real_profit_pricing_service import enrich_with_real_profit_pricing
+            runtime_root = str(PROJECT_ROOT / "runtime")
+            previous_project_root = os.environ.get("LMCP_PROJECT_ROOT")
+            previous_runtime_dir = os.environ.get("LMCP_RUNTIME_DIR")
+            os.environ["LMCP_PROJECT_ROOT"] = str(PROJECT_ROOT)
+            os.environ["LMCP_RUNTIME_DIR"] = runtime_root
+            try:
+                from app.services.real_profit_pricing_service import enrich_with_real_profit_pricing
 
-            return enrich_with_real_profit_pricing(enriched)
+                return enrich_with_real_profit_pricing(enriched, runtime_dir=runtime_root)
+            finally:
+                if previous_project_root is None:
+                    os.environ.pop("LMCP_PROJECT_ROOT", None)
+                else:
+                    os.environ["LMCP_PROJECT_ROOT"] = previous_project_root
+                if previous_runtime_dir is None:
+                    os.environ.pop("LMCP_RUNTIME_DIR", None)
+                else:
+                    os.environ["LMCP_RUNTIME_DIR"] = previous_runtime_dir
         except Exception as exc:
             return {"status": "failed", "priced": False, "error": str(exc), "payload": enriched}
 
@@ -1025,13 +1168,107 @@ class RfqLifecycleService:
         try:
             from app.services.quote_pack_v44_service import generate_quote_pack_from_v43_payload
 
-            return generate_quote_pack_from_v43_payload(
+            result = generate_quote_pack_from_v43_payload(
                 priced_payload,
                 buyer_rfq_number=priced_payload.get("buyer_rfq_number") or priced_payload.get("rfq_number") or priced_payload.get("rfq_id"),
                 output_dir="runtime/rfq_lifecycle/quote_packs",
             )
+            if isinstance(result, dict):
+                result.update(self._quote_pack_artifact_evidence(result))
+                result.setdefault("quote_pack_generation_diagnostics", {})
+                diagnostics = result.get("quote_pack_generation_diagnostics")
+                if not isinstance(diagnostics, dict):
+                    diagnostics = {}
+                diagnostics.update(
+                    {
+                        "service": "quote_pack_v44_service",
+                        "status": result.get("status"),
+                        "message": result.get("message") or "",
+                        "requires_human_approval": True,
+                        "final_autonomous_submission_locked": True,
+                    }
+                )
+                result["quote_pack_generation_diagnostics"] = diagnostics
+                if result.get("status") == "ok" and not result.get("quote_pack_artifact_exists"):
+                    result["status"] = "failed"
+                    result["message"] = "Quote pack metadata was generated but no artifact evidence was found."
+                    result["quote_pack_generation_failure_reason"] = "quote_pack_artifact_missing"
+                    result["quote_pack_generation_diagnostics"] = {
+                        **diagnostics,
+                        "status": "failed",
+                        "message": result["message"],
+                    }
+            return result
         except Exception as exc:
-            return {"status": "failed", "message": str(exc)}
+            return {
+                "status": "failed",
+                "message": str(exc),
+                "quote_pack_artifact_exists": False,
+                "quote_pack_artifact_size_bytes": 0,
+                "quote_pack_generation_failure_reason": str(exc),
+                "quote_pack_generation_diagnostics": {
+                    "service": "quote_pack_v44_service",
+                    "status": "failed",
+                    "message": str(exc),
+                    "requires_human_approval": True,
+                    "final_autonomous_submission_locked": True,
+                },
+            }
+
+    def _quote_pack_artifact_evidence(self, quote_pack_result: Dict[str, Any]) -> Dict[str, Any]:
+        workspace_value = str(
+            quote_pack_result.get("workspace")
+            or quote_pack_result.get("quote_pack_workspace")
+            or ""
+        ).strip()
+        workspace = Path(workspace_value) if workspace_value else None
+        artifact_paths: List[Path] = []
+        artifacts = quote_pack_result.get("artifacts") if isinstance(quote_pack_result.get("artifacts"), dict) else {}
+        for value in artifacts.values():
+            text = str(value or "").strip()
+            if text:
+                artifact_paths.append(Path(text))
+        if workspace is not None:
+            artifact_paths.append(workspace)
+
+        existing_paths: List[Path] = []
+        seen: set[str] = set()
+        for path in artifact_paths:
+            marker = str(path)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            if path.exists():
+                existing_paths.append(path)
+
+        size_bytes = 0
+        size_source = workspace if workspace and workspace.exists() else None
+        if size_source is not None and size_source.is_dir():
+            for file_path in size_source.rglob("*"):
+                if file_path.is_file():
+                    size_bytes += file_path.stat().st_size
+        elif size_source is not None and size_source.is_file():
+            size_bytes = size_source.stat().st_size
+        else:
+            for path in existing_paths:
+                if path.is_file():
+                    size_bytes += path.stat().st_size
+
+        artifact_exists = size_bytes > 0
+        artifact_paths_text = [str(path) for path in existing_paths][:10]
+        diagnostics = {
+            "workspace": workspace_value,
+            "artifact_paths": artifact_paths_text,
+            "artifact_exists": artifact_exists,
+            "artifact_size_bytes": size_bytes,
+            "requires_human_approval": True,
+            "final_autonomous_submission_locked": True,
+        }
+        return {
+            "quote_pack_artifact_exists": artifact_exists,
+            "quote_pack_artifact_size_bytes": size_bytes,
+            "quote_pack_generation_diagnostics": diagnostics,
+        }
 
     def _read_json_file(self, path_value: Any) -> Dict[str, Any]:
         try:
@@ -2814,15 +3051,29 @@ class RfqLifecycleService:
 
                 quote_pack = self._build_quote_pack_step(priced_payload)
                 if quote_pack.get("status") != "ok":
-                    self._transition(item, "REVIEW_REQUIRED", quote_pack.get("message") or "quote_pack_generation_failed", event="advance_parsed")
+                    reason = quote_pack.get("message") or "quote_pack_generation_failed"
+                    item["failure_reason"] = reason
+                    item["failure_classification"] = classify_failure(reason)
                     review_required_count += 1
-                    processed.append({"rfq_id": rfq_id, "state": item["current_state"], "reason": item["failure_reason"]})
+                    processed.append({"rfq_id": rfq_id, "state": item["current_state"], "reason": reason})
                     changed_items.append(item)
                     continue
 
                 item["quote_pack_path"] = str(quote_pack.get("workspace") or "")
                 item["quote_pack_artifacts"] = quote_pack.get("artifacts") if isinstance(quote_pack.get("artifacts"), dict) else {}
                 item["quote_number"] = quote_pack.get("quote_number", "")
+                quote_gate = self._quote_ready_gate({**priced_payload, **item, "quote_pack_generated": True, "quote_pack_path": item["quote_pack_path"]})
+                if not quote_gate.get("quote_ready"):
+                    reason = "quote_ready_hard_gate_not_satisfied"
+                    item["failure_reason"] = reason
+                    item["failure_classification"] = classify_failure(reason)
+                    item["quote_pack_generation_status"] = "generated"
+                    item["quote_ready_hard_gate"] = quote_gate
+                    review_required_count += 1
+                    processed.append({"rfq_id": rfq_id, "state": item["current_state"], "reason": reason})
+                    changed_items.append(item)
+                    continue
+
                 self._transition(item, "QUOTE_PACK_READY", "quote_pack_generated", event="advance_parsed")
 
                 item["submission_status"] = "ready_manual_review_no_send"
@@ -3143,6 +3394,8 @@ class RfqLifecycleService:
         retry_backoff_seconds: float = 0.75,
         generate_local_pack: bool = True,
     ) -> Dict[str, Any]:
+        os.environ["LMCP_PROJECT_ROOT"] = str(PROJECT_ROOT)
+        os.environ["LMCP_RUNTIME_DIR"] = str(PROJECT_ROOT / "runtime")
         from app.services.live_rfq_store import LiveRFQStore
 
         live_data = LiveRFQStore.get_all()
@@ -3173,13 +3426,6 @@ class RfqLifecycleService:
         report_rows: List[Dict[str, Any]] = []
 
         quote_compiler = None
-        if generate_local_pack:
-            try:
-                from app.services.quote_compilation_service import QuoteCompilationService
-
-                quote_compiler = QuoteCompilationService()
-            except Exception:
-                quote_compiler = None
 
         for source_item in visible_items:
             live_row = dict(source_item)
@@ -3199,6 +3445,19 @@ class RfqLifecycleService:
                 item = dict(lifecycle_item)
             else:
                 item = self._normalize_item(live_row, source="visible_bulk_validation")
+
+            rfq_id = str(
+                item.get("rfq_id")
+                or item.get("rfq_reference")
+                or item.get("buyer_rfq_number")
+                or live_row.get("rfq_id")
+                or live_row.get("rfq_reference")
+                or live_row.get("buyer_rfq_number")
+                or ""
+            ).strip()
+            if rfq_id:
+                item["rfq_id"] = rfq_id
+                item.setdefault("rfq_reference", rfq_id)
 
             enriched = self._enrich_lifecycle_item(item, self._live_store_index())
             accepted, policy_reasons = self._policy_check(enriched)
@@ -3349,7 +3608,24 @@ class RfqLifecycleService:
 
             promoted = False
             if not blocker_reasons:
-                pricing = self._price_step(enriched)
+                pricing_input = {
+                    "buyer_rfq_number": str(
+                        enriched.get("buyer_rfq_number")
+                        or enriched.get("rfq_number")
+                        or enriched.get("reference_number")
+                        or item.get("rfq_id")
+                        or ""
+                    ).strip(),
+                    "rfq_number": str(enriched.get("rfq_number") or item.get("rfq_id") or "").strip(),
+                    "reference_number": str(enriched.get("reference_number") or item.get("rfq_id") or "").strip(),
+                    "title": str(enriched.get("title") or item.get("title") or "").strip(),
+                    "description": str(enriched.get("description") or item.get("description") or "").strip(),
+                    "category": str(enriched.get("category") or item.get("category") or "").strip(),
+                    "line_items": enriched.get("line_items") if isinstance(enriched.get("line_items"), list) else (item.get("line_items") if isinstance(item.get("line_items"), list) else []),
+                    "estimated_profit": _profit_value(enriched) or _profit_value(item),
+                    "estimated_margin_percent": _margin_percent(enriched) or _margin_percent(item),
+                }
+                pricing = self._price_step(pricing_input)
                 priced_payload = pricing.get("payload") if isinstance(pricing.get("payload"), dict) else dict(enriched)
                 profit = _profit_value(priced_payload)
                 margin = _margin_percent(priced_payload)
@@ -3389,17 +3665,55 @@ class RfqLifecycleService:
                             "sbd_detected": forms_detected,
                         }
 
-                        if quote_compiler is not None:
-                            local_pack_result = quote_compiler.generate_local_pack(
-                                {"rfq_reference": priced_payload["buyer_rfq_number"]}
-                            )
-                            if local_pack_result.get("status") != "ok":
-                                blocker_reasons.append(str(local_pack_result.get("message") or "quote_compilation_pack_generation_failed"))
+                        if generate_local_pack:
+                            if quote_compiler is None:
+                                previous_project_root = os.environ.get("LMCP_PROJECT_ROOT")
+                                previous_runtime_dir = os.environ.get("LMCP_RUNTIME_DIR")
+                                runtime_root = str(PROJECT_ROOT)
+                                os.environ["LMCP_PROJECT_ROOT"] = str(PROJECT_ROOT)
+                                os.environ["LMCP_RUNTIME_DIR"] = str(PROJECT_ROOT / "runtime")
+                                try:
+                                    from app.services.quote_compilation_service import QuoteCompilationService
+
+                                    quote_compiler = QuoteCompilationService()
+                                except Exception:
+                                    quote_compiler = None
+                                finally:
+                                    if previous_project_root is None:
+                                        os.environ.pop("LMCP_PROJECT_ROOT", None)
+                                    else:
+                                        os.environ["LMCP_PROJECT_ROOT"] = previous_project_root
+                                    if previous_runtime_dir is None:
+                                        os.environ.pop("LMCP_RUNTIME_DIR", None)
+                                    else:
+                                        os.environ["LMCP_RUNTIME_DIR"] = previous_runtime_dir
+                            if quote_compiler is not None:
+                                previous_project_root = os.environ.get("LMCP_PROJECT_ROOT")
+                                previous_runtime_dir = os.environ.get("LMCP_RUNTIME_DIR")
+                                os.environ["LMCP_PROJECT_ROOT"] = str(PROJECT_ROOT)
+                                os.environ["LMCP_RUNTIME_DIR"] = str(PROJECT_ROOT / "runtime")
+                                try:
+                                    local_pack_result = quote_compiler.generate_local_pack(
+                                        {"rfq_reference": priced_payload["buyer_rfq_number"]}
+                                    )
+                                finally:
+                                    if previous_project_root is None:
+                                        os.environ.pop("LMCP_PROJECT_ROOT", None)
+                                    else:
+                                        os.environ["LMCP_PROJECT_ROOT"] = previous_project_root
+                                    if previous_runtime_dir is None:
+                                        os.environ.pop("LMCP_RUNTIME_DIR", None)
+                                    else:
+                                        os.environ["LMCP_RUNTIME_DIR"] = previous_runtime_dir
+                                if local_pack_result.get("status") != "ok":
+                                    blocker_reasons.append(str(local_pack_result.get("message") or "quote_compilation_pack_generation_failed"))
+
+                        quote_gate = self._quote_ready_gate({**enriched, **item, **priced_payload, "quote_pack_generated": True, "quote_pack_path": item.get("quote_pack_path", "")})
+                        if not quote_gate.get("quote_ready"):
+                            blocker_reasons.append("quote_ready_hard_gate_not_satisfied")
 
             if blocker_reasons:
                 blocked_count += 1
-                if item.get("current_state") not in {"PROOF_CAPTURED", "SUBMITTED", "ARCHIVED"}:
-                    self._transition(item, "REVIEW_REQUIRED", ";".join(blocker_reasons), event="visible_validation")
                 readiness_status = "needs_review"
                 quote_score = 35
                 submission_score = 25
@@ -3417,6 +3731,8 @@ class RfqLifecycleService:
                 quote_score = 92
                 submission_score = 68
                 recommended_action = "Proceed with manual quote review and buyer pricing schedule completion"
+
+            item.update(self._summarize_blockers(blocker_reasons))
 
             lifecycle_index[str(item.get("rfq_id") or "").strip().upper()] = item
             changed_items.append(item)
@@ -3442,6 +3758,7 @@ class RfqLifecycleService:
                 "promoted_quote_ready": promoted,
                 "blocked": not promoted,
                 "blocker_reasons": blocker_reasons,
+                **self._summarize_blockers(blocker_reasons),
                 "documents_downloaded_count": len(downloaded_paths),
                 "document_paths_count": len(combined_paths),
                 "live_buyer_pack_path": item.get("live_buyer_pack_path", ""),
@@ -3506,6 +3823,7 @@ class RfqLifecycleService:
                     "quote_ready": promoted,
                     "eligible": promoted,
                     "blocked": not promoted,
+                    **self._summarize_blockers(blocker_reasons),
                     "lifecycle_state": item.get("current_state"),
                     "rfq_validation_report": report_row,
                 }
@@ -3550,6 +3868,19 @@ class RfqLifecycleService:
         report_path.write_text(json.dumps(report_payload, indent=2, ensure_ascii=False), encoding="utf-8")
         report_payload["report_path"] = str(report_path)
         return report_payload
+
+    @staticmethod
+    def _summarize_blockers(blockers: Iterable[str]) -> Dict[str, str]:
+        clean = [str(reason).strip() for reason in blockers if str(reason).strip()]
+        if not clean:
+            return {"primary_blocker": "", "blocker_summary": "none"}
+        primary = clean[0]
+        if len(clean) == 1:
+            return {"primary_blocker": primary, "blocker_summary": primary}
+        return {
+            "primary_blocker": primary,
+            "blocker_summary": f"{primary} (+{len(clean) - 1} more)",
+        }
 
     def _queue_by_state(self, items: Iterable[Dict[str, Any]]) -> Dict[str, int]:
         counts = Counter(str(item.get("current_state") or "DISCOVERED") for item in items)

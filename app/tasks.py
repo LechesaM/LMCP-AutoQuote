@@ -5,6 +5,7 @@ import os
 from typing import Any, Dict, List
 
 from app.celery_app import celery_app
+from app.services.harvest_source_registry_service import get_curated_live_source_file
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +245,67 @@ def run_harvest_pipeline(
         return {
             "status": "failed",
             "task": "run_harvest_pipeline",
+            "error": str(exc),
+        }
+
+
+@celery_app.task(name="app.tasks.run_scheduled_tender_harvest_task")
+def run_scheduled_tender_harvest_task(
+    duration_minutes: int = 60,
+    sleep_seconds: int = 600,
+    max_total: int = 20,
+    max_per_source: int = 3,
+    max_sources_per_cycle: int = 10,
+    source_file: str | None = None,
+    include_bad_sources: bool = False,
+    headless: bool = True,
+    auto_quote: bool = False,
+    true_autonomous: bool = False,
+    persist_to_live_store: bool = True,
+    minimum_margin_pct: float = 25.0,
+    minimum_profit: float = 30000.0,
+    controlled_mode: bool = False,
+    runtime_dir: str | None = None,
+    source_timeout_seconds: int = 8,
+    playwright_timeout_ms: int = 18000,
+) -> Dict[str, Any]:
+    try:
+        from app.services.harvest_scheduler_service import run_scheduled_tender_harvest
+
+        if source_file is None and not controlled_mode:
+            source_file = get_curated_live_source_file()
+        if controlled_mode:
+            persist_to_live_store = False
+
+        result = run_scheduled_tender_harvest(
+            duration_minutes=duration_minutes,
+            sleep_seconds=sleep_seconds,
+            max_total=max_total,
+            max_per_source=max_per_source,
+            max_sources_per_cycle=max_sources_per_cycle,
+            source_file=source_file,
+            include_bad_sources=include_bad_sources,
+            headless=headless,
+            enable_auto_quote=auto_quote,
+            true_autonomous=true_autonomous,
+            persist_to_live_store=persist_to_live_store,
+            minimum_margin_pct=minimum_margin_pct,
+            minimum_profit=minimum_profit,
+            controlled_mode=controlled_mode,
+            runtime_dir=runtime_dir,
+            source_timeout_seconds=source_timeout_seconds,
+            playwright_timeout_ms=playwright_timeout_ms,
+        )
+        return {
+            "status": "ok",
+            "task": "run_scheduled_tender_harvest_task",
+            "result": result,
+        }
+    except Exception as exc:
+        logger.exception("[TASKS] run_scheduled_tender_harvest_task failed")
+        return {
+            "status": "failed",
+            "task": "run_scheduled_tender_harvest_task",
             "error": str(exc),
         }
 

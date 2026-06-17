@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.parse import urljoin, urlparse
 
@@ -333,7 +334,7 @@ def _make_item(
         "documents": [],
         "document_urls": [],
         "eligible": True,
-        "quote_ready": True,
+        "quote_ready": False,
         "harvested_at": _utc_iso(),
     }
 
@@ -364,6 +365,21 @@ def _dedupe_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _fetch_url(url: str) -> Tuple[Optional[str], Optional[str]]:
+    parsed = urlparse(url)
+    if parsed.scheme == "file":
+        try:
+            if parsed.netloc:
+                local_path = Path(f"//{parsed.netloc}{parsed.path}")
+            else:
+                local_path = Path(parsed.path)
+            return local_path.read_text(encoding="utf-8"), None
+        except Exception as exc:
+            return None, f"{type(exc).__name__}: {exc}"
+    if not parsed.scheme and Path(url).expanduser().exists():
+        try:
+            return Path(url).expanduser().read_text(encoding="utf-8"), None
+        except Exception as exc:
+            return None, f"{type(exc).__name__}: {exc}"
     try:
         response = requests.get(
             url,

@@ -1,3 +1,5 @@
+"""LEGACY ROOT ROUTER: unsupported and quarantined from active runtime."""
+
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
@@ -6,6 +8,7 @@ from app.database import SessionLocal
 from app.models import QuoteDraft
 
 router = APIRouter(prefix="/quotes", tags=["quotes"])
+LEGACY_ROUTER_SURFACE = True
 
 
 def _row_to_dict(row: QuoteDraft) -> Dict[str, Any]:

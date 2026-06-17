@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from app.domain.workflow import WorkflowStage
 from app.pilot import (
     PilotMode,
     assert_pilot_guardrails,
+    build_controlled_pilot_dashboard,
     build_pilot_readiness_report,
     calculate_readiness_score,
     calculate_success_rate,
@@ -201,6 +203,54 @@ def test_pilot_metrics_calculate_correctly(monkeypatch, tmp_path: Path) -> None:
     assert calculate_readiness_score() >= 0
 
 
+def test_controlled_pilot_dashboard_reads_persisted_wave_records(monkeypatch, tmp_path: Path) -> None:
+    runtime_dir = _prepare_runtime(monkeypatch, tmp_path)
+    wave_root = runtime_dir / "manual_production" / "pilot_wave_001"
+
+    for idx in range(1, 6):
+        pilot_dir = wave_root / f"WAVE1-0{idx}"
+        logs_dir = pilot_dir / "submission_logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (pilot_dir / "rfq_source").mkdir(parents=True, exist_ok=True)
+        (pilot_dir / "pilot_manifest.json").write_text("{}", encoding="utf-8")
+        (logs_dir / "pilot_status.json").write_text(
+            json.dumps(
+                {
+                    "rfq_number": f"RFQ-{idx}",
+                    "tender_id": f"RFQ-{idx}",
+                    "status": "submitted",
+                    "submission_ready": True,
+                    "manual_submission_recorded": True,
+                    "latest_run": {
+                        "status": "approved",
+                        "quote_pack_quality_status": "approval_ready",
+                        "approval_blocked": False,
+                        "submission_ready": True,
+                        "blocker": "",
+                    },
+                    "latest_submission_proof": {
+                        "status": "recorded",
+                        "manual_submission_recorded": True,
+                    },
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    dashboard = build_controlled_pilot_dashboard(limit=50)
+    assert dashboard["rfqs_harvested"] == 5
+    assert dashboard["rfqs_rejected"] == 0
+    assert dashboard["rfqs_approved"] == 5
+    assert dashboard["quote_packs_generated"] == 5
+    assert dashboard["submission_records"] == 5
+    assert dashboard["proof_records"] == 5
+    assert dashboard["pilot_success_rate"] == 100.0
+    assert dashboard["go_no_go"] == "HOLD"
+    assert dashboard["pilot_wave"] == "stage_2_pilot_dashboard"
+
+
 def test_operator_accountability_preserved(monkeypatch, tmp_path: Path) -> None:
     _prepare_runtime(monkeypatch, tmp_path)
     with pytest.raises(ValueError):
@@ -226,6 +276,45 @@ def test_no_autonomous_submission_enabled(monkeypatch, tmp_path: Path) -> None:
                 "proof_confirmed": True,
             }
         )
+
+
+def test_warning_stage_runs_do_not_count_as_successful_pilot_runs(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+
+    record_pilot_run(
+        {
+            "tender_id": "P-007",
+            "workflow_stage": "approval_required",
+            "pilot_mode": "supervised_live",
+            "operator": "Operator E",
+            "actor": "Operator E",
+            "outcome": "warning",
+            "status": "warning",
+            "proof_confirmed": False,
+        }
+    )
+
+    assert get_pilot_summary()["total_runs"] == 0
+    assert calculate_success_rate() == 0.0
+
+    record_pilot_run(
+        {
+            "tender_id": "P-008",
+            "workflow_stage": "proof_recorded",
+            "pilot_mode": "supervised_live",
+            "operator": "Operator E",
+            "actor": "Operator E",
+            "outcome": "completed",
+            "status": "recorded",
+            "proof_confirmed": True,
+            "final_submission_attempted": False,
+        }
+    )
+
+    summary = get_pilot_summary()
+    assert summary["total_runs"] == 1
+    assert summary["successful_runs"] == 1
+    assert calculate_success_rate() == pytest.approx(1.0)
 
 
 def test_workflow_integrity_preserved(monkeypatch, tmp_path: Path) -> None:
@@ -309,9 +398,25 @@ def test_dashboard_summary_includes_pilot_visibility(monkeypatch, tmp_path: Path
             "proof_confirmed": True,
         }
     )
+    monkeypatch.setattr(
+        dashboard_service,
+        "build_controlled_pilot_dashboard",
+        lambda limit=50: {
+            "rfqs_harvested": 5,
+            "rfqs_rejected": 1,
+            "rfqs_approved": 2,
+            "quote_packs_generated": 4,
+            "submission_records": 3,
+            "proof_records": 3,
+            "pilot_success_rate": 80.0,
+            "go_no_go": "HOLD",
+            "pilot_wave": "stage_2_pilot_dashboard",
+        },
+    )
 
     summary = dashboard_service.get_dashboard_summary(limit=20)
     assert "pilot_mode" in summary
     assert "pilot_metrics" in summary
     assert "pilot_readiness_score" in summary
     assert summary["pilot_readiness_score"] >= 0
+    assert summary["controlled_pilot_dashboard"]["rfqs_harvested"] == 5

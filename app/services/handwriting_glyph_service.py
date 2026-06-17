@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from PIL import Image, ImageOps
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 
 
 RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "runtime"))
@@ -70,6 +70,55 @@ def _now_iso() -> str:
 def _safe_ref(value: str) -> str:
     cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "-" for ch in value.strip())
     return cleaned[:120] or f"RFQ-{uuid.uuid4().hex[:8]}"
+
+
+def get_glyph_status() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "service": "handwriting_glyph_service",
+        "message": "Ready to build handwriting glyph caches and overlay glyph handwriting on PDFs.",
+        "sample_image": str(DEFAULT_SAMPLE_IMAGE),
+        "output_dir": str(DEFAULT_OUTPUT_DIR),
+        "glyph_cache_dir": str(DEFAULT_GLYPH_DIR),
+    }
+
+
+def example_payload() -> Dict[str, Any]:
+    return {
+        "buyer_rfq_number": "TEST-GLYPH-HANDWRITING-001",
+        "input_pdf": "runtime/test_tender_pack/RFQ 4254.pdf",
+        "sample_image": str(DEFAULT_SAMPLE_IMAGE),
+        "fields": [
+            {
+                "page": 1,
+                "x": 120,
+                "y": 720,
+                "text": "Lechesa Manaba Consulting and Projects Pty Ltd",
+                "glyph_height": 14,
+                "letter_spacing": 1,
+                "word_spacing": 8,
+                "max_width": 380,
+            },
+            {
+                "page": 1,
+                "x": 120,
+                "y": 695,
+                "text": "Lechesa Manaba",
+                "glyph_height": 15,
+                "letter_spacing": 1,
+                "word_spacing": 8,
+            },
+            {
+                "page": 1,
+                "x": 120,
+                "y": 670,
+                "text": "Director",
+                "glyph_height": 15,
+                "letter_spacing": 1,
+                "word_spacing": 8,
+            },
+        ],
+    }
 
 
 def _ensure_dirs() -> None:

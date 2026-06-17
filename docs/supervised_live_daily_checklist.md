@@ -7,6 +7,9 @@ For the mandatory morning ritual review, see [production_cutover/daily_operation
 - Confirm runtime directories are writable
 - Confirm manual-production database is reachable
 - Confirm audit trail and submission history directories exist
+- Run `make morning-ritual` to execute the readiness check, live queue status, and fresh-only daily loop together
+- Confirm `make morning-ritual` prints the live queue status before the daily loop starts and stops immediately if the queue is empty
+- Confirm the morning ritual does not try to seed fresh work on its own; use `make queue-refresh` for the National Treasury eTenders source or `make fresh-intake` for fallback recovery
 - Confirm AO tooling is opened before operator work begins
 - Confirm stabilization pages are visible
 - Confirm operational health and observability panels are visible
@@ -34,6 +37,7 @@ For the mandatory morning ritual review, see [production_cutover/daily_operation
 
 ## Queue Checks
 - Confirm RFQ queue backlog is understood
+- Run `make live-queue-status` when you want a one-line view of queue freshness and runnable work
 - Confirm refused RFQs are separated from active work
 - Confirm archived items remain archived
 
@@ -46,6 +50,10 @@ For the mandatory morning ritual review, see [production_cutover/daily_operation
 - Confirm each RFQ is valid before processing
 - Confirm exclusions and pricing thresholds are respected
 - Confirm quote-pack readiness is only used for eligible RFQs
+- Run `make queue-refresh` if the live queue has no fresh candidates and you want to seed the queue from the National Treasury eTenders source
+- Run `make fresh-intake` if the live queue has no fresh candidates and you need fallback recovery
+- Run `make daily-pilot-loop` for the current runnable RFQ and review the concise operator report
+- Confirm `runtime/manual_production/daily_pilot_loop_report.json` is written after the loop completes
 
 ## Approval Checks
 - Confirm manual approval is recorded

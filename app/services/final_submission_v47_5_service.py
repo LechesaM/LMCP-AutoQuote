@@ -9,11 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.core.runtime_paths import get_runtime_paths
 from app.services.quote_compilation_service import _manual_completion_gate, _safe_quote_pack_dir, append_pack_audit_event
+from app.core.runtime_paths import get_runtime_paths
 
-LEGACY_SERVICE = True
-RUNTIME_DIR = get_runtime_paths().runtime_root
+RUNTIME_DIR = Path("runtime")
 FINAL_DIR = RUNTIME_DIR / "final_submission_v47_5"
 PROFILE_DIR = RUNTIME_DIR / "playwright_profiles" / "etenders"
 STATE_FILE = RUNTIME_DIR / "playwright_profiles" / "etenders_state.json"
@@ -30,6 +29,7 @@ DEBUG_DIR.mkdir(parents=True, exist_ok=True)
 HISTORY_FILE = FINAL_DIR / "final_submission_history.json"
 ASSISTED_FILE = FINAL_DIR / "assisted_final_submit_required.json"
 LAST_RESULT_FILE = FINAL_DIR / "last_final_submit.json"
+RELEASE_CONFIG_FILE = FINAL_DIR / "final_submission_release_config.json"
 
 DEFAULT_TIMEOUT_MS = int(os.getenv("LMCP_PORTAL_BROWSER_TIMEOUT_MS", "45000"))
 HEADLESS = os.getenv("LMCP_PORTAL_BROWSER_HEADLESS", "true").lower() in {"1", "true", "yes", "on"}
@@ -199,6 +199,104 @@ def _resolve_state_file() -> Optional[str]:
         except Exception:
             continue
     return None
+
+
+def _resolve_release_config_file() -> Path:
+    candidates = [
+        get_runtime_paths().runtime_root / "final_submission_v47_5" / "final_submission_release_config.json",
+        Path.cwd() / "runtime" / "final_submission_v47_5" / "final_submission_release_config.json",
+        RELEASE_CONFIG_FILE,
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        except Exception:
+            continue
+    return RELEASE_CONFIG_FILE
+
+
+def _load_release_config() -> Dict[str, Any]:
+    default = {
+        "enabled": False,
+        "stage": "V48",
+        "requires_named_operator": False,
+        "requires_review_ready": False,
+        "requires_approved_pack": False,
+        "requires_no_blockers": False,
+        "requires_explicit_flag": False,
+    }
+    config = _read_json(_resolve_release_config_file(), default)
+    if not isinstance(config, dict):
+        return deepcopy(default)
+    normalized = deepcopy(default)
+    normalized.update(config)
+    normalized["enabled"] = bool(normalized.get("enabled"))
+    normalized["stage"] = _safe_str(normalized.get("stage") or "V48").upper() or "V48"
+    for key in ("requires_named_operator", "requires_review_ready", "requires_approved_pack", "requires_no_blockers", "requires_explicit_flag"):
+        normalized[key] = bool(normalized.get(key))
+    return normalized
+
+
+def _final_submit_release_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
+    config = _load_release_config()
+    operator_name = _safe_str(
+        payload.get("submitted_by")
+        or payload.get("operator_name")
+        or payload.get("operator")
+        or payload.get("reviewed_by")
+    )
+    review_ready = bool(payload.get("submission_review_ready")) or _safe_lower(payload.get("submission_review_status")) == "review_ready"
+    approved_pack = bool(payload.get("approved_pack")) or bool(payload.get("submission_pack_approved"))
+    blockers = payload.get("blockers")
+    blocker_count = len(blockers) if isinstance(blockers, list) else (1 if blockers else 0)
+    explicit_flag = bool(payload.get("allow_final_submit")) or bool(payload.get("execute_final_submit"))
+
+    if config.get("stage") != "V49":
+        return {
+            "stage": config.get("stage") or "V48",
+            "release_enabled": bool(config.get("enabled")),
+            "allowed": False,
+            "blocked_reason": "release_stage_not_v49",
+            "operator_name": operator_name,
+            "review_ready": review_ready,
+            "approved_pack": approved_pack,
+            "blocker_count": blocker_count,
+            "explicit_flag": explicit_flag,
+            "config": config,
+        }
+
+    allowed = bool(config.get("enabled"))
+    blocked_reason = ""
+
+    if config.get("requires_named_operator") and not operator_name:
+        allowed = False
+        blocked_reason = "named_operator_required"
+    elif config.get("requires_review_ready") and not review_ready:
+        allowed = False
+        blocked_reason = "review_ready_required"
+    elif config.get("requires_approved_pack") and not approved_pack:
+        allowed = False
+        blocked_reason = "approved_pack_required"
+    elif config.get("requires_no_blockers") and blocker_count > 0:
+        allowed = False
+        blocked_reason = "open_blockers_present"
+    elif config.get("requires_explicit_flag") and not explicit_flag:
+        allowed = False
+        blocked_reason = "explicit_flag_required"
+
+    return {
+        "stage": "V49",
+        "release_enabled": bool(config.get("enabled")),
+        "allowed": allowed,
+        "blocked_reason": blocked_reason,
+        "operator_name": operator_name,
+        "review_ready": review_ready,
+        "approved_pack": approved_pack,
+        "blocker_count": blocker_count,
+        "explicit_flag": explicit_flag,
+        "config": config,
+    }
 
 
 def _resolve_cdp_endpoint(cdp_url: Optional[str]) -> Dict[str, Any]:
@@ -4150,6 +4248,7 @@ def get_final_submission_status(limit: int = 50) -> Dict[str, Any]:
         assisted = []
 
     submitted_total = len([x for x in history if isinstance(x, dict) and x.get("submitted") is True])
+    release_config = _load_release_config()
 
     return {
         "status": "ok",
@@ -4161,6 +4260,7 @@ def get_final_submission_status(limit: int = 50) -> Dict[str, Any]:
             "headless": HEADLESS,
             "profile_dir": str(PROFILE_DIR),
             "storage_state_file": _resolve_state_file(),
+            "final_submit_release_config": release_config,
         },
         "last_result": last,
         "recent_history": history[-limit:],

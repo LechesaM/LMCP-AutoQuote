@@ -1,0 +1,58 @@
+{
+  "tier_label": "tier_10",
+  "status": "active",
+  "target_count": 10,
+  "notes": "Fixed weekly Tier 10 dry-dispatch manifest. Use this set until 4-week stability is achieved.",
+  "fixtures": [
+    {
+      "path": "tests/fixtures/rfqs/valid_supply_delivery_rfq.json",
+      "category": "general_supply",
+      "expected_outcome": "pass"
+    },
+    {
+      "path": "tests/fixtures/rfqs/incomplete_schedule_rfq.json",
+      "category": "schedule_mapping",
+      "expected_outcome": "pass"
+    },
+    {
+      "path": "tests/fixtures/rfqs/messy_missing_fields_rfq.json",
+      "category": "data_quality",
+      "expected_outcome": "pass"
+    },
+    {
+      "path": "tests/fixtures/rfqs/ambiguous_category_rfq.json",
+      "category": "classification",
+      "expected_outcome": "pass"
+    },
+    {
+      "path": "tests/fixtures/rfqs/excluded_catering_rfq.json",
+      "category": "exclusion_policy",
+      "expected_outcome": "refused"
+    },
+    {
+      "path": "tests/fixtures/rfqs/below_margin_rfq.json",
+      "category": "margin_threshold",
+      "expected_outcome": "refused"
+    },
+    {
+      "path": "tests/fixtures/rfqs/missing_source_document_rfq.json",
+      "category": "source_integrity",
+      "expected_outcome": "refused"
+    },
+    {
+      "path": "tests/fixtures/real_pilot_rfqs/real_pilot_valid_office_consumables_001.json",
+      "category": "stationery",
+      "expected_outcome": "pass"
+    },
+    {
+      "path": "tests/fixtures/real_pilot_rfqs/real_pilot_valid_facility_supplies_002.json",
+      "category": "cleaning_supplies",
+      "expected_outcome": "pass"
+    },
+    {
+      "path": "tests/fixtures/real_pilot_rfqs/real_pilot_valid_store_replenishment_003.json",
+      "category": "ppe_or_general_replenishment",
+      "expected_outcome": "pass"
+    }
+  ]
+}

@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List
 
-from app.core.runtime_paths import get_runtime_paths
 
-RUNTIME_DIR = get_runtime_paths().runtime_root
-PILOT_RUN_DIR = get_runtime_paths().manual_production_dir
+RUNTIME_DIR = Path("runtime")
+PILOT_RUN_DIR = RUNTIME_DIR / "manual_production"
 PILOT_RUN_DIR.mkdir(parents=True, exist_ok=True)
 PILOT_RUN_LOG_FILE = PILOT_RUN_DIR / "pilot_runs.jsonl"
 
@@ -30,6 +30,35 @@ def _safe_list(value: Any) -> List[Any]:
     if value is None:
         return []
     return [value]
+
+
+def append_workspace_log_entry(
+    workspace_root: str | Path,
+    pilot_id: str,
+    section: str,
+    *,
+    fields: Dict[str, Any] | None = None,
+    notes: List[str] | None = None,
+) -> str:
+    root = Path(workspace_root).expanduser()
+    log_path = root / _clean(pilot_id) / "submission_logs" / "live_run_log.md"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [f"## {_clean(section) or 'Log'}", f"- Pilot ID: {_clean(pilot_id) or 'unknown'}"]
+    for key, value in (fields or {}).items():
+        if value is None:
+            continue
+        lines.append(f"- {_clean(key)}: {value}")
+    for note in notes or []:
+        text = _clean(note)
+        if text:
+            lines.append(f"- {text}")
+
+    block = "\n".join(lines) + "\n\n"
+    with _LOCK:
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(block)
+    return str(log_path)
 
 
 def _quote_pack_quality_status(item: Dict[str, Any]) -> str:

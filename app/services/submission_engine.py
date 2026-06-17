@@ -15,23 +15,31 @@ SUBMISSION_LOG_FILE = os.getenv(
 )
 
 
-def _ensure_runtime_dir() -> None:
-    os.makedirs(os.path.dirname(SUBMISSION_LOG_FILE), exist_ok=True)
+def _submission_log_file(runtime_dir: Optional[str] = None) -> Path:
+    if runtime_dir:
+        return Path(runtime_dir) / "submission_log.json"
+    return Path(SUBMISSION_LOG_FILE)
 
 
-def _read_log() -> list:
-    _ensure_runtime_dir()
-    if not os.path.exists(SUBMISSION_LOG_FILE):
-        with open(SUBMISSION_LOG_FILE, "w", encoding="utf-8") as f:
+def _ensure_runtime_dir(runtime_dir: Optional[str] = None) -> None:
+    _submission_log_file(runtime_dir).parent.mkdir(parents=True, exist_ok=True)
+
+
+def _read_log(runtime_dir: Optional[str] = None) -> list:
+    submission_log_file = _submission_log_file(runtime_dir)
+    _ensure_runtime_dir(runtime_dir)
+    if not submission_log_file.exists():
+        with open(submission_log_file, "w", encoding="utf-8") as f:
             json.dump([], f)
 
-    with open(SUBMISSION_LOG_FILE, "r", encoding="utf-8") as f:
+    with open(submission_log_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def _write_log(entries: list) -> None:
-    _ensure_runtime_dir()
-    with open(SUBMISSION_LOG_FILE, "w", encoding="utf-8") as f:
+def _write_log(entries: list, runtime_dir: Optional[str] = None) -> None:
+    submission_log_file = _submission_log_file(runtime_dir)
+    _ensure_runtime_dir(runtime_dir)
+    with open(submission_log_file, "w", encoding="utf-8") as f:
         json.dump(entries, f, indent=2)
 
 
@@ -70,9 +78,13 @@ def _write_submission_pack_text(
     classification: Dict[str, Any],
     quote: Dict[str, Any],
     pack: Dict[str, Any],
+    runtime_dir: Optional[str] = None,
 ) -> str:
-    base_dir = Path(__file__).resolve().parents[2]
-    output_dir = base_dir / "generated_submission_packs"
+    if runtime_dir:
+        output_dir = Path(runtime_dir) / "generated_submission_packs"
+    else:
+        base_dir = Path(__file__).resolve().parents[2]
+        output_dir = base_dir / "generated_submission_packs"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rfq_id = str(rfq.get("rfq_id") or "general")
@@ -129,6 +141,7 @@ def build_submission_pack(
     classification: Dict[str, Any],
     quote: Dict[str, Any],
     score_result: Optional[Dict[str, Any]] = None,
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     excluded_category = classification.get("excluded_category")
     is_construction = bool(classification.get("is_construction", False))
@@ -230,6 +243,7 @@ def build_submission_pack(
         classification=classification,
         quote=quote,
         pack=pack,
+        runtime_dir=runtime_dir,
     )
 
     return pack
@@ -243,8 +257,9 @@ def mark_submission_status(
     category: Optional[str] = None,
     gross_profit: Optional[float] = None,
     award_value_excl_vat: Optional[float] = None,
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    entries = _read_log()
+    entries = _read_log(runtime_dir=runtime_dir)
 
     record = {
         "rfq_id": rfq_id,
@@ -257,12 +272,12 @@ def mark_submission_status(
         "timestamp_utc": _utc_now_iso(),
     }
     entries.append(record)
-    _write_log(entries)
+    _write_log(entries, runtime_dir=runtime_dir)
     return record
 
 
-def get_submission_summary() -> Dict[str, Any]:
-    entries = _read_log()
+def get_submission_summary(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    entries = _read_log(runtime_dir=runtime_dir)
 
     total = len(entries)
     sent = sum(1 for e in entries if e["status"].lower() == "submitted")

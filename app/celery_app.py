@@ -10,6 +10,14 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://redis:6379/0"))
 SUBMISSION_RETRY_SCHEDULE_MINUTES = int(str(os.getenv("SUBMISSION_RETRY_SCHEDULE_MINUTES", "15")).strip() or "15")
 SUBMISSION_RETRY_BATCH_LIMIT = int(str(os.getenv("SUBMISSION_RETRY_BATCH_LIMIT", "10")).strip() or "10")
+SCHEDULED_TENDER_HARVEST_BEAT_INTERVAL_MINUTES = int(str(os.getenv("SCHEDULED_TENDER_HARVEST_BEAT_INTERVAL_MINUTES", "60")).strip() or "60")
+SCHEDULED_TENDER_HARVEST_DURATION_MINUTES = int(str(os.getenv("SCHEDULED_TENDER_HARVEST_DURATION_MINUTES", "15")).strip() or "15")
+SCHEDULED_TENDER_HARVEST_SLEEP_SECONDS = int(str(os.getenv("SCHEDULED_TENDER_HARVEST_SLEEP_SECONDS", "300")).strip() or "300")
+SCHEDULED_TENDER_HARVEST_MAX_TOTAL = int(str(os.getenv("SCHEDULED_TENDER_HARVEST_MAX_TOTAL", "20")).strip() or "20")
+SCHEDULED_TENDER_HARVEST_MAX_PER_SOURCE = int(str(os.getenv("SCHEDULED_TENDER_HARVEST_MAX_PER_SOURCE", "3")).strip() or "3")
+SCHEDULED_TENDER_HARVEST_MAX_SOURCES_PER_CYCLE = int(str(os.getenv("SCHEDULED_TENDER_HARVEST_MAX_SOURCES_PER_CYCLE", "10")).strip() or "10")
+SCHEDULED_TENDER_HARVEST_MINIMUM_MARGIN_PCT = float(str(os.getenv("SCHEDULED_TENDER_HARVEST_MINIMUM_MARGIN_PCT", "25.0")).strip() or "25.0")
+SCHEDULED_TENDER_HARVEST_MINIMUM_PROFIT = float(str(os.getenv("SCHEDULED_TENDER_HARVEST_MINIMUM_PROFIT", "30000.0")).strip() or "30000.0")
 WORKER_CONCURRENCY = int(str(os.getenv("WORKER_CONCURRENCY", "2")).strip() or "2")
 MAX_TASKS_PER_CHILD = int(str(os.getenv("MAX_TASKS_PER_CHILD", "100")).strip() or "100")
 PREFETCH_MULTIPLIER = int(str(os.getenv("PREFETCH_MULTIPLIER", "1")).strip() or "1")
@@ -56,13 +64,25 @@ celery_app.conf.update(
         "app.tasks.rfq_lifecycle_proof_task": {"queue": "proof_queue"},
         "app.tasks.rfq_lifecycle_retry_task": {"queue": "retry_queue"},
         "app.tasks.run_rfq_lifecycle_golden_cycle": {"queue": "retry_queue"},
+        "app.tasks.run_scheduled_tender_harvest_task": {"queue": "retry_queue"},
     },
     result_expires=int(str(os.getenv("CELERY_RESULT_EXPIRES", "86400")).strip() or "86400"),
     beat_schedule={
-        "submission-retry-cycle": {
-            "task": "app.tasks.submission_scheduler_tasks.run_submission_retry_cycle_task",
-            "schedule": crontab(minute=f"*/{max(1, SUBMISSION_RETRY_SCHEDULE_MINUTES)}"),
-            "kwargs": {"limit": SUBMISSION_RETRY_BATCH_LIMIT},
+        "scheduled-tender-harvest-cycle": {
+            "task": "app.tasks.run_scheduled_tender_harvest_task",
+            "schedule": crontab(minute=f"*/{max(1, SCHEDULED_TENDER_HARVEST_BEAT_INTERVAL_MINUTES)}"),
+            "kwargs": {
+                "duration_minutes": SCHEDULED_TENDER_HARVEST_DURATION_MINUTES,
+                "sleep_seconds": SCHEDULED_TENDER_HARVEST_SLEEP_SECONDS,
+                "max_total": SCHEDULED_TENDER_HARVEST_MAX_TOTAL,
+                "max_per_source": SCHEDULED_TENDER_HARVEST_MAX_PER_SOURCE,
+                "max_sources_per_cycle": SCHEDULED_TENDER_HARVEST_MAX_SOURCES_PER_CYCLE,
+                "auto_quote": False,
+                "true_autonomous": False,
+                "persist_to_live_store": True,
+                "minimum_margin_pct": SCHEDULED_TENDER_HARVEST_MINIMUM_MARGIN_PCT,
+                "minimum_profit": SCHEDULED_TENDER_HARVEST_MINIMUM_PROFIT,
+            },
         },
     },
 )
@@ -88,3 +108,9 @@ celery_app.conf.lifecycle_worker_count = {
 celery_app.autodiscover_tasks([
     "app.tasks",
 ])
+
+# Register the submission retry task for manual invocation without scheduling it automatically.
+try:
+    import app.tasks.submission_scheduler_tasks  # noqa: F401
+except Exception:
+    pass

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+os.environ.setdefault("LMCP_PROJECT_ROOT", "/Users/cash/Documents")
+os.environ.setdefault("LMCP_RUNTIME_DIR", "/Users/cash/Documents/runtime")
+os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DIR", "/Users/cash/Documents/runtime/manual_production")
+os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DB_PATH", "/Users/cash/Documents/runtime/manual_production/lmcp_operations.db")
 
 from app.api import operator_ops_contracts as contracts
 from app.api import operator_ops_routes

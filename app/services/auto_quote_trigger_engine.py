@@ -284,6 +284,13 @@ class AutoQuoteTriggerEngine:
             }
 
         estimated_profit = cls._estimate_profit_floor(rfq)
+        quote_ready = bool(
+            (rfq.get("buyer_pack_downloaded") or rfq.get("buyer_pack_verified"))
+            and rfq.get("boq_detected")
+            and rfq.get("pricing_schedule_detected")
+            and rfq.get("returnables_detected")
+            and (rfq.get("quote_pack_generated") or rfq.get("quote_generated"))
+        )
         if estimated_profit < 30000:
             return {
                 "eligible": False,
@@ -297,11 +304,11 @@ class AutoQuoteTriggerEngine:
 
         return {
             "eligible": True,
-            "quote_ready": True,
+            "quote_ready": quote_ready,
             "exclusion_reason": "",
-            "pipeline_status": "quote_ready",
+            "pipeline_status": "quote_ready" if quote_ready else "eligible_pending_acquisition",
             "submission_status": "pending_pipeline",
-            "submission_message": "RFQ passed auto-quote trigger checks",
+            "submission_message": "RFQ passed auto-quote trigger checks" if quote_ready else "RFQ eligible but waiting on acquisition/extraction gate",
             "estimated_profit": estimated_profit,
         }
 

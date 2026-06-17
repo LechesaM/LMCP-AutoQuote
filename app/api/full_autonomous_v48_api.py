@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -13,6 +14,18 @@ from app.services.full_autonomous_v48_service import (
 )
 
 router = APIRouter(prefix="/v48-autonomous", tags=["V48 Full Autonomous Orchestrator"])
+V48_AUTONOMOUS_API_ENABLED = (
+    str(os.getenv("V48_AUTONOMOUS_API_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}
+)
+
+
+def _disabled_response(action: str) -> Dict[str, Any]:
+    return {
+        "status": "disabled",
+        "action": action,
+        "message": "V48 autonomous API actions are disabled by default.",
+        "api_enabled": V48_AUTONOMOUS_API_ENABLED,
+    }
 
 
 class PolicyRequest(BaseModel):
@@ -49,21 +62,29 @@ class RunFromV45WorkspaceRequest(BaseModel):
 
 @router.get("/status")
 def status():
-    return get_v48_status()
+    payload = get_v48_status()
+    payload["api_enabled"] = V48_AUTONOMOUS_API_ENABLED
+    return payload
 
 
 @router.post("/policy")
 def update_policy(payload: PolicyRequest):
+    if not V48_AUTONOMOUS_API_ENABLED:
+        return _disabled_response("policy")
     return set_v48_autonomous_policy(**payload.model_dump())
 
 
 @router.post("/run-from-pdf")
 def api_run_from_pdf(payload: RunFromPdfRequest):
+    if not V48_AUTONOMOUS_API_ENABLED:
+        return _disabled_response("run-from-pdf")
     return run_v48_from_pdf(**payload.model_dump())
 
 
 @router.post("/run-from-v45-workspace")
 def api_run_from_v45_workspace(payload: RunFromV45WorkspaceRequest):
+    if not V48_AUTONOMOUS_API_ENABLED:
+        return _disabled_response("run-from-v45-workspace")
     return run_v48_from_v45_workspace(**payload.model_dump())
 
 @router.get("/last-result")
@@ -105,3 +126,9 @@ def history(limit: int = 20):
             pass
 
     return {"status": "ok", "count": len(items), "items": items}
+
+
+@router.get("/policy")
+def get_policy():
+    return status().get("policy", {})
+

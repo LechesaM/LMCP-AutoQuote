@@ -20,6 +20,17 @@ INDEX_FILE = PROOF_CENTER_DIR / "proof_index.json"
 LAST_SCAN_FILE = PROOF_CENTER_DIR / "last_scan.json"
 
 
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -55,7 +66,7 @@ def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
-def _resolve_path(path_value: Any) -> Optional[Path]:
+def _resolve_path(path_value: Any, runtime_dir: Optional[str] = None) -> Optional[Path]:
     text = _safe_str(path_value)
     if not text:
         return None
@@ -66,6 +77,8 @@ def _resolve_path(path_value: Any) -> Optional[Path]:
         Path.cwd() / text,
         Path("/Users/Shared/LMCP-AutoQuote-Server") / text,
     ]
+    if runtime_dir:
+        candidates.insert(1, Path(runtime_dir).expanduser().resolve() / text)
 
     for candidate in candidates:
         try:
@@ -153,7 +166,7 @@ def _record_from_json(path: Path) -> Dict[str, Any]:
 
     screenshots = []
     for screenshot in _extract_screenshot_paths(data):
-        resolved = _resolve_path(screenshot)
+        resolved = _resolve_path(screenshot, runtime_dir=None)
         screenshots.append(
             {
                 "path": screenshot,
@@ -207,7 +220,9 @@ def _scan_json_files() -> List[Path]:
     return list(unique.values())
 
 
-def scan_proof_center() -> Dict[str, Any]:
+def scan_proof_center(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    index_file = _resolve_runtime_path(INDEX_FILE, runtime_dir)
+    last_scan_file = _resolve_runtime_path(LAST_SCAN_FILE, runtime_dir)
     records = []
 
     for path in _scan_json_files():
@@ -243,22 +258,24 @@ def scan_proof_center() -> Dict[str, Any]:
         "records": records,
         "scanned_at": _now(),
         "scan_roots": {
-            "final_proofs": str(FINAL_PROOF_DIR),
-            "portal_proofs": str(PORTAL_PROOF_DIR),
-            "submission_proofs": str(SUBMISSION_PROOF_DIR),
+            "final_proofs": str(_resolve_runtime_path(FINAL_PROOF_DIR, runtime_dir)),
+            "portal_proofs": str(_resolve_runtime_path(PORTAL_PROOF_DIR, runtime_dir)),
+            "submission_proofs": str(_resolve_runtime_path(SUBMISSION_PROOF_DIR, runtime_dir)),
         },
-        "files": {"index": str(INDEX_FILE), "last_scan": str(LAST_SCAN_FILE)},
+        "files": {"index": str(index_file), "last_scan": str(last_scan_file)},
     }
 
-    _write_json(INDEX_FILE, payload)
-    _write_json(LAST_SCAN_FILE, {"status": "ok", "scanned_at": payload["scanned_at"], "summary": payload["summary"]})
+    _write_json(index_file, payload)
+    _write_json(last_scan_file, {"status": "ok", "scanned_at": payload["scanned_at"], "summary": payload["summary"]})
     return payload
 
 
-def get_proof_center(limit: int = 100, submitted_only: bool = False, q: str = "") -> Dict[str, Any]:
-    index = _read_json(INDEX_FILE, None)
+def get_proof_center(limit: int = 100, submitted_only: bool = False, q: str = "", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    index_file = _resolve_runtime_path(INDEX_FILE, runtime_dir)
+    last_scan_file = _resolve_runtime_path(LAST_SCAN_FILE, runtime_dir)
+    index = _read_json(index_file, None)
     if not isinstance(index, dict):
-        index = scan_proof_center()
+        index = scan_proof_center(runtime_dir=runtime_dir)
 
     records = index.get("records", [])
     if not isinstance(records, list):
@@ -287,31 +304,31 @@ def get_proof_center(limit: int = 100, submitted_only: bool = False, q: str = ""
             "filtered_total": len(records),
         },
         "records": records[:limit],
-        "last_scan": _read_json(LAST_SCAN_FILE, {}),
+        "last_scan": _read_json(last_scan_file, {}),
         "updated_at": _now(),
     }
 
 
-def get_proof_record(record_id: str) -> Dict[str, Any]:
-    index = get_proof_center(limit=500)
+def get_proof_record(record_id: str, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    index = get_proof_center(limit=500, runtime_dir=runtime_dir)
     for record in index.get("records", []):
         if record.get("record_id") == record_id:
-            proof_path = _resolve_path(record.get("proof_file"))
+            proof_path = _resolve_path(record.get("proof_file"), runtime_dir=runtime_dir)
             raw = _read_json(proof_path, {}) if proof_path else {}
             return {"status": "ok", "record": record, "raw_proof": raw, "updated_at": _now()}
 
     return {"status": "not_found", "record_id": record_id, "message": "Proof record not found."}
 
 
-def resolve_download_path(record_id: str, kind: str = "proof", screenshot_index: int = 0) -> Dict[str, Any]:
-    found = get_proof_record(record_id)
+def resolve_download_path(record_id: str, kind: str = "proof", screenshot_index: int = 0, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    found = get_proof_record(record_id, runtime_dir=runtime_dir)
     if found.get("status") != "ok":
         return found
 
     record = found["record"]
 
     if kind == "proof":
-        path = _resolve_path(record.get("proof_file"))
+        path = _resolve_path(record.get("proof_file"), runtime_dir=runtime_dir)
     elif kind == "screenshot":
         screenshots = record.get("screenshots", [])
         if not isinstance(screenshots, list) or not screenshots:
@@ -320,7 +337,7 @@ def resolve_download_path(record_id: str, kind: str = "proof", screenshot_index:
         if screenshot_index >= len(screenshots):
             return {"status": "not_found", "message": "Screenshot index out of range."}
         item = screenshots[screenshot_index]
-        path = _resolve_path(item.get("path") or item.get("resolved_path"))
+        path = _resolve_path(item.get("path") or item.get("resolved_path"), runtime_dir=runtime_dir)
     else:
         return {"status": "error", "message": "kind must be 'proof' or 'screenshot'."}
 

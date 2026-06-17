@@ -1,0 +1,643 @@
+{
+  "overview": {
+    "title": "AutoQuote Non-Runtime Workstream",
+    "subtitle": "Documentation-only libraries for supplier intelligence, tender screening, profitability rules, and operating standards.",
+    "safety_note": "Read-only reference material. No workflow transitions, submission authority, or runtime controls are changed."
+  },
+  "supplier_pricing_intelligence": {
+    "datasets": [
+      {
+        "id": "supplier-register",
+        "title": "Supplier Register",
+        "items": [
+          "supplier name",
+          "category coverage",
+          "province coverage",
+          "contact details",
+          "lead-time profile",
+          "preferred wholesaler flag",
+          "reliability notes",
+          "last verified date"
+        ]
+      },
+      {
+        "id": "product-catalog",
+        "title": "Product Catalog",
+        "items": [
+          "category",
+          "product name",
+          "unit of measure",
+          "approved supplier list",
+          "standard pack size",
+          "alternate brands",
+          "price band",
+          "margin floor"
+        ]
+      },
+      {
+        "id": "historical-pricing",
+        "title": "Historical Pricing Register",
+        "items": [
+          "quote reference",
+          "quote date",
+          "validity period",
+          "quoted unit price",
+          "quoted total",
+          "VAT treatment",
+          "delivery assumptions",
+          "source type"
+        ]
+      },
+      {
+        "id": "lead-times",
+        "title": "Lead Time Register",
+        "items": [
+          "standard lead time",
+          "urgent lead time",
+          "province impact",
+          "stock dependency",
+          "delivery complexity",
+          "seasonal variation"
+        ]
+      },
+      {
+        "id": "preferred-wholesalers",
+        "title": "Preferred Wholesaler Register",
+        "items": [
+          "price consistency",
+          "delivery reliability",
+          "province coverage",
+          "evidence quality",
+          "status: preferred, approved, conditional, avoid"
+        ]
+      }
+    ],
+    "starter_supplier_segments": [
+      "office furniture suppliers",
+      "PPE suppliers",
+      "electrical suppliers",
+      "construction material suppliers",
+      "cleaning chemical suppliers",
+      "stationery suppliers",
+      "hardware and tools suppliers",
+      "packaging suppliers",
+      "janitorial consumables suppliers"
+    ],
+    "provincial_coverage": [
+      "Gauteng",
+      "Western Cape",
+      "KwaZulu-Natal",
+      "Eastern Cape",
+      "Free State",
+      "Limpopo",
+      "Mpumalanga",
+      "North West",
+      "Northern Cape"
+    ]
+  },
+  "maturity_snapshot": {
+    "assets": [
+      {
+        "asset": "Tender-Win Intelligence",
+        "current": "58",
+        "target": "100",
+        "progress": "58%"
+      },
+      {
+        "asset": "RFQ Gold Dataset",
+        "current": "42",
+        "target": "50",
+        "progress": "84%"
+      },
+      {
+        "asset": "Supplier Intelligence",
+        "current": "84",
+        "target": "100",
+        "progress": "84%"
+      },
+      {
+        "asset": "Pricing Intelligence",
+        "current": "173",
+        "target": "300+",
+        "progress": "58%"
+      },
+      {
+        "asset": "Province Coverage",
+        "current": "9/9",
+        "target": "9/9",
+        "progress": "100%"
+      }
+    ],
+    "notes": [
+      "Deduplication is a positive sign because it preserves consistency rather than inflating counts.",
+      "The bottleneck has shifted from supplier coverage to pricing intelligence breadth.",
+      "Supplier intelligence and RFQ gold are the quickest completion targets before the next pricing expansion push.",
+      "Quality matters more than raw counts for the current operating posture."
+    ]
+  },
+  "expansion_plan": {
+    "pricing_intelligence": {
+      "current": "173",
+      "target": "300+",
+      "focus": [
+        "quote speed",
+        "margin estimation",
+        "RFQ qualification accuracy",
+        "supplier selection",
+        "profitability forecasting"
+      ],
+      "waves": [
+        {
+          "wave": "Wave 1",
+          "categories": [
+            "cleaning materials",
+            "PPE",
+            "stationery",
+            "office furniture"
+          ]
+        },
+        {
+          "wave": "Wave 2",
+          "categories": [
+            "electrical materials",
+            "plumbing materials",
+            "building materials"
+          ]
+        },
+        {
+          "wave": "Wave 3",
+          "categories": [
+            "road signs",
+            "traffic accommodation",
+            "water treatment consumables"
+          ]
+        }
+      ],
+      "wave_intake_checklist": [
+        {
+          "category": "cleaning materials",
+          "checks": [
+            "Capture at least one current supplier quote with unit price and delivery assumptions.",
+            "Record pack sizes, hazard notes, and any exclusions.",
+            "Prefer repeatable consumables with stable lead times."
+          ]
+        },
+        {
+          "category": "PPE",
+          "checks": [
+            "Capture current pricing for core PPE SKUs used in tender screening.",
+            "Record standards or sizing assumptions where relevant.",
+            "Flag any items needing compliance evidence or special handling."
+          ]
+        },
+        {
+          "category": "stationery",
+          "checks": [
+            "Capture desk-use and bulk order pricing for common stationery lines.",
+            "Record pack counts and brand alternates.",
+            "Prioritize high-frequency replenishment items with stable pricing."
+          ]
+        },
+        {
+          "category": "office furniture",
+          "checks": [
+            "Capture pricing for common furniture types, not bespoke one-offs.",
+            "Record assembly, delivery, and lead-time assumptions.",
+            "Prefer SKUs that recur across municipal and institutional buyers."
+          ]
+        },
+        {
+          "category": "electrical materials",
+          "checks": [
+            "Capture current pricing for standard electrical consumables and fittings.",
+            "Record amperage, voltage, or specification assumptions where relevant.",
+            "Prefer repeatable items with clear technical descriptions."
+          ]
+        },
+        {
+          "category": "plumbing materials",
+          "checks": [
+            "Capture pricing for common plumbing consumables and fittings.",
+            "Record size, grade, and compatibility assumptions.",
+            "Prioritize items that recur across maintenance and infrastructure tenders."
+          ]
+        },
+        {
+          "category": "building materials",
+          "checks": [
+            "Capture pricing for core building materials with stable supply.",
+            "Record unit conversions, delivery assumptions, and pack quantities.",
+            "Prefer categories with reliable historical pricing evidence."
+          ]
+        },
+        {
+          "category": "road signs",
+          "checks": [
+            "Capture pricing for standard sign types and mounting hardware.",
+            "Record size, reflectivity, and installation assumptions.",
+            "Prefer recurring municipal and transport-related sign variants."
+          ]
+        },
+        {
+          "category": "traffic accommodation",
+          "checks": [
+            "Capture pricing for cones, barriers, and temporary control items.",
+            "Record rental versus purchase assumptions if both are present.",
+            "Prioritize items with predictable delivery and deployment terms."
+          ]
+        },
+        {
+          "category": "water treatment consumables",
+          "checks": [
+            "Capture pricing for common treatment consumables and chemicals.",
+            "Record handling, storage, and compliance notes where relevant.",
+            "Prefer items with clear product specs and stable demand."
+          ]
+        }
+      ],
+      "wave_targets": [
+        {
+          "wave": "Wave 1",
+          "current_items": "0",
+          "total_target_items": "320",
+          "categories": [
+            {
+              "category": "cleaning materials",
+              "current_items": "0",
+              "target_items": "80"
+            },
+            {
+              "category": "PPE",
+              "current_items": "0",
+              "target_items": "110"
+            },
+            {
+              "category": "stationery",
+              "current_items": "0",
+              "target_items": "70"
+            },
+            {
+              "category": "office furniture",
+              "current_items": "0",
+              "target_items": "60"
+            }
+          ]
+        },
+        {
+          "wave": "Wave 2",
+          "current_items": "0",
+          "total_target_items": "340",
+          "categories": [
+            {
+              "category": "electrical materials",
+              "current_items": "0",
+              "target_items": "120"
+            },
+            {
+              "category": "plumbing materials",
+              "current_items": "0",
+              "target_items": "100"
+            },
+            {
+              "category": "building materials",
+              "current_items": "0",
+              "target_items": "120"
+            }
+          ]
+        },
+        {
+          "wave": "Wave 3",
+          "current_items": "0",
+          "total_target_items": "340",
+          "categories": [
+            {
+              "category": "road signs",
+              "current_items": "0",
+              "target_items": "90"
+            },
+            {
+              "category": "traffic accommodation",
+              "current_items": "0",
+              "target_items": "90"
+            },
+            {
+              "category": "water treatment consumables",
+              "current_items": "0",
+              "target_items": "160"
+            }
+          ]
+        }
+      ],
+      "intake_template": {
+        "title": "Pricing Intelligence Intake Template",
+        "sections": [
+          {
+            "title": "Record Header",
+            "items": [
+              "category",
+              "product name",
+              "supplier name",
+              "province",
+              "quote reference",
+              "quote date"
+            ]
+          },
+          {
+            "title": "Evidence Capture",
+            "items": [
+              "unit price",
+              "quoted total",
+              "delivery assumptions",
+              "pack size",
+              "unit of measure",
+              "validity period"
+            ]
+          },
+          {
+            "title": "Validation",
+            "items": [
+              "lead time",
+              "confidence rating",
+              "source type",
+              "notes on exclusions",
+              "operator who verified it",
+              "review date"
+            ]
+          }
+        ]
+      }
+    },
+    "tender_win_intelligence": {
+      "current": "58",
+      "target": "100+",
+      "priority_sectors": [
+        "SANRAL",
+        "municipal infrastructure",
+        "provincial departments",
+        "water boards",
+        "universities",
+        "SOEs"
+      ]
+    },
+    "supplier_intelligence": {
+      "current": "84",
+      "target": "100",
+      "focus": [
+        "province gaps",
+        "category gaps"
+      ]
+    },
+    "governance_position": {
+      "items": [
+        "Runtime behavior unchanged",
+        "Workflow logic unchanged",
+        "Dependency configuration unchanged",
+        "CI gates unchanged",
+        "Certification evidence unchanged",
+        "Controlled Production Candidate unchanged",
+        "Execution Layer Frozen",
+        "Governance active",
+        "Regression process active",
+        "Weekly Regression Run #2 pending trigger"
+      ]
+    }
+  },
+  "tender_category_library": {
+    "blocked": [
+      "medical consumables",
+      "IT equipment",
+      "petrol",
+      "diesel",
+      "catering"
+    ],
+    "allowed": [
+      "office furniture",
+      "PPE",
+      "electrical consumables",
+      "construction materials",
+      "cleaning chemicals",
+      "stationery",
+      "hardware and tools",
+      "packaging",
+      "janitorial supplies",
+      "safety signage",
+      "plumbing consumables"
+    ],
+    "excellent_targets": [
+      "office furniture",
+      "PPE",
+      "stationery",
+      "cleaning chemicals",
+      "packaging",
+      "janitorial supplies",
+      "hardware and tools"
+    ],
+    "good_targets": [
+      "electrical consumables",
+      "construction materials",
+      "safety signage",
+      "plumbing consumables",
+      "light industrial consumables",
+      "general office supplies"
+    ],
+    "avoid_targets": [
+      "medical consumables",
+      "IT equipment",
+      "petrol",
+      "diesel",
+      "catering",
+      "functionality-heavy service tenders",
+      "highly specialised equipment"
+    ]
+  },
+  "operator_handbook": {
+    "sections": [
+      {
+        "title": "Tender Review Handbook",
+        "items": [
+          "Confirm the RFQ is in scope.",
+          "Check category fit against the category library.",
+          "Check submission method and compliance requirements.",
+          "Check briefing session requirements.",
+          "Check delivery complexity and lead time.",
+          "Check supplier coverage and pricing evidence.",
+          "Decide whether to continue, hold, or reject."
+        ]
+      },
+      {
+        "title": "Pricing Review Handbook",
+        "items": [
+          "Confirm the supplier and product match.",
+          "Check whether the price is current or stale.",
+          "Check delivery and VAT assumptions.",
+          "Compare against historical pricing.",
+          "Apply profitability rules.",
+          "Record confidence and override notes."
+        ]
+      },
+      {
+        "title": "Submission Package Handbook",
+        "items": [
+          "Confirm the submission pack contents are complete.",
+          "Confirm quote pricing matches the approved internal record.",
+          "Confirm proof documents are attached where required.",
+          "Confirm naming, formatting, and version control.",
+          "Confirm the pack is ready for manual submission handling."
+        ]
+      },
+      {
+        "title": "Incident Response Guide",
+        "items": [
+          "Stop the affected action.",
+          "Capture what happened.",
+          "Record timestamps, file names, and screenshots if relevant.",
+          "Preserve evidence.",
+          "Notify the responsible operator or supervisor.",
+          "Escalate for investigation if workflow integrity may be affected."
+        ]
+      }
+    ]
+  },
+  "profitability_rules": {
+    "rules": [
+      "Minimum profit target: R30,000",
+      "Minimum margin assumption: 25%",
+      "Supply-only preferred",
+      "No briefing session tenders unless explicitly reviewed",
+      "All provinces in scope unless category evidence suggests otherwise"
+    ],
+    "outcomes": [
+      "GO",
+      "REVIEW",
+      "HOLD",
+      "NO_GO"
+    ]
+  },
+  "test_rfq_library": {
+    "scenarios": [
+      {
+        "title": "Small RFQs",
+        "items": [
+          "stationery top-up",
+          "PPE replenishment",
+          "cleaning chemical order",
+          "office accessories order"
+        ]
+      },
+      {
+        "title": "Medium RFQs",
+        "items": [
+          "office furniture plus stationery",
+          "electrical consumables plus PPE",
+          "cleaning chemicals plus janitorial supplies",
+          "hardware plus safety signage"
+        ]
+      },
+      {
+        "title": "Large RFQs",
+        "items": [
+          "construction materials across multiple line items",
+          "mixed supply-and-delivery procurement bundle",
+          "multi-province delivery requirement"
+        ]
+      },
+      {
+        "title": "Multi-Line-Item RFQs",
+        "items": [
+          "ten or more line items",
+          "mixed unit types",
+          "mixed price bands",
+          "mixed supplier availability"
+        ]
+      },
+      {
+        "title": "Edge-Case RFQs",
+        "items": [
+          "briefing session required",
+          "missing delivery details",
+          "unclear submission method",
+          "stale supplier quote",
+          "blocked category present",
+          "inconsistent VAT treatment",
+          "unrealistic delivery window",
+          "province coverage gap"
+        ]
+      }
+    ]
+  },
+  "technical_debt": {
+    "items": [
+      "Pydantic orm_mode warning cleanup",
+      "future dependency upgrades",
+      "performance improvements in high-volume paths",
+      "logging enhancements for review traceability",
+      "additional metrics normalization work",
+      "test suite hardening for edge-case RFQs",
+      "AutoQuote library generator may fail with EPERM when updating docs bundle outputs; current workaround is manual sync plus drift verification, and future improvement is atomic writes or preflight permission checks"
+    ]
+  },
+  "release_roadmap": {
+    "phases": [
+      {
+        "phase": "Phase 1",
+        "goal": "Controlled Production Candidate",
+        "exit_criteria": [
+          "documentation is complete",
+          "review discipline is stable",
+          "operator guidance is consistent"
+        ]
+      },
+      {
+        "phase": "Phase 2",
+        "goal": "Production Certified",
+        "exit_criteria": [
+          "governance artifacts are complete",
+          "evidence handling is consistent",
+          "operational exceptions are well documented"
+        ]
+      },
+      {
+        "phase": "Phase 3",
+        "goal": "Semi-Automated Submission",
+        "exit_criteria": [
+          "manual approval remains required where needed",
+          "audit trail is preserved",
+          "operator override paths are defined"
+        ]
+      },
+      {
+        "phase": "Phase 4",
+        "goal": "Operator Approved Auto-Submission",
+        "exit_criteria": [
+          "explicit governance approval",
+          "clear rollback path",
+          "clear operator oversight",
+          "clear evidence chain"
+        ]
+      }
+    ]
+  },
+  "management_dashboard_metrics": {
+    "core": [
+      "RFQs harvested",
+      "RFQs qualified",
+      "RFQs rejected",
+      "Average margin",
+      "Average profit",
+      "Quotes generated",
+      "Submission packages generated",
+      "Win rate"
+    ],
+    "supporting": [
+      "supplier coverage by category",
+      "supplier coverage by province",
+      "pricing confidence average",
+      "stale pricing count",
+      "blocked category count",
+      "manual review count",
+      "briefing-session count",
+      "delivery complexity count",
+      "evidence completeness score"
+    ]
+  }
+}

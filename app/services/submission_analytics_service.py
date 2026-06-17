@@ -11,6 +11,17 @@ _RUNTIME_DIR = Path("runtime")
 _HISTORY_FILE = _RUNTIME_DIR / "submission_history" / "submission_history.json"
 
 
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(_RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -56,11 +67,12 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _read_history_records() -> List[Dict[str, Any]]:
-    if not _HISTORY_FILE.exists():
+def _read_history_records(runtime_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+    history_file = _resolve_runtime_path(_HISTORY_FILE, runtime_dir)
+    if not history_file.exists():
         return []
     try:
-        raw = _HISTORY_FILE.read_text(encoding="utf-8").strip()
+        raw = history_file.read_text(encoding="utf-8").strip()
         if not raw:
             return []
         data = json.loads(raw)
@@ -156,8 +168,8 @@ def _is_failure_status(status: str) -> bool:
     return status.lower() in {"failed"}
 
 
-def get_submission_success_tracking() -> Dict[str, Any]:
-    records = _read_history_records()
+def get_submission_success_tracking(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    records = _read_history_records(runtime_dir=runtime_dir)
 
     total = len(records)
     submitted = 0
@@ -221,7 +233,7 @@ def get_submission_success_tracking() -> Dict[str, Any]:
     return {
         "status": "ok",
         "checked_at": _utc_now_iso(),
-        "history_file": str(_HISTORY_FILE),
+        "history_file": str(_resolve_runtime_path(_HISTORY_FILE, runtime_dir)),
         "total": total,
         "submitted": submitted,
         "failed": failed,
@@ -235,8 +247,8 @@ def get_submission_success_tracking() -> Dict[str, Any]:
     }
 
 
-def get_submission_profit_tracking(submitted_only: bool = True) -> Dict[str, Any]:
-    records = _read_history_records()
+def get_submission_profit_tracking(submitted_only: bool = True, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    records = _read_history_records(runtime_dir=runtime_dir)
 
     total_revenue = 0.0
     total_cost = 0.0
@@ -315,7 +327,7 @@ def get_submission_profit_tracking(submitted_only: bool = True) -> Dict[str, Any
     return {
         "status": "ok",
         "checked_at": _utc_now_iso(),
-        "history_file": str(_HISTORY_FILE),
+        "history_file": str(_resolve_runtime_path(_HISTORY_FILE, runtime_dir)),
         "submitted_only": submitted_only,
         "counted_records": counted,
         "uncosted_records": uncosted_records,
@@ -328,9 +340,9 @@ def get_submission_profit_tracking(submitted_only: bool = True) -> Dict[str, Any
     }
 
 
-def get_submission_success_and_profit_summary() -> Dict[str, Any]:
-    success = get_submission_success_tracking()
-    profit = get_submission_profit_tracking(submitted_only=True)
+def get_submission_success_and_profit_summary(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    success = get_submission_success_tracking(runtime_dir=runtime_dir)
+    profit = get_submission_profit_tracking(submitted_only=True, runtime_dir=runtime_dir)
 
     return {
         "status": "ok",
@@ -343,5 +355,4 @@ def get_submission_success_and_profit_summary() -> Dict[str, Any]:
             "estimated_profit into submission history when the tender pipeline writes submission events."
         ),
     }
-
 

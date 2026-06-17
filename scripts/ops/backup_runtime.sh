@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /Users/Shared/LMCP-AutoQuote-Server
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${LMCP_PROJECT_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+cd "$PROJECT_ROOT"
 
 BACKUP_ROOT="${LMCP_BACKUP_DIR:-$PWD/backups/production}"
 STAMP="${1:-$(date +%Y%m%d_%H%M%S)}"

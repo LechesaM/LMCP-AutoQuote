@@ -26,6 +26,17 @@ REJECTION_FILE = OPERATOR_DIR / "operator_rejections.json"
 PAUSED_SOURCES_FILE = OPERATOR_DIR / "paused_sources.json"
 
 
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -45,27 +56,27 @@ def _save_list(path: Path, items: List[Dict[str, Any]], limit: int = 5000) -> No
     path.write_text(json.dumps(items[-limit:], indent=2, default=str))
 
 
-def is_rfq_rejected(buyer_rfq_number: str) -> bool:
+def is_rfq_rejected(buyer_rfq_number: str, runtime_dir: Optional[str] = None) -> bool:
     buyer_rfq_number = str(buyer_rfq_number or "").strip()
     return any(
         str(x.get("buyer_rfq_number") or "").strip() == buyer_rfq_number
-        for x in _load_list(REJECTION_FILE)
+        for x in _load_list(_resolve_runtime_path(REJECTION_FILE, runtime_dir))
     )
 
 
-def is_source_paused(source_name: str) -> bool:
+def is_source_paused(source_name: str, runtime_dir: Optional[str] = None) -> bool:
     source_name = str(source_name or "").strip()
     return any(
         str(x.get("source_name") or "").strip() == source_name
-        for x in _load_list(PAUSED_SOURCES_FILE)
+        for x in _load_list(_resolve_runtime_path(PAUSED_SOURCES_FILE, runtime_dir))
     )
 
 
-def has_submission_lock(buyer_rfq_number: str, quote_number: str = "") -> bool:
+def has_submission_lock(buyer_rfq_number: str, quote_number: str = "", runtime_dir: Optional[str] = None) -> bool:
     buyer_rfq_number = str(buyer_rfq_number or "").strip()
     quote_number = str(quote_number or "").strip()
 
-    for item in _load_list(DUPLICATE_SUBMISSION_FILE):
+    for item in _load_list(_resolve_runtime_path(DUPLICATE_SUBMISSION_FILE, runtime_dir)):
         if str(item.get("buyer_rfq_number") or "").strip() == buyer_rfq_number:
             if not quote_number or str(item.get("quote_number") or "").strip() == quote_number:
                 return True
@@ -77,6 +88,7 @@ def create_submission_lock(
     quote_number: str = "",
     reason: str = "submission_completed_or_in_progress",
     metadata: Optional[Dict[str, Any]] = None,
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     item = {
         "buyer_rfq_number": str(buyer_rfq_number or "").strip(),
@@ -86,7 +98,8 @@ def create_submission_lock(
         "created_at": _now_iso(),
     }
 
-    locks = _load_list(DUPLICATE_SUBMISSION_FILE)
+    lock_file = _resolve_runtime_path(DUPLICATE_SUBMISSION_FILE, runtime_dir)
+    locks = _load_list(lock_file)
 
     for existing in locks:
         if (
@@ -96,15 +109,16 @@ def create_submission_lock(
             return existing
 
     locks.append(item)
-    _save_list(DUPLICATE_SUBMISSION_FILE, locks)
+    _save_list(lock_file, locks)
     return item
 
 
-def clear_submission_lock(buyer_rfq_number: str, quote_number: str = "") -> Dict[str, Any]:
+def clear_submission_lock(buyer_rfq_number: str, quote_number: str = "", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     buyer_rfq_number = str(buyer_rfq_number or "").strip()
     quote_number = str(quote_number or "").strip()
 
-    locks = _load_list(DUPLICATE_SUBMISSION_FILE)
+    lock_file = _resolve_runtime_path(DUPLICATE_SUBMISSION_FILE, runtime_dir)
+    locks = _load_list(lock_file)
     kept = []
     removed = []
 
@@ -117,7 +131,7 @@ def clear_submission_lock(buyer_rfq_number: str, quote_number: str = "") -> Dict
         else:
             kept.append(item)
 
-    _save_list(DUPLICATE_SUBMISSION_FILE, kept)
+    _save_list(lock_file, kept)
 
     return {
         "status": "ok",
@@ -137,16 +151,17 @@ def evaluate_pipeline_guard(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     quote_number = payload.get("quote_number") or ""
     source_name = payload.get("source_name") or payload.get("source") or ""
+    runtime_dir = payload.get("runtime_dir")
 
     blockers = []
 
-    if is_rfq_rejected(str(buyer_rfq_number)):
+    if is_rfq_rejected(str(buyer_rfq_number), runtime_dir=runtime_dir):
         blockers.append("RFQ is rejected by operator and must not be quoted/submitted.")
 
-    if is_source_paused(str(source_name)):
+    if is_source_paused(str(source_name), runtime_dir=runtime_dir):
         blockers.append("Source is paused by operator and must not be harvested.")
 
-    if has_submission_lock(str(buyer_rfq_number), str(quote_number)):
+    if has_submission_lock(str(buyer_rfq_number), str(quote_number), runtime_dir=runtime_dir):
         blockers.append("Duplicate submission lock exists for this RFQ/quote.")
 
     return {
@@ -161,11 +176,11 @@ def evaluate_pipeline_guard(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def get_guard_summary(limit: int = 80) -> Dict[str, Any]:
-    locks = _load_list(DUPLICATE_SUBMISSION_FILE)
-    rejected = _load_list(REJECTION_FILE)
-    paused = _load_list(PAUSED_SOURCES_FILE)
-    events = _load_list(GUARD_AUDIT_FILE)
+def get_guard_summary(limit: int = 80, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    locks = _load_list(_resolve_runtime_path(DUPLICATE_SUBMISSION_FILE, runtime_dir))
+    rejected = _load_list(_resolve_runtime_path(REJECTION_FILE, runtime_dir))
+    paused = _load_list(_resolve_runtime_path(PAUSED_SOURCES_FILE, runtime_dir))
+    events = _load_list(_resolve_runtime_path(GUARD_AUDIT_FILE, runtime_dir))
 
     return {
         "status": "ok",
@@ -223,7 +238,18 @@ def _load_startup_degraded_state() -> Dict[str, Any]:
     }
 
 
-def _storage_targets() -> List[Path]:
+def _storage_targets(runtime_dir: Optional[str] = None) -> List[Path]:
+    if runtime_dir:
+        runtime_root = Path(runtime_dir).expanduser().resolve()
+        return [
+            runtime_root,
+            runtime_root / "monthly_quotes",
+            runtime_root / "logs",
+            runtime_root / "submission_proofs",
+            runtime_root / "portal_submission",
+            runtime_root / "final_submission_v47_5",
+            runtime_root / "proof_center",
+        ]
     return [
         settings.runtime_dir,
         settings.monthly_quotes_dir,
@@ -235,10 +261,10 @@ def _storage_targets() -> List[Path]:
     ]
 
 
-def _check_storage_writable() -> Dict[str, Any]:
+def _check_storage_writable(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     writable: List[str] = []
     failures: List[Dict[str, str]] = []
-    for directory in _storage_targets():
+    for directory in _storage_targets(runtime_dir=runtime_dir):
         try:
             directory.mkdir(parents=True, exist_ok=True)
             probe = directory / ".lmcp_write_probe"
@@ -264,8 +290,8 @@ def _check_storage_writable() -> Dict[str, Any]:
     )
 
 
-def _check_required_env_vars() -> Dict[str, Any]:
-    guard = StabilityGuard()
+def _check_required_env_vars(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    guard = StabilityGuard(base_dir=runtime_dir)
     try:
         result = guard.validate_environment()
     except Exception as exc:
@@ -589,10 +615,10 @@ def _rollup_readiness(checks: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def get_operator_dashboard_status_summary(readiness: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    readiness_payload = readiness or get_production_readiness()
+def get_operator_dashboard_status_summary(readiness: Optional[Dict[str, Any]] = None, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    readiness_payload = readiness or get_production_readiness(runtime_dir=runtime_dir)
     checks = list(readiness_payload.get("checks") or [])
-    summary = get_guard_summary(limit=20).get("summary", {})
+    summary = get_guard_summary(limit=20, runtime_dir=runtime_dir).get("summary", {})
     return {
         "overall_status": readiness_payload.get("overall_status", "blocked"),
         "ready_checks": sum(1 for check in checks if check.get("status") == "ready"),
@@ -607,7 +633,7 @@ def get_operator_dashboard_status_summary(readiness: Optional[Dict[str, Any]] = 
     }
 
 
-def get_production_readiness() -> Dict[str, Any]:
+def get_production_readiness(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     checks = [
         _check_database_reachable(),
         *_check_router_state(),
@@ -615,8 +641,8 @@ def get_production_readiness() -> Dict[str, Any]:
         _check_pipeline_dry_run(),
         _check_human_approval_gate_enabled(),
         _check_excluded_categories_enforced(),
-        _check_required_env_vars(),
-        _check_storage_writable(),
+        _check_required_env_vars(runtime_dir=runtime_dir),
+        _check_storage_writable(runtime_dir=runtime_dir),
     ]
     rolled = _rollup_readiness(checks)
     readiness = {
@@ -627,5 +653,5 @@ def get_production_readiness() -> Dict[str, Any]:
         "recommended_next_actions": rolled["recommended_next_actions"],
         "checked_at": _now_iso(),
     }
-    readiness["operator_dashboard_status_summary"] = get_operator_dashboard_status_summary(readiness)
+    readiness["operator_dashboard_status_summary"] = get_operator_dashboard_status_summary(readiness, runtime_dir=runtime_dir)
     return readiness

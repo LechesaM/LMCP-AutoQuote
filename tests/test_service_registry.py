@@ -41,6 +41,8 @@ def test_production_services_are_accessible() -> None:
     assert record is not None
     assert record.status is ServiceStatus.PRODUCTION
     assert get_service("app.services.manual_approval_service") is record
+    assert get_service("immutable_submission_lock_service") is not None
+    assert get_service("controlled_validation_service") is not None
 
 
 def test_no_duplicate_production_service_identifiers() -> None:

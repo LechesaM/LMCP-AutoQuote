@@ -29,22 +29,47 @@ PRICING_TERMS = [
     "pricing schedule",
     "price schedule",
     "schedule of prices",
+    "schedule of rates",
     "quotation schedule",
     "financial offer",
     "form of offer",
+    "activity schedule",
+    "pricing data",
+    "scope and pricing",
+    "gcc pricing schedule",
+    "sbd 3.1",
+    "sbd 3.2",
     "unit price",
     "total price",
+    "sub-total",
+    "subtotal",
+    "billing model",
+    "cost breakdown",
+    "rate",
     "amount",
+    "rates",
+    "price",
     "rate schedule",
 ]
 
 BOQ_TERMS = [
     "bill of quantities",
+    "bills of quantities",
     "boq",
     "pricing schedule",
+    "price schedule",
+    "schedule of rates",
     "schedule of quantities",
     "schedule of prices",
+    "activity schedule",
+    "financial offer",
+    "form of offer",
+    "section c2",
+    "pricing data",
+    "scope and pricing",
+    "gcc pricing schedule",
     "quantity",
+    "quantities",
     "unit of measure",
     "uom",
 ]
@@ -60,6 +85,37 @@ RETURNABLE_TERMS = [
     "csd",
     "b-bbee",
     "bbbee",
+]
+
+PRICING_COLUMN_TERMS = [
+    "unit price",
+    "price",
+    "rate",
+    "amount",
+    "total",
+    "sub-total",
+    "subtotal",
+    "cost",
+]
+
+QUANTITY_COLUMN_TERMS = [
+    "quantity",
+    "qty",
+    "uom",
+    "unit of measure",
+    "unit",
+    "quantities",
+]
+
+DESCRIPTION_COLUMN_TERMS = [
+    "description",
+    "item",
+    "goods",
+    "service",
+    "services",
+    "activity",
+    "scope",
+    "pricing data",
 ]
 
 TECHNICAL_TERMS = [
@@ -256,39 +312,110 @@ def _extract_local_text(path: Path, ext: str) -> Dict[str, Any]:
     return {"status": "unsupported", "text": "", "tables": []}
 
 
+def _table_rows_blob(tables: List[List[List[str]]]) -> str:
+    lines: List[str] = []
+    for table in tables:
+        for row in table[:25]:
+            cells = [_safe_lower(cell) for cell in row if _safe_str(cell)]
+            if cells:
+                lines.append(" | ".join(cells))
+    return "\n".join(lines)
+
+
+def _table_has_pricing_headers(tables: List[List[List[str]]]) -> bool:
+    for table in tables:
+        for row in table[:8]:
+            blob = " ".join(_safe_lower(cell) for cell in row if _safe_str(cell))
+            if not blob:
+                continue
+            has_description = any(term in blob for term in DESCRIPTION_COLUMN_TERMS)
+            has_quantity = any(term in blob for term in QUANTITY_COLUMN_TERMS)
+            has_price = any(term in blob for term in PRICING_COLUMN_TERMS)
+            if has_description and (has_quantity or has_price):
+                return True
+    return False
+
+
 def _detect_document_roles(text: str, tables: List[List[List[str]]], filename: str = "") -> Dict[str, Any]:
     blob = f"{filename} {text}".lower()
     has_tables = bool(tables)
+    table_blob = _table_rows_blob(tables)
     pricing_terms = any(term in blob for term in PRICING_TERMS)
     boq_terms = any(term in blob for term in BOQ_TERMS)
     returnable_terms = any(term in blob for term in RETURNABLE_TERMS)
     technical_terms = any(term in blob for term in TECHNICAL_TERMS)
     sbd_terms = "sbd" in blob or "standard bidding document" in blob or "declaration of interest" in blob
+    pricing_columns = _table_has_pricing_headers(tables) or (
+        any(term in table_blob for term in DESCRIPTION_COLUMN_TERMS)
+        and any(term in table_blob for term in PRICING_COLUMN_TERMS)
+    )
+    quantity_columns = any(term in table_blob for term in QUANTITY_COLUMN_TERMS)
+    excel_like = any(ext in filename.lower() for ext in (".xlsx", ".xls", ".csv"))
+    pricing_data_terms = any(
+        term in blob for term in ("pricing data", "section c2", "scope and pricing", "financial offer", "form of offer")
+    )
 
     pricing_schedule_confidence = 0.0
     boq_confidence = 0.0
     returnable_confidence = 0.0
     technical_confidence = 0.0
+    pricing_reasons: List[str] = []
+    boq_reasons: List[str] = []
+    returnable_reasons: List[str] = []
+    technical_reasons: List[str] = []
 
-    if any(ext in filename.lower() for ext in (".xlsx", ".xls", ".csv")):
+    if excel_like:
         pricing_schedule_confidence += 0.35
-        boq_confidence += 0.30
+        boq_confidence += 0.25
+        pricing_reasons.append("spreadsheet_or_csv_file")
+        boq_reasons.append("spreadsheet_or_csv_file")
     if has_tables:
         pricing_schedule_confidence += 0.10
         boq_confidence += 0.10
+        pricing_reasons.append("has_tables")
+        boq_reasons.append("has_tables")
     if pricing_terms:
         pricing_schedule_confidence += 0.30
+        pricing_reasons.append("pricing_terms")
     if boq_terms:
         boq_confidence += 0.30
-    if any(term in blob for term in ("unit price", "total price", "rate", "amount")):
+        boq_reasons.append("boq_terms")
+    if "bill of quantities" in blob or "bills of quantities" in blob:
+        boq_confidence += 0.30
+        boq_reasons.append("bill_of_quantities_phrase")
+    if pricing_columns:
+        pricing_schedule_confidence += 0.25
+        pricing_reasons.append("pricing_columns")
+        if quantity_columns:
+            boq_confidence += 0.20
+            boq_reasons.append("quantity_and_pricing_columns")
+        else:
+            boq_confidence += 0.10
+            boq_reasons.append("pricing_table_structure")
+    if pricing_data_terms:
+        pricing_schedule_confidence += 0.20
+        boq_confidence += 0.15
+        pricing_reasons.append("pricing_data_section")
+        boq_reasons.append("pricing_data_section")
+    if any(term in blob for term in ("unit price", "total price", "rate", "amount", "sub-total", "subtotal", "cost")):
         pricing_schedule_confidence += 0.15
         boq_confidence += 0.10
+        pricing_reasons.append("price_amount_terms")
+        boq_reasons.append("price_amount_terms")
     if sbd_terms:
         returnable_confidence += 0.20
+        returnable_reasons.append("sbd_terms")
     if returnable_terms:
         returnable_confidence += 0.35
+        returnable_reasons.append("returnable_terms")
+    if "sbd 3.1" in blob or "sbd 3.2" in blob:
+        pricing_schedule_confidence += 0.30
+        returnable_confidence += 0.15
+        pricing_reasons.append("sbd_pricing_form")
+        returnable_reasons.append("sbd_pricing_form")
     if technical_terms:
         technical_confidence += 0.35
+        technical_reasons.append("technical_terms")
 
     pricing_schedule_confidence = round(min(pricing_schedule_confidence, 1.0), 4)
     boq_confidence = round(min(boq_confidence, 1.0), 4)
@@ -317,12 +444,21 @@ def _detect_document_roles(text: str, tables: List[List[List[str]]], filename: s
         "boq_confidence": boq_confidence,
         "commercial_returnable_confidence": returnable_confidence,
         "technical_document_confidence": technical_confidence,
+        "pricing_schedule_detected": pricing_schedule_confidence >= 0.55,
+        "boq_detected": boq_confidence >= 0.55,
+        "returnables_detected": returnable_confidence >= 0.45,
+        "pricing_schedule_reason": ";".join(dict.fromkeys(pricing_reasons)) or ("pricing_terms" if pricing_terms else ""),
+        "boq_reason": ";".join(dict.fromkeys(boq_reasons)) or ("boq_terms" if boq_terms else ""),
+        "returnables_reason": ";".join(dict.fromkeys(returnable_reasons)) or ("returnable_terms" if returnable_terms else ""),
         "signals": {
             "pricing_terms": pricing_terms,
             "boq_terms": boq_terms,
             "returnable_terms": returnable_terms,
             "technical_terms": technical_terms,
             "sbd_terms": sbd_terms,
+            "pricing_columns": pricing_columns,
+            "quantity_columns": quantity_columns,
+            "pricing_data_terms": pricing_data_terms,
         },
     }
 
@@ -820,25 +956,45 @@ def analyse_document_text(text: str) -> Dict[str, Any]:
         "mandatory clarification meeting",
     ]
 
-    pricing_terms = PRICING_TERMS + ["bill of quantities", "boq", "form of offer", "quotation schedule"]
+    pricing_terms = PRICING_TERMS + BOQ_TERMS + ["quotation schedule"]
 
     sbd_matches = sorted(set(re.findall(r"\bSBD\s*([0-9](?:\.[0-9])?)\b", text, flags=re.I)))
     pricing_schedule_confidence = 0.0
     boq_confidence = 0.0
     commercial_returnables_confidence = 0.0
     technical_document_confidence = 0.0
+    pricing_reasons: List[str] = []
+    boq_reasons: List[str] = []
+    returnables_reasons: List[str] = []
 
     if any(term in t for term in PRICING_TERMS):
         pricing_schedule_confidence += 0.35
-    if "unit price" in t or "total price" in t or "rate" in t or "amount" in t:
+        pricing_reasons.append("pricing_terms")
+    if "unit price" in t or "total price" in t or "rate" in t or "amount" in t or "sub-total" in t or "subtotal" in t:
         pricing_schedule_confidence += 0.20
         boq_confidence += 0.10
+        pricing_reasons.append("price_amount_terms")
+        boq_reasons.append("price_amount_terms")
     if "boq" in t or "bill of quantities" in t:
         boq_confidence += 0.35
+        boq_reasons.append("boq_terms")
+    if "bill of quantities" in t or "bills of quantities" in t:
+        boq_confidence += 0.25
+        boq_reasons.append("bill_of_quantities_phrase")
+    if any(term in t for term in ("pricing data", "section c2", "scope and pricing", "activity schedule", "schedule of rates")):
+        pricing_schedule_confidence += 0.20
+        boq_confidence += 0.20
+        pricing_reasons.append("pricing_data_section")
+        boq_reasons.append("pricing_data_section")
     if any(term in t for term in RETURNABLE_TERMS):
         commercial_returnables_confidence += 0.35
+        returnables_reasons.append("returnable_terms")
     if sbd_matches:
         commercial_returnables_confidence += 0.20
+        returnables_reasons.append("sbd_terms")
+    if any(term in t for term in ("sbd 3.1", "sbd 3.2")):
+        pricing_schedule_confidence += 0.30
+        pricing_reasons.append("sbd_pricing_form")
     if any(term in t for term in TECHNICAL_TERMS):
         technical_document_confidence += 0.35
     if "specification" in t or "scope of work" in t or "terms of reference" in t:
@@ -871,6 +1027,12 @@ def analyse_document_text(text: str) -> Dict[str, Any]:
         "boq_confidence": boq_confidence,
         "commercial_returnables_confidence": commercial_returnables_confidence,
         "technical_document_confidence": technical_document_confidence,
+        "boq_detected": boq_confidence >= 0.55 or "bill of quantities" in t or "boq" in t,
+        "pricing_schedule_detected": pricing_schedule_confidence >= 0.55,
+        "returnables_detected": commercial_returnables_confidence >= 0.45,
+        "boq_detection_reason": ";".join(dict.fromkeys(boq_reasons)),
+        "pricing_schedule_detection_reason": ";".join(dict.fromkeys(pricing_reasons)),
+        "returnables_detection_reason": ";".join(dict.fromkeys(returnables_reasons)),
     }
 
 
@@ -967,11 +1129,56 @@ def analyse_rfq_documents(item: Dict[str, Any], timeout_seconds: int = DEFAULT_T
     intelligence["boq_confidence"] = max(float(intelligence.get("boq_confidence") or 0.0), boq_confidence)
     intelligence["commercial_returnables_confidence"] = max(float(intelligence.get("commercial_returnables_confidence") or 0.0), commercial_returnables_confidence)
     intelligence["technical_document_confidence"] = max(float(intelligence.get("technical_document_confidence") or 0.0), technical_document_confidence)
+    intelligence["pricing_schedule_detected"] = bool(intelligence.get("pricing_schedule_detected") or intelligence["pricing_schedule_confidence"] >= 0.55 or pricing_schedule_files)
+    intelligence["boq_detected"] = bool(intelligence.get("boq_detected") or intelligence["boq_confidence"] >= 0.55 or boq_files)
+    intelligence["returnables_detected"] = bool(
+        intelligence.get("returnables_detected") or intelligence["commercial_returnables_confidence"] >= 0.45 or commercial_returnable_files
+    )
+    intelligence["pricing_schedule_detection_confidence"] = intelligence["pricing_schedule_confidence"]
+    intelligence["boq_detection_confidence"] = intelligence["boq_confidence"]
+    intelligence["returnables_detection_confidence"] = intelligence["commercial_returnables_confidence"]
+    intelligence["pricing_schedule_detection_reason"] = next(
+        (_safe_str(row.get("pricing_schedule_reason")) for row in pricing_schedule_files if _safe_str(row.get("pricing_schedule_reason"))),
+        _safe_str(intelligence.get("pricing_schedule_detection_reason")),
+    )
+    intelligence["boq_detection_reason"] = next(
+        (_safe_str(row.get("boq_reason")) for row in boq_files if _safe_str(row.get("boq_reason"))),
+        _safe_str(intelligence.get("boq_detection_reason")),
+    )
+    intelligence["returnables_detection_reason"] = next(
+        (_safe_str(row.get("returnables_reason")) for row in commercial_returnable_files if _safe_str(row.get("returnables_reason"))),
+        _safe_str(intelligence.get("returnables_detection_reason")),
+    )
     intelligence["document_classifications"] = document_classifications
     intelligence["pricing_schedule_files"] = pricing_schedule_files
     intelligence["boq_files"] = boq_files
     intelligence["commercial_returnable_files"] = commercial_returnable_files
     intelligence["technical_files"] = technical_files
+    inventory_paths = [_safe_str(row.get("path")) for row in document_classifications if _safe_str(row.get("path"))]
+    intelligence["artifact_count"] = len(inventory_paths)
+    intelligence["pdf_count"] = sum(1 for row in document_classifications if _safe_str(row.get("extension")) == ".pdf")
+    intelligence["docx_count"] = sum(1 for row in document_classifications if _safe_str(row.get("extension")) == ".docx")
+    intelligence["xlsx_count"] = sum(1 for row in document_classifications if _safe_str(row.get("extension")) in {".xlsx", ".xls", ".xlsm", ".xltx", ".xltm"})
+    intelligence["zip_count"] = sum(1 for row in downloads if _safe_str(row.get("extension")) == ".zip")
+    intelligence["csv_count"] = sum(1 for row in document_classifications if _safe_str(row.get("extension")) == ".csv")
+    intelligence["extracted_file_count"] = len(document_classifications)
+    intelligence["main_document_path"] = next(
+        (
+            _safe_str(row.get("path"))
+            for row in document_classifications
+            if _safe_str(row.get("filename")).lower().startswith("1. main")
+            or "main document" in _safe_str(row.get("filename")).lower()
+        ),
+        "",
+    )
+    intelligence["detected_document_types"] = sorted(
+        dict.fromkeys(
+            _safe_str(row.get("extension")).lstrip(".")
+            for row in document_classifications
+            if _safe_str(row.get("extension"))
+        )
+    )
+    intelligence["document_inventory_paths_limited"] = inventory_paths[:25]
     intelligence["scanned_pdf_likely"] = bool(downloads) and not bool(analysis_text.strip())
     intelligence["extraction_confidence"] = round(
         min(

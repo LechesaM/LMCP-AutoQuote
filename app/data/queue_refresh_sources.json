@@ -1,0 +1,15 @@
+{
+  "sources": [
+    {
+      "name": "National Treasury eTenders",
+      "type": "web",
+      "enabled": true,
+      "priority": 1,
+      "url": "https://www.etenders.gov.za/Home/opportunities",
+      "source_group": "etenders",
+      "submission_method": "portal",
+      "intelligence_score": 100,
+      "verify_ssl": true
+    }
+  ]
+}

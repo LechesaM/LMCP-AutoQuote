@@ -44,7 +44,6 @@ class QuotePackItemResponse(BaseModel):
     notes: Optional[str]
     mapping_confidence: float
     requires_manual_review: bool
-
 class QuotePackCreate(BaseModel):
     client_name: str
     client_email: Optional[EmailStr] = None
@@ -88,7 +87,6 @@ class QuotePackHistoryResponse(BaseModel):
     action_by: Optional[str]
     comment: Optional[str]
     created_at: datetime
-
 class QuotePackEditAuditResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -103,7 +101,6 @@ class QuotePackEditAuditResponse(BaseModel):
     operator_role: Optional[str]
     notes: Optional[str]
     created_at: datetime
-
 class QuotePackResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -170,8 +167,6 @@ class QuotePackResponse(BaseModel):
     items: List[QuotePackItemResponse] = []
     history: List[QuotePackHistoryResponse] = []
     edit_audits: List[QuotePackEditAuditResponse] = []
-
-
 class RFQReviewIngestRequest(BaseModel):
     rfq_data: Dict[str, Any] = Field(default_factory=dict)
     company_data: Optional[Dict[str, Any]] = None
@@ -209,6 +204,8 @@ class ComplianceChecklistUpdate(BaseModel):
 
 
 class QuotePackReviewSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     quote_number: str
     project_title: str

@@ -1,0 +1,187 @@
+{
+  "pilot_wave_id": "supervised-live-wave-001",
+  "status": "pass_with_observations_pending_expansion_decision",
+  "scope_limit": {
+    "max_live_rfqs": 3,
+    "planned_live_rfqs": 1,
+    "tier_25_frozen": true,
+    "track_a": "WAIT",
+    "track_b": "MONITOR"
+  },
+  "gate_prerequisite": {
+    "tier_10_qualifying_active_weeks_required": 4,
+    "tier_10_qualifying_active_weeks_observed": 4,
+    "gate_status": "eligible_for_supervised_live"
+  },
+  "pilot_strategy": {
+    "wave_shape": "single clean supply candidate first",
+    "expansion_rule": "Do not expand beyond 1 live RFQ until the first supervised-live evidence review is complete.",
+    "auto_submission_authorized": false
+  },
+  "approval_precondition": {
+    "rule": "Do not execute the approval script unless the operator has immediately reviewed the final pricing schedule, compliance package, and submission documents.",
+    "review_clickthrough_permitted": false
+  },
+  "wave_001_status_note": "Wave 001 operationally complete and formally evaluated as PASS WITH OBSERVATIONS; expansion decision pending.",
+  "formal_review_gate": {
+    "required_before_considering": [
+      "Wave 002",
+      "multiple live RFQs",
+      "Tier 25 activation"
+    ],
+    "required": true,
+    "current_outcome": "PASS WITH OBSERVATIONS",
+    "recorded_decision": {
+      "outcome": "PASS WITH OBSERVATIONS",
+      "recorded_at": "2026-06-07",
+      "summary": "Submission succeeded, governance worked, and the evidence chain remained intact. Quote comparison enrichment remains incomplete relative to supplier quote sources and should be improved before wider rollout."
+    },
+    "evaluation": {
+      "process_integrity": {
+        "finding": "PASS",
+        "notes": [
+          "Review gate enforced.",
+          "Approval gate enforced.",
+          "Submission proof captured.",
+          "Audit chain preserved."
+        ]
+      },
+      "evidence_integrity": {
+        "finding": "PASS",
+        "notes": [
+          "Placeholder proof retained.",
+          "Placeholder proof marked superseded.",
+          "Corrected proof entry marked active.",
+          "Real receipt attached."
+        ]
+      },
+      "package_quality": {
+        "finding": "PASS WITH OBSERVATIONS",
+        "notes": [
+          "Quote comparison enrichment remained thin / placeholder-like relative to supplier quote sources.",
+          "No evidence showed impact on pricing, approval, or submission."
+        ]
+      },
+      "operational_friction": {
+        "finding": "PASS WITH OBSERVATIONS",
+        "notes": [
+          "Operator intervention was limited to evidence-quality correction rather than submission-critical repair."
+        ]
+      }
+    },
+    "observations": [
+      "Quote comparison enrichment remains incomplete relative to supplier quote sources and should be improved before wider rollout."
+    ],
+    "reason_not_hold": [
+      "Submission succeeded.",
+      "Governance worked.",
+      "Evidence chain remained intact.",
+      "No material process failure was reported."
+    ],
+    "reason_not_clean_pass": [
+      "A documented data-quality issue remains."
+    ],
+    "allowed_outcomes": [
+      {
+        "value": "PASS",
+        "meaning": "No material process issues found."
+      },
+      {
+        "value": "PASS WITH OBSERVATIONS",
+        "meaning": "Minor issues are present, but the process was successful."
+      },
+      {
+        "value": "HOLD",
+        "meaning": "Process defects require remediation before any scope expansion."
+      }
+    ]
+  },
+  "source_bundle_review": {
+    "status": "repaired_and_revalidated",
+    "reviewed_against_dry_run": true,
+    "approval_permitted": true,
+    "findings": [
+      "The original surviving source bundle was not approval-safe because the source PDF placeholder was ASCII text and the dry run extracted zero verified line items.",
+      "A repaired source bundle was created from surviving audited evidence under runtime/manual_production/source_bundle_repairs/REAL-PILOT-001.",
+      "The structured manual pricing input originally referenced by governed approval was missing and was restored from the approved quote-pack rows.",
+      "The repaired dry run completed as pending_human_approval with one verified extracted line item, one matched pricing row, and no warnings."
+    ]
+  },
+  "rfqs": [
+    {
+      "tender_id": "REAL-PILOT-001",
+      "rfq_fixture_reference": "tests/fixtures/qualification_rfqs/rfq_002_idt_household_products.json",
+      "buyer_rfq_number": "RFQ_002",
+      "category": "household_products",
+      "pilot_recommendation": "GO",
+      "admission_reason": "Strongest governed supply candidate in the supervised-live evidence set.",
+      "evidence_basis": [
+        "Tier 10 stability window passed 4 of 4 qualifying active weeks.",
+        "Supervised-live pilot execution report marks RFQ_002 as the strongest supply candidate.",
+        "Governance evidence remained intact with no autonomous submission observed."
+      ],
+      "tender_root": "/Users/cash/Documents/runtime/manual_production/source_bundle_repairs/REAL-PILOT-001",
+      "pricing_file": "/Users/cash/Documents/runtime/manual_production/submission_packages/REAL-PILOT-001/REAL-PILOT-001__manual_pricing_restored_from_governed_quote_pack.json",
+      "operator_owner": "supervisor",
+      "backup_operator": "operator",
+      "portal_or_channel": "Metro Procurement Unit (portal)",
+      "operator_approval_required": true,
+      "manual_submission_only": true,
+      "proof_capture_required": true,
+      "rollback_tracking_required": true,
+      "retry_tracking_required": true,
+      "critical_failure_pause_applies": true
+    }
+  ],
+  "wave_success_criteria": [
+    "submission_completed_successfully",
+    "no_compliance_issues_during_submission",
+    "no_pricing_file_discrepancies",
+    "no_manual_overrides_required_due_to_system_errors",
+    "submission_proof_recorded_correctly",
+    "audit_trail_complete"
+  ],
+  "deferred_candidates": [
+    {
+      "buyer_rfq_number": "RFQ_004",
+      "category": "equipment_supply",
+      "status": "deferred_pending_wave_001_review",
+      "reason": "Supervised supply case, but not the cleanest first live candidate."
+    },
+    {
+      "buyer_rfq_number": "RFQ_005",
+      "category": "building_materials",
+      "status": "deferred_pending_wave_001_review",
+      "reason": "Physical submission complexity remains operator-heavy."
+    }
+  ],
+  "stop_rules": [
+    "critical_failure",
+    "governance_bypass",
+    "missing_approval_evidence",
+    "missing_proof_capture",
+    "rollback_due_to_incorrect_live_action"
+  ],
+  "review_required_before_expansion": true
+  ,
+  "proof_capture_status": {
+    "interim_status_before_correction": "Submitted proof recorded, pending proof correction / completion.",
+    "placeholder_entry_superseded": true,
+    "real_submission_reference_recorded": true,
+    "real_submission_reference": "REAL-PILOT-001__submission__20260528T141144Z",
+    "proof_file_present": true,
+    "proof_complete": true
+  },
+  "post_review_decision_gate": {
+    "wave_002_consideration_allowed": true,
+    "multiple_live_rfqs_consideration_allowed": true,
+    "tier_25_activation_allowed": false,
+    "next_required_actions": [
+      "Document observations.",
+      "Proceed only with a controlled Wave 002 pilot under the same manual restrictions.",
+      "Keep Tier 25 frozen and leave Track A and Track B unchanged.",
+      "Remediate the quote comparison enrichment issue outside the monitoring layer.",
+      "Only then evaluate any further expansion or Tier 25 activation."
+    ]
+  }
+}

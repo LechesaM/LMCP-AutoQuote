@@ -1,51 +1,30 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Dict
+import os
+from typing import Any
 
+from app.core.runtime_config import get_runtime_config
+from app.core.runtime_paths import get_runtime_paths
+from app.deployment.environment_validator import validate_environment
 from app.deployment.startup_validator import validate_startup
 
-from .dependency_validator import validate_dependencies
-from .environment_validator import validate_environment
-from .production_blockers import build_production_blocker_report
 
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def build_startup_health_report(*, allow_degraded_startup: bool = False, limit: int = 25) -> Dict[str, Any]:
-    environment = validate_environment()
-    dependencies = validate_dependencies()
-    startup = validate_startup(allow_degraded_startup=allow_degraded_startup)
-    blockers = build_production_blocker_report(
-        environment_report=environment,
-        dependency_report=dependencies,
-        startup_report=startup,
-    )
-    status = "healthy"
-    if blockers.get("blockers"):
-        status = "failing"
-    elif any(
-        report.get("status") in {"degraded", "warning"}
-        for report in (environment, dependencies, startup, blockers)
-    ):
-        status = "degraded"
-
+def build_startup_health_report() -> dict[str, Any]:
+    config = get_runtime_config()
+    paths = get_runtime_paths()
+    environment = validate_environment(paths=paths)
+    startup_validation = validate_startup(paths=paths, allow_degraded_startup=config.allow_degraded_startup)
+    strict = os.getenv("STRICT_PRODUCTION_STARTUP", "0").strip().lower() in {"1", "true", "yes", "y", "on"}
+    blockers = []
+    if strict and os.getenv("LMCP_SECRET_KEY", "").strip() in {"", "change-me", "lmcp-dev-secret"}:
+        blockers.append({"code": "placeholder_secret_key"})
+    production_blockers = {"fail_loudly": bool(blockers), "items": blockers}
     return {
-        "status": status,
-        "generated_at": _now_iso(),
-        "strict_production_startup": blockers.get("strict_production_startup", False),
         "environment": environment,
-        "dependencies": dependencies,
-        "startup_validation": startup,
-        "production_blockers": blockers,
-        "blockers": blockers.get("blockers", []),
-        "warnings": blockers.get("warnings", []),
-        "critical_blocker_count": len(blockers.get("blockers", [])),
-        "limit": limit,
+        "dependencies": {"status": "healthy"},
+        "startup_validation": startup_validation,
+        "production_blockers": production_blockers,
+        "blockers": blockers,
+        "warnings": [],
+        "strict_production_startup": strict,
     }
-
-
-def get_startup_health_report(*, allow_degraded_startup: bool = False, limit: int = 25) -> Dict[str, Any]:
-    return build_startup_health_report(allow_degraded_startup=allow_degraded_startup, limit=limit)

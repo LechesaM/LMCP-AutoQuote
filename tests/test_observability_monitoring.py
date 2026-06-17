@@ -13,6 +13,7 @@ from app.api.observability_contracts import (
     build_observability_sla_response,
     build_observability_uptime_response,
 )
+from app.api import observability_routes
 from app.api.observability_routes import router
 from app.observability.grafana_dashboards import build_grafana_dashboard_bundle
 from app.observability.log_aggregation import build_log_aggregation_summary
@@ -40,6 +41,22 @@ def test_observability_contracts_are_json_safe() -> None:
         json.dumps(payload, default=str)
         assert "generated_at" in payload
         assert "data_source" in payload
+
+
+def test_uptime_contract_is_recovery_safe() -> None:
+    payload = build_observability_uptime_response(limit=5)
+    uptime = payload["uptime"]
+
+    assert payload["data_source"] == "runtime"
+    assert uptime["status"] == "ok"
+    assert uptime["mode"] == "recovery"
+    assert uptime["source"] == "runtime"
+    assert uptime["uptime_seconds"] >= 0
+    assert uptime["api_uptime_percentage"] == 100.0
+    assert uptime["observed_window_minutes"] == 0
+    assert uptime["system_health"] == {}
+    assert uptime["runtime_metrics"] == {}
+    json.dumps(payload, default=str)
 
 
 def test_observability_prometheus_export_contains_help() -> None:
@@ -99,3 +116,30 @@ def test_observability_routes_are_read_only() -> None:
     for route in router.routes:
         methods = {method.upper() for method in getattr(route, "methods", set())}
         assert methods <= {"GET"}
+
+
+def test_observability_routes_timeout_fallbacks(monkeypatch) -> None:
+    def _fake_timeout(callback, timeout_seconds, timeout_label, fallback=None):
+        return fallback() if fallback is not None else {"status": "timeout", "data_source": "timeout"}
+
+    monkeypatch.setattr(observability_routes, "run_with_timeout", _fake_timeout)
+
+    prometheus = observability_routes.get_prometheus()
+    grafana = observability_routes.get_grafana()
+    sentry = observability_routes.get_sentry()
+    sla = observability_routes.get_sla()
+    anomalies = observability_routes.get_anomalies()
+    alerts = observability_routes.get_alerts()
+    logs = observability_routes.get_logs()
+    uptime = observability_routes.get_uptime()
+    performance = observability_routes.get_performance()
+
+    assert "lmcp_observability_unavailable" in prometheus.body.decode("utf-8")
+    assert grafana["status"] == "degraded"
+    assert sentry["status"] == "degraded"
+    assert sla["status"] == "degraded"
+    assert anomalies["status"] == "degraded"
+    assert alerts["status"] == "degraded"
+    assert logs["status"] == "degraded"
+    assert uptime["status"] == "degraded"
+    assert performance["status"] == "degraded"

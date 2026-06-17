@@ -847,6 +847,8 @@ class TenderPipelineService:
         payload = deepcopy(result)
         payload["eligible"] = cls._to_bool(payload.get("eligible"), False)
         payload["quote_ready"] = cls._to_bool(payload.get("quote_ready"), payload["eligible"])
+        if payload.get("quote_ready") is True and not cls._quote_ready_hard_gate(payload):
+            payload["quote_ready"] = False
 
         force_pipeline = cls._to_bool(
             payload.get("force_quote_ready")
@@ -1809,7 +1811,19 @@ class TenderPipelineService:
             reasons = result.get("classification_reasons")
             if not isinstance(reasons, list) or not reasons:
                 result["classification_reasons"] = ["Forced quote-ready for pipeline testing"]
+        elif result.get("quote_ready") is True and not cls._quote_ready_hard_gate(result):
+            result["quote_ready"] = False
         return result
+
+    @classmethod
+    def _quote_ready_hard_gate(cls, payload: Dict[str, Any]) -> bool:
+        return bool(
+            cls._to_bool(payload.get("buyer_pack_downloaded") or payload.get("buyer_pack_verified"), False)
+            and cls._to_bool(payload.get("boq_detected"), False)
+            and cls._to_bool(payload.get("pricing_schedule_detected"), False)
+            and cls._to_bool(payload.get("returnables_detected"), False)
+            and cls._to_bool(payload.get("quote_pack_generated") or payload.get("quote_generated"), False)
+        )
 
     @classmethod
     def _prepare_validation_safe_quote_payload(cls, payload: Dict[str, Any]) -> Dict[str, Any]:

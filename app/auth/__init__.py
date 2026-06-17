@@ -1,5 +1,15 @@
-from .auth_models import AuthContext, AuthPermission, AuthRole, AuthUserRecord
-from .auth_service import authenticate_user, create_access_token_for_user, get_current_user, require_permission, require_role
-from .passwords import hash_password, verify_password
-from .rbac import permissions_for_role, role_has_permission
-from .session_service import create_user
+from .auth_models import AuthPermission
+from .auth_service import authenticate_user, get_current_user, require_permission
+from .rbac import ROLE_PERMISSIONS
+from .session_service import create_user, demo_users_enabled, find_user_by_email
+
+__all__ = [
+    "AuthPermission",
+    "ROLE_PERMISSIONS",
+    "authenticate_user",
+    "create_user",
+    "demo_users_enabled",
+    "find_user_by_email",
+    "get_current_user",
+    "require_permission",
+]

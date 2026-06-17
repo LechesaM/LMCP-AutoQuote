@@ -1,26 +1,32 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from app.domain.submission import SubmissionProof
-from app.core.runtime_paths import get_runtime_paths
-from app.persistence import jsonl_compat
 from app.services import submission_review_service
+from app.persistence import db as persistence_db
 
-logger = logging.getLogger(__name__)
 
-
-RUNTIME_DIR = get_runtime_paths().runtime_root
-MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
+RUNTIME_DIR = Path("runtime")
+MANUAL_PRODUCTION_DIR = RUNTIME_DIR / "manual_production"
 MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
 SUBMISSION_PROOF_LOG_FILE = MANUAL_PRODUCTION_DIR / "submission_proofs.jsonl"
 
 _LOCK = Lock()
+
+
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
 
 
 def _now_iso() -> str:
@@ -31,37 +37,28 @@ def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
-def append_submission_proof(record: Dict[str, Any]) -> Dict[str, Any]:
+def append_submission_proof(record: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     item = dict(record or {})
     item.setdefault("timestamp", _now_iso())
-    MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
+    proof_log = _resolve_runtime_path(SUBMISSION_PROOF_LOG_FILE, runtime_dir)
+    proof_log.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(item, ensure_ascii=False, default=str)
     with _LOCK:
-        with SUBMISSION_PROOF_LOG_FILE.open("a", encoding="utf-8") as handle:
+        with proof_log.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
-    jsonl_compat.persist_submission_proof(item)
-    if _clean(item.get("status")) == "recorded":
-        try:
-            from app.core.workflow_state_engine import WorkflowStage, record_transition
-
-            record_transition(
-                tender_id=_clean(item.get("tender_id")),
-                from_stage=WorkflowStage.REVIEW_READY,
-                to_stage=WorkflowStage.PROOF_RECORDED,
-                actor=_clean(item.get("submitted_by")) or "submission_proof_service",
-                reason="submission proof recorded",
-                details={"source_log": "submission_proofs.jsonl", "status": _clean(item.get("status"))},
-            )
-        except Exception:
-            logger.warning("workflow transition review_ready -> proof_recorded was not recorded", exc_info=True)
+    try:
+        persistence_db.insert_json_record("submission_proof_entities", item)
+    except Exception:
+        pass
     return item
 
 
-def list_recent_submission_proofs(limit: int = 20) -> Dict[str, Any]:
+def list_recent_submission_proofs(limit: int = 20, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    proof_log = _resolve_runtime_path(SUBMISSION_PROOF_LOG_FILE, runtime_dir)
     records: List[Dict[str, Any]] = []
-    if SUBMISSION_PROOF_LOG_FILE.exists():
+    if proof_log.exists():
         try:
-            for line in SUBMISSION_PROOF_LOG_FILE.read_text(encoding="utf-8").splitlines():
+            for line in proof_log.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if not line:
                     continue
@@ -75,7 +72,7 @@ def list_recent_submission_proofs(limit: int = 20) -> Dict[str, Any]:
         "status": "ok",
         "items": recent,
         "total": len(records),
-        "log_file": str(SUBMISSION_PROOF_LOG_FILE),
+        "log_file": str(proof_log),
         "updated_at": _now_iso(),
     }
 
@@ -88,8 +85,9 @@ def build_submission_proof_record(
     submission_reference: str,
     submitted_by: str,
     proof_file: str = "",
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    review = submission_review_service.find_latest_submission_review(tender_id, tender_root)
+    review = submission_review_service.find_latest_submission_review(tender_id, tender_root, runtime_dir=runtime_dir)
     blockers: List[str] = []
 
     if _clean(review.get("status")) != "review_ready":
@@ -120,4 +118,4 @@ def build_submission_proof_record(
         "status": "recorded" if not blockers else "refused",
         "timestamp": _now_iso(),
     }
-    return SubmissionProof.validate_payload(record).to_jsonable_dict()
+    return record

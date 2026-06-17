@@ -1,3 +1,5 @@
+"""LEGACY ROOT ROUTER: unsupported and quarantined from active runtime."""
+
 from fastapi import APIRouter
 from datetime import datetime
 from app.services.procurement_heatmap import build_procurement_heatmap
@@ -6,6 +8,7 @@ from app.services.autonomous_tender_hunter import rank_demo_opportunities
 from app.services.portal_health_dashboard import build_portal_health_dashboard
 
 router = APIRouter(tags=["System Routes"])
+LEGACY_ROUTER_SURFACE = True
 
 
 @router.get("/procurement-heatmap")

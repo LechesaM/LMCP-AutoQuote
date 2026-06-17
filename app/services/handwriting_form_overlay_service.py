@@ -18,12 +18,10 @@ from pydantic import BaseModel, Field, field_validator
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from PyPDF2 import PdfReader, PdfWriter
+from pypdf import PdfReader, PdfWriter
 
 
-RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "runtime"))
-DEFAULT_OUTPUT_DIR = RUNTIME_DIR / "handwriting_simulation" / "real_form_outputs"
-DEFAULT_TMP_DIR = RUNTIME_DIR / "handwriting_simulation" / "tmp"
+DEFAULT_RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "runtime"))
 
 DEFAULT_FONT_CANDIDATES = [
     Path("app/assets/fonts/handwriting.ttf"),
@@ -69,9 +67,21 @@ def _safe_ref(value: str) -> str:
     return cleaned[:120] or f"RFQ-{uuid.uuid4().hex[:8]}"
 
 
-def _ensure_dirs() -> None:
-    DEFAULT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    DEFAULT_TMP_DIR.mkdir(parents=True, exist_ok=True)
+def _runtime_dir(runtime_dir: Optional[str] = None) -> Path:
+    return Path(runtime_dir) if runtime_dir else DEFAULT_RUNTIME_DIR
+
+
+def _output_dir(runtime_dir: Optional[str] = None) -> Path:
+    return _runtime_dir(runtime_dir) / "handwriting_simulation" / "real_form_outputs"
+
+
+def _tmp_dir(runtime_dir: Optional[str] = None) -> Path:
+    return _runtime_dir(runtime_dir) / "handwriting_simulation" / "tmp"
+
+
+def _ensure_dirs(runtime_dir: Optional[str] = None) -> None:
+    _output_dir(runtime_dir).mkdir(parents=True, exist_ok=True)
+    _tmp_dir(runtime_dir).mkdir(parents=True, exist_ok=True)
 
 
 def _register_font(font_path: Optional[str], preferred_name: str) -> str:
@@ -146,8 +156,11 @@ def _draw_field(c: canvas.Canvas, field: HandwritingFormField, font_name: str, d
     c.restoreState()
 
 
-def overlay_handwriting_on_existing_pdf(payload: Dict[str, Any] | HandwritingFormOverlayRequest) -> Dict[str, Any]:
-    _ensure_dirs()
+def overlay_handwriting_on_existing_pdf(
+    payload: Dict[str, Any] | HandwritingFormOverlayRequest,
+    runtime_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    _ensure_dirs(runtime_dir)
 
     request = payload if isinstance(payload, HandwritingFormOverlayRequest) else HandwritingFormOverlayRequest(**payload)
 
@@ -162,11 +175,11 @@ def overlay_handwriting_on_existing_pdf(payload: Dict[str, Any] | HandwritingFor
 
     safe_ref = _safe_ref(request.buyer_rfq_number)
     output_pdf = Path(request.output_pdf) if request.output_pdf else (
-        DEFAULT_OUTPUT_DIR / f"{safe_ref}__handwritten_completed_form.pdf"
+        _output_dir(runtime_dir) / f"{safe_ref}__handwritten_completed_form.pdf"
     )
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
 
-    overlay_pdf = DEFAULT_TMP_DIR / f"{safe_ref}__overlay_{uuid.uuid4().hex[:8]}.pdf"
+    overlay_pdf = _tmp_dir(runtime_dir) / f"{safe_ref}__overlay_{uuid.uuid4().hex[:8]}.pdf"
 
     try:
         reader = PdfReader(str(input_pdf))

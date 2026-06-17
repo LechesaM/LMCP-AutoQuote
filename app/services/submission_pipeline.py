@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
@@ -20,11 +22,26 @@ class SubmissionPipeline:
         results: List[Dict[str, Any]] = []
 
         for rfq in filtered:
+            email_send_result: Dict[str, Any] = {}
+            proof_artifacts: Dict[str, Any] = {}
             try:
                 quote_data = cls.build_quote_data(rfq)
                 pack = cls._generate_quote_pack(rfq, quote_data)
-                cls._send_submission_email(rfq, pack)
-                cls._log_submission_history(rfq, quote_data, pack, status="submitted")
+                email_send_result = cls._send_submission_email(rfq, pack)
+                proof_artifacts = cls._build_submission_proof_artifacts(
+                    rfq=rfq,
+                    quote_data=quote_data,
+                    pack=pack,
+                    email_send_result=email_send_result,
+                )
+                cls._log_submission_history(
+                    rfq,
+                    quote_data,
+                    pack,
+                    status="submitted",
+                    email_send_result=email_send_result,
+                    proof_artifacts=proof_artifacts,
+                )
 
                 results.append(
                     {
@@ -32,6 +49,7 @@ class SubmissionPipeline:
                         "title": rfq.get("title", ""),
                         "status": "submitted",
                         "pdf_path": pack.get("pdf_path", ""),
+                        "proof_path": proof_artifacts.get("submission_receipt_pdf_path", ""),
                     }
                 )
             except Exception as e:
@@ -42,6 +60,8 @@ class SubmissionPipeline:
                         pack if "pack" in locals() else {},
                         status="failed",
                         error=str(e),
+                        email_send_result=email_send_result if isinstance(email_send_result, dict) else {},
+                        proof_artifacts=proof_artifacts if isinstance(proof_artifacts, dict) else {},
                     )
                 except Exception:
                     pass
@@ -52,6 +72,7 @@ class SubmissionPipeline:
                         "title": rfq.get("title", ""),
                         "status": "failed",
                         "error": str(e),
+                        "proof_path": proof_artifacts.get("submission_receipt_pdf_path", ""),
                     }
                 )
 
@@ -300,7 +321,7 @@ class SubmissionPipeline:
         cls,
         rfq_data: Dict[str, Any],
         pack: Dict[str, Any],
-    ) -> None:
+    ) -> Dict[str, Any]:
         recipient = (
             rfq_data.get("submission_email")
             or rfq_data.get("email")
@@ -313,32 +334,125 @@ class SubmissionPipeline:
         subject = pack.get("email_subject", "Quotation Submission")
         body = pack.get("email_body", "Please find attached our quotation.")
         attachment_path = pack.get("pdf_path", "")
+        if not attachment_path:
+            raise ValueError("No PDF attachment found for RFQ")
+
+        smtp_host = os.getenv("SMTP_HOST", "")
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_username = os.getenv("SMTP_USERNAME", "")
+        smtp_password = os.getenv("SMTP_PASSWORD", "")
+        sender_email = os.getenv("SMTP_SENDER_EMAIL", smtp_username)
+        use_tls = os.getenv("SMTP_USE_TLS", "true").strip().lower() == "true"
+        if not smtp_host:
+            raise ValueError("SMTP_HOST is not configured")
+        if not sender_email:
+            raise ValueError("SMTP sender email is not configured")
 
         try:
-            from app.email_api import send_email_with_attachment  # type: ignore
+            from app.email_utils import send_email_with_attachment
 
-            send_email_with_attachment(
-                to=recipient,
+            message_id = send_email_with_attachment(
+                smtp_host=smtp_host,
+                smtp_port=smtp_port,
+                smtp_username=smtp_username,
+                smtp_password=smtp_password,
+                sender_email=sender_email,
+                recipient_email=recipient,
                 subject=subject,
                 body=body,
                 attachment_path=attachment_path,
+                use_tls=use_tls,
             )
-            return
-        except Exception:
-            pass
-
-        try:
-            from app.services.email_api import send_email_with_attachment  # type: ignore
-
-            send_email_with_attachment(
-                to=recipient,
-                subject=subject,
-                body=body,
-                attachment_path=attachment_path,
-            )
-            return
+            return {
+                "attempted": True,
+                "message": "Email submission sent successfully.",
+                "message_id": message_id,
+                "used_sender_email": sender_email,
+                "used_recipients": [recipient],
+                "used_attachments": [attachment_path],
+                "submission_channel": str(
+                    rfq_data.get("submission_channel")
+                    or rfq_data.get("submission_method")
+                    or pack.get("submission_channel")
+                    or pack.get("submission_method")
+                    or "email"
+                ).strip()
+                or "email",
+                "recipient_email": recipient,
+                "sent_at_utc": cls._now_iso(),
+            }
         except Exception as e:
             raise RuntimeError(f"Email send failed: {e}") from e
+
+    @classmethod
+    def _build_submission_proof_artifacts(
+        cls,
+        *,
+        rfq: Dict[str, Any],
+        quote_data: Dict[str, Any],
+        pack: Dict[str, Any],
+        email_send_result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        try:
+            from app.services.submission_proof_artifact_service import build_submission_proof_artifacts
+        except Exception as exc:
+            return {"status": "unavailable", "error": str(exc)}
+
+        proof_payload: Dict[str, Any] = {
+            "rfq_number": rfq.get("rfq_number") or rfq.get("reference") or rfq.get("id") or "",
+            "buyer_name": rfq.get("buyer_name") or rfq.get("issuing_entity") or rfq.get("department") or "",
+            "title": rfq.get("title") or "",
+            "quote_reference": quote_data.get("quote_number") or pack.get("quote_number") or "",
+            "submission_email_ready": bool(rfq.get("submission_email") or rfq.get("email") or rfq.get("contact_email")),
+            "submission_email_sent": bool(email_send_result.get("attempted")),
+            "submission_email_sent_at_utc": email_send_result.get("sent_at_utc") or cls._now_iso(),
+            "email_send_result": email_send_result,
+            "metadata": {
+                "pdf_output_dir": pack.get("quote_folder") or pack.get("quote_pack_dir") or "",
+            },
+            "quote_pack_pdf_path": str(pack.get("pdf_path") or pack.get("final_pdf_path") or ""),
+            "rendered_buyer_pdf_path": str(pack.get("pdf_path") or pack.get("final_pdf_path") or ""),
+            "submission_pack_manifest_path": str(pack.get("quote_pack_metadata_path") or ""),
+        }
+
+        proof_file = str(pack.get("pdf_path") or pack.get("final_pdf_path") or "").strip()
+        proof_payload["proof_file"] = proof_file
+
+        artifacts = build_submission_proof_artifacts(proof_payload)
+        proof_artifacts = dict(artifacts.get("submission_proof_artifacts") or {})
+        proof_dir = str(artifacts.get("submission_proof_directory") or proof_artifacts.get("proof_directory") or "").strip()
+        receipt_json_path = str(artifacts.get("submission_receipt_json_path") or proof_artifacts.get("receipt_json_path") or "").strip()
+        receipt_txt_path = str(artifacts.get("submission_receipt_txt_path") or proof_artifacts.get("receipt_txt_path") or "").strip()
+        receipt_pdf_path = str(artifacts.get("submission_receipt_pdf_path") or proof_artifacts.get("receipt_pdf_path") or "").strip()
+        receipt_text = ""
+        if receipt_txt_path:
+            try:
+                receipt_text = Path(receipt_txt_path).read_text(encoding="utf-8").strip()
+            except Exception:
+                receipt_text = ""
+
+        submitted_files = [x for x in [
+            str(pack.get("pdf_path") or "").strip(),
+            str(pack.get("final_pdf_path") or "").strip(),
+        ] if x]
+        submitted_files.extend([str(x).strip() for x in email_send_result.get("used_attachments", []) if str(x).strip()])
+
+        return {
+            "status": "ok",
+            "proof_directory": proof_dir,
+            "submission_proof_directory": proof_dir,
+            "submission_receipt_json_path": receipt_json_path,
+            "submission_receipt_txt_path": receipt_txt_path,
+            "submission_receipt_pdf_path": receipt_pdf_path,
+            "proof_path": receipt_pdf_path or proof_file,
+            "buyer_confirmation_reference": str(email_send_result.get("message_id") or "").strip(),
+            "receipt_text": receipt_text or str(email_send_result.get("message") or "").strip(),
+            "receipt_timestamp": str(email_send_result.get("sent_at_utc") or cls._now_iso()).strip(),
+            "submitted_files": submitted_files,
+            "submission_channel": str(email_send_result.get("submission_channel") or "").strip() or "email",
+            "email_send_result": email_send_result,
+            "proof_artifacts": proof_artifacts,
+        }
 
     @classmethod
     def _log_submission_history(
@@ -349,6 +463,8 @@ class SubmissionPipeline:
         *,
         status: str,
         error: str = "",
+        email_send_result: Optional[Dict[str, Any]] = None,
+        proof_artifacts: Optional[Dict[str, Any]] = None,
     ) -> None:
         try:
             from app.services.submission_history_service import log_submission_event
@@ -385,6 +501,44 @@ class SubmissionPipeline:
             default=0.0,
         )
 
+        email_send_result = email_send_result or {}
+        proof_artifacts = proof_artifacts or {}
+        proof_path = str(
+            proof_artifacts.get("proof_path")
+            or proof_artifacts.get("submission_receipt_pdf_path")
+            or pack.get("proof_path")
+            or ""
+        ).strip()
+        submission_channel = str(
+            email_send_result.get("submission_channel")
+            or rfq.get("submission_channel")
+            or rfq.get("submission_method")
+            or pack.get("submission_channel")
+            or pack.get("submission_method")
+            or "email"
+        ).strip() or "email"
+        buyer_confirmation_reference = str(
+            email_send_result.get("message_id")
+            or rfq.get("buyer_confirmation_reference")
+            or ""
+        ).strip()
+        receipt_timestamp = str(email_send_result.get("sent_at_utc") or cls._now_iso()).strip()
+        submitted_files = [
+            str(x).strip()
+            for x in (
+                proof_artifacts.get("submitted_files")
+                or email_send_result.get("used_attachments")
+                or []
+            )
+            if str(x).strip()
+        ]
+        receipt_text = str(
+            proof_artifacts.get("receipt_text")
+            or email_send_result.get("message")
+            or error
+            or ""
+        ).strip()
+
         if estimated_revenue > 0 and estimated_cost <= 0 and estimated_profit > 0:
             estimated_cost = round(estimated_revenue - estimated_profit, 2)
 
@@ -399,13 +553,18 @@ class SubmissionPipeline:
             "buyer_rfq_number": rfq_number,
             "quote_number": quote_number,
             "title": str(rfq.get("title") or "").strip(),
-            "submission_method": "email",
+            "submission_method": submission_channel,
+            "submission_channel": submission_channel,
             "recipient_email": recipient,
             "portal_name": "",
             "status": status,
             "status_message": error or ("Email submission sent successfully." if status == "submitted" else "Submission failed."),
             "document_path": str(pack.get("pdf_path") or "").strip(),
-            "proof_path": "",
+            "proof_path": proof_path,
+            "buyer_confirmation_reference": buyer_confirmation_reference,
+            "receipt_text": receipt_text,
+            "receipt_timestamp": receipt_timestamp,
+            "submitted_files": submitted_files,
             "submission_log_path": "",
             "attachments": [str(pack.get("pdf_path") or "").strip()] if str(pack.get("pdf_path") or "").strip() else [],
             "artifacts": [
@@ -429,17 +588,30 @@ class SubmissionPipeline:
                 "buyer_rfq_number": rfq_number,
                 "pdf_path": str(pack.get("pdf_path") or "").strip(),
                 "quote_pack_metadata_path": str(pack.get("quote_pack_metadata_path") or "").strip(),
+                "proof_path": proof_path,
+                "buyer_confirmation_reference": buyer_confirmation_reference,
+                "receipt_text": receipt_text,
+                "receipt_timestamp": receipt_timestamp,
+                "submitted_files": submitted_files,
+                "submission_channel": submission_channel,
                 "error": error,
             },
             "metadata": {
-                "submission_channel": "email",
+                "submission_channel": submission_channel,
                 "estimated_revenue": estimated_revenue,
                 "estimated_cost": estimated_cost,
                 "estimated_profit": estimated_profit,
                 "estimated_margin": estimated_margin,
                 "quote_folder": str(pack.get("quote_folder") or "").strip(),
                 "quote_pack_dir": str(pack.get("quote_pack_dir") or "").strip(),
+                "proof_path": proof_path,
+                "buyer_confirmation_reference": buyer_confirmation_reference,
+                "receipt_text": receipt_text,
+                "receipt_timestamp": receipt_timestamp,
+                "submitted_files": submitted_files,
             },
+            "proof_artifacts": proof_artifacts,
+            "email_send_result": email_send_result,
         }
 
         log_submission_event(payload)
@@ -458,5 +630,4 @@ class SubmissionPipeline:
     @staticmethod
     def _now_iso() -> str:
         return datetime.now().isoformat()
-
 

@@ -1,53 +1,46 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import defaultdict
+from pathlib import Path
 from typing import Any, Dict, List
 
-from app.analytics.source_reliability_analytics import build_source_reliability_analytics
-from app.harvest.source_registry import load_source_registry
-from ._shared import now_iso, safe_float, safe_int
+from ._shared import base_report, utc_now_iso
 
 
-def build_source_roi_analytics(limit: int = 100) -> Dict[str, Any]:
-    source_reliability = build_source_reliability_analytics(limit=limit)
-    registry = load_source_registry()
-    sources = registry.list_sources()[: max(1, int(limit or 100))]
-    reliability_rows = source_reliability.get("top_reliable_sources", [])
-    failing_rows = source_reliability.get("top_failing_sources", [])
-    top_value_sources: List[Dict[str, Any]] = []
-    low_value_sources: List[Dict[str, Any]] = []
-    noisy_sources: List[Dict[str, Any]] = []
-    for source in sources:
-        summary = source_reliability.get("source_health", {})
-        score = safe_float(summary.get("harvest_success_rate", 0.0)) * 100.0 - safe_float(summary.get("parser_failure_rate", 0.0)) * 100.0
-        row = {
-            "source_id": source.id,
-            "name": source.name,
-            "tier": source.source_tier,
-            "roi_score": round(score, 2),
-            "quality_signal": safe_float(100.0 - summary.get("parser_failure_rate", 0.0) * 100.0),
-            "reliability_signal": safe_float(summary.get("harvest_success_rate", 0.0) * 100.0),
-        }
-        if score >= 70:
-            top_value_sources.append(row)
-        elif score < 30:
-            low_value_sources.append(row)
-        if safe_float(summary.get("parser_failure_rate", 0.0)) >= 0.2:
-            noisy_sources.append(row)
+def _load_live_rfqs() -> List[Dict[str, Any]]:
+    path = Path("runtime/live_rfqs.json")
+    if not path.exists():
+        return []
+    try:
+        data = __import__("json").loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    items = data.get("items") if isinstance(data, dict) else []
+    return [item for item in items if isinstance(item, dict)]
+
+
+def build_source_roi_analytics(limit: int = 25) -> Dict[str, Any]:
+    report = base_report(limit=limit)
+    source_totals: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"source": "", "total_profit": 0.0, "count": 0})
+    for item in _load_live_rfqs():
+        source = str(item.get("source_name") or item.get("source_url") or item.get("portal_slug") or "unknown").strip() or "unknown"
+        bucket = source_totals[source]
+        bucket["source"] = source
+        bucket["total_profit"] += float(item.get("estimated_profit") or 0.0)
+        bucket["count"] += 1
+    ordered = sorted(source_totals.values(), key=lambda item: (-float(item["total_profit"] or 0), item["source"]))
+    top_value_sources = ordered[:limit]
+    low_value_sources = list(reversed(ordered[-limit:])) if ordered else []
+
     return {
         "status": "ok",
-        "generated_at": now_iso(),
-        "data_source": "runtime" if sources else "fallback",
+        "generated_at": utc_now_iso(),
         "summary": {
-            "rfqs_per_source": len(sources),
-            "qualification_success_rate": safe_float(source_reliability.get("summary", {}).get("harvest_success_rate", 0.0)),
-            "dead_source_cost": safe_int(source_reliability.get("source_health", {}).get("failing_sources", 0)),
-            "parser_failure_impact": safe_float(source_reliability.get("source_health", {}).get("parser_failure_rate", 0.0)),
+            "awardees_count": report["award_intelligence"]["unique_awardees"],
+            "province_count": len(report["award_intelligence"]["awardees_by_province"]),
+            "supplier_response_rate": report["supplier_funnel"]["supplier_response_rate"],
         },
-        "top_value_sources": top_value_sources[:10],
-        "low_value_sources": low_value_sources[:10],
-        "noisy_sources": noisy_sources[:10],
-        "reliability_rows": reliability_rows[:10],
-        "failing_rows": failing_rows[:10],
+        "top_value_sources": top_value_sources,
+        "low_value_sources": low_value_sources,
+        "data_source": report["data_source"],
     }
-

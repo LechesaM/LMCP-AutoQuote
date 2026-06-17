@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /Users/Shared/LMCP-AutoQuote-Server
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
 
 if [[ "${LMCP_USE_DOCKER:-0}" == "1" ]]; then
-  exec docker compose up -d --build
+  CERT_DIR="${LMCP_TLS_CERT_DIR:-$ROOT/runtime/certs}"
+  if [[ ! -f "$CERT_DIR/lmcp.crt" || ! -f "$CERT_DIR/lmcp.key" ]]; then
+    bash "$ROOT/scripts/generate_local_tls_certs.sh" || true
+  fi
+  exec docker compose --env-file .env.production -f docker-compose.production.yml up -d --build --remove-orphans
 fi
 
 export PYTHONPATH="${PYTHONPATH:-$PWD}"

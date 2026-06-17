@@ -1,0 +1,15 @@
+{
+  "sources": [
+    {
+      "name": "Smoke Fixture eTenders",
+      "type": "generic_portal",
+      "enabled": true,
+      "priority": 1,
+      "url": "file:///Users/cash/Documents/app/data/fixtures/smoke_etenders_fixture.html",
+      "source_group": "etenders",
+      "submission_method": "portal",
+      "intelligence_score": 100,
+      "verify_ssl": false
+    }
+  ]
+}

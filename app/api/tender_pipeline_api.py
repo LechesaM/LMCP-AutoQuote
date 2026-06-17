@@ -79,13 +79,29 @@ def _persist_result_to_live_store_if_requested(
     try:
         if "results" in result_dict and isinstance(result_dict.get("results"), list):
             items: List[Dict[str, Any]] = []
+            persisted_items: List[Dict[str, Any]] = []
+            item_errors: List[Dict[str, Any]] = []
             for row in result_dict["results"]:
                 if isinstance(row, dict):
                     items.append(_build_live_store_item(row))
             if items:
-                LiveRFQStore.upsert_rfq(item)
-                result_dict["live_store_persisted"] = True
-                result_dict["live_store_persisted_count"] = len(items)
+                for index, live_item in enumerate(items):
+                    try:
+                        LiveRFQStore.upsert_rfq(live_item)
+                        persisted_items.append(live_item)
+                    except Exception as exc:
+                        item_errors.append(
+                            {
+                                "index": index,
+                                "rfq_number": live_item.get("rfq_number") or live_item.get("buyer_rfq_number") or "",
+                                "title": live_item.get("title") or "",
+                                "error": str(exc),
+                            }
+                        )
+                result_dict["live_store_persisted"] = bool(persisted_items)
+                result_dict["live_store_persisted_count"] = len(persisted_items)
+                if item_errors:
+                    result_dict["live_store_persist_errors"] = item_errors
             else:
                 result_dict["live_store_persisted"] = False
                 result_dict["live_store_persisted_count"] = 0

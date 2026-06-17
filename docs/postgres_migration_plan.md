@@ -1,14 +1,14 @@
-# PostgreSQL Migration Plan
+# SQLite to PostgreSQL Migration Plan
 
 ## Migration Strategy
-1. Back up the current runtime store.
+1. Back up the current local SQLite runtime store.
 2. Validate backup manifest and restore readiness.
 3. Move to PostgreSQL in a staging-first deployment.
 4. Validate audit, workflow, queue, and operator-action tables.
-5. Switch production only after readiness checks pass.
+5. Switch locked production only after readiness checks pass.
 
 ## Required Checks
-- Current SQLite DB path
+- Current SQLite DB path for the local bootstrap store
 - PostgreSQL URL and credentials
 - Table inventory
 - JSONL fallback inventory

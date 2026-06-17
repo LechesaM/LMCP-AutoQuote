@@ -9,6 +9,11 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from app.services.handwriting_thickness_normalizer_v7 import (
+    normalize_line_ink_job_v7,
+    resolve_normalized_line_asset_v7,
+)
+
 
 RUNTIME_DIR = Path("runtime")
 HANDWRITING_DIR = RUNTIME_DIR / "handwriting_simulation"
@@ -30,6 +35,27 @@ DEFAULT_LINE_LABELS = [
 def _safe_filename(value: Any, fallback: str = "UNKNOWN") -> str:
     raw = str(value or fallback).strip() or fallback
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", raw)
+
+
+def get_line_ink_status() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "service": "handwriting_line_ink_v5",
+        "message": "Ready to split clean handwriting ink into line-level assets.",
+        "runtime_dir": str(RUNTIME_DIR),
+        "line_ink_dir": str(LINE_INK_V5_DIR),
+        "normalized_ink_dir": str(NORMALIZED_INK_V7_DIR),
+    }
+
+
+def example_payload() -> Dict[str, Any]:
+    return {
+        "job_id": "REAL-HANDWRITING",
+        "labels": DEFAULT_LINE_LABELS,
+        "normalize_v7": True,
+        "target_density": 0.075,
+        "darken_factor": 0.78,
+    }
 
 
 def _latest_clean_ink_for_job(job_id: str) -> Optional[Path]:
@@ -443,3 +469,11 @@ def resolve_line_asset_v5(
                 return _resolve_from_asset(asset, prefer_normalized=prefer_normalized)
 
     return None
+
+
+def resolve_line_asset_v7(
+    *,
+    job_id: str = "REAL-HANDWRITING",
+    line_index: Optional[int] = None,
+) -> Optional[Path]:
+    return resolve_normalized_line_asset_v7(job_id=job_id, line_index=line_index)

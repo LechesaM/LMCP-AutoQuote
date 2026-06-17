@@ -47,7 +47,7 @@ def test_audit_trail_service_is_append_only() -> None:
     text = _read("app/services/audit_trail_service.py").lower()
 
     assert "events.append(item)" in text
-    assert "save_audit_events(events)" in text
+    assert "save_audit_events(events, runtime_dir=runtime_dir)" in text
     assert "delete" not in text
     assert "truncate" not in text
     assert "overwrite" not in text

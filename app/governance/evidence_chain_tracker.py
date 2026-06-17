@@ -1,35 +1,32 @@
 from __future__ import annotations
 
-from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from app.services.audit_trail_service import load_audit_events
-
-from ._shared import now_iso
+from .audit_chain_validator import load_audit_events
 
 
-def build_evidence_chain_tracker(limit: int = 500) -> Dict[str, Any]:
-    events = load_audit_events()[-max(1, int(limit or 500)) :]
-    evidence_events = [
-        event
-        for event in events
-        if any(keyword in str(event.get("event_type") or "").lower() for keyword in ("proof", "evidence", "submission", "quote"))
-        or any(keyword in str(event.get("message") or "").lower() for keyword in ("proof", "evidence", "quote"))
-    ]
-    chain_counts = Counter(str(event.get("event_type") or "unknown") for event in evidence_events)
-    missing_references = [
-        event
-        for event in evidence_events
-        if not (event.get("buyer_rfq_number") or event.get("quote_number") or event.get("payload"))
-    ]
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def build_evidence_chain_tracker(limit: int = 100) -> Dict[str, Any]:
+    events = list(load_audit_events(limit=limit) or [])
+    evidence_events: List[Dict[str, Any]] = []
+    for event in events:
+        event_type = _safe_text(event.get("event_type")).lower()
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if "proof" in event_type or "evidence" in event_type or payload.get("proof"):
+            evidence_events.append(event)
     return {
-        "status": "ok" if not missing_references else "degraded",
-        "generated_at": now_iso(),
-        "data_source": "runtime",
-        "evidence_events": evidence_events,
+        "status": "healthy" if evidence_events else "degraded",
+        "generated_at": _now_iso(),
+        "evidence_chain_complete": bool(evidence_events),
         "evidence_event_count": len(evidence_events),
-        "evidence_event_types": dict(chain_counts),
-        "missing_references": missing_references,
-        "evidence_chain_complete": len(missing_references) == 0,
+        "events": evidence_events,
+        "manual_governance_only": True,
     }
-

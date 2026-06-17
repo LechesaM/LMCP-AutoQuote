@@ -1,3 +1,5 @@
+"""LEGACY ROOT ROUTER: unsupported and quarantined from active runtime."""
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -8,6 +10,7 @@ from app.submission_pack import build_submission_pack
 
 
 router = APIRouter(tags=["Submission Pack"])
+LEGACY_ROUTER_SURFACE = True
 
 
 def get_db():

@@ -4,15 +4,19 @@ import json
 import logging
 import os
 import re
+import socket
 import time
+from html import escape as _html_escape
 from hashlib import sha256
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlparse
 
 import requests
 
+from app.services.harvest_source_registry_service import get_curated_live_source_file
+from app.services.harvest_source_registry_service import load_default_live_harvest_sources
 from app.services.system_control_service import get_system_control_state
 
 try:
@@ -45,6 +49,11 @@ try:
 except Exception:  # pragma: no cover
     price_verified_rfq = None
 
+try:
+    from app.services import live_rfq_store as _live_rfq_store
+except Exception:  # pragma: no cover
+    _live_rfq_store = None
+
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -71,6 +80,7 @@ SOURCE_PACKS_DIR.mkdir(parents=True, exist_ok=True)
 ACTIVE_SOURCE_PACKS_FILE = SOURCE_PACKS_DIR / "active_source_packs.json"
 HIGH_YIELD_SOURCES_FILE = SOURCE_PACKS_DIR / "high_yield_sources.json"
 PACK_PERFORMANCE_SUMMARY_FILE = SOURCE_PACKS_DIR / "pack_performance_summary.json"
+SOURCE_PACK_REPAIR_DIAGNOSTICS_FILE = SOURCE_PACKS_DIR / "source_pack_repair_diagnostics.json"
 BUYER_INTELLIGENCE_DIR = RUNTIME_DIR / "buyer_intelligence"
 BUYER_INTELLIGENCE_DIR.mkdir(parents=True, exist_ok=True)
 BUYER_PROFILES_FILE = BUYER_INTELLIGENCE_DIR / "buyer_profiles.json"
@@ -91,6 +101,7 @@ CURRENT_CYCLE_SUMMARY_FILE = RADAR_CYCLES_DIR / "current_cycle_summary.json"
 SOURCE_PRODUCTIVITY_RANKINGS_FILE = RADAR_CYCLES_DIR / "source_productivity_rankings.json"
 BUYER_TREND_RANKINGS_FILE = RADAR_CYCLES_DIR / "buyer_trend_rankings.json"
 CATEGORY_TREND_RANKINGS_FILE = RADAR_CYCLES_DIR / "category_trend_rankings.json"
+_SOURCE_SHAPE_REPORT_CACHE: Dict[str, Any] = {"path": None, "mtime": None, "map": {}}
 OPPORTUNITY_EXTRACTION_DIR = RUNTIME_DIR / "opportunity_extraction"
 OPPORTUNITY_EXTRACTION_DIR.mkdir(parents=True, exist_ok=True)
 EXTRACTED_OPPORTUNITIES_FILE = OPPORTUNITY_EXTRACTION_DIR / "extracted_opportunities.json"
@@ -112,8 +123,22 @@ REVIEW_QUEUE_DIR.mkdir(parents=True, exist_ok=True)
 PARTIAL_QUOTE_READY_QUEUE_FILE = REVIEW_QUEUE_DIR / "partial_quote_ready_queue.json"
 URGENT_REVIEW_ITEMS_FILE = REVIEW_QUEUE_DIR / "urgent_review_items.json"
 REVIEW_SUMMARY_FILE = REVIEW_QUEUE_DIR / "review_summary.json"
+HARVEST_RUNS_DIR = RUNTIME_DIR / "harvest_runs"
+HARVEST_RUNS_DIR.mkdir(parents=True, exist_ok=True)
+LAST_ACQUISITION_RUNTIME_DIAGNOSTICS_FILE = HARVEST_RUNS_DIR / "last_acquisition_runtime_diagnostics.json"
+DEBUG_DIR = RUNTIME_DIR / "debug"
+DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+LIVE_CANDIDATE_DEBUG_FILE = DEBUG_DIR / "live_candidates.jsonl"
+LIVE_ELIGIBILITY_TRACE_FILE = DEBUG_DIR / "live_eligibility_trace.jsonl"
 
 ETENDERS_URL = "https://www.etenders.gov.za/Home/opportunities"
+ETENDERS_PAGINATED_OPPORTUNITIES_URL = "https://www.etenders.gov.za/Home/PaginatedTenderOpportunities"
+ETENDERS_BASE_URL = "https://www.etenders.gov.za"
+INVALID_SOURCE_URL_SNIPPETS = (
+    "google.com/search",
+    "www.google.com/search",
+)
+ZERO_YIELD_QUARANTINE_SCAN_THRESHOLD = 30
 
 AI_AGENT_PROFILE = "chatgpt_codex_ready"
 AI_PRIMARY_MODEL_HINT = "gpt-5.4"
@@ -122,9 +147,58 @@ AI_API_STYLE_HINT = "responses_api"
 AI_ORCHESTRATION_HINT = "agents_sdk"
 
 DEFAULT_MINIMUM_MARGIN_PCT = 25.0
-DOCUMENT_DISCOVERY_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".zip"}
-DOCUMENT_DOWNLOAD_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx"}
+DOCUMENT_DISCOVERY_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".zip", ".csv"}
+DOCUMENT_DOWNLOAD_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".zip", ".csv"}
 DOCUMENT_MAX_BYTES = 12 * 1024 * 1024
+ARTIFACT_CANDIDATE_CLASSIFICATIONS = {
+    "direct_file",
+    "likely_download_endpoint",
+    "document_action_link",
+    "html_navigation",
+    "javascript_link",
+    "api_json_endpoint",
+    "unknown",
+}
+ETENDERS_ARTIFACT_HINT_PATTERN = re.compile(
+    r"\b(downloadfile|download|document|tenderdocument|biddocument|attachment|specification|boq|pricing schedule|sbd|returnable|compulsory documents|zip|pdf|docx|xlsx)\b",
+    re.I,
+)
+ARTIFACT_NAVIGATION_PATTERN = re.compile(
+    r"\b(home|opportunit(?:y|ies)|details?|view|open|next|previous|back|menu|contact|about|terms|privacy|help|faq|login|register)\b",
+    re.I,
+)
+ARTIFACT_SOCIAL_PATTERN = re.compile(
+    r"\b(share|facebook|twitter|linkedin|whatsapp|telegram)\b",
+    re.I,
+)
+ARTIFACT_API_JSON_PATTERN = re.compile(
+    r"\b(api|json|datatable|ajax|service)\b",
+    re.I,
+)
+ETENDERS_ENDPOINT_PATTERN = re.compile(
+    r"\b(tenderdocuments?|tenderdetails|supportdocument|downloadsupportdocument|downloadspec|spec|document|download|downloadfile|biddocument|attachment|getdocuments|gettenderdocuments|gettenderdetails|scmdocument|file|filename|blob|content)\b",
+    re.I,
+)
+ETENDERS_DOCUMENT_RESPONSE_KEYS = (
+    "url",
+    "href",
+    "downloadUrl",
+    "fileUrl",
+    "documentUrl",
+    "attachmentUrl",
+    "blobName",
+    "BlobName",
+    "blobname",
+    "fileName",
+    "DownloadedFileName",
+    "downloadedFileName",
+    "filePath",
+    "path",
+    "attachments",
+    "documents",
+    "documentsList",
+    "supportDocuments",
+)
 V57_MEMORY_HISTORY_LIMIT = 80
 V57_FINGERPRINT_LIMIT = 8000
 V58_SOURCE_PACK_NAMES = [
@@ -136,6 +210,8 @@ V58_SOURCE_PACK_NAMES = [
     "document_rich_pack",
 ]
 V59_BUYER_PROFILE_TYPES = ["municipalities", "SOEs", "universities", "provincial_departments"]
+CONTROLLED_SMOKE_SOURCE_FILE = PROJECT_ROOT / "app" / "data" / "smoke_harvest_sources.json"
+CONTROLLED_FIXTURE_DIR = PROJECT_ROOT / "app" / "data" / "fixtures"
 
 try:
     from app.services.real_rfq_detail_navigation_v49_service import analyse_rfq_detail_navigation
@@ -153,6 +229,37 @@ except Exception:  # pragma: no cover
     analyse_etenders_detail_navigation = None
 
 try:
+    from app.services.true_etenders_detail_resolution_v50_8_service import resolve_true_etenders_detail
+except Exception:  # pragma: no cover
+    resolve_true_etenders_detail = None
+
+try:
+    from app.services.etenders_ajax_datatables_resolver_v50_8_1_service import resolve_etenders_ajax_datatables
+except Exception:  # pragma: no cover
+    resolve_etenders_ajax_datatables = None
+
+try:
+    from app.services.etenders_document_url_reconstruction_v50_8_2_service import reconstruct_etenders_document_urls
+except Exception:  # pragma: no cover
+    reconstruct_etenders_document_urls = None
+
+try:
+    from app.services.etenders_tenderdetails_json_v50_9_1_service import inspect_tenderdetails_json, download_from_tenderdetails_json
+except Exception:  # pragma: no cover
+    inspect_tenderdetails_json = None
+    download_from_tenderdetails_json = None
+
+try:
+    from app.services.etenders_dom_modal_autoclick_v50_9_4_service import capture_dom_modal_autoclick
+except Exception:  # pragma: no cover
+    capture_dom_modal_autoclick = None
+
+try:
+    from app.services.etenders_hidden_api_discovery_v50_9_6_service import discover_hidden_api
+except Exception:  # pragma: no cover
+    discover_hidden_api = None
+
+try:
     from app.services.verified_rfq_promotion_gate_v50_7_service import evaluate_verified_rfq_for_promotion
 except Exception:  # pragma: no cover
     evaluate_verified_rfq_for_promotion = None
@@ -165,12 +272,62 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _resolve_runtime_file(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
+def _display_project_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except Exception:
+        return str(path)
+
+
 def _clean(value: Any) -> str:
     return str(value or "").strip()
 
 
 def _safe_lower(value: Any) -> str:
     return _clean(value).lower()
+
+
+def _is_live_url(value: Any) -> bool:
+    url = _clean(value).lower()
+    return url.startswith("http://") or url.startswith("https://")
+
+
+def _is_controlled_fixture_source_file(path: Optional[str]) -> bool:
+    if not path:
+        return False
+    try:
+        resolved = Path(path).expanduser().resolve()
+    except Exception:
+        return False
+    try:
+        return resolved == CONTROLLED_SMOKE_SOURCE_FILE.resolve() or CONTROLLED_FIXTURE_DIR.resolve() in resolved.parents
+    except Exception:
+        return False
+
+
+def _ensure_controlled_sources_only(sources: List[Dict[str, Any]], source_file: Optional[str]) -> None:
+    if not _is_controlled_fixture_source_file(source_file):
+        raise ValueError(
+            "controlled_mode requires a bundled fixture source file under app/data/fixtures or smoke_harvest_sources.json"
+        )
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        if _is_live_url(source.get("url")) or _is_live_url(source.get("list_url")):
+            raise ValueError(
+                f"controlled_mode rejects live source URL: {_clean(source.get('name') or source.get('source_name') or source.get('url'))}"
+            )
 
 
 def _safe_positive_int(value: Any, default: int) -> int:
@@ -192,9 +349,563 @@ def _safe_float(value: Any, default: float) -> float:
         return float(default)
 
 
+HARVEST_MINIMUM_AI_SCORE = _safe_float(os.getenv("LMCP_HARVEST_MINIMUM_AI_SCORE"), 35.0)
+HARVEST_AUTO_SUBMIT_MINIMUM_AI_SCORE = _safe_float(os.getenv("LMCP_HARVEST_AUTO_SUBMIT_MINIMUM_AI_SCORE"), 65.0)
+
+
 def _truncate(value: str, max_len: int = 180) -> str:
     value = _clean(value)
     return value if len(value) <= max_len else value[: max_len - 3].rstrip() + "..."
+
+
+def _append_live_candidate_debug(
+    item: Dict[str, Any],
+    *,
+    phase: str,
+    source_name: str,
+    source_url: str,
+) -> None:
+    try:
+        payload = {
+            "captured_at": _now_iso(),
+            "phase": phase,
+            "title": _clean(item.get("title") or item.get("description") or item.get("name")),
+            "source_name": _clean(item.get("source_name") or item.get("source") or source_name),
+            "source_url": _clean(item.get("source_url") or source_url),
+            "detail_url": _clean(item.get("detail_url")),
+            "document_url": _clean(item.get("document_url")),
+            "raw_text": _truncate(
+                _clean(item.get("raw_text") or item.get("text") or item.get("description")),
+                max_len=2000,
+            ),
+            "ai_score": item.get("ai_score"),
+            "qualification_score": item.get("qualification_score"),
+            "quote_readiness_score": item.get("quote_readiness_score"),
+            "estimated_profit": item.get("estimated_profit"),
+            "estimated_margin": item.get("estimated_margin"),
+            "margin_percent": item.get("margin_percent"),
+            "minimum_profit": item.get("minimum_profit_required"),
+            "minimum_ai_score": item.get("minimum_ai_score"),
+            "pricing_status": item.get("pricing_status"),
+            "profit_status": item.get("profit_status"),
+            "pipeline_status": _clean(item.get("pipeline_status")),
+            "rejection_reason": _clean(item.get("exclusion_reason") or item.get("eligibility_reason")),
+        }
+        with LIVE_CANDIDATE_DEBUG_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    except Exception:
+        logger.debug("Failed to write live candidate debug row", exc_info=True)
+
+
+def _v63_candidate_rejection_stage(reason_code: Any, candidate: Dict[str, Any]) -> str:
+    reason = _clean(reason_code).lower()
+    blob = _safe_lower(_v63_candidate_text(candidate)) if "candidate_text" in globals() else _safe_lower(
+        " ".join(
+            _clean(value)
+            for value in [
+                candidate.get("title"),
+                candidate.get("description"),
+                candidate.get("raw_text"),
+                candidate.get("source_name"),
+                candidate.get("buyer_name"),
+                candidate.get("category"),
+            ]
+        )
+    )
+    if reason in {"generic_listing_or_category_page", "weak_rfq_identity", "not_structural_real_rfq", "noise_or_no_real_rfq_intent"}:
+        return "metadata_filter"
+    if reason in {"briefing_required", "construction_heavy", "expired_or_closed", "non_supply_scope", "service_heavy", "not_supply_delivery"}:
+        return "eligibility_filter"
+    if reason.startswith("excluded_keyword:") or reason.startswith("contextual_excluded_keyword:"):
+        return "eligibility_filter"
+    if reason in {"qualification_score_below_threshold", "duplicate_candidate_current_run", "duplicate_candidate_memory"}:
+        return "qualification_filter"
+    if reason in {"no_downloadable_rfq_documents", "document_intelligence_block", "buyer_pack_download_required_before_quantity_verification", "document_acquisition_pending"}:
+        return "document_filter"
+    if reason in {"estimated_profit_below_threshold", "ai_score_or_profit_too_low"}:
+        return "margin_filter"
+    if "profit" in reason or "margin" in reason:
+        return "margin_filter"
+    if "document" in reason or "download" in reason:
+        return "document_filter"
+    if "briefing" in blob:
+        return "eligibility_filter"
+    if not _clean(candidate.get("document_urls")) and not _clean(candidate.get("raw_text")):
+        return "metadata_filter"
+    return "eligibility_filter"
+
+
+def _v63_detect_terms(blob: str, terms: List[str]) -> List[str]:
+    text = _safe_lower(blob)
+    matched = [term for term in terms if term and term in text]
+    return sorted(set(matched))
+
+
+def _v63_buyer_pack_failure_reason(
+    candidate: Dict[str, Any],
+    document_discovery: Optional[Dict[str, Any]] = None,
+) -> str:
+    if bool(candidate.get("buyer_pack_downloaded")):
+        return ""
+    diagnostics = candidate.get("buyer_pack_download_diagnostics")
+    if isinstance(diagnostics, list) and diagnostics:
+        source_link_failed = False
+        artifact_failed = False
+        reason_candidates: List[str] = []
+        for diag in diagnostics:
+            if not isinstance(diag, dict):
+                continue
+            diagnostic_type = _clean(diag.get("diagnostic_type"))
+            failure_stage = _clean(diag.get("failure_stage"))
+            failure_reason = _clean(diag.get("failure_reason"))
+            if failure_stage == "artifact_saved":
+                return ""
+            if diagnostic_type == "source_link":
+                if failure_stage == "index_page_no_artifacts":
+                    return "index_page_no_artifacts"
+                if failure_stage == "skipped":
+                    reason_candidates.append(failure_reason or "source_link_skipped")
+                elif failure_stage == "url_resolution":
+                    source_link_failed = True
+                    reason_candidates.append("buyer_pack_url_resolution_failed")
+                elif failure_stage == "auth_required":
+                    source_link_failed = True
+                    reason_candidates.append("buyer_pack_auth_required")
+                elif failure_stage == "http_fetch":
+                    source_link_failed = True
+                    reason_candidates.append("buyer_pack_download_failed")
+                elif failure_stage == "unsupported_content_type":
+                    source_link_failed = True
+                    reason_candidates.append("unsupported_document_format")
+            elif diagnostic_type == "artifact_candidate":
+                if failure_stage == "artifact_saved":
+                    return ""
+                artifact_failed = True
+                if failure_stage == "url_resolution":
+                    reason_candidates.append("buyer_pack_url_resolution_failed")
+                elif failure_stage == "auth_required":
+                    reason_candidates.append("buyer_pack_auth_required")
+                elif failure_stage == "unsupported_content_type":
+                    reason_candidates.append("unsupported_document_format")
+                elif failure_stage == "empty_content":
+                    reason_candidates.append("empty_document_content")
+                elif failure_stage == "file_write":
+                    reason_candidates.append("buyer_pack_file_write_failed")
+                elif failure_stage == "checksum":
+                    reason_candidates.append("artifact_checksum_failed")
+                elif failure_stage == "http_fetch":
+                    reason_candidates.append("buyer_pack_download_failed")
+                elif failure_stage == "skipped":
+                    reason_candidates.append(failure_reason or "artifact_candidate_skipped")
+        if reason_candidates:
+            return _truncate(reason_candidates[0], 120)
+        if source_link_failed and not artifact_failed:
+            return "index_page_no_artifacts"
+        if artifact_failed:
+            return "artifact_download_failed"
+    link_count = int(candidate.get("document_links_count") or len(candidate.get("document_urls") or []))
+    if link_count <= 0:
+        return "no_document_links_detected"
+    if candidate.get("document_acquisition_block_reason"):
+        return _clean(candidate.get("document_acquisition_block_reason"))
+    if candidate.get("fallback_quantity_block_reason"):
+        return "buyer_pack_download_required_before_quantity_verification"
+    skipped_links = document_discovery.get("skipped_links") if isinstance(document_discovery, dict) else []
+    skipped_reasons = [
+        _clean(skipped.get("reason"))
+        for skipped in skipped_links
+        if isinstance(skipped, dict) and _clean(skipped.get("reason"))
+    ]
+    skipped_failure_stages = [
+        _clean(skipped.get("failure_stage"))
+        for skipped in skipped_links
+        if isinstance(skipped, dict) and _clean(skipped.get("failure_stage"))
+    ]
+    if any(reason in {"unsupported_extension", "unsupported_response_type", "zip_links_discovered_but_not_downloaded", "zip_response_not_downloaded", "html_response_not_document"} for reason in skipped_reasons) or any(stage in {"unsupported_content_type"} for stage in skipped_failure_stages):
+        return "unsupported_document_format"
+    if any(reason in {"download_error"} for reason in skipped_reasons) or any(stage in {"http_fetch"} for stage in skipped_failure_stages):
+        return "buyer_pack_download_failed"
+    if any(reason in {"document_too_large"} for reason in skipped_reasons) or any(stage in {"empty_content"} for stage in skipped_failure_stages):
+        return "empty_document_content"
+    if any(stage in {"auth_required"} for stage in skipped_failure_stages):
+        return "buyer_pack_auth_required"
+    if any(stage in {"url_resolution"} for stage in skipped_failure_stages):
+        return "buyer_pack_url_resolution_failed"
+    if any(reason in {"document_too_large"} for reason in skipped_reasons):
+        return "corrupt_document"
+    if skipped_reasons:
+        return _truncate(skipped_reasons[0], 120)
+    if candidate.get("eligibility_reason"):
+        return _truncate(candidate.get("eligibility_reason"), 120)
+    return "document_links_detected_but_no_artifact"
+
+
+def _v63_attach_candidate_rejection_diagnostics(
+    candidate: Dict[str, Any],
+    source: Dict[str, Any],
+    document_discovery: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    blob = _v63_candidate_text(candidate)
+    document_links_count = int(candidate.get("document_links_count") or len(candidate.get("document_urls") or []))
+    buyer_pack_downloaded = bool(
+        candidate.get("buyer_pack_downloaded")
+        or candidate.get("document_acquisition_result")
+        or candidate.get("downloaded_document_path")
+        or candidate.get("main_document_path")
+        or candidate.get("buyer_pack_path")
+        or candidate.get("live_buyer_pack_path")
+    )
+    buyer_pack_attempted = bool(document_links_count > 0 or buyer_pack_downloaded or candidate.get("built_from_document_evidence"))
+    if not buyer_pack_downloaded and candidate.get("built_from_document_evidence"):
+        buyer_pack_downloaded = True
+    reason_code = _clean(candidate.get("exclusion_reason") or candidate.get("eligibility_reason") or "unknown")
+    stage = _v63_candidate_rejection_stage(reason_code, candidate)
+    excluded_terms = _v63_detect_terms(
+        blob,
+        list(EXCLUDED_KEYWORDS)
+        + list(CONTEXTUAL_EXCLUDED_PATTERNS)
+        + list(SCREEN_OUT_KEYWORDS)
+        + list(NON_SUPPLY_SCOPE_TERMS)
+        + list(GENERIC_CATEGORY_TERMS)
+    )
+    supply_terms = _v63_detect_terms(blob, list(REAL_SUPPLY_PHRASES) + list(REAL_RFQ_INTENT_TERMS))
+    missing_required_fields: List[str] = []
+    if not _clean(candidate.get("closing_date")):
+        missing_required_fields.append("closing_date")
+    if not _clean(candidate.get("buyer_name") or candidate.get("buyer")):
+        missing_required_fields.append("buyer")
+    if not _clean(candidate.get("source_url")):
+        missing_required_fields.append("source_url")
+    if document_links_count <= 0:
+        missing_required_fields.append("document_links")
+    if not buyer_pack_downloaded:
+        missing_required_fields.append("buyer_pack")
+    if candidate.get("briefing_required"):
+        missing_required_fields.append("briefing_confirmation")
+    estimated_profit = _safe_float(
+        (candidate.get("estimated_profit_signal") or {}).get("estimated_profit")
+        or candidate.get("estimated_profit")
+        or candidate.get("profit_estimate")
+        or candidate.get("expected_profit")
+        or candidate.get("total_profit"),
+        0.0,
+    )
+    estimated_margin_percent = _safe_float(
+        candidate.get("estimated_margin_pct")
+        or candidate.get("estimated_margin_percent")
+        or candidate.get("margin_percent")
+        or 0.0,
+        0.0,
+    )
+    failure_reason = _v63_buyer_pack_failure_reason(candidate, document_discovery=document_discovery)
+    return {
+        "candidate_id": _clean(candidate.get("candidate_fingerprint") or candidate.get("candidate_id") or _v57_candidate_fingerprint(candidate)),
+        "source_name": _clean(candidate.get("source_name") or source.get("name") or source.get("source_name")),
+        "title": _clean(candidate.get("title")),
+        "buyer": _clean(candidate.get("buyer_name") or candidate.get("buyer") or source.get("name") or source.get("source_name")),
+        "province": _clean(candidate.get("province")),
+        "category": _clean(candidate.get("commodity_service_category") or candidate.get("category")),
+        "closing_date": _clean(candidate.get("closing_date")),
+        "rejection_stage": stage,
+        "rejection_reason_code": reason_code,
+        "rejection_reason_text": _clean(candidate.get("eligibility_reason") or candidate.get("exclusion_reason") or candidate.get("classification") or reason_code),
+        "missing_required_fields": sorted(set(missing_required_fields)),
+        "detected_excluded_terms": excluded_terms,
+        "detected_supply_terms": supply_terms,
+        "compulsory_briefing_detected": bool(candidate.get("briefing_required") or re.search(r"compulsory\s+briefing|mandatory\s+briefing|briefing\s+required", blob, flags=re.I)),
+        "estimated_profit": round(estimated_profit, 2),
+        "estimated_margin_percent": round(estimated_margin_percent, 2),
+        "document_links_count": document_links_count,
+        "buyer_pack_attempted": buyer_pack_attempted,
+        "buyer_pack_downloaded": buyer_pack_downloaded,
+        "buyer_pack_failure_reason": failure_reason,
+    }
+
+
+def _v64_match_candidate_download_attempts(
+    candidate: Dict[str, Any],
+    document_discovery: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    if not isinstance(document_discovery, dict):
+        return []
+    attempts = document_discovery.get("download_attempts")
+    if not isinstance(attempts, list) or not attempts:
+        return []
+    candidate_urls = {
+        _clean(candidate.get("document_url")),
+        *[_clean(url) for url in (candidate.get("document_urls") or []) if _clean(url)],
+    }
+    matched: List[Dict[str, Any]] = []
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        resolved = _clean(attempt.get("resolved_document_url") or attempt.get("candidate_url"))
+        if resolved and resolved in candidate_urls:
+            matched.append(attempt)
+    return matched
+
+
+def _v58_select_productive_focus_sources(
+    sources: List[Dict[str, Any]],
+    max_sources: int,
+    source_health_file: Optional[Path] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    max_sources = _safe_positive_int(max_sources, 25)
+    enabled = [source for source in sources if source.get("enabled", True)]
+    health = _load_source_health(source_health_file=source_health_file)
+    focus_rows: List[Tuple[Dict[str, Any], Dict[str, Any], float]] = []
+    skipped_unproductive = 0
+    for source in enabled:
+        row = _v53_source_health_row(source, health, source_health_file=source_health_file)
+        health_status = _clean(row.get("health_status"))
+        reachable = bool(row.get("reachable"))
+        acquisition_status = _clean(row.get("acquisition_status"))
+        last_dns_status = _clean(row.get("last_dns_status"))
+        if acquisition_status == "dns_failed" or last_dns_status == "failed" or not reachable:
+            skipped_unproductive += 1
+            continue
+        if health_status in {"dns_blocked", "http_blocked", "disabled"}:
+            skipped_unproductive += 1
+            continue
+        candidate_total = int(row.get("candidate_total") or 0)
+        document_total = int(row.get("document_candidate_total") or 0)
+        doc_detection = 0.0
+        if candidate_total > 0:
+            doc_detection = round((document_total / max(candidate_total, 1)) * 100.0, 2)
+        recent_candidate = _safe_float(row.get("last_candidate_age_days"), 9999.0) <= 30.0
+        if not (
+            health_status in {"healthy", "degraded", "empty"}
+            and (
+                candidate_total > 0
+                or document_total > 0
+                or int(row.get("acquisition_document_links_detected") or 0) > 0
+                or _safe_float(row.get("source_selection_score"), 0.0) >= 55.0
+                or doc_detection > 0.0
+                or recent_candidate
+            )
+        ):
+            skipped_unproductive += 1
+            continue
+        score = (
+            _safe_float(row.get("source_selection_score"), _safe_float(row.get("source_success_score"), 0.0))
+            + min(12.0, doc_detection * 0.12)
+            + min(10.0, candidate_total * 1.5)
+            + min(8.0, document_total * 1.5)
+        )
+        if recent_candidate:
+            score += 6.0
+        focus_rows.append((source, row, round(score, 2)))
+
+    focus_rows = sorted(
+        focus_rows,
+        key=lambda pair: (
+            float(pair[2]),
+            int(pair[1].get("candidate_total") or 0),
+            int(pair[1].get("document_candidate_total") or 0),
+            -_safe_float(pair[1].get("last_candidate_age_days"), 9999.0),
+            _clean(pair[0].get("name") or pair[0].get("source_name")),
+        ),
+        reverse=True,
+    )
+    selected = [source for source, _row, _score in focus_rows[:max_sources]]
+    diagnostics = {
+        "focused_source_count": len(selected),
+        "skipped_unproductive_source_count": skipped_unproductive + max(0, len(enabled) - len(selected) - skipped_unproductive),
+        "focused_source_names": [_clean(source.get("name") or source.get("source_name")) for source in selected],
+    }
+    return selected, diagnostics
+
+
+def _v64_repair_source_pack_sources(
+    sources: List[Dict[str, Any]],
+    max_sources: int,
+    source_health_file: Optional[Path] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[Dict[str, Any]]]:
+    max_sources = _safe_positive_int(max_sources, 25)
+    checked_rows: List[Dict[str, Any]] = []
+    selected: List[Dict[str, Any]] = []
+    failed_by_reason: Dict[str, int] = {}
+    selected_names: List[str] = []
+    checked_at = _now_iso()
+    enabled = [source for source in sources if source.get("enabled", True)]
+
+    for source in sorted(enabled, key=_v52_source_priority):
+        source_name = _clean(source.get("name") or source.get("source_name"))
+        source_url = _normalize_source_acquisition_url(source)
+        if not source.get("enabled", True):
+            status = "disabled"
+            error_message = "source_disabled"
+            selected_reason = ""
+        else:
+            preflight = _preflight_source_acquisition(source, timeout_seconds=8)
+            preflight_status = _clean(preflight.get("status"))
+            error_message = _clean(preflight.get("error_message"))
+            browser_required = bool(preflight.get("browser_required"))
+            browser_available = bool(preflight.get("browser_available", True))
+            if preflight_status == "dns_failed" or not bool(preflight.get("dns_resolved")):
+                status = "dns_failed"
+                selected_reason = ""
+            elif preflight_status == "timeout":
+                status = "timeout"
+                selected_reason = ""
+            elif preflight_status == "http_failed" or not bool(preflight.get("http_reachable")) or bool(preflight.get("robots_blocked")) or (browser_required and not browser_available):
+                status = "http_failed"
+                if not error_message and browser_required and not browser_available:
+                    error_message = "browser_unavailable"
+                elif not error_message and bool(preflight.get("robots_blocked")):
+                    error_message = "robots_blocked"
+                selected_reason = ""
+            elif preflight_status == "ok":
+                if len(selected) < max_sources:
+                    status = "selected"
+                    selected.append(source)
+                    selected_names.append(source_name)
+                    selected_reason = "preflight_ok"
+                else:
+                    status = "skipped"
+                    error_message = "max_sources_reached"
+                    selected_reason = "max_sources_reached"
+            else:
+                status = "skipped"
+                error_message = error_message or "repair_skipped"
+                selected_reason = "skipped"
+
+        if status in {"dns_failed", "http_failed", "timeout", "disabled", "skipped"}:
+            failed_by_reason[status] = failed_by_reason.get(status, 0) + 1
+
+        checked_rows.append(
+            {
+                "source_name": source_name,
+                "source_url": source_url,
+                "repair_checked_at": checked_at,
+                "repair_status": status,
+                "repair_error_message": error_message,
+                "repair_selected_reason": selected_reason,
+            }
+        )
+
+    try:
+        SOURCE_PACK_REPAIR_DIAGNOSTICS_FILE.write_text(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "generated_at": _now_iso(),
+                    "diagnostics": checked_rows,
+                },
+                indent=2,
+                default=str,
+            ),
+            encoding="utf-8",
+        )
+    except Exception:
+        logger.debug("Failed to persist source pack repair diagnostics", exc_info=True)
+
+    diagnostics = {
+        "repair_mode_used": True,
+        "repair_sources_checked_count": len(checked_rows),
+        "repair_sources_selected_count": len(selected),
+        "repair_sources_failed_count": sum(1 for row in checked_rows if row.get("repair_status") in {"dns_failed", "http_failed", "timeout"}),
+        "repair_selected_source_names": selected_names,
+        "repair_failed_by_reason": failed_by_reason,
+        "repair_diagnostics_file": _display_project_path(SOURCE_PACK_REPAIR_DIAGNOSTICS_FILE),
+    }
+    return selected, diagnostics, checked_rows
+
+
+def _append_live_resolution_trace_debug(payload: Dict[str, Any]) -> None:
+    try:
+        trace = dict(payload)
+        trace["captured_at"] = _now_iso()
+        trace["phase"] = "etenders_resolution_trace"
+        with LIVE_CANDIDATE_DEBUG_FILE.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(trace, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        logger.debug("Failed to write live resolution trace row", exc_info=True)
+
+
+def _should_trace_live_eligibility(item: Dict[str, Any]) -> bool:
+    text = " ".join(
+        _safe_lower(item.get(key))
+        for key in ("title", "reference_number", "buyer_rfq_number", "rfq_number", "description", "raw_text")
+    )
+    return "lethabo" in text or "joints on an as and when required basis" in text
+
+
+def _append_live_eligibility_trace(
+    item: Dict[str, Any],
+    *,
+    stage: str,
+    run_id: str,
+    minimum_profit: float,
+    runtime_dir: Optional[str] = None,
+) -> None:
+    if not _should_trace_live_eligibility(item):
+        return
+    try:
+        payload = {
+            "captured_at": _now_iso(),
+            "stage": stage,
+            "run_id": run_id,
+            "title": item.get("title"),
+            "reference_number": item.get("reference_number"),
+            "pipeline_status": item.get("pipeline_status"),
+            "eligible": item.get("eligible"),
+            "quote_ready": item.get("quote_ready"),
+            "screened_out": item.get("screened_out"),
+            "rejection_reason": item.get("rejection_reason") or item.get("exclusion_reason") or item.get("eligibility_reason"),
+            "detail_url": item.get("detail_url"),
+            "document_url": item.get("document_url"),
+            "v50_8_discovered_tender_id": item.get("v50_8_discovered_tender_id"),
+            "v50_8_extended_resolution_status": item.get("v50_8_extended_resolution_status"),
+            "estimated_profit": item.get("estimated_profit"),
+            "minimum_profit": minimum_profit,
+            "ai_score": item.get("ai_score"),
+        }
+        trace_file = _resolve_runtime_file(LIVE_ELIGIBILITY_TRACE_FILE, runtime_dir)
+        trace_file.parent.mkdir(parents=True, exist_ok=True)
+        with trace_file.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        logger.debug("Failed to write live eligibility trace row", exc_info=True)
+
+
+def _summarize_items_by_reason(items: List[Dict[str, Any]], reason_keys: Tuple[str, ...]) -> Dict[str, Any]:
+    counts: Dict[str, int] = {}
+    samples: Dict[str, List[Dict[str, Any]]] = {}
+
+    for item in items:
+        reason = ""
+        for key in reason_keys:
+            reason = _clean(item.get(key))
+            if reason:
+                break
+        if not reason:
+            continue
+
+        counts[reason] = counts.get(reason, 0) + 1
+        bucket = samples.setdefault(reason, [])
+        if len(bucket) >= 5:
+            continue
+
+        bucket.append(
+            {
+                "title": _clean(item.get("title")),
+                "source_name": _clean(item.get("source_name")),
+                "source_url": _clean(item.get("source_url")),
+                "pipeline_status": _clean(item.get("pipeline_status")),
+                "eligibility_reason": _clean(item.get("eligibility_reason")),
+                "exclusion_reason": _clean(item.get("exclusion_reason")),
+                "blocker_reasons": list(item.get("blocker_reasons") or []),
+                "qualification_reasons": list(item.get("qualification_reasons") or []),
+            }
+        )
+
+    return {
+        "counts_by_reason": counts,
+        "samples_by_reason": samples,
+        "total_items": len(items),
+        "reason_keys": list(reason_keys),
+    }
 
 
 def _looks_like_attachment_name(text: str) -> bool:
@@ -353,7 +1064,173 @@ def _base_item(source: Dict[str, Any], text: str, url: str = "") -> Dict[str, An
     }
 
 
-def load_harvest_sources(source_file: Optional[str] = None) -> List[Dict[str, Any]]:
+def _normalize_etenders_listing_url(url: Any) -> str:
+    cleaned = _clean(url)
+    lower = cleaned.lower()
+    if not lower or lower in {"https://www.etenders.gov.za", "https://www.etenders.gov.za/"}:
+        return ETENDERS_URL
+    if "etenders.gov.za" in lower and "/home/opportunities" not in lower:
+        return ETENDERS_URL
+    return cleaned
+
+
+def _normalize_source_url_host(url: Any, source_name: str = "") -> str:
+    cleaned = _clean(url)
+    if not cleaned:
+        return ""
+    parsed = urlparse(cleaned if "://" in cleaned else f"https://{cleaned}")
+    host = _clean(parsed.netloc).split("@")[-1].split(":")[0].lower()
+    if not host:
+        return cleaned
+    if host in {"etenders.gov.za", "www.etenders.gov.za"}:
+        return ETENDERS_URL
+    if host.startswith("www.") or host.startswith("secure.") or host.count(".") > 2:
+        return cleaned
+    if host.count(".") == 2 and host not in {"localhost"}:
+        preferred_host = f"www.{host}"
+        normalized = parsed._replace(netloc=preferred_host)
+        return normalized.geturl()
+    return cleaned
+
+
+def _v64_source_matches_filter(source: Dict[str, Any], token: str) -> bool:
+    probe = _safe_lower(token)
+    name = _safe_lower(source.get("name") or source.get("source_name"))
+    url = _safe_lower(source.get("url") or source.get("list_url"))
+    group = _safe_lower(source.get("source_group") or source.get("category_group"))
+    if probe == "etenders":
+        return "etenders" in name or "etenders.gov.za" in url or group == "etenders"
+    return probe in name or probe in url or probe == group
+
+
+def _v64_filter_sources(
+    sources: List[Dict[str, Any]],
+    *,
+    source_filter: Optional[str] = None,
+    source_names: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    tokens = [_clean(source_filter)] if _clean(source_filter) else []
+    if isinstance(source_names, list):
+        tokens.extend(_clean(value) for value in source_names if _clean(value))
+    if not tokens:
+        return list(sources)
+    return [
+        source
+        for source in sources
+        if any(_v64_source_matches_filter(source, token) for token in tokens)
+    ]
+
+
+def _build_etenders_detail_url(tender_id: Any) -> str:
+    tid = _clean(tender_id)
+    if not tid:
+        return ETENDERS_URL
+    return f"https://www.etenders.gov.za/Home/TenderDetails?id={tid}"
+
+
+def _fetch_etenders_paginated_opportunities(
+    source: Dict[str, Any],
+    max_items: int,
+    timeout_seconds: int,
+) -> List[Dict[str, Any]]:
+    params = {
+        "status": 1,
+        "draw": 1,
+        "start": 0,
+        "length": _safe_positive_int(max_items, 20),
+    }
+    response = requests.get(
+        ETENDERS_PAGINATED_OPPORTUNITIES_URL,
+        params=params,
+        timeout=timeout_seconds,
+        headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0"},
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    rows = payload.get("data")
+    if not isinstance(rows, list):
+        return []
+
+    listing_url = _normalize_etenders_listing_url(source.get("url") or source.get("list_url") or ETENDERS_URL)
+    results: List[Dict[str, Any]] = []
+    for raw in rows:
+        if not isinstance(raw, dict):
+            continue
+        tender_id = _clean(raw.get("id") or raw.get("tendersID") or raw.get("tenderId"))
+        title = _v50_clean_etenders_title(_clean(raw.get("description") or raw.get("tender_No")))
+        tender_no = _clean(raw.get("tender_No"))
+        buyer_name = _clean(raw.get("organ_of_State") or raw.get("department") or raw.get("organOfState") or source.get("name") or "eTenders")
+        category = _clean(raw.get("category"))
+        closing_date = _clean(raw.get("closing_Date") or raw.get("closing_date"))
+        published_date = _clean(raw.get("date_Published") or raw.get("published_date"))
+        preharvest_blob = " | ".join(part for part in [tender_no, title, buyer_name, category, closing_date, published_date] if part)
+        if not title:
+            continue
+        lowered_title = _safe_lower(title)
+        if lowered_title in NAVIGATION_NOISE_EXACT or lowered_title in EARLY_BLOCK_TITLES:
+            continue
+        if _is_noise_row(preharvest_blob) and not tender_no:
+            continue
+        support_documents = raw.get("supportDocument") if isinstance(raw.get("supportDocument"), list) else []
+        first_support_document = support_documents[0] if support_documents else {}
+        support_document_id = _clean(first_support_document.get("supportDocumentID"))
+        detail_url = _build_etenders_detail_url(tender_id)
+
+        text_parts = [part for part in [tender_no, title, buyer_name, category, closing_date] if part]
+        item = _base_item(source, " | ".join(text_parts), listing_url)
+        item["title"] = _truncate(title, 180)
+        item["description"] = title
+        item["buyer_name"] = buyer_name
+        item["source_name"] = _clean(source.get("name") or "National Treasury eTenders")
+        item["source"] = item["source_name"]
+        item["portal_name"] = item["source_name"]
+        item["published_date"] = published_date
+        item["closing_date"] = closing_date
+        item["buyer_rfq_number"] = tender_no or title
+        item["rfq_number"] = tender_no or title
+        item["reference_number"] = tender_no or title
+        item["detail_url"] = detail_url
+        item["document_url"] = detail_url
+        item["source_url"] = listing_url
+        item["v50_8_discovered_tender_id"] = tender_id
+        item["tender_id"] = tender_id
+        item["category"] = category
+        item["province"] = _clean(raw.get("province"))
+        item["department"] = _clean(raw.get("department"))
+        item["supportDocumentID"] = support_document_id
+        item["support_document_count"] = len(support_documents)
+        item["support_document_ids"] = [
+            _clean(doc.get("supportDocumentID"))
+            for doc in support_documents
+            if isinstance(doc, dict) and _clean(doc.get("supportDocumentID"))
+        ]
+        item["support_documents_meta"] = support_documents
+        _lmcp_safe_assign_identity_fields(item, tender_no or title)
+        results.append(item)
+        if len(results) >= max_items:
+            break
+
+    return _dedupe_keep_order(results)[:max_items]
+
+
+def _v64_etenders_should_retry(error_message: str = "", http_status: int = 0) -> bool:
+    lower = _safe_lower(error_message)
+    if http_status == 429:
+        return True
+    if 400 <= int(http_status or 0) < 500:
+        return False
+    if any(token in lower for token in ("nameresolutionerror", "nodename nor servname", "temporary failure in name resolution", "dns")):
+        return False
+    return any(token in lower for token in ("timed out", "timeout", "read timed out", "connecttimeout"))
+
+
+def load_harvest_sources(source_file: Optional[str] = None, controlled_mode: bool = False) -> List[Dict[str, Any]]:
+    if not controlled_mode and (source_file is None or str(source_file).strip() == get_curated_live_source_file()):
+        default_sources = [dict(source) for source in load_default_live_harvest_sources()]
+        if default_sources:
+            return default_sources
+
     path = Path(source_file) if source_file else DEFAULT_SOURCE_FILE
     if not path.exists():
         logger.warning("Source file not found: %s", path)
@@ -380,11 +1257,25 @@ def load_harvest_sources(source_file: Optional[str] = None) -> List[Dict[str, An
         normalized["url"] = _clean(item.get("url") or item.get("list_url"))
         normalized["list_url"] = _clean(item.get("list_url") or normalized["url"])
         normalized["type"] = _safe_lower(item.get("type"))
+        normalized_group = _safe_lower(item.get("source_group") or item.get("category_group"))
+        if "etenders" in _safe_lower(normalized["name"]) or normalized_group == "etenders":
+            normalized["url"] = _normalize_etenders_listing_url(normalized["url"])
+            normalized["list_url"] = _normalize_etenders_listing_url(normalized["list_url"])
+        else:
+            normalized["url"] = _normalize_source_url_host(normalized["url"], normalized["name"])
+            normalized["list_url"] = _normalize_source_url_host(normalized["list_url"], normalized["name"])
         normalized["enabled"] = bool(item.get("enabled", True))
         normalized["priority"] = int(item.get("priority") or 9999)
         normalized["intelligence_score"] = int(item.get("intelligence_score") or 0)
         normalized["submission_method"] = _clean(item.get("submission_method") or "portal")
+        normalized["invalid_seed_source"] = _is_invalid_seed_source_url(normalized["url"]) or _is_invalid_seed_source_url(normalized["list_url"])
+        if normalized["invalid_seed_source"]:
+            logger.info("Skipping invalid discovery seed source=%s url=%s", normalized["name"], normalized["url"] or normalized["list_url"])
+            continue
         sources.append(normalized)
+
+    if controlled_mode:
+        _ensure_controlled_sources_only(sources, str(path))
 
     sources.sort(key=lambda s: (s.get("priority", 9999), -int(s.get("intelligence_score", 0)), s.get("name", "")))
     return sources
@@ -397,43 +1288,153 @@ def count_loaded_sources(source_file: Optional[str] = None) -> Dict[str, int]:
     return {"total": len(sources), "enabled": enabled, "disabled": disabled}
 
 
-def get_harvester_health(source_file: Optional[str] = None) -> Dict[str, Any]:
+def get_harvester_health(
+    source_file: Optional[str] = None,
+    runtime_dir: Optional[str] = None,
+    source_health_file: Optional[Path] = None,
+) -> Dict[str, Any]:
     counts = count_loaded_sources(source_file)
+    resolved_source_health_file = source_health_file
+    if resolved_source_health_file is None and runtime_dir:
+        resolved_source_health_file = _resolve_runtime_file(SOURCE_HEALTH_FILE, runtime_dir)
+    resolved_pause_file = _resolve_runtime_file(PAUSE_FILE, runtime_dir) if runtime_dir else PAUSE_FILE
     return {
         "checked_at": _now_iso(),
-        "status": "paused" if PAUSE_FILE.exists() else "running",
-        "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)) if PAUSE_FILE.exists() or PAUSE_FILE.parent.exists() else str(PAUSE_FILE),
+        "status": "paused" if resolved_pause_file.exists() else "running",
+        "pause_file": _display_project_path(resolved_pause_file),
         "sources": counts,
-        "source_health_file": str(SOURCE_HEALTH_FILE.relative_to(PROJECT_ROOT)),
+        "source_health_file": _display_project_path(resolved_source_health_file or SOURCE_HEALTH_FILE),
         "ai_agent_profile": AI_AGENT_PROFILE,
         "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT,
         "ai_api_style_hint": AI_API_STYLE_HINT,
     }
 
 
-def _load_source_health() -> Dict[str, Any]:
-    if not SOURCE_HEALTH_FILE.exists():
+def _load_source_health(source_health_file: Optional[Path] = None) -> Dict[str, Any]:
+    path = source_health_file or SOURCE_HEALTH_FILE
+    if not path.exists():
         return {}
     try:
-        data = json.loads(SOURCE_HEALTH_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
 
 
-def _save_source_health(data: Dict[str, Any]) -> None:
+def _save_source_health(data: Dict[str, Any], source_health_file: Optional[Path] = None) -> None:
     try:
-        SOURCE_HEALTH_FILE.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+        (source_health_file or SOURCE_HEALTH_FILE).write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     except Exception as exc:
         logger.warning("Failed to save source health: %s", exc)
+
+
+def _source_identifier(source: Dict[str, Any]) -> str:
+    return _clean(source.get("name") or source.get("source_name") or source.get("url") or source.get("list_url") or "unknown")
+
+
+def _normalize_source_identifier(value: Any) -> str:
+    text = _clean(value).strip()
+    if not text:
+        return ""
+    parsed = urlparse(text)
+    if parsed.scheme and parsed.netloc:
+        return _clean(parsed.netloc.lower() + parsed.path.lower())
+    return _clean(text.lower())
+
+
+def _source_matches_identifier(source: Dict[str, Any], identifier: Any) -> bool:
+    needle = _normalize_source_identifier(identifier)
+    if not needle:
+        return False
+    candidates = [
+        _normalize_source_identifier(source.get("name")),
+        _normalize_source_identifier(source.get("source_name")),
+        _normalize_source_identifier(source.get("url")),
+        _normalize_source_identifier(source.get("list_url")),
+    ]
+    return needle in candidates
+
+
+def _v53_source_health_status(row: Dict[str, Any], source: Optional[Dict[str, Any]] = None) -> str:
+    source = source if isinstance(source, dict) else {}
+    if not source.get("enabled", True) or _clean(row.get("health_status")).lower() == "disabled":
+        return "disabled"
+    persisted_status = _clean(row.get("health_status")).lower()
+    if persisted_status in {"healthy", "degraded", "dns_blocked", "http_blocked", "empty"}:
+        return persisted_status
+    consecutive_dns_failures = int(row.get("consecutive_dns_failures") or 0)
+    consecutive_http_failures = int(row.get("consecutive_http_failures") or 0)
+    consecutive_empty_runs = int(row.get("consecutive_empty_runs") or 0)
+    failure_count = int(row.get("failure_count") or 0)
+    last_error = _clean(row.get("last_error") or row.get("last_error_message")).lower()
+    if consecutive_dns_failures >= 3:
+        return "dns_blocked"
+    if failure_count >= 3 and any(term in last_error for term in ("nameresolutionerror", "dns", "resolve", "nodename")):
+        return "dns_blocked"
+    if consecutive_http_failures >= 3:
+        return "http_blocked"
+    if failure_count >= 3 and any(term in last_error for term in ("403", "404", "405", "429", "forbidden", "blocked", "http")):
+        return "http_blocked"
+    if consecutive_empty_runs >= 5:
+        return "empty"
+    if consecutive_dns_failures or consecutive_http_failures or consecutive_empty_runs:
+        return "degraded"
+    if failure_count > 0:
+        return "degraded"
+    return "healthy"
 
 
 def _source_key(source: Dict[str, Any]) -> str:
     return _clean(source.get("name") or source.get("source_name") or source.get("url") or "unknown")
 
 
-def _record_source_result(source: Dict[str, Any], ok: bool, harvested: int = 0, error: str = "") -> None:
-    health = _load_source_health()
+def _is_invalid_seed_source_url(value: Any) -> bool:
+    url = _safe_lower(value)
+    return any(snippet in url for snippet in INVALID_SOURCE_URL_SNIPPETS)
+
+
+def _source_scan_total(row: Dict[str, Any]) -> int:
+    return int(row.get("scan_total") or row.get("scan_count") or 0)
+
+
+def _v53_load_source_shape_performance_map(limit: int = 1000) -> Dict[str, Dict[str, Any]]:
+    if _live_rfq_store is None:
+        return {}
+    try:
+        store_path = getattr(_live_rfq_store, "LIVE_RFQ_STORE_PATH", None)
+        path_key = str(store_path) if store_path else None
+        mtime = None
+        if store_path:
+            try:
+                mtime = Path(store_path).stat().st_mtime
+            except Exception:
+                mtime = None
+        cached_path = _SOURCE_SHAPE_REPORT_CACHE.get("path")
+        cached_mtime = _SOURCE_SHAPE_REPORT_CACHE.get("mtime")
+        cached_map = _SOURCE_SHAPE_REPORT_CACHE.get("map")
+        if cached_path == path_key and cached_mtime == mtime and isinstance(cached_map, dict):
+            return cached_map
+        report = _live_rfq_store.get_source_shape_performance_report(limit=limit)
+        rows = report.get("all_sources") if isinstance(report, dict) else []
+        shape_map: Dict[str, Dict[str, Any]] = {}
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                source_name = _clean(row.get("source_name"))
+                if not source_name:
+                    continue
+                shape_map[_v57_normalize_key(source_name)] = row
+        _SOURCE_SHAPE_REPORT_CACHE["path"] = path_key
+        _SOURCE_SHAPE_REPORT_CACHE["mtime"] = mtime
+        _SOURCE_SHAPE_REPORT_CACHE["map"] = shape_map
+        return shape_map
+    except Exception:
+        return {}
+
+
+def _record_source_result(source: Dict[str, Any], ok: bool, harvested: int = 0, error: str = "", source_health_file: Optional[Path] = None) -> None:
+    health = _load_source_health(source_health_file=source_health_file)
     key = _source_key(source)
     row = health.get(key, {}) if isinstance(health.get(key), dict) else {}
     row["name"] = key
@@ -441,13 +1442,365 @@ def _record_source_result(source: Dict[str, Any], ok: bool, harvested: int = 0, 
     row["last_harvested"] = int(harvested or 0)
     if ok:
         row["failure_count"] = 0
-        row["last_success_at"] = _now_iso()
+        if int(harvested or 0) > 0:
+            row["last_success_at"] = _now_iso()
+            row["last_status"] = "ok"
+            row["consecutive_empty_runs"] = 0
+        else:
+            row["last_status"] = "ok_empty"
+            row["last_empty_at"] = _now_iso()
+            row["consecutive_empty_runs"] = int(row.get("consecutive_empty_runs") or 0) + 1
         row["last_error"] = ""
     else:
         row["failure_count"] = int(row.get("failure_count") or 0) + 1
+        row["last_status"] = "failed"
         row["last_error"] = _truncate(error, 240)
     health[key] = row
-    _save_source_health(health)
+    _save_source_health(health, source_health_file=source_health_file)
+
+
+def _source_requires_browser(source: Dict[str, Any]) -> bool:
+    if bool(source.get("requires_browser") or source.get("browser_required")):
+        return True
+    source_type = _safe_lower(source.get("type"))
+    if source_type in {"web", "generic_portal", "portal", "website"}:
+        return True
+    if _is_necsa_source(source):
+        return True
+    blob = " ".join(
+        _safe_lower(source.get(key))
+        for key in ("name", "source_name", "source_group", "category_group", "url", "list_url")
+    )
+    return "etenders" in blob or "browser" in blob or "render" in blob
+
+
+def _normalize_source_acquisition_url(source: Dict[str, Any]) -> str:
+    url = _clean(source.get("url") or source.get("list_url") or "")
+    if not url:
+        return ""
+    source_name = _clean(source.get("name") or source.get("source_name"))
+    if _is_necsa_source(source):
+        return url
+    if "etenders" in _safe_lower(source_name) or "etenders" in _safe_lower(url):
+        return _normalize_etenders_listing_url(url)
+    return _normalize_source_url_host(url, source_name)
+
+
+def _classify_acquisition_error(error_text: str, status_code: int = 0) -> str:
+    lower = _clean(error_text).lower()
+    if any(term in lower for term in ("nameresolutionerror", "dns", "resolve", "nodename")):
+        return "dns_failed"
+    if any(term in lower for term in ("playwright", "browsertype.launch", "bootstrap_check_in", "chromium")):
+        return "playwright_failed"
+    if "timeout" in lower or "timed out" in lower:
+        return "timeout"
+    if status_code in {401, 403, 404, 407, 429}:
+        return "http_failed"
+    if status_code >= 500:
+        return "http_failed"
+    if "403" in lower or "forbidden" in lower or "blocked" in lower:
+        return "http_failed"
+    if "parse" in lower:
+        return "parse_failed"
+    if "http" in lower:
+        return "http_failed"
+    return "unknown"
+
+
+def _preflight_source_acquisition(
+    source: Dict[str, Any],
+    timeout_seconds: int = 8,
+) -> Dict[str, Any]:
+    source_url = _normalize_source_acquisition_url(source)
+    source_name = _clean(source.get("name") or source.get("source_name"))
+    if not source_url:
+        return {
+            "status": "skipped",
+            "error_message": "missing_source_url",
+            "dns_resolved": False,
+            "dns_status": "missing",
+            "http_status_code": 0,
+            "http_status": 0,
+            "http_reachable": False,
+            "robots_blocked": False,
+            "browser_required": _source_requires_browser(source),
+            "browser_available": False,
+            "source_url": "",
+        }
+
+    parsed = urlparse(source_url)
+    host = _clean(parsed.hostname)
+    if host:
+        try:
+            socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+            dns_resolved = True
+        except Exception as exc:
+            return {
+                "status": "dns_failed",
+                "error_message": _truncate(str(exc), 240),
+                "dns_resolved": False,
+                "dns_status": "failed",
+                "http_status_code": 0,
+                "http_status": 0,
+                "http_reachable": False,
+                "robots_blocked": False,
+                "browser_required": _source_requires_browser(source),
+                "browser_available": False,
+                "source_url": source_url,
+            }
+    else:
+        dns_resolved = False
+
+    http_status_code = 0
+    http_reachable = False
+    robots_blocked = False
+    error_message = ""
+    try:
+        response = requests.get(
+            source_url,
+            timeout=timeout_seconds,
+            verify=bool(source.get("verify_ssl", True)),
+            headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0"},
+            allow_redirects=True,
+        )
+        http_status_code = int(getattr(response, "status_code", 0) or 0)
+        http_reachable = 200 <= http_status_code < 500 or http_status_code == 405
+        header_blob = " ".join(
+            str(response.headers.get(key) or "")
+            for key in ("x-robots-tag", "retry-after", "location")
+        ).lower()
+        body_blob = _clean(getattr(response, "text", "")[:1000]).lower()
+        robots_blocked = any(term in header_blob or term in body_blob for term in ("noindex", "nofollow", "robots", "blocked", "forbidden"))
+        if http_status_code in {401, 403, 407, 429} or (http_status_code >= 400 and http_status_code != 405):
+            status = "http_failed"
+            error_message = f"HTTP {http_status_code}"
+        else:
+            status = "ok"
+    except Exception as exc:
+        error_message = _truncate(str(exc), 240)
+        status = _classify_acquisition_error(error_message)
+        http_reachable = False
+
+    browser_required = _source_requires_browser(source)
+    browser_available = bool(browser_required and not bool(os.getenv("LMCP_DISABLE_PLAYWRIGHT_SCRAPE")))
+    if not http_reachable and status == "ok":
+        status = "http_failed"
+
+    return {
+        "status": status,
+        "error_message": error_message,
+        "dns_resolved": bool(dns_resolved if host else False),
+        "dns_status": "ok" if bool(dns_resolved if host else False) else "unknown",
+        "http_status_code": http_status_code,
+        "http_status": http_status_code,
+        "http_reachable": http_reachable,
+        "robots_blocked": robots_blocked,
+        "browser_required": browser_required,
+        "browser_available": browser_available,
+        "source_url": source_url,
+        "source_name": source_name,
+    }
+
+
+def _scan_source_acquisition_runtime(
+    source: Dict[str, Any],
+    *,
+    max_per_source: int,
+    headless: bool,
+    source_timeout_seconds: int,
+    playwright_timeout_ms: int,
+    page_load_timeout_seconds: Optional[int] = None,
+    candidate_extraction_timeout_seconds: Optional[int] = None,
+    document_link_timeout_seconds: Optional[int] = None,
+    source_health_file: Optional[Path] = None,
+    browser_available: Optional[bool] = None,
+    disable_playwright_scrape: bool = False,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    scan_started_at = _now_iso()
+    source_name = _clean(source.get("name") or source.get("source_name") or "Unknown")
+    source_url = _normalize_source_acquisition_url(source)
+    preflight = _preflight_source_acquisition(source, timeout_seconds=source_timeout_seconds)
+    runtime_diag: Dict[str, Any] = {
+        "source_name": source_name,
+        "source_url": source_url,
+        "scan_started_at": scan_started_at,
+        "scan_finished_at": "",
+        "status": "skipped",
+        "error_message": "",
+        "pages_scanned": 0,
+        "raw_candidates_count": 0,
+        "document_links_detected": 0,
+        "retry_count": 0,
+        "retry_stage": "",
+        "fallback_used": False,
+        "preflight": preflight,
+        "etenders_home_reached": False,
+        "etenders_opportunities_page_reached": False,
+        "etenders_candidates_table_detected": False,
+        "etenders_candidates_extracted_count": 0,
+        "etenders_detail_pages_attempted_count": 0,
+        "etenders_detail_pages_success_count": 0,
+        "etenders_detail_pages_timeout_count": 0,
+        "etenders_tenderdetails_links_found_count": 0,
+        "partial_progress_persisted": False,
+    }
+
+    preflight_status = _clean(preflight.get("status"))
+    if preflight_status and preflight_status != "ok":
+        runtime_diag["status"] = preflight_status
+        runtime_diag["error_message"] = _clean(preflight.get("error_message"))
+        runtime_diag["scan_finished_at"] = _now_iso()
+        _v53_update_source_health_after_scan(
+            source,
+            harvested_count=0,
+            candidate_count=0,
+            response_time=0.0,
+            error=runtime_diag["error_message"],
+            extracted_count=0,
+            qualified_count=0,
+            document_count=0,
+            source_health_file=source_health_file,
+            acquisition_status=runtime_diag["status"],
+            acquisition_error_message=runtime_diag["error_message"],
+            scan_started_at=scan_started_at,
+            scan_finished_at=runtime_diag["scan_finished_at"],
+            pages_scanned=0,
+            raw_candidates_count=0,
+            document_links_detected=0,
+            retry_count=0,
+            fallback_used=False,
+            source_url=source_url,
+            preflight_dns_status=_clean(preflight.get("dns_status") or preflight.get("status")),
+            preflight_http_status=_safe_positive_int(preflight.get("http_status_code") or preflight.get("http_status") or 0, 0),
+        )
+        return [], runtime_diag
+
+    source_type = _safe_lower(source.get("type"))
+    browser_required = bool(preflight.get("browser_required"))
+    browser_allowed = browser_available if browser_available is not None else bool(preflight.get("browser_available", True))
+    runtime_diag["browser_required"] = browser_required
+    runtime_diag["browser_available"] = browser_allowed
+    runtime_diag["pages_scanned"] = 1
+
+    harvested: List[Dict[str, Any]] = []
+    error_message = ""
+    status = "no_candidates"
+    retry_count = 0
+    fallback_used = False
+
+    try:
+        if _is_necsa_source(source):
+            harvested = _necsa_tender_source(source, max_items=max_per_source)
+        elif "etenders" in _safe_lower(source_name) or _safe_lower(source.get("source_group") or source.get("category_group")) == "etenders":
+            etenders_diag: Dict[str, Any] = {}
+            harvested = _direct_etenders(
+                source,
+                max_items=max_per_source,
+                headless=headless,
+                timeout_seconds=source_timeout_seconds,
+                playwright_timeout_ms=playwright_timeout_ms,
+                diagnostics=etenders_diag,
+                page_load_timeout_seconds=page_load_timeout_seconds,
+                candidate_extraction_timeout_seconds=candidate_extraction_timeout_seconds,
+                document_link_timeout_seconds=document_link_timeout_seconds,
+            )
+            runtime_diag.update({
+                "etenders_home_reached": bool(etenders_diag.get("etenders_home_reached")),
+                "etenders_opportunities_page_reached": bool(etenders_diag.get("etenders_opportunities_page_reached")),
+                "etenders_candidates_table_detected": bool(etenders_diag.get("etenders_candidates_table_detected")),
+                "etenders_candidates_extracted_count": int(etenders_diag.get("etenders_candidates_extracted_count") or len(harvested)),
+                "etenders_detail_pages_attempted_count": int(etenders_diag.get("etenders_detail_pages_attempted_count") or 0),
+                "etenders_detail_pages_success_count": int(etenders_diag.get("etenders_detail_pages_success_count") or 0),
+                "etenders_detail_pages_timeout_count": int(etenders_diag.get("etenders_detail_pages_timeout_count") or 0),
+                "etenders_tenderdetails_links_found_count": int(etenders_diag.get("etenders_tenderdetails_links_found_count") or 0),
+                "partial_progress_persisted": bool(etenders_diag.get("partial_progress_persisted")),
+                "retry_count": int(etenders_diag.get("retry_count") or 0),
+                "retry_stage": _clean(etenders_diag.get("retry_stage")),
+            })
+        elif source_type in {"ocds", "api", "json_api"}:
+            harvested = run_ocds_api_harvester(source, max_items=max_per_source, timeout=source_timeout_seconds)
+        elif browser_required and not disable_playwright_scrape and browser_allowed:
+            playwright_diag: Dict[str, Any] = {}
+            harvested = run_playwright_generic_scraper(
+                source,
+                max_items=max_per_source,
+                headless=headless,
+                timeout_ms=playwright_timeout_ms,
+                diagnostics=playwright_diag,
+            )
+            retry_count += int(playwright_diag.get("retry_count") or 0)
+            fallback_used = bool(playwright_diag.get("fallback_used"))
+            status = _clean(playwright_diag.get("status") or "no_candidates")
+            error_message = _clean(playwright_diag.get("error_message"))
+            if harvested and status == "playwright_failed":
+                status = "success"
+                error_message = ""
+        else:
+            harvested = run_generic_scraper(source, timeout=source_timeout_seconds, max_items=max_per_source)
+    except Exception as exc:
+        error_message = _truncate(str(exc), 240)
+        status = _classify_acquisition_error(error_message)
+        harvested = []
+        if status == "playwright_failed" and browser_required and not disable_playwright_scrape:
+            fallback_used = True
+            retry_count += 1
+            try:
+                harvested = run_generic_scraper(source, timeout=source_timeout_seconds, max_items=max_per_source)
+            except Exception as fallback_exc:
+                error_message = f"{error_message} | fallback:{_truncate(str(fallback_exc), 120)}"
+                harvested = []
+            if harvested:
+                status = "success"
+                error_message = ""
+
+    harvested = _dedupe_keep_order(harvested)
+    if not harvested and status == "no_candidates" and not error_message:
+        status = "no_candidates"
+    elif harvested and status not in {"success", "playwright_failed"}:
+        status = "success"
+
+    runtime_diag.update(
+        {
+            "scan_finished_at": _now_iso(),
+            "status": status,
+            "error_message": error_message,
+            "retry_count": max(retry_count, int(runtime_diag.get("retry_count") or 0)),
+            "fallback_used": fallback_used,
+            "raw_candidates_count": len(harvested),
+        }
+    )
+    runtime_diag["document_links_detected"] = sum(
+        1
+        for item in harvested
+        if isinstance(item, dict) and any(
+            _clean(item.get(key))
+            for key in ("document_url", "detail_url")
+        )
+    )
+
+    _v53_update_source_health_after_scan(
+        source,
+        harvested_count=len(harvested),
+        candidate_count=len(harvested),
+        response_time=0.0,
+        error=error_message if status != "success" and status != "no_candidates" else "",
+        extracted_count=len(harvested),
+        qualified_count=len(harvested),
+        document_count=runtime_diag["document_links_detected"],
+        source_health_file=source_health_file,
+        acquisition_status=status,
+        acquisition_error_message=error_message,
+        scan_started_at=scan_started_at,
+        scan_finished_at=runtime_diag["scan_finished_at"],
+        pages_scanned=runtime_diag["pages_scanned"],
+        raw_candidates_count=len(harvested),
+        document_links_detected=runtime_diag["document_links_detected"],
+        retry_count=int(runtime_diag.get("retry_count") or retry_count),
+        fallback_used=fallback_used,
+        source_url=source_url,
+    )
+
+    return harvested, runtime_diag
 
 
 def _v52_source_priority(source: Dict[str, Any]) -> Tuple[int, int, int, str]:
@@ -520,19 +1873,61 @@ def _v53_source_category_rank(source: Dict[str, Any]) -> int:
     return 7
 
 
-def _v53_source_health_row(source: Dict[str, Any], health: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    health = health if isinstance(health, dict) else _load_source_health()
+def _v53_source_health_row(source: Dict[str, Any], health: Optional[Dict[str, Any]] = None, source_health_file: Optional[Path] = None) -> Dict[str, Any]:
+    health = health if isinstance(health, dict) else _load_source_health(source_health_file=source_health_file)
     key = _source_key(source)
     row = dict(health.get(key, {}) if isinstance(health.get(key), dict) else {})
     failure_count = int(row.get("failure_count") or 0)
+    success_count = int(row.get("success_count") or 0)
     last_candidate_time = _clean(row.get("source_last_candidate_time") or row.get("last_candidate_time"))
     last_success_at = _clean(row.get("last_success_at"))
+    last_empty_at = _clean(row.get("last_empty_at"))
     response_time = _safe_float(row.get("source_response_time") or row.get("last_response_time"), 0.0)
+    avg_items = _safe_float(row.get("avg_items") or row.get("average_items"), 0.0)
     total_candidates = int(row.get("candidate_total") or 0)
+    qualified_total = int(row.get("qualified_candidate_total") or 0)
+    document_total = int(row.get("document_candidate_total") or 0)
+    consecutive_empty_runs = int(row.get("consecutive_empty_runs") or 0)
+    consecutive_dns_failures = int(row.get("consecutive_dns_failures") or 0)
+    consecutive_http_failures = int(row.get("consecutive_http_failures") or 0)
+    scan_total = _source_scan_total(row)
+    last_status = _clean(row.get("last_status"))
     last_checked = _clean(row.get("last_checked_at"))
+    last_error = _clean(row.get("last_error"))
+    last_error_message = _clean(row.get("last_error_message") or last_error)
+    last_failure_at = _clean(row.get("last_failure_at"))
+    last_dns_status = _clean(row.get("last_dns_status") or ("failed" if consecutive_dns_failures >= 1 and last_status == "failed" else "ok"))
+    last_http_status = int(row.get("last_http_status") or row.get("http_status_code") or 0)
+    acquisition_status = _clean(row.get("acquisition_status"))
+    acquisition_error_message = _clean(row.get("acquisition_error_message"))
+    acquisition_scan_started_at = _clean(row.get("acquisition_scan_started_at"))
+    acquisition_scan_finished_at = _clean(row.get("acquisition_scan_finished_at"))
+    acquisition_pages_scanned = int(row.get("acquisition_pages_scanned") or 0)
+    acquisition_raw_candidates_count = int(row.get("acquisition_raw_candidates_count") or 0)
+    acquisition_document_links_detected = int(row.get("acquisition_document_links_detected") or 0)
+    acquisition_retry_count = int(row.get("acquisition_retry_count") or 0)
+    acquisition_fallback_used = bool(row.get("acquisition_fallback_used"))
+    source_url = _clean(source.get("url") or source.get("list_url"))
+    invalid_seed_source = bool(source.get("invalid_seed_source")) or _is_invalid_seed_source_url(source_url)
+    zero_yield_source = total_candidates == 0 and qualified_total == 0 and document_total == 0
+    health_status = _v53_source_health_status(row, source)
+    shape_map = _v53_load_source_shape_performance_map()
+    source_shape_row = shape_map.get(_v57_normalize_key(_clean(source.get("name") or source.get("source_name") or key)), {})
+    shape_distribution = source_shape_row.get("shape_distribution") if isinstance(source_shape_row, dict) else {}
+    supply_delivery_share_pct = _safe_float(source_shape_row.get("supply_delivery_share_pct"), 0.0) if isinstance(source_shape_row, dict) else 0.0
+    benchmark_quality_score = _safe_float(source_shape_row.get("benchmark_quality_score"), 0.0) if isinstance(source_shape_row, dict) else 0.0
+    benchmark_candidates = int(source_shape_row.get("benchmark_candidates") or 0) if isinstance(source_shape_row, dict) else 0
+    shape_alignment_score = 0.0
+    if isinstance(source_shape_row, dict) and source_shape_row:
+        shape_alignment_score = round(
+            max(-12.0, min(20.0, (benchmark_quality_score / 8.0) + (supply_delivery_share_pct * 0.08))),
+            2,
+        )
     now_ts = time.time()
     last_candidate_age_days = (now_ts - _v53_parse_time(last_candidate_time)) / 86400.0 if last_candidate_time else 9999.0
     last_success_age_days = (now_ts - _v53_parse_time(last_success_at)) / 86400.0 if last_success_at else 9999.0
+    last_empty_age_days = (now_ts - _v53_parse_time(last_empty_at)) / 86400.0 if last_empty_at else 9999.0
+    last_checked_age_days = (now_ts - _v53_parse_time(last_checked)) / 86400.0 if last_checked else 9999.0
     recently_updated = bool(
         source.get("last_updated")
         or source.get("updated_at")
@@ -540,40 +1935,787 @@ def _v53_source_health_row(source: Dict[str, Any], health: Optional[Dict[str, An
         or (last_success_at and last_success_age_days <= 14)
         or (last_candidate_time and last_candidate_age_days <= 30)
     )
+    recent_health_signal = min(last_checked_age_days, last_empty_age_days, last_success_age_days, last_candidate_age_days)
     reachable = failure_count < 2 and bool(last_success_at or not row.get("last_error"))
     active = bool(total_candidates > 0 or (last_success_at and last_success_age_days <= 30))
     score = 0.0
-    score += max(0.0, 35.0 - failure_count * 12.0)
+    score += min(40.0, total_candidates * 4.0)
+    score += min(30.0, document_total * 6.0)
+    score += min(30.0, qualified_total * 10.0)
     if reachable:
-        score += 20.0
+        score += 8.0
     if active:
-        score += 15.0
+        score += 6.0
     if recently_updated:
-        score += 12.0
-    if total_candidates > 0:
-        score += min(18.0, total_candidates * 4.0)
+        score += 4.0
+    if last_success_age_days <= 7:
+        score += 6.0
+    elif last_success_age_days <= 30:
+        score += 3.0
+    if avg_items > 0 and total_candidates > 0:
+        score += min(6.0, avg_items)
     if response_time > 0:
-        score += max(0.0, 8.0 - min(response_time, 8.0))
+        score += max(0.0, 4.0 - min(response_time, 4.0))
+    if shape_alignment_score:
+        score += shape_alignment_score
+    if last_status in {"failed", "timeout"}:
+        score -= 10.0
+    if consecutive_empty_runs:
+        score -= min(30.0, consecutive_empty_runs * 6.0)
+    if zero_yield_source and scan_total > 0:
+        score -= min(40.0, 10.0 + scan_total * 0.75)
+    if last_status == "ok_empty" and zero_yield_source:
+        score -= 12.0
     category_rank = _v53_source_category_rank(source)
-    score += max(0.0, 8.0 - category_rank)
+    if not zero_yield_source:
+        score += max(0.0, 6.0 - category_rank)
     score = round(max(0.0, min(100.0, score)), 2)
+    if invalid_seed_source:
+        quarantine_status = "quarantined"
+        score = 0.0
+    elif scan_total >= ZERO_YIELD_QUARANTINE_SCAN_THRESHOLD and zero_yield_source and recent_health_signal <= 14:
+        quarantine_status = "quarantined"
+        score = 0.0
+    elif recent_health_signal <= 7 and (failure_count >= 3 or consecutive_empty_runs >= 6 or (failure_count >= 2 and consecutive_empty_runs >= 3)):
+        quarantine_status = "quarantined"
+    elif recent_health_signal <= 14 and (failure_count >= 1 or consecutive_empty_runs >= 2):
+        quarantine_status = "watch"
+    else:
+        quarantine_status = "ready"
+    if quarantine_status == "quarantined":
+        score = min(score, 20.0)
+    selection_reasons: List[str] = []
+    if invalid_seed_source:
+        selection_reasons.append("invalid_discovery_seed")
+    if total_candidates > 0:
+        selection_reasons.append("historical_candidates")
+    if qualified_total > 0:
+        selection_reasons.append("qualified_history")
+    if document_total > 0:
+        selection_reasons.append("document_rich")
+    if success_count > 0:
+        selection_reasons.append("historical_success")
+    if last_success_age_days <= 30:
+        selection_reasons.append("recent_success")
+    if last_empty_at:
+        selection_reasons.append("recent_empty_scan")
+    if consecutive_empty_runs:
+        selection_reasons.append("empty_run_penalty")
+    if failure_count:
+        selection_reasons.append("failure_penalty")
+    if zero_yield_source and scan_total > 0:
+        selection_reasons.append("zero_yield_history")
+    if scan_total >= ZERO_YIELD_QUARANTINE_SCAN_THRESHOLD and zero_yield_source:
+        selection_reasons.append("zero_yield_quarantine_threshold")
+    if benchmark_candidates > 0:
+        selection_reasons.append("benchmark_candidate_history")
+    elif isinstance(source_shape_row, dict) and source_shape_row:
+        selection_reasons.append("shape_profile_available")
+    if shape_alignment_score > 0:
+        selection_reasons.append("supply_delivery_alignment")
+    elif shape_alignment_score < 0:
+        selection_reasons.append("shape_misalignment")
+    if quarantine_status == "quarantined":
+        selection_reasons.append("quarantined")
+
+    if invalid_seed_source:
+        operator_action = "disable"
+        operator_next_action = "Replace search-engine seed URLs with direct procurement portal URLs before re-enabling."
+    elif last_error and any(term in last_error.lower() for term in ("nameresolutionerror", "dns", "resolve", "nodename")) and failure_count >= 2:
+        operator_action = "normalize_or_pause"
+        operator_next_action = "Try the www-normalized host; if it still fails, pause this source until DNS is stable."
+    elif scan_total >= ZERO_YIELD_QUARANTINE_SCAN_THRESHOLD and zero_yield_source:
+        operator_action = "quarantine"
+        operator_next_action = "Remove or replace this zero-yield source; it has exhausted the exploratory scan budget."
+    elif quarantine_status == "quarantined":
+        operator_action = "quarantine"
+        operator_next_action = "Inspect failures, then back off this source until it returns clean rows."
+    elif consecutive_empty_runs >= 3 or (last_status == "ok_empty" and total_candidates == 0):
+        operator_action = "deprioritize"
+        operator_next_action = "Prefer sources with recent rows; this one is yielding empty results."
+    elif failure_count >= 1:
+        operator_action = "inspect"
+        operator_next_action = "Review the latest error and retry only after the source recovers."
+    elif last_status == "ok" and (total_candidates > 0 or qualified_total > 0 or document_total > 0 or not failure_count):
+        operator_action = "continue"
+        operator_next_action = "Keep active; this source is producing usable rows."
+    else:
+        operator_action = "watch"
+        operator_next_action = "Keep monitored, but do not prioritize ahead of productive sources."
+    if _clean(source.get("source_operator_action_override")):
+        operator_action = _clean(source.get("source_operator_action_override"))
+        operator_next_action = "Commissioning override active; review source behavior after this forced run."
     return {
         "source_name": _clean(source.get("name") or source.get("source_name") or key),
-        "source_url": _clean(source.get("url") or source.get("list_url")),
+        "source_url": source_url,
         "source_type": _clean(source.get("type")),
         "source_group": _clean(source.get("source_group") or source.get("category_group")),
         "source_category_rank": category_rank,
         "source_success_score": score,
+        "source_shape_alignment_score": shape_alignment_score,
+        "source_shape_benchmark_candidates": benchmark_candidates,
+        "source_shape_supply_delivery_share_pct": round(supply_delivery_share_pct, 2),
+        "source_shape_benchmark_quality_score": round(benchmark_quality_score, 2),
+        "source_shape_profile": shape_distribution,
         "source_last_candidate_time": last_candidate_time,
         "source_failure_count": failure_count,
         "source_response_time": response_time,
         "reachable": reachable,
         "active": active,
         "recently_updated": recently_updated,
+        "source_selection_score": score,
+        "source_quarantine_status": quarantine_status,
+        "source_selection_reasons": selection_reasons,
+        "source_operator_action": operator_action,
+        "source_next_action": operator_next_action,
         "candidate_total": total_candidates,
+        "qualified_candidate_total": qualified_total,
+        "document_candidate_total": document_total,
+        "consecutive_empty_runs": consecutive_empty_runs,
+        "consecutive_dns_failures": consecutive_dns_failures,
+        "consecutive_http_failures": consecutive_http_failures,
+        "scan_total": scan_total,
+        "invalid_seed_source": invalid_seed_source,
         "last_success_at": last_success_at,
+        "last_empty_at": last_empty_at,
+        "last_failure_at": last_failure_at,
         "last_checked_at": last_checked,
+        "last_checked_age_days": round(last_checked_age_days, 2),
+        "last_success_age_days": round(last_success_age_days, 2),
+        "last_empty_age_days": round(last_empty_age_days, 2),
+        "last_candidate_age_days": round(last_candidate_age_days, 2),
+        "last_dns_status": last_dns_status,
+        "last_http_status": last_http_status,
+        "last_error_message": last_error_message,
+        "acquisition_status": acquisition_status,
+        "acquisition_error_message": acquisition_error_message,
+        "acquisition_scan_started_at": acquisition_scan_started_at,
+        "acquisition_scan_finished_at": acquisition_scan_finished_at,
+        "acquisition_pages_scanned": acquisition_pages_scanned,
+        "acquisition_raw_candidates_count": acquisition_raw_candidates_count,
+        "acquisition_document_links_detected": acquisition_document_links_detected,
+        "acquisition_retry_count": acquisition_retry_count,
+        "acquisition_fallback_used": acquisition_fallback_used,
+        "last_status": last_status,
         "last_error": _clean(row.get("last_error")),
+        "health_status": health_status,
+    }
+
+
+def get_acquisition_runtime_summary(
+    source_file: Optional[str] = None,
+    limit: int = 15,
+    source_health_snapshot: Optional[Dict[str, Any]] = None,
+    source_health_file: Optional[Path] = None,
+) -> Dict[str, Any]:
+    sources = load_harvest_sources(source_file)
+    health = source_health_snapshot if isinstance(source_health_snapshot, dict) else _load_source_health(source_health_file=source_health_file)
+    rows = [_v53_source_health_row(src, health) for src in sources]
+    status_counts: Dict[str, int] = {}
+    health_counts: Dict[str, int] = {}
+    for row in rows:
+        status = _clean(row.get("acquisition_status")) or _clean(row.get("last_status")) or "unknown"
+        status_counts[status] = status_counts.get(status, 0) + 1
+        health_status = _clean(row.get("health_status")) or _v53_source_health_status(row, None)
+        health_counts[health_status] = health_counts.get(health_status, 0) + 1
+    successful_count = status_counts.get("success", 0)
+    no_candidate_count = status_counts.get("no_candidates", 0)
+    failed_count = sum(status_counts.get(status, 0) for status in ("dns_failed", "playwright_failed", "timeout", "http_failed", "parse_failed"))
+    productive_sources_count = sum(health_counts.get(status, 0) for status in ("healthy", "degraded", "empty"))
+    suppressed_sources_count = sum(health_counts.get(status, 0) for status in ("dns_blocked", "http_blocked", "disabled"))
+    return {
+        "status": "ok",
+        "generated_at": _now_iso(),
+        "source_count": len(rows),
+        "sources_scanned_count": len(rows),
+        "sources_successful_count": successful_count,
+        "sources_failed_count": failed_count,
+        "dns_failures_count": status_counts.get("dns_failed", 0),
+        "playwright_failures_count": status_counts.get("playwright_failed", 0),
+        "timeout_failures_count": status_counts.get("timeout", 0),
+        "http_failures_count": status_counts.get("http_failed", 0),
+        "parse_failures_count": status_counts.get("parse_failed", 0),
+        "no_candidate_sources_count": no_candidate_count,
+        "total_raw_candidates": sum(int(row.get("acquisition_raw_candidates_count") or row.get("candidate_total") or 0) for row in rows),
+        "total_document_links_detected": sum(int(row.get("acquisition_document_links_detected") or row.get("document_candidate_total") or 0) for row in rows),
+        "acquisition_success_rate": round((successful_count / max(len(rows), 1)) * 100.0, 2),
+        "acquisition_completion_rate": round(((successful_count + no_candidate_count) / max(len(rows), 1)) * 100.0, 2),
+        "productive_sources_count": productive_sources_count,
+        "suppressed_sources_count": suppressed_sources_count,
+        "suppressed_dns_count": health_counts.get("dns_blocked", 0),
+        "suppressed_http_count": health_counts.get("http_blocked", 0),
+        "suppressed_empty_count": health_counts.get("empty", 0),
+        "health_status_counts": health_counts,
+        "status_counts": status_counts,
+        "top_sources": rows[: max(1, limit)],
+        "source_file": _display_project_path(source_health_file or SOURCE_HEALTH_FILE),
+        "selected_limit": max(1, limit),
+    }
+
+
+def _v53_source_selection_sort_key(source: Dict[str, Any], row: Optional[Dict[str, Any]] = None) -> Tuple[int, float, float, int, int, int, str]:
+    row = row if isinstance(row, dict) else {}
+    quarantine_status = _clean(row.get("source_quarantine_status"))
+    quarantine_rank = 0 if quarantine_status == "ready" else 1 if quarantine_status == "watch" else 2
+    selection_score = _safe_float(row.get("source_selection_score"), _safe_float(row.get("source_success_score"), 0.0))
+    success_score = _safe_float(row.get("source_success_score"), 0.0)
+    candidate_total = int(row.get("candidate_total") or 0)
+    qualified_total = int(row.get("qualified_candidate_total") or 0)
+    failure_count = int(row.get("source_failure_count") or 0)
+    priority = int(source.get("priority") or 9999)
+    name = _clean(source.get("name") or source.get("source_name"))
+    return (
+        quarantine_rank,
+        -selection_score,
+        -success_score,
+        -candidate_total,
+        -qualified_total,
+        failure_count,
+        priority,
+        name,
+    )
+
+
+def _v59_runtime_source_selection_sort_key(
+    source: Dict[str, Any],
+    row: Dict[str, Any],
+    runtime_state: Dict[str, Any],
+) -> Tuple[int, float, float, float, float, int, int, str]:
+    quarantine_status = _clean(row.get("source_quarantine_status"))
+    quarantine_rank = 0 if quarantine_status == "ready" else 1 if quarantine_status == "watch" else 2
+    selection_score = _safe_float(row.get("source_selection_score"), _safe_float(row.get("source_success_score"), 0.0))
+    runtime_harvested = int(runtime_state.get("harvested") or 0)
+    runtime_candidates = int(runtime_state.get("candidates") or 0)
+    runtime_qualified = int(runtime_state.get("qualified") or 0)
+    runtime_documents = int(runtime_state.get("documents") or 0)
+    runtime_errors = int(runtime_state.get("errors") or 0)
+    runtime_empty_streak = int(runtime_state.get("empty_streak") or 0)
+    if runtime_harvested > 0 or runtime_candidates > 0 or runtime_qualified > 0:
+        selection_score += min(30.0, 10.0 + runtime_candidates * 4.0 + runtime_qualified * 5.0 + runtime_documents * 2.0)
+    if runtime_empty_streak > 0:
+        selection_score -= min(35.0, runtime_empty_streak * 15.0)
+    if runtime_errors > 0:
+        selection_score -= min(40.0, runtime_errors * 20.0)
+    if runtime_harvested == 0 and runtime_candidates == 0 and runtime_errors == 0:
+        selection_score -= 12.0
+    if quarantine_status == "watch":
+        selection_score -= 8.0
+    if quarantine_status == "quarantined":
+        selection_score -= 100.0
+    selection_score += min(12.0, runtime_documents * 3.0)
+    failure_count = int(row.get("source_failure_count") or 0)
+    priority = int(source.get("priority") or 9999)
+    name = _clean(source.get("name") or source.get("source_name"))
+    return (
+        quarantine_rank,
+        -selection_score,
+        -float(row.get("source_selection_score") or row.get("source_success_score") or 0),
+        -float(runtime_harvested),
+        -float(runtime_candidates),
+        failure_count,
+        priority,
+        name,
+    )
+
+
+def _v59_select_next_runtime_source(
+    sources: List[Dict[str, Any]],
+    runtime_state: Dict[str, Dict[str, Any]],
+    include_bad_sources: bool = False,
+    source_health_file: Optional[Path] = None,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Dict[str, Any]]:
+    health = _load_source_health(source_health_file=source_health_file)
+    scored: List[Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]] = []
+    for source in sources:
+        if not source.get("enabled", True):
+            continue
+        row = _v53_source_health_row(source, health)
+        quarantine_status = _clean(row.get("source_quarantine_status"))
+        if not include_bad_sources and (
+            quarantine_status == "quarantined"
+            or _clean(row.get("health_status")) in {"dns_blocked", "http_blocked", "disabled"}
+        ):
+            continue
+        key = _source_key(source)
+        state = runtime_state.get(key) if isinstance(runtime_state.get(key), dict) else {}
+        source = _apply_commissioning_override(source, row, include_bad_sources)
+        scored.append((source, row, state))
+    if not scored:
+        return None, None, {"reason": "no_runnable_sources"}
+    scored = sorted(scored, key=lambda pair: _v59_runtime_source_selection_sort_key(pair[0], pair[1], pair[2]))
+    selected_source, selected_row, selected_state = scored[0]
+    selection_debug = {
+        "selected_source_name": _clean(selected_source.get("name") or selected_source.get("source_name")),
+        "selected_source_key": _source_key(selected_source),
+        "selected_source_health_score": selected_row.get("source_selection_score"),
+        "selected_source_quarantine_status": selected_row.get("source_quarantine_status"),
+        "selected_source_reasons": selected_row.get("source_selection_reasons") or [],
+        "runtime_harvested": int(selected_state.get("harvested") or 0),
+        "runtime_candidates": int(selected_state.get("candidates") or 0),
+        "runtime_qualified": int(selected_state.get("qualified") or 0),
+        "runtime_documents": int(selected_state.get("documents") or 0),
+        "runtime_errors": int(selected_state.get("errors") or 0),
+        "runtime_empty_streak": int(selected_state.get("empty_streak") or 0),
+    }
+    return selected_source, selected_row, selection_debug
+
+
+def get_source_health_overview(
+    source_file: Optional[str] = None,
+    limit: int = 15,
+    source_health_snapshot: Optional[Dict[str, Any]] = None,
+    source_health_file: Optional[Path] = None,
+) -> Dict[str, Any]:
+    sources = load_harvest_sources(source_file)
+    health = source_health_snapshot if isinstance(source_health_snapshot, dict) else _load_source_health(source_health_file=source_health_file)
+    rows = [_v53_source_health_row(src, health) for src in sources]
+    health_counts: Dict[str, int] = {}
+    for row in rows:
+        health_status = _clean(row.get("health_status")) or _v53_source_health_status(row, None)
+        health_counts[health_status] = health_counts.get(health_status, 0) + 1
+    rows = sorted(
+        rows,
+        key=lambda row: (
+            _clean(row.get("source_quarantine_status")) != "ready",
+            -_safe_float(row.get("source_selection_score"), _safe_float(row.get("source_success_score"), 0.0)),
+            -int(row.get("candidate_total") or 0),
+            int(row.get("source_failure_count") or 0),
+            _clean(row.get("source_name")),
+        ),
+    )
+    ready = [row for row in rows if _clean(row.get("source_quarantine_status")) == "ready"]
+    watch = [row for row in rows if _clean(row.get("source_quarantine_status")) == "watch"]
+    quarantined = [row for row in rows if _clean(row.get("source_quarantine_status")) == "quarantined"]
+    productive = [row for row in rows if _clean(row.get("health_status")) in {"healthy", "degraded", "empty"}]
+    zero_yield = [row for row in rows if int(row.get("candidate_total") or 0) == 0 and int(row.get("qualified_candidate_total") or 0) == 0 and int(row.get("document_candidate_total") or 0) == 0]
+    recent_empty = [row for row in rows if _clean(row.get("last_empty_at"))]
+    recent_failures = [row for row in rows if int(row.get("source_failure_count") or 0) > 0]
+    return {
+        "status": "ok",
+        "generated_at": _now_iso(),
+        "source_count": len(sources),
+        "ready_count": len(ready),
+        "watch_count": len(watch),
+        "quarantined_count": len(quarantined),
+        "productive_count": len(productive),
+        "zero_yield_count": len(zero_yield),
+        "recent_empty_count": len(recent_empty),
+        "recent_failure_count": len(recent_failures),
+        "health_status_counts": health_counts,
+        "productive_sources_count": health_counts.get("healthy", 0) + health_counts.get("degraded", 0) + health_counts.get("empty", 0),
+        "suppressed_sources_count": health_counts.get("dns_blocked", 0) + health_counts.get("http_blocked", 0) + health_counts.get("disabled", 0),
+        "suppressed_dns_count": health_counts.get("dns_blocked", 0),
+        "suppressed_http_count": health_counts.get("http_blocked", 0),
+        "suppressed_empty_count": health_counts.get("empty", 0),
+        "top_sources": rows[: max(1, limit)],
+        "top_ready_sources": ready[: max(1, limit)],
+        "top_quarantined_sources": quarantined[: max(1, limit)],
+        "top_productive_sources": productive[: max(1, limit)],
+        "source_health_file": _display_project_path(source_health_file or SOURCE_HEALTH_FILE),
+        "selected_limit": max(1, limit),
+    }
+
+
+def get_runtime_stability_report(
+    source_file: Optional[str] = None,
+    limit: int = 15,
+    source_health_snapshot: Optional[Dict[str, Any]] = None,
+    source_health_file: Optional[Path] = None,
+) -> Dict[str, Any]:
+    sources = load_harvest_sources(source_file)
+    health = source_health_snapshot if isinstance(source_health_snapshot, dict) else _load_source_health(source_health_file=source_health_file)
+    rows = [_v53_source_health_row(src, health) for src in sources]
+
+    def _error_text(row: Dict[str, Any]) -> str:
+        return _clean(row.get("last_error")).lower()
+
+    reachable_rows = [row for row in rows if bool(row.get("reachable"))]
+    dns_failure_rows = [
+        row for row in rows
+        if any(term in _error_text(row) for term in ("nameresolutionerror", "dns", "resolve", "nodename"))
+    ]
+    playwright_failure_rows = [
+        row for row in rows
+        if any(term in _error_text(row) for term in ("playwright", "browsertype.launch", "bootstrap_check_in", "chromium"))
+    ]
+    successful_harvest_rows = [row for row in rows if _clean(row.get("last_status")) in {"ok", "ok_empty"}]
+    failed_rows = [row for row in rows if _clean(row.get("last_status")) == "failed"]
+    watch_rows = [row for row in rows if _clean(row.get("source_quarantine_status")) == "watch"]
+
+    source_count = len(rows)
+    return {
+        "status": "ok",
+        "generated_at": _now_iso(),
+        "source_count": source_count,
+        "reachable_sources": len(reachable_rows),
+        "reachability_pct": round((len(reachable_rows) / max(source_count, 1)) * 100.0, 2),
+        "dns_success_pct": round(((source_count - len(dns_failure_rows)) / max(source_count, 1)) * 100.0, 2),
+        "dns_failure_count": len(dns_failure_rows),
+        "playwright_launch_success_pct": round(((source_count - len(playwright_failure_rows)) / max(source_count, 1)) * 100.0, 2),
+        "playwright_failure_count": len(playwright_failure_rows),
+        "harvest_completion_pct": round((len(successful_harvest_rows) / max(source_count, 1)) * 100.0, 2),
+        "successful_harvest_count": len(successful_harvest_rows),
+        "failed_harvest_count": len(failed_rows),
+        "failed_harvest_pct": round((len(failed_rows) / max(source_count, 1)) * 100.0, 2),
+        "watch_count": len(watch_rows),
+        "top_reachable_sources": reachable_rows[: max(1, limit)],
+        "top_dns_failure_sources": dns_failure_rows[: max(1, limit)],
+        "top_playwright_failure_sources": playwright_failure_rows[: max(1, limit)],
+        "top_failed_sources": failed_rows[: max(1, limit)],
+        "source_health_file": _display_project_path(source_health_file or SOURCE_HEALTH_FILE),
+        "selected_limit": max(1, limit),
+    }
+
+
+def _v53_runtime_failure_category(row: Dict[str, Any]) -> str:
+    last_error = _clean(row.get("last_error")).lower()
+    last_status = _clean(row.get("last_status")).lower()
+    if any(term in last_error for term in ("nameresolutionerror", "dns", "resolve", "nodename")):
+        return "dns_failure"
+    if any(term in last_error for term in ("playwright", "browsertype.launch", "bootstrap_check_in", "chromium")):
+        return "playwright_launch_failure"
+    if "timeout" in last_error or last_status == "timeout":
+        return "timeout"
+    if any(term in last_error for term in ("403", "forbidden", "blocked")):
+        return "blocked_or_forbidden"
+    if any(term in last_error for term in ("404", "not found", "gone")):
+        return "http_error"
+    if last_status == "ok_empty":
+        return "empty_result"
+    if last_status == "ok":
+        return "ok"
+    if last_error:
+        return "unknown"
+    return "ok" if bool(row.get("reachable")) else "unknown"
+
+
+def _v53_source_pool_state(source: Dict[str, Any], row: Dict[str, Any]) -> Tuple[int, str]:
+    failure_category = _v53_runtime_failure_category(row)
+    failure_count = int(row.get("source_failure_count") or 0)
+    last_status = _clean(row.get("last_status")).lower()
+    operator_action = _clean(row.get("source_operator_action")).lower()
+    health_status = _clean(row.get("health_status")) or _v53_source_health_status(row, source)
+    is_productive = bool(
+        health_status in {"healthy", "degraded", "empty"}
+        or last_status == "ok"
+        or int(row.get("candidate_total") or 0) > 0
+        or int(row.get("qualified_candidate_total") or 0) > 0
+        or int(row.get("document_candidate_total") or 0) > 0
+        or _safe_float(row.get("source_shape_alignment_score"), 0.0) > 0
+    )
+
+    if health_status == "dns_blocked":
+        return 4, "paused_dns"
+    if health_status == "http_blocked":
+        return 4, "paused_http"
+    if health_status == "disabled":
+        return 5, "disabled"
+    if failure_category == "timeout":
+        return 2, "retry_later"
+    if health_status == "empty" or failure_category == "empty_result" or operator_action == "deprioritize":
+        return (0 if is_productive else 1), "empty" if health_status == "empty" else ("productive" if is_productive else "deprioritized_empty")
+    if failure_category in {"http_error", "blocked_or_forbidden", "playwright_launch_failure", "unknown"}:
+        return 3, failure_category
+    return 0 if is_productive else 1, "productive" if is_productive else "watch"
+
+
+def get_etenders_preflight_status(timeout_seconds: int = 3) -> Dict[str, Any]:
+    timeout_seconds = _safe_positive_int(timeout_seconds, 3)
+    try:
+        response = requests.get(
+            ETENDERS_URL,
+            timeout=timeout_seconds,
+            headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0"},
+        )
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        reachable = 200 <= status_code < 500
+        content_type = _clean(response.headers.get("content-type"))
+        return {
+            "status": "ok" if reachable else "failed",
+            "reachable": reachable,
+            "dns_success": reachable,
+            "status_code": status_code,
+            "content_type": content_type,
+            "failure_category": "ok" if reachable else "http_error",
+            "error": "",
+            "checked_at": _now_iso(),
+            "url": ETENDERS_URL,
+        }
+    except Exception as exc:
+        error_text = str(exc)
+        lower = error_text.lower()
+        failure_category = "dns_failure" if any(term in lower for term in ("nameresolutionerror", "dns", "resolve", "nodename")) else "timeout" if "timeout" in lower else "unknown"
+        return {
+            "status": "failed",
+            "reachable": False,
+            "dns_success": False,
+            "status_code": 0,
+            "content_type": "",
+            "failure_category": failure_category,
+            "error": _truncate(error_text, 240),
+            "checked_at": _now_iso(),
+            "url": ETENDERS_URL,
+        }
+
+
+def get_runtime_stability_source_report(
+    source_file: Optional[str] = None,
+    limit: int = 1000,
+    source_health_snapshot: Optional[Dict[str, Any]] = None,
+    source_health_file: Optional[Path] = None,
+) -> Dict[str, Any]:
+    sources = load_harvest_sources(source_file)
+    health = source_health_snapshot if isinstance(source_health_snapshot, dict) else _load_source_health(source_health_file=source_health_file)
+    rows = [_v53_source_health_row(src, health) for src in sources]
+    report_rows: List[Dict[str, Any]] = []
+
+    for row in rows:
+        failure_category = _v53_runtime_failure_category(row)
+        report_rows.append(
+            {
+                "source_name": row.get("source_name"),
+                "source_url": row.get("source_url"),
+                "last_status": row.get("last_status"),
+                "health_status": _clean(row.get("health_status")) or _v53_source_health_status(row, None),
+                "dns_success": failure_category != "dns_failure",
+                "reachable": bool(row.get("reachable")),
+                "playwright_success": failure_category != "playwright_launch_failure",
+                "harvest_completed": _clean(row.get("last_status")) in {"ok", "ok_empty"},
+                "last_error": row.get("last_error"),
+                "failure_category": failure_category,
+                "failure_count": int(row.get("source_failure_count") or 0),
+                "last_checked_at": row.get("last_checked_at"),
+                "last_success_at": row.get("last_success_at"),
+                "operator_action": row.get("source_operator_action"),
+            }
+        )
+
+    report_rows.sort(
+        key=lambda row: (
+            row["failure_category"] != "ok",
+            row["failure_category"],
+            not row["reachable"],
+            -int(row["failure_count"] or 0),
+            _clean(row["source_name"]),
+        )
+    )
+
+    failure_counts: Dict[str, int] = {}
+    for row in report_rows:
+        failure_counts[row["failure_category"]] = failure_counts.get(row["failure_category"], 0) + 1
+
+    return {
+        "status": "ok",
+        "generated_at": _now_iso(),
+        "source_count": len(report_rows),
+        "failure_counts": failure_counts,
+        "sources": report_rows[: max(1, limit)],
+        "source_file": _display_project_path(source_health_file or SOURCE_HEALTH_FILE),
+        "selected_limit": max(1, limit),
+    }
+
+
+def get_productive_source_pack_report(
+    source_file: Optional[str] = None,
+    limit: int = 25,
+    source_health_snapshot: Optional[Dict[str, Any]] = None,
+    source_health_file: Optional[Path] = None,
+) -> Dict[str, Any]:
+    sources = load_harvest_sources(source_file)
+    health = source_health_snapshot if isinstance(source_health_snapshot, dict) else _load_source_health(source_health_file=source_health_file)
+    selected_sources = select_sources_for_cycle(
+        sources,
+        max_sources_per_cycle=limit,
+        include_bad_sources=False,
+        controlled_mode=False,
+        source_health_snapshot=health,
+        source_health_file=source_health_file,
+    )
+    rows: List[Dict[str, Any]] = []
+    dns_paused_count = 0
+    http_paused_count = 0
+    empty_deprioritized_count = 0
+    health_counts: Dict[str, int] = {}
+    for source in sources:
+        row = _v53_source_health_row(source, health, source_health_file=source_health_file)
+        health_status = _clean(row.get("health_status")) or _v53_source_health_status(row, source)
+        health_counts[health_status] = health_counts.get(health_status, 0) + 1
+    for source in selected_sources:
+        row = _v53_source_health_row(source, health, source_health_file=source_health_file)
+        pool_rank, pool_state = _v53_source_pool_state(source, row)
+        if pool_state == "paused_dns":
+            dns_paused_count += 1
+        if pool_state == "paused_http":
+            http_paused_count += 1
+        if pool_state == "deprioritized_empty":
+            empty_deprioritized_count += 1
+        rows.append(
+            {
+                "source_name": row.get("source_name"),
+                "source_url": row.get("source_url"),
+                "source_selection_score": row.get("source_selection_score"),
+                "source_success_score": row.get("source_success_score"),
+                "failure_category": _v53_runtime_failure_category(row),
+                "health_status": _clean(row.get("health_status")) or _v53_source_health_status(row, source),
+                "source_pool_state": pool_state,
+                "source_pool_rank": pool_rank,
+                "operator_action": row.get("source_operator_action"),
+                "candidate_total": row.get("candidate_total"),
+                "qualified_candidate_total": row.get("qualified_candidate_total"),
+                "document_candidate_total": row.get("document_candidate_total"),
+                "last_status": row.get("last_status"),
+                "last_error": row.get("last_error"),
+                "last_checked_at": row.get("last_checked_at"),
+                "last_success_at": row.get("last_success_at"),
+            }
+        )
+
+    return {
+        "status": "ok",
+        "generated_at": _now_iso(),
+        "source_count": len(sources),
+        "selected_count": len(rows),
+        "productive_sources_count": health_counts.get("healthy", 0) + health_counts.get("degraded", 0) + health_counts.get("empty", 0),
+        "suppressed_sources_count": health_counts.get("dns_blocked", 0) + health_counts.get("http_blocked", 0) + health_counts.get("disabled", 0),
+        "suppressed_dns_count": health_counts.get("dns_blocked", 0),
+        "suppressed_http_count": health_counts.get("http_blocked", 0),
+        "suppressed_empty_count": health_counts.get("empty", 0),
+        "dns_paused_count": dns_paused_count,
+        "http_paused_count": http_paused_count,
+        "empty_deprioritized_count": empty_deprioritized_count,
+        "health_status_counts": health_counts,
+        "sources": rows,
+        "source_file": _display_project_path(source_health_file or SOURCE_HEALTH_FILE),
+        "selected_limit": max(1, limit),
+    }
+
+
+def _v53_find_source_by_identifier(identifier: Any, source_file: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    needle = _normalize_source_identifier(identifier)
+    if not needle:
+        return None
+    for source in load_harvest_sources(source_file):
+        if _source_matches_identifier(source, needle):
+            return source
+    return None
+
+
+def _v53_reset_source_health_entry(source: Dict[str, Any], source_health_file: Optional[Path] = None) -> Dict[str, Any]:
+    health = _load_source_health(source_health_file=source_health_file)
+    key = _source_key(source)
+    row = dict(health.get(key, {}) if isinstance(health.get(key), dict) else {})
+    now_iso = _now_iso()
+    row.update(
+        {
+            "name": key,
+            "source_name": key,
+            "source_url": _clean(source.get("url") or source.get("list_url") or row.get("source_url")),
+            "last_dns_status": "unknown",
+            "last_http_status": 0,
+            "last_success_at": "",
+            "last_failure_at": "",
+            "consecutive_dns_failures": 0,
+            "consecutive_http_failures": 0,
+            "consecutive_empty_runs": 0,
+            "last_error_message": "",
+            "last_error": "",
+            "health_status": "healthy" if source.get("enabled", True) else "disabled",
+            "last_checked_at": now_iso,
+        }
+    )
+    health[key] = row
+    _save_source_health(health, source_health_file=source_health_file)
+    return _v53_source_health_row(source, health, source_health_file=source_health_file)
+
+
+def _v53_recheck_source_health_entry(source: Dict[str, Any], source_health_file: Optional[Path] = None) -> Dict[str, Any]:
+    health = _load_source_health(source_health_file=source_health_file)
+    key = _source_key(source)
+    row = dict(health.get(key, {}) if isinstance(health.get(key), dict) else {})
+    preflight = _preflight_source_acquisition(source, timeout_seconds=8)
+    now_iso = _now_iso()
+    row["name"] = key
+    row["source_name"] = key
+    row["source_url"] = _clean(preflight.get("source_url") or source.get("url") or source.get("list_url") or row.get("source_url"))
+    row["last_checked_at"] = now_iso
+    row["last_dns_status"] = _clean(preflight.get("dns_status") or preflight.get("status") or "unknown")
+    row["last_http_status"] = int(preflight.get("http_status") or preflight.get("http_status_code") or 0)
+    row["last_error_message"] = _clean(preflight.get("error_message"))
+    row["last_error"] = row["last_error_message"]
+    if _clean(preflight.get("status")) == "ok":
+        row["last_success_at"] = now_iso
+        row["last_failure_at"] = ""
+        row["consecutive_dns_failures"] = 0
+        row["consecutive_http_failures"] = 0
+        row["health_status"] = "healthy"
+    elif _clean(preflight.get("status")) == "dns_failed":
+        row["last_failure_at"] = now_iso
+        row["consecutive_dns_failures"] = int(row.get("consecutive_dns_failures") or 0) + 1
+        row["consecutive_http_failures"] = 0
+        row["health_status"] = _v53_source_health_status(row, source)
+    elif _clean(preflight.get("status")) == "http_failed":
+        row["last_failure_at"] = now_iso
+        row["consecutive_http_failures"] = int(row.get("consecutive_http_failures") or 0) + 1
+        row["consecutive_dns_failures"] = 0
+        row["health_status"] = _v53_source_health_status(row, source)
+    else:
+        row["health_status"] = _v53_source_health_status(row, source)
+    health[key] = row
+    _save_source_health(health, source_health_file=source_health_file)
+    return _v53_source_health_row(source, health, source_health_file=source_health_file)
+
+
+def reset_source_health(identifier: Any, source_file: Optional[str] = None, source_health_file: Optional[Path] = None) -> Dict[str, Any]:
+    source = _v53_find_source_by_identifier(identifier, source_file=source_file)
+    if not source:
+        return {"status": "not_found", "identifier": _clean(identifier), "source": {}, "health": {}}
+    health = _v53_reset_source_health_entry(source, source_health_file=source_health_file)
+    return {
+        "status": "ok",
+        "action": "reset",
+        "identifier": _clean(identifier),
+        "source": {
+            "source_name": _clean(source.get("name") or source.get("source_name")),
+            "source_url": _clean(source.get("url") or source.get("list_url")),
+        },
+        "health": health,
+    }
+
+
+def recheck_source_health(identifier: Any, source_file: Optional[str] = None, source_health_file: Optional[Path] = None) -> Dict[str, Any]:
+    source = _v53_find_source_by_identifier(identifier, source_file=source_file)
+    if not source:
+        return {"status": "not_found", "identifier": _clean(identifier), "source": {}, "health": {}}
+    health = _v53_recheck_source_health_entry(source, source_health_file=source_health_file)
+    return {
+        "status": "ok",
+        "action": "recheck",
+        "identifier": _clean(identifier),
+        "source": {
+            "source_name": _clean(source.get("name") or source.get("source_name")),
+            "source_url": _clean(source.get("url") or source.get("list_url")),
+        },
+        "health": health,
+    }
+
+
+def recheck_suppressed_source_health(source_file: Optional[str] = None, source_health_file: Optional[Path] = None) -> Dict[str, Any]:
+    sources = load_harvest_sources(source_file)
+    health = _load_source_health(source_health_file=source_health_file)
+    rows = [_v53_source_health_row(src, health, source_health_file=source_health_file) for src in sources]
+    suppressed_sources = [
+        src
+        for src, row in zip(sources, rows)
+        if _clean(row.get("health_status")) in {"dns_blocked", "http_blocked"}
+    ]
+    results: List[Dict[str, Any]] = []
+    for source in suppressed_sources:
+        results.append(recheck_source_health(_source_identifier(source), source_file=source_file, source_health_file=source_health_file))
+    return {
+        "status": "ok",
+        "action": "recheck_all_suppressed",
+        "count": len(results),
+        "results": results,
     }
 
 
@@ -1077,8 +3219,9 @@ def _v55_yield_metrics_for_source(
     source: Dict[str, Any],
     health: Optional[Dict[str, Any]] = None,
     weights: Optional[Dict[str, Any]] = None,
+    source_health_file: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    health = health if isinstance(health, dict) else _load_source_health()
+    health = health if isinstance(health, dict) else _load_source_health(source_health_file=source_health_file)
     weights = weights if isinstance(weights, dict) else _v55_load_adaptive_weights()
     key = _source_key(source)
     row = dict(health.get(key, {}) if isinstance(health.get(key), dict) else {})
@@ -1100,7 +3243,10 @@ def _v55_yield_metrics_for_source(
     qualified_candidate_rate = round(qualified_total / max(1, harvested_total), 4)
     document_detection_rate = round(document_total / max(1, harvested_total), 4)
     extraction_success_rate = round(extracted_total / max(1, harvested_total), 4) if harvested_total else 0.0
-    adaptive_weight = _safe_float(weight_row.get("adaptive_weight"), float(health_row.get("source_success_score") or 0))
+    adaptive_weight = _safe_float(
+        weight_row.get("adaptive_weight"),
+        float(health_row.get("source_selection_score") or health_row.get("source_success_score") or 0),
+    )
     if qualified_total > 0 or (harvested_total > 0 and candidate_yield_rate >= 1.0 and consecutive_empty_runs == 0):
         tier = "tier_1_high_yield"
     elif harvested_total > 0 or adaptive_weight >= 45 or bool(health_row.get("recently_updated")):
@@ -1113,6 +3259,9 @@ def _v55_yield_metrics_for_source(
         "source_type": health_row.get("source_type"),
         "source_group": health_row.get("source_group"),
         "source_success_score": health_row.get("source_success_score"),
+        "source_selection_score": health_row.get("source_selection_score"),
+        "source_quarantine_status": health_row.get("source_quarantine_status"),
+        "source_selection_reasons": health_row.get("source_selection_reasons"),
         "candidate_yield_rate": candidate_yield_rate,
         "qualified_candidate_rate": qualified_candidate_rate,
         "document_detection_rate": document_detection_rate,
@@ -1136,7 +3285,7 @@ def _v55_yield_metrics_for_source(
 
 def _v55_calculate_adaptive_weight(metrics: Dict[str, Any]) -> Tuple[float, List[str]]:
     actions: List[str] = []
-    weight = _safe_float(metrics.get("source_success_score"), 0.0)
+    weight = _safe_float(metrics.get("source_selection_score"), _safe_float(metrics.get("source_success_score"), 0.0))
     candidate_yield_rate = _safe_float(metrics.get("candidate_yield_rate"), 0.0)
     qualified_candidate_rate = _safe_float(metrics.get("qualified_candidate_rate"), 0.0)
     document_detection_rate = _safe_float(metrics.get("document_detection_rate"), 0.0)
@@ -1147,6 +3296,14 @@ def _v55_calculate_adaptive_weight(metrics: Dict[str, Any]) -> Tuple[float, List
     recent_candidate = _v55_recent_boost(metrics.get("last_successful_candidate_time"))
     scan_total = int(metrics.get("scan_total") or 0)
     candidate_total = int(metrics.get("candidate_total") or 0)
+    quarantine_status = _clean(metrics.get("source_quarantine_status"))
+    invalid_seed_source = bool(metrics.get("invalid_seed_source")) or _is_invalid_seed_source_url(metrics.get("source_url"))
+
+    if invalid_seed_source:
+        return 0.0, ["invalid_discovery_seed"]
+
+    if scan_total >= ZERO_YIELD_QUARANTINE_SCAN_THRESHOLD and candidate_total == 0:
+        return 0.0, ["quarantine_zero_yield_source"]
 
     if scan_total == 0 and candidate_total == 0:
         weight = min(weight, 35.0)
@@ -1170,6 +3327,9 @@ def _v55_calculate_adaptive_weight(metrics: Dict[str, Any]) -> Tuple[float, List
     if failure_count >= 2:
         weight -= min(35.0, failure_count * 10.0)
         actions.append("deprioritize_unreachable")
+    if quarantine_status == "quarantined":
+        weight = min(weight, 20.0)
+        actions.append("quarantined_source")
     if avg_response > 8.0:
         weight -= min(12.0, avg_response - 8.0)
     if not actions:
@@ -1180,8 +3340,9 @@ def _v55_calculate_adaptive_weight(metrics: Dict[str, Any]) -> Tuple[float, List
 def _v55_build_adaptive_yield_reports(
     sources: List[Dict[str, Any]],
     selected_sources: List[Dict[str, Any]],
+    source_health_file: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    health = _load_source_health()
+    health = _load_source_health(source_health_file=source_health_file)
     previous_weights = _v55_load_adaptive_weights()
     rankings: List[Dict[str, Any]] = []
     next_weights: Dict[str, Any] = {}
@@ -1196,7 +3357,7 @@ def _v55_build_adaptive_yield_reports(
 
     for source in sources:
         key = _source_key(source)
-        metrics = _v55_yield_metrics_for_source(source, health, previous_weights)
+        metrics = _v55_yield_metrics_for_source(source, health, previous_weights, source_health_file=source_health_file)
         new_weight, actions = _v55_calculate_adaptive_weight(metrics)
         old_weight = _safe_float((previous_weights.get(key) or {}).get("adaptive_weight"), metrics.get("source_success_score") or 0)
         metrics["adaptive_weight"] = new_weight
@@ -1406,6 +3567,27 @@ def _v58_source_score(source: Dict[str, Any], metrics: Dict[str, Any], memory_ro
     if _safe_float(metrics.get("document_detection_rate"), 0.0) > 0 or int(memory_row.get("document_links_found_total") or 0) > 0:
         score += 16.0
         reasons.append("document_rich")
+    shape_map = _v53_load_source_shape_performance_map()
+    shape_row = shape_map.get(_v57_normalize_key(_clean(source.get("name") or source.get("source_name") or text)), {})
+    if isinstance(shape_row, dict) and shape_row:
+        shape_alignment_score = round(
+            max(
+                -12.0,
+                min(
+                    20.0,
+                    (_safe_float(shape_row.get("benchmark_quality_score"), 0.0) / 8.0)
+                    + (_safe_float(shape_row.get("supply_delivery_share_pct"), 0.0) * 0.08),
+                ),
+            ),
+            2,
+        )
+        score += shape_alignment_score
+        if shape_alignment_score > 0:
+            reasons.append("supply_delivery_alignment")
+        elif shape_alignment_score < 0:
+            penalties.append("shape_misalignment")
+    else:
+        penalties.append("shape_profile_missing")
     if _safe_lower(source.get("submission_method")) == "email" or source.get("recipient_email") or source.get("buyer_email"):
         score += 12.0
         reasons.append("email_submission_friendly")
@@ -1446,9 +3628,10 @@ def _v58_build_source_pack_strategy(
     selected_sources: List[Dict[str, Any]],
     max_sources: int,
     mode: Any = None,
+    source_health_file: Optional[Path] = None,
 ) -> Dict[str, Any]:
     active_mode = _v58_pack_mode(mode)
-    health = _load_source_health()
+    health = _load_source_health(source_health_file=source_health_file)
     adaptive_weights = _v55_load_adaptive_weights()
     memory = _v57_load_memory_files()
     source_rows = ((memory.get("source") or {}).get("sources") or {}) if isinstance(memory.get("source"), dict) else {}
@@ -1463,7 +3646,9 @@ def _v58_build_source_pack_strategy(
         if not source.get("enabled", True):
             continue
         key = _source_key(source)
-        metrics = _v55_yield_metrics_for_source(source, health, adaptive_weights)
+        health_row = _v53_source_health_row(source, health, source_health_file=source_health_file)
+        pool_rank, pool_state = _v53_source_pool_state(source, health_row)
+        metrics = _v55_yield_metrics_for_source(source, health, adaptive_weights, source_health_file=source_health_file)
         memory_row = source_rows.get(key, {}) if isinstance(source_rows.get(key), dict) else {}
         metrics["document_rich_score"] = memory_row.get("document_rich_score", 0)
         pack_names = _v58_pack_names_for_source(source, metrics, buyer_rows)
@@ -1487,6 +3672,8 @@ def _v58_build_source_pack_strategy(
             "selected_this_cycle": key in selected_keys,
             "prioritize_reasons": reasons,
             "deprioritize_reasons": penalties,
+            "source_pool_rank": pool_rank,
+            "source_pool_state": pool_state,
         }
         source_rows_report.append(row)
         for pack_name in pack_names:
@@ -1503,6 +3690,7 @@ def _v58_build_source_pack_strategy(
                     "repetitive_noise",
                 ]
             )
+            and pool_state not in {"paused_dns", "retry_later"}
         ):
             high_yield_sources.append(row)
 
@@ -1606,6 +3794,18 @@ def _v58_build_source_pack_strategy(
             "pack_performance_summary": str(PACK_PERFORMANCE_SUMMARY_FILE),
         },
     }
+
+
+def _apply_commissioning_override(
+    source: Dict[str, Any],
+    health_row: Dict[str, Any],
+    include_bad_sources: bool,
+) -> Dict[str, Any]:
+    if include_bad_sources and _clean(health_row.get("source_quarantine_status")) == "quarantined":
+        forced = dict(source)
+        forced["source_operator_action_override"] = "forced_commissioning_run"
+        return forced
+    return source
 
 
 def _v58_select_sources_for_pack_rotation(
@@ -2375,29 +4575,45 @@ def _v53_select_sources_for_cycle(
     sources: List[Dict[str, Any]],
     max_sources: int,
     include_bad_sources: bool = False,
+    source_health_file: Optional[Path] = None,
 ) -> Tuple[List[Dict[str, Any]], str, List[Dict[str, Any]]]:
     max_sources = _safe_positive_int(max_sources, 25)
     enabled = [s for s in sources if s.get("enabled", True)]
-    health = _load_source_health()
+    health = _load_source_health(source_health_file=source_health_file)
     adaptive_weights = _v55_load_adaptive_weights()
     memory_files = _v57_load_memory_files()
     enriched: List[Tuple[Dict[str, Any], Dict[str, Any]]] = [(src, _v53_source_health_row(src, health)) for src in enabled]
     if not include_bad_sources:
-        enriched = [(src, row) for src, row in enriched if int(row.get("source_failure_count") or 0) < 3]
+        enriched = [
+            (src, row)
+            for src, row in enriched
+            if _clean(row.get("source_quarantine_status")) != "quarantined"
+            and _clean(row.get("health_status")) not in {"dns_blocked", "http_blocked", "disabled"}
+        ]
     batch_id = f"v55-{int(time.time() // 21600)}"
     hot_limit = max(1, max_sources // 3)
-    def _adaptive_sort_key(pair: Tuple[Dict[str, Any], Dict[str, Any]]) -> Tuple[int, float, float, int, int, str]:
+    def _adaptive_sort_key(pair: Tuple[Dict[str, Any], Dict[str, Any]]) -> Tuple[int, int, int, float, float, int, int, int, int, str]:
         src, row = pair
         weight_row = adaptive_weights.get(_source_key(src), {}) if isinstance(adaptive_weights, dict) else {}
-        adaptive_weight = _safe_float(weight_row.get("adaptive_weight"), row.get("source_success_score") or 0)
+        adaptive_weight = _safe_float(
+            weight_row.get("adaptive_weight"),
+            row.get("source_selection_score") or row.get("source_success_score") or 0,
+        )
         adaptive_weight = max(1.0, min(100.0, adaptive_weight + _v57_source_memory_boost(src, memory_files)))
         tier = _clean(weight_row.get("tier"))
         tier_rank = 0 if tier == "tier_1_high_yield" else 1 if tier == "tier_2_moderate_yield" else 2
+        quarantine_status = _clean(row.get("source_quarantine_status"))
+        quarantine_rank = 0 if quarantine_status == "ready" else 1 if quarantine_status == "watch" else 2
+        pool_rank, _pool_state = _v53_source_pool_state(src, row)
         return (
+            quarantine_rank,
+            pool_rank,
             tier_rank,
             -adaptive_weight,
-            -float(row.get("source_success_score") or 0),
+            -float(row.get("source_selection_score") or row.get("source_success_score") or 0),
             _v53_source_category_rank(src),
+            int(row.get("source_failure_count") or 0),
+            -int(row.get("candidate_total") or 0),
             int(src.get("priority") or 9999),
             _clean(src.get("name") or src.get("source_name")),
         )
@@ -2406,7 +4622,7 @@ def _v53_select_sources_for_cycle(
         [
             pair for pair in enriched
             if pair[1].get("candidate_total")
-            or pair[1].get("source_success_score", 0) >= 55
+            or pair[1].get("source_selection_score", pair[1].get("source_success_score", 0)) >= 55
             or (
                 _safe_float((adaptive_weights.get(_source_key(pair[0])) or {}).get("adaptive_weight"), 0.0)
                 + _v57_source_memory_boost(pair[0], memory_files)
@@ -2449,15 +4665,50 @@ def _v53_update_source_health_after_scan(
     extracted_count: int = 0,
     qualified_count: int = 0,
     document_count: int = 0,
+    source_health_file: Optional[Path] = None,
+    acquisition_status: str = "",
+    acquisition_error_message: str = "",
+    scan_started_at: str = "",
+    scan_finished_at: str = "",
+    pages_scanned: int = 0,
+    raw_candidates_count: int = 0,
+    document_links_detected: int = 0,
+    retry_count: int = 0,
+    fallback_used: bool = False,
+    source_url: str = "",
+    preflight_dns_status: str = "",
+    preflight_http_status: int = 0,
 ) -> Dict[str, Any]:
-    health = _load_source_health()
+    health = _load_source_health(source_health_file=source_health_file)
     key = _source_key(source)
     row = dict(health.get(key, {}) if isinstance(health.get(key), dict) else {})
     now_iso = _now_iso()
     row["name"] = key
+    row["source_name"] = key
     row["last_checked_at"] = now_iso
     row["source_response_time"] = round(float(response_time or 0.0), 3)
     row["last_response_time"] = row["source_response_time"]
+    if scan_started_at:
+        row["acquisition_scan_started_at"] = scan_started_at
+    if scan_finished_at:
+        row["acquisition_scan_finished_at"] = scan_finished_at
+    if source_url:
+        row["source_url"] = source_url
+    if acquisition_status:
+        row["acquisition_status"] = acquisition_status
+    if acquisition_error_message:
+        row["acquisition_error_message"] = _truncate(acquisition_error_message, 240)
+        row["last_error_message"] = row["acquisition_error_message"]
+        row["last_error"] = row["acquisition_error_message"]
+    if preflight_dns_status:
+        row["last_dns_status"] = _clean(preflight_dns_status)
+    if preflight_http_status is not None:
+        row["last_http_status"] = int(preflight_http_status or 0)
+    row["acquisition_pages_scanned"] = int(pages_scanned or 0)
+    row["acquisition_raw_candidates_count"] = int(raw_candidates_count or 0)
+    row["acquisition_document_links_detected"] = int(document_links_detected or 0)
+    row["acquisition_retry_count"] = int(retry_count or 0)
+    row["acquisition_fallback_used"] = bool(fallback_used)
     row["last_harvested"] = int(harvested_count or 0)
     row["last_candidate_count"] = int(candidate_count or 0)
     scan_total = int(row.get("scan_total") or 0) + 1
@@ -2469,24 +4720,66 @@ def _v53_update_source_health_after_scan(
     row["extracted_candidate_total"] = int(row.get("extracted_candidate_total") or 0) + int(extracted_count or 0)
     row["qualified_candidate_total"] = int(row.get("qualified_candidate_total") or 0) + int(qualified_count or 0)
     row["document_candidate_total"] = int(row.get("document_candidate_total") or 0) + int(document_count or 0)
-    if error:
+    acquisition_status = _clean(acquisition_status)
+    error_text = _clean(acquisition_error_message or error)
+    failure_category = _classify_acquisition_error(error_text, int(preflight_http_status or 0))
+    if acquisition_status == "dns_failed" or failure_category == "dns_failed":
+        row["last_failure_at"] = now_iso
+        row["last_dns_status"] = "failed"
+        row["consecutive_dns_failures"] = int(row.get("consecutive_dns_failures") or 0) + 1
+        row["consecutive_http_failures"] = 0
+        row["failure_count"] = max(
+            int(row.get("failure_count") or 0),
+            int(row.get("consecutive_dns_failures") or 0) - 1,
+        ) + 1
+        row["last_error"] = _truncate(error_text, 240)
+        row["last_error_message"] = row["last_error"]
+        row["last_status"] = "failed"
+    elif acquisition_status == "http_failed" or failure_category == "http_failed":
+        row["last_failure_at"] = now_iso
+        row["last_http_status"] = int(preflight_http_status or row.get("last_http_status") or 0)
+        row["consecutive_http_failures"] = int(row.get("consecutive_http_failures") or 0) + 1
+        row["consecutive_dns_failures"] = 0
+        row["failure_count"] = max(
+            int(row.get("failure_count") or 0),
+            int(row.get("consecutive_http_failures") or 0) - 1,
+        ) + 1
+        row["last_error"] = _truncate(error_text or f"HTTP {int(preflight_http_status or 0)}", 240)
+        row["last_error_message"] = row["last_error"]
+        row["last_status"] = "failed"
+    elif error:
+        row["last_failure_at"] = now_iso
         row["failure_count"] = int(row.get("failure_count") or 0) + 1
         row["last_error"] = _truncate(error, 240)
+        row["last_error_message"] = row["last_error"]
+        row["last_status"] = "failed"
     else:
         row["failure_count"] = 0
         row["last_error"] = ""
-        row["last_success_at"] = now_iso
+        row["last_error_message"] = ""
+        row["last_failure_at"] = ""
+        row["last_dns_status"] = "ok"
+        row["last_http_status"] = int(preflight_http_status or row.get("last_http_status") or 0)
+        if int(harvested_count or 0) > 0 or int(candidate_count or 0) > 0 or int(qualified_count or 0) > 0:
+            row["last_success_at"] = now_iso
+            row["last_status"] = "ok"
+            row["consecutive_dns_failures"] = 0
+            row["consecutive_http_failures"] = 0
+            row["consecutive_empty_runs"] = 0
+        else:
+            row["last_status"] = "ok_empty"
+            row["last_empty_at"] = now_iso
+            row["consecutive_dns_failures"] = 0
+            row["consecutive_http_failures"] = 0
+            row["consecutive_empty_runs"] = int(row.get("consecutive_empty_runs") or 0) + 1
     if candidate_count > 0:
         row["source_last_candidate_time"] = now_iso
         row["last_candidate_time"] = row["source_last_candidate_time"]
     if qualified_count > 0:
         row["last_successful_candidate_time"] = now_iso
-    if int(candidate_count or 0) > 0 or int(qualified_count or 0) > 0:
-        row["consecutive_empty_runs"] = 0
-    else:
-        row["consecutive_empty_runs"] = int(row.get("consecutive_empty_runs") or 0) + 1
+    row["health_status"] = _v53_source_health_status(row, source)
     health[key] = row
-    _save_source_health(health)
+    _save_source_health(health, source_health_file=source_health_file)
     return _v53_source_health_row(source, health)
 
 
@@ -2576,6 +4869,2493 @@ def _v56_is_safe_public_document_url(url: str) -> bool:
         "private",
     ]
     return not any(term in blob for term in unsafe_terms)
+
+
+def _v64_document_index_page(link: Dict[str, Any], content_type: str = "", body: str = "") -> bool:
+    blob = _safe_lower(
+        " ".join(
+            [
+                _clean(link.get("link_text")),
+                _clean(link.get("filename")),
+                _clean(link.get("url")),
+                _clean(content_type),
+                _clean(body[:1200]),
+            ]
+        )
+    )
+    return bool(re.search(r"\b(index|document index|document list|attachment list|download index|document repository)\b", blob))
+
+
+def _v64_document_extension_from_filename(filename: str) -> str:
+    ext = Path(unquote(urlparse(_clean(filename)).path or _clean(filename))).suffix.lower()
+    if ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+        return ext
+    return ""
+
+
+def _v64_document_extension(url_or_name: str, content_type: str = "", filename: str = "") -> str:
+    ext = _v56_document_extension(url_or_name, content_type)
+    ctype = _safe_lower(content_type)
+    file_ext = _v64_document_extension_from_filename(filename or url_or_name)
+    if ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+        return ext
+    if "octet-stream" in ctype and file_ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+        return file_ext
+    if "text/csv" in ctype or file_ext == ".csv":
+        return ".csv"
+    if file_ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+        return file_ext
+    return ext if ext in DOCUMENT_DOWNLOAD_EXTENSIONS else file_ext
+
+
+def _v64_resolve_document_url_candidates(link: Dict[str, Any], source: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw_url = _clean(link.get("url") or link.get("href") or link.get("document_url") or "")
+    source_url = _clean(source.get("url") or source.get("list_url") or link.get("source_url") or "")
+    resolved: List[Dict[str, Any]] = []
+    seen = set()
+
+    def _add(candidate_url: str, stage: str) -> None:
+        candidate_url = _clean(candidate_url)
+        if not candidate_url or candidate_url in seen:
+            return
+        parsed = urlparse(candidate_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return
+        seen.add(candidate_url)
+        resolved.append({"stage": stage, "url": candidate_url})
+
+    if not raw_url:
+        return resolved
+    if re.search(r"\s", raw_url) or raw_url.startswith(("javascript:", "mailto:", "data:")):
+        return resolved
+
+    parsed_raw = urlparse(raw_url)
+    if parsed_raw.scheme in {"http", "https"} and parsed_raw.netloc:
+        _add(raw_url, "direct")
+    if source_url:
+        _add(urljoin(source_url, raw_url), "resolved")
+        parsed_source = urlparse(source_url)
+        if parsed_source.scheme in {"http", "https"} and parsed_source.netloc:
+            source_root = f"{parsed_source.scheme}://{parsed_source.netloc}/"
+            _add(urljoin(source_root, raw_url.lstrip("/")), "source_fallback")
+    return resolved
+
+
+def _v64_sniff_document_signature(
+    sample: bytes,
+    *,
+    detected_ext: str = "",
+    filename: str = "",
+    url: str = "",
+    link_text: str = "",
+    content_type: str = "",
+) -> Tuple[str, bool]:
+    blob = _safe_lower(f"{filename} {url} {link_text}")
+    hinted_ext = _clean(detected_ext).lower()
+    sample = sample or b""
+    if sample.startswith(b"%PDF"):
+        return ".pdf", True
+    if sample.startswith(b"PK"):
+        if hinted_ext in {".docx", ".xlsx", ".zip"}:
+            return hinted_ext, True
+        ctype = _safe_lower(content_type)
+        if "wordprocessingml" in ctype or "docx" in blob:
+            return ".docx", True
+        if "spreadsheetml" in ctype or "excel" in ctype or "xlsx" in blob or "pricing schedule" in blob:
+            return ".xlsx", True
+        return ".zip", True
+    if sample.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+        if hinted_ext in {".doc", ".xls"}:
+            return hinted_ext, True
+        ctype = _safe_lower(content_type)
+        if "excel" in ctype or "xls" in blob:
+            return ".xls", True
+        return ".doc", True
+    if hinted_ext == ".csv":
+        try:
+            text = sample.decode("utf-8", errors="ignore")
+        except Exception:
+            text = ""
+        if any(token in text for token in (",", ";", "\t")) or "pricing schedule" in blob:
+            return ".csv", False
+    return hinted_ext if hinted_ext in DOCUMENT_DOWNLOAD_EXTENSIONS else "", False
+
+
+def _v64_document_artifact_evidence_ok(path: str, content_type: str = "", extension: str = "") -> Tuple[bool, int]:
+    artifact_path = _clean(path)
+    if not artifact_path:
+        return False, 0
+    artifact = Path(artifact_path)
+    try:
+        if not artifact.exists():
+            return False, 0
+        size = artifact.stat().st_size
+        if size <= 0:
+            return False, size
+        ext = _clean(extension).lower() or artifact.suffix.lower()
+        sample = artifact.read_bytes()[:64]
+        sniffed_ext, signature_ok = _v64_sniff_document_signature(
+            sample,
+            detected_ext=ext,
+            filename=artifact.name,
+            url=str(artifact),
+            content_type=content_type,
+        )
+        ctype = _safe_lower(content_type)
+        acceptable_ext = ext in DOCUMENT_DOWNLOAD_EXTENSIONS
+        acceptable_type = any(
+            token in ctype
+            for token in ("pdf", "zip", "octet-stream", "msword", "wordprocessingml", "excel", "spreadsheetml", "text/csv", "csv")
+        )
+        if signature_ok and sniffed_ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+            return True, size
+        if ext == ".csv" and sniffed_ext == ".csv":
+            return True, size
+        if not acceptable_ext and not acceptable_type:
+            return False, size
+        return True, size
+    except Exception:
+        return False, 0
+
+
+def _v64_score_artifact_candidate(
+    raw_url: str,
+    absolute_url: str,
+    label: str,
+    source_hint: str,
+) -> Dict[str, Any]:
+    raw_url = _clean(raw_url)
+    absolute_url = _clean(absolute_url)
+    label = _clean(label)
+    source_hint = _clean(source_hint)
+    blob = _safe_lower(f"{label} {source_hint} {absolute_url} {raw_url}")
+    parsed = urlparse(absolute_url or raw_url)
+    query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    blob_name = _clean(query_params.get("blobName") or query_params.get("BlobName") or query_params.get("blobname"))
+    downloaded_file_name = _clean(
+        query_params.get("downloadedFileName")
+        or query_params.get("DownloadedFileName")
+        or query_params.get("downloaded_filename")
+    )
+    ext = _v64_document_extension(absolute_url or raw_url, "", label)
+    query_ext = _v64_document_extension_from_filename(blob_name or downloaded_file_name)
+    if query_ext and query_ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+        ext = query_ext
+    path_blob = _safe_lower(f"{parsed.path} {parsed.query}")
+    strong_file_hint = ext in DOCUMENT_DOWNLOAD_EXTENSIONS or bool(ETENDERS_ARTIFACT_HINT_PATTERN.search(blob))
+    if blob_name and query_ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+        strong_file_hint = True
+    strong_download_hint = bool(re.search(r"\b(download|downloadfile|attachment|zip|pdf|docx|xlsx)\b", blob))
+    if blob_name:
+        strong_download_hint = True
+    document_hint = bool(re.search(r"\b(document|tenderdocument|biddocument|specification|boq|pricing schedule|sbd|returnable|compulsory documents)\b", blob))
+    strong_document_action_hint = bool(re.search(r"\b(tenderdocument|biddocument|document)\b", path_blob)) and bool(parsed.query)
+    is_javascript = raw_url.startswith(("javascript:", "#")) or raw_url.lower() == "void(0)"
+    is_api_json = path_blob.endswith(".json") or bool(ARTIFACT_API_JSON_PATTERN.search(path_blob))
+    is_social = bool(ARTIFACT_SOCIAL_PATTERN.search(blob))
+    is_navigation = bool(ARTIFACT_NAVIGATION_PATTERN.search(blob)) and not strong_file_hint and not strong_download_hint
+    if is_javascript:
+        return {
+            "classification": "javascript_link",
+            "score": 0,
+            "should_attempt": False,
+            "rejection_reason": "javascript_or_anchor_link",
+            "strong_file_hint": False,
+            "strong_download_hint": False,
+            "extension": ext,
+        }
+    if is_social:
+        return {
+            "classification": "html_navigation",
+            "score": 5,
+            "should_attempt": False,
+            "rejection_reason": "social_or_menu_link",
+            "strong_file_hint": False,
+            "strong_download_hint": False,
+            "extension": ext,
+        }
+    if ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+        return {
+            "classification": "direct_file",
+            "score": 100,
+            "should_attempt": True,
+            "rejection_reason": "",
+            "strong_file_hint": True,
+            "strong_download_hint": True,
+            "extension": ext,
+        }
+    if blob_name and query_ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+        return {
+            "classification": "direct_file",
+            "score": 100,
+            "should_attempt": True,
+            "rejection_reason": "",
+            "strong_file_hint": True,
+            "strong_download_hint": True,
+            "extension": query_ext,
+        }
+    if is_api_json and not strong_file_hint and not strong_download_hint:
+        return {
+            "classification": "api_json_endpoint",
+            "score": 15,
+            "should_attempt": False,
+            "rejection_reason": "api_json_endpoint_not_binary",
+            "strong_file_hint": False,
+            "strong_download_hint": False,
+            "extension": ext,
+        }
+    if (strong_download_hint and document_hint) or strong_document_action_hint:
+        return {
+            "classification": "document_action_link",
+            "score": 92,
+            "should_attempt": True,
+            "rejection_reason": "",
+            "strong_file_hint": True,
+            "strong_download_hint": True,
+            "extension": ext,
+        }
+    if "download" in blob or "downloadfile" in blob or "attachment" in blob:
+        return {
+            "classification": "likely_download_endpoint",
+            "score": 88,
+            "should_attempt": True,
+            "rejection_reason": "",
+            "strong_file_hint": strong_file_hint,
+            "strong_download_hint": True,
+            "extension": ext,
+        }
+    if document_hint:
+        return {
+            "classification": "document_action_link",
+            "score": 72,
+            "should_attempt": False,
+            "rejection_reason": "weak_document_action_link",
+            "strong_file_hint": strong_file_hint,
+            "strong_download_hint": False,
+            "extension": ext,
+        }
+    if is_navigation:
+        return {
+            "classification": "html_navigation",
+            "score": 10,
+            "should_attempt": False,
+            "rejection_reason": "html_navigation_link",
+            "strong_file_hint": False,
+            "strong_download_hint": False,
+            "extension": ext,
+        }
+    return {
+        "classification": "unknown",
+        "score": 30 if strong_file_hint else 20,
+        "should_attempt": False,
+        "rejection_reason": "" if strong_file_hint else "unknown_without_file_hints",
+        "strong_file_hint": strong_file_hint,
+        "strong_download_hint": strong_download_hint,
+        "extension": ext,
+    }
+
+
+def _v64_is_etenders_detail_page(url: str) -> bool:
+    cleaned = _safe_lower(url)
+    return "etenders.gov.za" in cleaned and "/home/tenderdetails" in cleaned
+
+
+def _v64_is_etenders_opportunities_page(url: str) -> bool:
+    cleaned = _safe_lower(url)
+    return "etenders.gov.za" in cleaned and "/home/opportunities" in cleaned
+
+
+def _v64_extract_etenders_tender_id(*values: Any) -> str:
+    for value in values:
+        text = _clean(value)
+        if not text:
+            continue
+        query_id = _clean(dict(parse_qsl(urlparse(text).query)).get("id"))
+        if query_id.isdigit():
+            return query_id
+        match = re.search(r"\b(\d{5,8})\b", text)
+        if match:
+            return _clean(match.group(1))
+    return ""
+
+
+def _v64_pick_etenders_opportunities_url(*values: Any) -> str:
+    for value in values:
+        cleaned = _clean(value)
+        if cleaned and _v64_is_etenders_opportunities_page(cleaned):
+            return cleaned
+    return ""
+
+
+def _v64_limit_snippet(value: Any, limit: int = 180) -> str:
+    text = re.sub(r"\s+", " ", _clean(value)).strip()
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def _v64_unique_compact(values: List[Any], limit: int = 40, snippet_limit: int = 180) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for value in values:
+        compact = _v64_limit_snippet(value, snippet_limit)
+        key = compact.lower()
+        if not compact or key in seen:
+            continue
+        seen.add(key)
+        out.append(compact)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _v64_is_same_origin_etenders_url(url: str) -> bool:
+    parsed = urlparse(_clean(url))
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    return _safe_lower(parsed.netloc) in {"www.etenders.gov.za", "etenders.gov.za"}
+
+
+def _v64_extract_etenders_id_like_fields(*values: Any) -> List[Dict[str, str]]:
+    patterns = [
+        r'"(?P<name>supportDocumentID|supportDocumentId|documentId|documentID|fileId|fileID|docId|docID|tenderId|tenderID|tendersID|noticeNumber|noticeNo|cidbNumber|cidbNo|id)"\s*:\s*"?(?P<value>[A-Za-z0-9\-]{3,80})"?',
+        r"(?P<name>supportDocumentID|supportDocumentId|documentId|documentID|fileId|fileID|docId|docID|tenderId|tenderID|tendersID|noticeNumber|noticeNo|cidbNumber|cidbNo|id)\s*[=:]\s*['\"]?(?P<value>[A-Za-z0-9\-]{3,80})",
+    ]
+    out: List[Dict[str, str]] = []
+    seen = set()
+    for value in values:
+        text = _clean(value)
+        if not text:
+            continue
+        for pattern in patterns:
+            for match in re.finditer(pattern, text, flags=re.I):
+                name = _clean(match.group("name"))
+                field_value = _clean(match.group("value"))
+                if not name or not field_value:
+                    continue
+                if _safe_lower(field_value) in {"hidden", "true", "false", "null", name.lower()}:
+                    continue
+                key = (name.lower(), field_value.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({"name": name, "value": field_value})
+    return out
+
+
+def _v64_extract_document_like_terms(*values: Any) -> List[str]:
+    terms = [
+        "support document",
+        "supporting document",
+        "document id",
+        "documentId",
+        "file id",
+        "fileId",
+        "tender id",
+        "tenderId",
+        "cidb number",
+        "notice number",
+        "Download",
+        "Attachment",
+        "TenderDocument",
+        "TenderDocuments",
+        "GetDocuments",
+        "TenderDetails",
+    ]
+    blob = " ".join(_clean(value) for value in values)
+    found: List[str] = []
+    seen = set()
+    for term in terms:
+        if term.lower() not in blob.lower():
+            continue
+        if term.lower() in seen:
+            continue
+        seen.add(term.lower())
+        found.append(term)
+    return found
+
+
+def _v64_json_value_looks_like_filename(value: Any) -> bool:
+    text = _clean(value)
+    if not text:
+        return False
+    lowered = text.lower()
+    return bool(re.search(r"\.(pdf|zip|docx?|xlsx?|xls|csv|txt|rtf|msg|eml)$", lowered) or re.search(r"[\w\-]+\.(pdf|zip|docx?|xlsx?|xls|csv|txt|rtf|msg|eml)(?:\?|$)", lowered))
+
+
+def _v64_json_value_looks_like_url(value: Any) -> bool:
+    text = _clean(value)
+    if not text:
+        return False
+    return bool(re.match(r"^https?://", text, flags=re.I) or text.startswith("/Home/") or text.startswith("Home/") or text.startswith("/"))
+
+
+def _v64_json_value_looks_like_doc_id(name: str, value: Any) -> bool:
+    text = _clean(value)
+    if not text:
+        return False
+    if not re.search(r"\d", text) and not re.search(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", text):
+        return False
+    lower_name = _safe_lower(name)
+    if any(token in lower_name for token in ("document", "support", "file", "doc", "attachment", "blob", "download")):
+        return True
+    if lower_name == "id" and len(text) >= 3:
+        return True
+    return False
+
+
+def _v64_mine_etenders_tenderdetails_json(payload: Any, tender_id: str = "") -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        "json_top_level_keys": [],
+        "document_like_key_paths": [],
+        "filename_like_values_limited": [],
+        "url_like_values_limited": [],
+        "id_like_values_by_path": [],
+        "document_row_candidates_count": 0,
+        "document_row_candidate_keys": [],
+        "tender_id_used": _clean(tender_id),
+    }
+    rows: List[Dict[str, Any]] = []
+    row_keys: List[str] = []
+    doc_key_paths: List[str] = []
+    filename_values: List[str] = []
+    url_values: List[str] = []
+    id_values_by_path: List[Dict[str, str]] = []
+    candidate_row_keys: List[str] = []
+    seen_rows = set()
+    doc_key_pattern = re.compile(r"(document|documents|support|supporting|attachment|file|filename|filepath|path|blob|url|download|spec|sbd|boq|returnable)", re.I)
+
+    def _record_candidate(path: str, value: Dict[str, Any], row_keys_local: List[str]) -> None:
+        nonlocal summary
+        row_blob = json.dumps(value, ensure_ascii=False, default=str)
+        row_key = (path, tuple(sorted(row_keys_local)), _safe_lower(row_blob[:160]))
+        if row_key in seen_rows:
+            return
+        seen_rows.add(row_key)
+        summary["document_row_candidates_count"] += 1
+        rows.append({
+            "source_json_path": path,
+            "row_keys": _v64_unique_compact(row_keys_local, limit=30, snippet_limit=80),
+            "tender_id": _clean(tender_id),
+            "value": value,
+        })
+        for key in row_keys_local:
+            if key not in candidate_row_keys:
+                candidate_row_keys.append(key)
+
+    def _walk(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            if path == "$":
+                for key in value.keys():
+                    if key not in summary["json_top_level_keys"]:
+                        summary["json_top_level_keys"].append(_clean(key))
+            keys_here: List[str] = []
+            has_doc_signals = False
+            for key, nested in value.items():
+                child_path = f"{path}.{key}" if path != "$" else f"$.{key}"
+                keys_here.append(_clean(key))
+                if doc_key_pattern.search(_clean(key)):
+                    doc_key_paths.append(child_path)
+                    has_doc_signals = True
+                if isinstance(nested, dict) or isinstance(nested, list):
+                    _walk(nested, child_path)
+                else:
+                    if _v64_json_value_looks_like_url(nested):
+                        url_values.append(f"{child_path}={_v64_limit_snippet(nested, 220)}")
+                        if doc_key_pattern.search(_clean(key)) or "url" in _safe_lower(key) or "path" in _safe_lower(key):
+                            has_doc_signals = True
+                    if _v64_json_value_looks_like_filename(nested):
+                        filename_values.append(f"{child_path}={_v64_limit_snippet(nested, 220)}")
+                        if doc_key_pattern.search(_clean(key)):
+                            has_doc_signals = True
+                    if _v64_json_value_looks_like_doc_id(key, nested):
+                        id_values_by_path.append({"path": child_path, "name": _clean(key), "value": _clean(nested)})
+                        has_doc_signals = True
+            blob = json.dumps(value, ensure_ascii=False, default=str).lower()
+            if not has_doc_signals:
+                has_doc_signals = bool(doc_key_pattern.search(blob) or re.search(r"\.(pdf|zip|docx?|xlsx?|xls|csv)\b", blob))
+            if has_doc_signals:
+                _record_candidate(path, value, keys_here)
+        elif isinstance(value, list):
+            list_has_doc_signals = False
+            keys_in_rows: List[str] = []
+            for index, entry in enumerate(value):
+                child_path = f"{path}[{index}]"
+                if isinstance(entry, dict):
+                    entry_keys = [_clean(k) for k in entry.keys()]
+                    keys_in_rows.extend(entry_keys)
+                    if any(doc_key_pattern.search(k) for k in entry_keys):
+                        list_has_doc_signals = True
+                    _walk(entry, child_path)
+                else:
+                    if _v64_json_value_looks_like_filename(entry):
+                        filename_values.append(f"{child_path}={_v64_limit_snippet(entry, 220)}")
+                        list_has_doc_signals = True
+                    if _v64_json_value_looks_like_url(entry):
+                        url_values.append(f"{child_path}={_v64_limit_snippet(entry, 220)}")
+                        list_has_doc_signals = True
+                    if _v64_json_value_looks_like_doc_id("id", entry):
+                        id_values_by_path.append({"path": child_path, "name": "id", "value": _clean(entry)})
+                        list_has_doc_signals = True
+            if list_has_doc_signals and keys_in_rows:
+                _record_candidate(path, {"value": "list"}, keys_in_rows)
+
+    _walk(payload, "$")
+    summary["document_like_key_paths"] = _v64_unique_compact(doc_key_paths, limit=80, snippet_limit=220)
+    summary["filename_like_values_limited"] = _v64_unique_compact(filename_values, limit=60, snippet_limit=220)
+    summary["url_like_values_limited"] = _v64_unique_compact(url_values, limit=60, snippet_limit=220)
+    summary["id_like_values_by_path"] = id_values_by_path[:80]
+    summary["document_row_candidate_keys"] = _v64_unique_compact(candidate_row_keys, limit=80, snippet_limit=80)
+    return {"summary": summary, "document_rows": rows}
+
+
+def _v64_build_tenderdetails_route_experiments(
+    *,
+    tender_id: str,
+    mined: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    summary = mined.get("summary") if isinstance(mined.get("summary"), dict) else {}
+    rows = mined.get("document_rows") if isinstance(mined.get("document_rows"), list) else []
+    experiments: List[Dict[str, Any]] = []
+    seen = set()
+
+    def _add(
+        *,
+        endpoint_url: str,
+        route_pattern_name: str,
+        source_json_path: str,
+        parameter_names_used: List[str],
+        tender_id_used: str = "",
+        document_id_used: str = "",
+        filename: str = "",
+        source_value: str = "",
+    ) -> None:
+        absolute = urljoin(ETENDERS_BASE_URL, _clean(endpoint_url))
+        if not absolute or absolute in seen:
+            return
+        seen.add(absolute)
+        params = list(dict(parse_qsl(urlparse(absolute).query, keep_blank_values=True)).keys())
+        experiments.append({
+            "endpoint_url": absolute,
+            "document_url": absolute,
+            "label": filename or route_pattern_name,
+            "source_hint": _clean(source_json_path),
+            "source": "discovered_json",
+            "route_pattern_name": route_pattern_name,
+            "source_json_path": source_json_path,
+            "parameter_names_used": _v64_unique_compact(parameter_names_used or params, limit=12, snippet_limit=80),
+            "tender_id_used": _clean(tender_id_used),
+            "document_id_used": _clean(document_id_used),
+            "candidate_classification": "likely_download_endpoint",
+            "candidate_score": 95 if document_id_used else 80,
+            "candidate_rejection_reason": "",
+            "candidate_should_attempt": True,
+            "filename": _v56_safe_filename(filename or Path(urlparse(absolute).path).name or "document", "document"),
+        })
+
+    def _route_patterns_for_row(row: Dict[str, Any]) -> List[Dict[str, Any]]:
+        value = row.get("value") if isinstance(row, dict) else None
+        source_json_path = _clean(row.get("source_json_path"))
+        row_keys = row.get("row_keys") if isinstance(row.get("row_keys"), list) else []
+        if not isinstance(value, dict):
+            value = {}
+        filename = ""
+        explicit_urls: List[Tuple[str, str]] = []
+        doc_ids: List[Tuple[str, str]] = []
+        tender_ids: List[Tuple[str, str]] = []
+        for key, raw in value.items():
+            key_clean = _clean(key)
+            lower = _safe_lower(key_clean)
+            raw_text = _clean(raw)
+            if not raw_text:
+                continue
+            if _v64_json_value_looks_like_url(raw_text) and any(token in lower for token in ("url", "href", "download", "file", "document", "path")):
+                explicit_urls.append((key_clean, raw_text))
+            if _v64_json_value_looks_like_filename(raw_text):
+                filename = filename or raw_text
+            if _v64_json_value_looks_like_doc_id(key_clean, raw_text):
+                doc_ids.append((key_clean, raw_text))
+            if any(token in lower for token in ("tenderid", "tendersid")) or (lower == "id" and raw_text.isdigit()):
+                tender_ids.append((key_clean, raw_text))
+        if explicit_urls:
+            for key, raw_url in explicit_urls:
+                route_name = f"explicit_{key.lower()}_url"
+                yield_candidate = {
+                    "endpoint_url": raw_url,
+                    "route_pattern_name": route_name,
+                    "source_json_path": source_json_path,
+                    "parameter_names_used": [key],
+                    "tender_id_used": tender_id or next((v for _, v in tender_ids), ""),
+                    "document_id_used": next((v for _, v in doc_ids), ""),
+                    "filename": filename,
+                }
+                yield_candidate["candidate_score"] = 100
+                yield_candidate["candidate_classification"] = "direct_file"
+                yield_candidate["candidate_should_attempt"] = True
+                yield_candidate["candidate_rejection_reason"] = ""
+                yield_candidate["source"] = "discovered_json"
+                yield_candidate["label"] = filename or route_name
+                yield_candidate["document_url"] = raw_url
+                yield_candidate["source_hint"] = source_json_path
+                yield_candidate["candidate_source_json_keys"] = row_keys
+                yield yield_candidate
+            return
+        for doc_key, doc_value in doc_ids:
+            lower_key = _safe_lower(doc_key)
+            action_param_pairs = []
+            if any(token in lower_key for token in ("supportdocument", "supportdocumentid")):
+                action_param_pairs = [
+                    ("DownloadSupportDocument", doc_key),
+                    ("DownloadSpec", doc_key),
+                    ("DownloadDocument", doc_key),
+                    ("DownloadTenderDocument", doc_key),
+                    ("DownloadFile", doc_key),
+                ]
+            else:
+                action_param_pairs = [
+                    ("DownloadSpec", doc_key),
+                    ("DownloadDocument", doc_key),
+                    ("DownloadTenderDocument", doc_key),
+                    ("DownloadFile", doc_key),
+                ]
+            for route_name, param_name in action_param_pairs:
+                query = urlencode({param_name: doc_value, "source": "sharepoint"}) if "downloadspec" in _safe_lower(route_name) or "downloadfile" in _safe_lower(route_name) or "downloaddocument" in _safe_lower(route_name) or "downloadtenderdocument" in _safe_lower(route_name) else urlencode({param_name: doc_value})
+                endpoint_url = f"{ETENDERS_BASE_URL}/Home/{route_name}?{query}"
+                yield_candidate = {
+                    "endpoint_url": endpoint_url,
+                    "route_pattern_name": f"{route_name}_{param_name}",
+                    "source_json_path": source_json_path,
+                    "parameter_names_used": [param_name] + (["source"] if "source=sharepoint" in query else []),
+                    "tender_id_used": tender_id or next((v for _, v in tender_ids), ""),
+                    "document_id_used": doc_value,
+                    "filename": filename,
+                    "candidate_classification": "likely_download_endpoint",
+                    "candidate_score": 92 if filename else 85,
+                    "candidate_rejection_reason": "",
+                    "candidate_should_attempt": True,
+                    "source": "discovered_json",
+                    "label": filename or route_name,
+                    "document_url": endpoint_url,
+                    "source_hint": source_json_path,
+                    "candidate_source_json_keys": row_keys,
+                }
+                yield yield_candidate
+            if filename and doc_value:
+                for route_name in ("DownloadSpec", "DownloadDocument", "DownloadTenderDocument", "DownloadFile"):
+                    endpoint_url = f"{ETENDERS_BASE_URL}/Home/{route_name}?{urlencode({'documentId': doc_value, 'fileName': filename, 'source': 'sharepoint'})}"
+                    yield_candidate = {
+                        "endpoint_url": endpoint_url,
+                        "route_pattern_name": f"{route_name}_documentId_fileName",
+                        "source_json_path": source_json_path,
+                        "parameter_names_used": ["documentId", "fileName", "source"],
+                        "tender_id_used": tender_id or next((v for _, v in tender_ids), ""),
+                        "document_id_used": doc_value,
+                        "filename": filename,
+                        "candidate_classification": "likely_download_endpoint",
+                        "candidate_score": 94,
+                        "candidate_rejection_reason": "",
+                        "candidate_should_attempt": True,
+                        "source": "discovered_json",
+                        "label": filename or route_name,
+                        "document_url": endpoint_url,
+                        "source_hint": source_json_path,
+                        "candidate_source_json_keys": row_keys,
+                    }
+                    yield yield_candidate
+        if filename and not doc_ids and tender_ids:
+            for tender_key, tender_value in tender_ids:
+                for route_name in ("DownloadSpec", "DownloadDocument", "DownloadTenderDocument", "DownloadFile"):
+                    endpoint_url = f"{ETENDERS_BASE_URL}/Home/{route_name}?{urlencode({'tenderId': tender_value, 'fileName': filename, 'source': 'sharepoint'})}"
+                    yield_candidate = {
+                        "endpoint_url": endpoint_url,
+                        "route_pattern_name": f"{route_name}_tenderId_fileName",
+                        "source_json_path": source_json_path,
+                        "parameter_names_used": ["tenderId", "fileName", "source"],
+                        "tender_id_used": tender_value,
+                        "document_id_used": "",
+                        "filename": filename,
+                        "candidate_classification": "likely_download_endpoint",
+                        "candidate_score": 70,
+                        "candidate_rejection_reason": "",
+                        "candidate_should_attempt": True,
+                        "source": "discovered_json",
+                        "label": filename or route_name,
+                        "document_url": endpoint_url,
+                        "source_hint": source_json_path,
+                        "candidate_source_json_keys": row_keys,
+                    }
+                    yield yield_candidate
+
+    for row in rows:
+        for candidate in _route_patterns_for_row(row):
+            _add(
+                endpoint_url=_clean(candidate.get("endpoint_url")),
+                route_pattern_name=_clean(candidate.get("route_pattern_name")),
+                source_json_path=_clean(candidate.get("source_json_path")),
+                parameter_names_used=candidate.get("parameter_names_used") if isinstance(candidate.get("parameter_names_used"), list) else [],
+                tender_id_used=_clean(candidate.get("tender_id_used") or tender_id),
+                document_id_used=_clean(candidate.get("document_id_used")),
+                filename=_clean(candidate.get("filename")),
+            )
+
+    if not experiments and tender_id:
+        for route_name in ("TenderDetails", "GetTenderDetails"):
+            endpoint_url = f"{ETENDERS_BASE_URL}/Home/{route_name}?id={quote(tender_id)}"
+            _add(
+                endpoint_url=endpoint_url,
+                route_pattern_name=f"{route_name}_tenderId_fallback",
+                source_json_path="$",
+                parameter_names_used=["id"],
+                tender_id_used=tender_id,
+                document_id_used="",
+                filename="",
+            )
+
+    return experiments
+
+
+def _v64_extract_etenders_endpoint_urls_from_text(text: str, base_url: str) -> List[str]:
+    matches: List[str] = []
+    if not text:
+        return matches
+    patterns = [
+        r"""["']([^"']*(?:TenderDocuments?|TenderDetails|TenderDocument|SupportDocument|DownloadSupportDocument|DownloadSpec|Document|Download(?:File)?|BidDocument|Attachment|GetDocuments|GetTenderDocuments|GetTenderDetails|SCMDocument|File|Blob|Content)[^"']*)["']""",
+        r"""((?:/|https?://)[^"'()<>\s]*(?:TenderDocuments?|TenderDetails|TenderDocument|SupportDocument|DownloadSupportDocument|DownloadSpec|Document|Download(?:File)?|BidDocument|Attachment|GetDocuments|GetTenderDocuments|GetTenderDetails|SCMDocument|File|Blob|Content)[^"'()<>\s]*)""",
+    ]
+    seen = set()
+    for pattern in patterns:
+        for match in re.findall(pattern, text, flags=re.I):
+            value = _clean(match)
+            if not value or value in seen:
+                continue
+            absolute = urljoin(base_url or ETENDERS_BASE_URL, value)
+            if absolute in seen:
+                continue
+            seen.add(absolute)
+            matches.append(absolute)
+    return matches
+
+
+def _v64_build_etenders_endpoint_records_from_urls(
+    urls: List[str],
+    *,
+    base_url: str,
+    source_name: str,
+    label: str = "",
+    source_hint: str = "",
+) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    seen = set()
+    for url in urls:
+        absolute = urljoin(base_url or ETENDERS_BASE_URL, _clean(url))
+        if not absolute or absolute in seen:
+            continue
+        seen.add(absolute)
+        params = dict(parse_qsl(urlparse(absolute).query, keep_blank_values=True))
+        records.append({
+            "endpoint_url": absolute,
+            "label": _clean(label),
+            "source_hint": _clean(source_hint),
+            "source": source_name,
+            "parameter_names_used": _v64_unique_compact(list(params.keys()), limit=12, snippet_limit=80),
+            "tender_id_used": _v64_extract_etenders_tender_id(absolute),
+            "document_id_used": _clean(
+                params.get("documentId")
+                or params.get("documentID")
+                or params.get("supportDocumentID")
+                or params.get("supportDocumentId")
+                or params.get("fileId")
+                or params.get("docId")
+            ),
+        })
+    return records
+
+
+def _v64_generate_etenders_endpoint_patterns_from_ids(
+    *,
+    tender_id: str,
+    id_fields: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    generated: List[Dict[str, Any]] = []
+    seen = set()
+
+    def _add(path: str, source_name: str, source_hint: str, *, tender_id_used: str = "", document_id_used: str = "") -> None:
+        absolute = urljoin(ETENDERS_BASE_URL, _clean(path))
+        if not absolute or absolute in seen:
+            return
+        seen.add(absolute)
+        params = list(dict(parse_qsl(urlparse(absolute).query, keep_blank_values=True)).keys())
+        generated.append({
+            "endpoint_url": absolute,
+            "label": "",
+            "source_hint": _clean(source_hint),
+            "source": source_name,
+            "parameter_names_used": _v64_unique_compact(params, limit=12, snippet_limit=80),
+            "tender_id_used": _clean(tender_id_used),
+            "document_id_used": _clean(document_id_used),
+        })
+
+    if tender_id:
+        for param_name in ("id", "tenderId", "tendersID"):
+            for route in ("TenderDocuments", "GetTenderDocuments", "GetDocuments", "LoadTenderDocuments", "GetTenderDetails", "TenderDetails"):
+                _add(
+                    f"/Home/{route}?{param_name}={quote(tender_id)}",
+                    "seeded",
+                    f"seeded_tender_id:{param_name}",
+                    tender_id_used=tender_id,
+                )
+
+    for field in id_fields:
+        name = _clean(field.get("name"))
+        value = _clean(field.get("value"))
+        lower_name = _safe_lower(name)
+        if not name or not value:
+            continue
+        if any(token in lower_name for token in ("supportdocument", "document", "file", "docid")):
+            for route in ("DownloadSupportDocument", "DownloadSpec", "DownloadFile", "DownloadDocument", "DownloadTenderDocument"):
+                _add(
+                    f"/Home/{route}?{quote(name)}={quote(value)}",
+                    "discovered_html",
+                    f"id_field:{name}",
+                    tender_id_used=tender_id,
+                    document_id_used=value,
+                )
+                if lower_name == "documentid":
+                    _add(
+                        f"/Home/{route}?{quote(name)}={quote(value)}&source=sharepoint",
+                        "discovered_html",
+                        f"id_field:{name}:sharepoint",
+                        tender_id_used=tender_id,
+                        document_id_used=value,
+                    )
+        if any(token in lower_name for token in ("tenderid", "tendersid")) or (lower_name == "id" and value.isdigit()):
+            for route in ("TenderDocuments", "GetTenderDocuments", "GetDocuments", "LoadTenderDocuments", "GetTenderDetails", "TenderDetails"):
+                _add(
+                    f"/Home/{route}?{quote(name)}={quote(value)}",
+                    "discovered_html",
+                    f"id_field:{name}",
+                    tender_id_used=value,
+                )
+
+    return generated
+
+
+def _v64_fetch_etenders_same_origin_script_content(
+    script_url: str,
+    *,
+    detail_page_url: str,
+    source: Dict[str, Any],
+    timeout: int,
+) -> str:
+    if not _v64_is_same_origin_etenders_url(script_url):
+        return ""
+    try:
+        response = requests.get(
+            script_url,
+            timeout=timeout,
+            allow_redirects=True,
+            verify=bool(source.get("verify_ssl", True)),
+            headers={
+                "User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0",
+                "Accept": "application/javascript,text/javascript,text/plain,*/*",
+                "Referer": detail_page_url,
+            },
+        )
+        if not response.ok:
+            return ""
+        content_type = _safe_lower(response.headers.get("content-type"))
+        if "javascript" not in content_type and ".js" not in _safe_lower(urlparse(script_url).path):
+            return ""
+        return getattr(response, "text", "") or ""
+    except Exception:
+        return ""
+
+
+def _v64_build_etenders_download_urls_from_metadata(
+    metadata: Dict[str, Any],
+    *,
+    tender_id: str,
+    base_url: str,
+) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    seen = set()
+
+    def _add(url: str, label: str = "", source_hint: str = "") -> None:
+        absolute = urljoin(base_url or ETENDERS_BASE_URL, _clean(url))
+        if not absolute or absolute in seen:
+            return
+        seen.add(absolute)
+        inferred_filename = _clean(
+            metadata.get("downloadedFileName")
+            or metadata.get("DownloadedFileName")
+            or metadata.get("downloaded_filename")
+            or metadata.get("fileName")
+            or metadata.get("filename")
+            or Path(urlparse(absolute).path).name
+        )
+        results.append({
+            "url": absolute,
+            "document_url": absolute,
+            "link_text": _clean(label),
+            "filename": _v56_safe_filename(inferred_filename, "document"),
+            "source_hint": _clean(source_hint),
+        })
+
+    raw_paths = [
+        metadata.get("url"),
+        metadata.get("href"),
+        metadata.get("downloadUrl"),
+        metadata.get("fileUrl"),
+        metadata.get("documentUrl"),
+        metadata.get("attachmentUrl"),
+        metadata.get("filePath"),
+        metadata.get("path"),
+    ]
+    blob_name = _clean(metadata.get("blobName") or metadata.get("BlobName") or metadata.get("blobname"))
+    downloaded_file_name = _clean(
+        metadata.get("downloadedFileName")
+        or metadata.get("DownloadedFileName")
+        or metadata.get("downloaded_filename")
+        or metadata.get("fileName")
+        or metadata.get("filename")
+        or metadata.get("name")
+    )
+    if blob_name:
+        blob_params = {"blobName": blob_name}
+        if downloaded_file_name:
+            blob_params["downloadedFileName"] = downloaded_file_name
+        _add(f"/Home/Download/?{urlencode(blob_params)}", downloaded_file_name or blob_name, "metadata_blobname")
+    for raw_path in raw_paths:
+        raw_value = _clean(raw_path)
+        if raw_value and (raw_value.startswith("/") or raw_value.startswith("http")):
+            _add(raw_value, metadata.get("fileName") or metadata.get("filename"), "metadata_url")
+
+    file_name = _clean(
+        metadata.get("fileName")
+        or metadata.get("filename")
+        or metadata.get("downloadedFileName")
+        or metadata.get("DownloadedFileName")
+        or metadata.get("downloaded_filename")
+        or metadata.get("name")
+    )
+    support_document_id = _clean(
+        metadata.get("supportDocumentID")
+        or metadata.get("supportDocumentId")
+        or metadata.get("support_document_id")
+        or metadata.get("documentGuid")
+        or metadata.get("guid")
+    )
+    document_id = _clean(metadata.get("documentId") or metadata.get("documentID") or metadata.get("id"))
+    discovered_tender_id = _clean(metadata.get("tenderId") or metadata.get("tender_id") or metadata.get("tendersID") or tender_id)
+    metadata_blob = _safe_lower(json.dumps(metadata, default=str, ensure_ascii=False))
+    metadata_looks_document_like = bool(
+        file_name
+        or support_document_id
+        or document_id
+        or ETENDERS_ENDPOINT_PATTERN.search(metadata_blob)
+        or re.search(r"\.(pdf|zip|docx?|xlsx?|xls|csv)\b", metadata_blob)
+    )
+    route_params: List[Tuple[str, str, str]] = []
+    if support_document_id:
+        route_params.extend([
+            ("DownloadSupportDocument", "supportDocumentID", support_document_id),
+            ("DownloadSupportDocument", "documentId", support_document_id),
+            ("DownloadSpec", "supportDocumentID", support_document_id),
+            ("DownloadDocument", "supportDocumentID", support_document_id),
+            ("DownloadTenderDocument", "supportDocumentID", support_document_id),
+        ])
+    if document_id:
+        route_params.extend([
+            ("DownloadSpec", "documentId", document_id),
+            ("DownloadFile", "documentId", document_id),
+            ("DownloadDocument", "documentId", document_id),
+            ("DownloadTenderDocument", "documentId", document_id),
+        ])
+    if discovered_tender_id and metadata_looks_document_like:
+        for route in ("TenderDocuments", "GetTenderDocuments", "GetDocuments", "LoadTenderDocuments"):
+            _add(f"/Home/{route}?id={quote(discovered_tender_id)}", file_name or route, "tender_id_endpoint")
+            _add(f"/Home/{route}?tenderId={quote(discovered_tender_id)}", file_name or route, "tender_id_endpoint")
+            _add(f"/Home/{route}?tendersID={quote(discovered_tender_id)}", file_name or route, "tender_id_endpoint")
+    for route, key, value in route_params:
+        encoded = quote(value)
+        _add(f"/Home/{route}?{key}={encoded}", file_name or route, f"{route}:{key}")
+        if route in {"DownloadSpec", "DownloadFile"} and key == "documentId":
+            _add(f"/Home/{route}?{key}={encoded}&source=sharepoint", file_name or route, f"{route}:{key}:sharepoint")
+    return results
+
+
+def _v64_extract_etenders_endpoint_candidates_from_response(
+    payload: Any,
+    *,
+    endpoint_url: str,
+    detail_page_url: str,
+    tender_id: str,
+) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    seen = set()
+
+    def _add_candidate(url: str, label: str = "", source_hint: str = "") -> None:
+        absolute = urljoin(ETENDERS_BASE_URL, _clean(url))
+        if not absolute or absolute in seen:
+            return
+        seen.add(absolute)
+        scored = _v64_score_artifact_candidate(_clean(url), absolute, label, source_hint)
+        filename = _v56_safe_filename(Path(urlparse(absolute).path).name or _clean(label), "document")
+        candidates.append({
+            "url": absolute,
+            "document_url": absolute,
+            "link_text": _clean(label),
+            "filename": filename,
+            "extension": scored.get("extension") or _v64_document_extension(absolute, "", filename),
+            "source_url": detail_page_url,
+            "source_link_url": detail_page_url,
+            "resolved_index_page_url": detail_page_url,
+            "source_hint": _clean(source_hint or endpoint_url),
+            "diagnostic_type": "artifact_candidate",
+            "candidate_classification": scored["classification"],
+            "candidate_score": int(scored["score"]),
+            "candidate_rejection_reason": _clean(scored["rejection_reason"]),
+            "candidate_should_attempt": bool(scored["should_attempt"]) and _v56_is_safe_public_document_url(absolute),
+        })
+
+    def _walk(value: Any) -> None:
+        if isinstance(value, dict):
+            for key in ETENDERS_DOCUMENT_RESPONSE_KEYS:
+                raw_value = _clean(value.get(key))
+                if raw_value and (raw_value.startswith("/") or raw_value.startswith("http")):
+                    _add_candidate(raw_value, value.get("fileName") or value.get("filename") or key, f"{endpoint_url}:{key}")
+            metadata_downloads = _v64_build_etenders_download_urls_from_metadata(value, tender_id=tender_id, base_url=ETENDERS_BASE_URL)
+            for entry in metadata_downloads:
+                _add_candidate(entry.get("url") or "", entry.get("link_text") or entry.get("filename") or "", entry.get("source_hint") or endpoint_url)
+            for nested in value.values():
+                _walk(nested)
+        elif isinstance(value, list):
+            for entry in value:
+                _walk(entry)
+
+    _walk(payload)
+    return candidates
+
+
+def _v64_discover_etenders_document_endpoints(
+    html: str,
+    detail_page_url: str,
+    source: Optional[Dict[str, Any]] = None,
+    timeout: int = 25,
+) -> Dict[str, Any]:
+    base_url = ETENDERS_BASE_URL
+    endpoints: List[Dict[str, Any]] = []
+    seen = set()
+    hidden_fields: Dict[str, str] = {}
+    tender_id = _v64_extract_etenders_tender_id(detail_page_url)
+    script_srcs: List[str] = []
+    form_actions: List[str] = []
+    hidden_input_names: List[str] = []
+    data_attribute_names: List[str] = []
+    onclick_snippets: List[str] = []
+    ajax_url_candidates: List[str] = []
+    endpoint_like_strings: List[str] = []
+    id_like_fields: List[Dict[str, str]] = []
+    candidate_endpoint_patterns_generated: List[str] = []
+
+    def _add(url: str, label: str = "", source_hint: str = "", source_name: str = "discovered_html") -> None:
+        absolute = urljoin(base_url, _clean(url))
+        if not absolute or absolute in seen:
+            return
+        if "etenders.gov.za" not in _safe_lower(absolute):
+            return
+        if not ETENDERS_ENDPOINT_PATTERN.search(absolute) and not ETENDERS_ENDPOINT_PATTERN.search(f"{label} {source_hint}"):
+            return
+        seen.add(absolute)
+        params = dict(parse_qsl(urlparse(absolute).query, keep_blank_values=True))
+        endpoints.append({
+            "endpoint_url": absolute,
+            "label": _clean(label),
+            "source_hint": _clean(source_hint),
+            "source": source_name,
+            "parameter_names_used": _v64_unique_compact(list(params.keys()), limit=12, snippet_limit=80),
+            "tender_id_used": _v64_extract_etenders_tender_id(absolute, tender_id),
+            "document_id_used": _clean(
+                params.get("documentId")
+                or params.get("documentID")
+                or params.get("supportDocumentID")
+                or params.get("supportDocumentId")
+                or params.get("fileId")
+                or params.get("docId")
+            ),
+        })
+        endpoint_like_strings.append(absolute)
+
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+
+        soup = BeautifulSoup(html or "", "html.parser")
+        for element in soup.find_all(True):
+            for attr_name, attr_value in list(element.attrs.items()):
+                attr_blob = _safe_lower(str(attr_name))
+                if attr_blob.startswith("data-"):
+                    data_attribute_names.append(_clean(attr_name))
+                if isinstance(attr_value, list):
+                    attr_text = " ".join(_clean(item) for item in attr_value)
+                else:
+                    attr_text = _clean(attr_value)
+                if not attr_text:
+                    continue
+                if element.name == "input" and _safe_lower(element.get("type")) == "hidden":
+                    hidden_name = _clean(element.get("name") or element.get("id") or attr_name)
+                    hidden_fields[hidden_name] = attr_text
+                    hidden_input_names.append(hidden_name)
+                    id_like_fields.extend(_v64_extract_etenders_id_like_fields(f"{hidden_name}={attr_text}", hidden_name, attr_text))
+                if attr_blob == "onclick":
+                    onclick_snippets.append(attr_text)
+                if any(token in attr_blob for token in ("url", "action", "endpoint", "href", "onclick", "formaction", "src")):
+                    for match in _v64_extract_etenders_endpoint_urls_from_text(attr_text, base_url):
+                        ajax_url_candidates.append(match)
+                        source_name = "discovered_data_attr" if attr_blob.startswith("data-") else "discovered_html"
+                        if attr_blob == "onclick":
+                            source_name = "discovered_onclick"
+                        elif element.name == "form" or attr_blob in {"action", "formaction"}:
+                            source_name = "discovered_form"
+                        _add(match, element.get_text(" ", strip=True), f"{element.name}.{attr_name}", source_name)
+            if element.name == "form":
+                action = _clean(element.get("action"))
+                if action:
+                    form_actions.append(urljoin(base_url, action))
+                    _add(action, element.get_text(" ", strip=True), "form.action", "discovered_form")
+        for script in soup.find_all("script"):
+            script_blob = script.get_text(" ", strip=True) or ""
+            src = _clean(script.get("src"))
+            if src:
+                script_srcs.append(urljoin(base_url, src))
+            for match in _v64_extract_etenders_endpoint_urls_from_text(script_blob, base_url):
+                ajax_url_candidates.append(match)
+                _add(match, "script", "inline_script", "discovered_script")
+            id_like_fields.extend(_v64_extract_etenders_id_like_fields(script_blob))
+        id_like_fields.extend(_v64_extract_etenders_id_like_fields(html))
+    except Exception:
+        pass
+
+    for name, value in hidden_fields.items():
+        lower_name = _safe_lower(name)
+        if not tender_id and any(token in lower_name for token in ("tenderid", "tendersid", "id")):
+            maybe_id = _v64_extract_etenders_tender_id(value)
+            if maybe_id:
+                tender_id = maybe_id
+
+    for key, value in hidden_fields.items():
+        metadata_urls = _v64_build_etenders_download_urls_from_metadata({key: value, "fileName": hidden_fields.get("fileName") or hidden_fields.get("FileName") or ""}, tender_id=tender_id, base_url=base_url)
+        for entry in metadata_urls:
+            _add(entry.get("url") or "", entry.get("filename") or entry.get("link_text") or "", f"hidden_field:{key}", "discovered_html")
+
+    deduped_id_like_fields: List[Dict[str, str]] = []
+    seen_id_fields = set()
+    for field in id_like_fields:
+        if not isinstance(field, dict):
+            continue
+        field_name = _clean(field.get("name"))
+        field_value = _clean(field.get("value"))
+        key = (_safe_lower(field_name), _safe_lower(field_value))
+        if not field_name or not field_value or key in seen_id_fields:
+            continue
+        seen_id_fields.add(key)
+        deduped_id_like_fields.append({"name": field_name, "value": field_value})
+    id_like_fields = deduped_id_like_fields
+
+    source = source or {}
+    script_records: List[Dict[str, Any]] = []
+    for script_src in _v64_unique_compact(script_srcs, limit=30, snippet_limit=300):
+        if not _v64_is_same_origin_etenders_url(script_src):
+            continue
+        script_text = _v64_fetch_etenders_same_origin_script_content(
+            script_src,
+            detail_page_url=detail_page_url,
+            source=source,
+            timeout=timeout,
+        )
+        if not script_text:
+            continue
+        script_urls = _v64_extract_etenders_endpoint_urls_from_text(script_text, base_url)
+        ajax_url_candidates.extend(script_urls)
+        endpoint_like_strings.extend(script_urls)
+        id_like_fields.extend(_v64_extract_etenders_id_like_fields(script_text))
+        script_records.extend(
+            _v64_build_etenders_endpoint_records_from_urls(
+                script_urls,
+                base_url=base_url,
+                source_name="discovered_script",
+                label="script",
+                source_hint=script_src,
+            )
+        )
+
+    deduped_id_like_fields = []
+    seen_id_fields = set()
+    for field in id_like_fields:
+        if not isinstance(field, dict):
+            continue
+        field_name = _clean(field.get("name"))
+        field_value = _clean(field.get("value"))
+        key = (_safe_lower(field_name), _safe_lower(field_value))
+        if not field_name or not field_value or key in seen_id_fields:
+            continue
+        seen_id_fields.add(key)
+        deduped_id_like_fields.append({"name": field_name, "value": field_value})
+    id_like_fields = deduped_id_like_fields
+
+    generated_patterns = _v64_generate_etenders_endpoint_patterns_from_ids(
+        tender_id=tender_id,
+        id_fields=id_like_fields,
+    )
+    for record in script_records:
+        _add(
+            record.get("endpoint_url") or "",
+            record.get("label") or "",
+            record.get("source_hint") or "",
+            record.get("source") or "discovered_html",
+        )
+    for record in generated_patterns:
+        candidate_endpoint_patterns_generated.append(record.get("endpoint_url") or "")
+        _add(
+            record.get("endpoint_url") or "",
+            record.get("label") or "",
+            record.get("source_hint") or "",
+            record.get("source") or "discovered_html",
+        )
+
+    return {
+        "tender_id": tender_id,
+        "hidden_fields": hidden_fields,
+        "endpoints": endpoints,
+        "evidence": {
+            "diagnostic_type": "etenders_detail_page_discovery",
+            "detail_page_url": detail_page_url,
+            "http_status": 200 if _clean(html) else 0,
+            "content_type": "text/html",
+            "html_length": len(html or ""),
+            "script_srcs": _v64_unique_compact(script_srcs, limit=30, snippet_limit=300),
+            "form_actions": _v64_unique_compact(form_actions, limit=30, snippet_limit=300),
+            "hidden_input_names": _v64_unique_compact(hidden_input_names, limit=40, snippet_limit=120),
+            "data_attribute_names": _v64_unique_compact(data_attribute_names, limit=40, snippet_limit=120),
+            "onclick_snippets_limited": _v64_unique_compact(onclick_snippets, limit=20, snippet_limit=180),
+            "ajax_url_candidates": _v64_unique_compact(ajax_url_candidates, limit=40, snippet_limit=300),
+            "endpoint_like_strings": _v64_unique_compact(endpoint_like_strings, limit=50, snippet_limit=300),
+            "id_like_fields": id_like_fields[:30],
+            "document_like_terms_found": _v64_extract_document_like_terms(html, json.dumps(hidden_fields, default=str)),
+            "candidate_endpoint_patterns_generated": _v64_unique_compact(candidate_endpoint_patterns_generated, limit=60, snippet_limit=300),
+            "endpoint_probe_404_count": 0,
+            "endpoint_probe_non_404_count": 0,
+            "script_endpoint_candidates_count": len(script_records),
+        },
+    }
+
+
+def _v64_probe_etenders_document_endpoints(
+    html: str,
+    detail_page_url: str,
+    source: Dict[str, Any],
+    timeout: int = 25,
+) -> Dict[str, Any]:
+    discovery = _v64_discover_etenders_document_endpoints(html, detail_page_url, source=source, timeout=timeout)
+    endpoint_diagnostics: List[Dict[str, Any]] = []
+    artifact_candidates: List[Dict[str, Any]] = []
+    failures_by_reason: Dict[str, int] = {}
+    probe_count = 0
+    success_count = 0
+    failure_count = 0
+    probe_404_count = 0
+    probe_non_404_count = 0
+    seen_candidate_urls = set()
+    tender_id = _clean(discovery.get("tender_id"))
+    evidence = discovery.get("evidence") if isinstance(discovery.get("evidence"), dict) else {}
+
+    for endpoint in discovery.get("endpoints") or []:
+        if not isinstance(endpoint, dict):
+            continue
+        endpoint_url = _clean(endpoint.get("endpoint_url"))
+        if not endpoint_url:
+            continue
+        probe_count += 1
+        diagnostic = {
+            "diagnostic_type": "etenders_endpoint_probe",
+            "detail_page_url": detail_page_url,
+            "endpoint_url": endpoint_url,
+            "http_status": 0,
+            "content_type": "",
+            "response_shape": "",
+            "candidates_found_count": 0,
+            "failure_reason": "",
+            "source": _clean(endpoint.get("source") or "discovered_html"),
+            "parameter_names_used": endpoint.get("parameter_names_used") if isinstance(endpoint.get("parameter_names_used"), list) else [],
+            "tender_id_used": _clean(endpoint.get("tender_id_used") or tender_id),
+            "document_id_used": _clean(endpoint.get("document_id_used")),
+        }
+        try:
+            response = requests.get(
+                endpoint_url,
+                timeout=timeout,
+                allow_redirects=True,
+                verify=bool(source.get("verify_ssl", True)),
+                headers={
+                    "User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0",
+                    "Accept": "application/json,text/html,application/xhtml+xml,*/*",
+                    "Referer": detail_page_url,
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            )
+            diagnostic["http_status"] = int(getattr(response, "status_code", 0) or 0)
+            diagnostic["content_type"] = _clean(response.headers.get("content-type"))
+            if diagnostic["http_status"] == 404:
+                probe_404_count += 1
+            elif diagnostic["http_status"]:
+                probe_non_404_count += 1
+            if not response.ok:
+                diagnostic["failure_reason"] = f"http_{diagnostic['http_status']}"
+                if diagnostic["failure_reason"] == "http_404":
+                    diagnostic["reason"] = "http_404"
+                diagnostic["response_shape"] = "empty"
+                failure_count += 1
+                failures_by_reason[diagnostic["failure_reason"]] = failures_by_reason.get(diagnostic["failure_reason"], 0) + 1
+                endpoint_diagnostics.append(diagnostic)
+                continue
+            response_text = getattr(response, "text", "") or ""
+            parsed_json = None
+            if "json" in _safe_lower(diagnostic["content_type"]):
+                try:
+                    parsed_json = response.json()
+                except Exception:
+                    parsed_json = None
+            elif response_text:
+                try:
+                    parsed_json = response.json()
+                except Exception:
+                    parsed_json = None
+            extracted: List[Dict[str, Any]] = []
+            if parsed_json is not None:
+                diagnostic["response_shape"] = "json"
+                extracted.extend(
+                    _v64_extract_etenders_endpoint_candidates_from_response(
+                        parsed_json,
+                        endpoint_url=endpoint_url,
+                        detail_page_url=detail_page_url,
+                        tender_id=tender_id,
+                    )
+                )
+            elif "<a" in response_text.lower() or "<form" in response_text.lower() or "<button" in response_text.lower():
+                diagnostic["response_shape"] = "html_page" if "<html" in response_text.lower() else "html_fragment"
+                extracted.extend(_v64_extract_artifact_candidate_links_from_html(response_text, endpoint_url, source, detail_page_url))
+            elif not _clean(response_text):
+                diagnostic["response_shape"] = "empty"
+            else:
+                diagnostic["response_shape"] = "unsupported"
+            for candidate in extracted:
+                url = _clean(candidate.get("url") or candidate.get("document_url"))
+                if not url or url in seen_candidate_urls:
+                    continue
+                seen_candidate_urls.add(url)
+                artifact_candidates.append(candidate)
+            diagnostic["candidates_found_count"] = len(extracted)
+            if extracted:
+                success_count += 1
+            else:
+                diagnostic["failure_reason"] = "no_document_candidates_found"
+                failure_count += 1
+                failures_by_reason[diagnostic["failure_reason"]] = failures_by_reason.get(diagnostic["failure_reason"], 0) + 1
+            endpoint_diagnostics.append(diagnostic)
+        except Exception as exc:
+            diagnostic["response_shape"] = "empty"
+            diagnostic["failure_reason"] = _truncate(str(exc), 180) or "endpoint_probe_error"
+            failure_count += 1
+            failures_by_reason[diagnostic["failure_reason"]] = failures_by_reason.get(diagnostic["failure_reason"], 0) + 1
+            endpoint_diagnostics.append(diagnostic)
+
+    deduped_candidates = _v56_dedupe_document_links(artifact_candidates)
+    deduped_candidates.sort(key=lambda item: int(item.get("candidate_score") or 0), reverse=True)
+    if evidence:
+        evidence["endpoint_probe_404_count"] = probe_404_count
+        evidence["endpoint_probe_non_404_count"] = probe_non_404_count
+    return {
+        "tender_id": tender_id,
+        "etenders_endpoint_probe_count": probe_count,
+        "etenders_endpoint_success_count": success_count,
+        "etenders_endpoint_failure_count": failure_count,
+        "etenders_document_candidates_from_endpoints": len(deduped_candidates),
+        "etenders_endpoint_failures_by_reason": failures_by_reason,
+        "diagnostics": ([evidence] if evidence else []) + endpoint_diagnostics,
+        "artifact_candidates": deduped_candidates,
+    }
+
+
+def _v64_extract_artifact_candidate_links_from_html(
+    html: str,
+    base_url: str,
+    source: Dict[str, Any],
+    source_link_url: str = "",
+) -> List[Dict[str, Any]]:
+    links: List[Dict[str, Any]] = []
+    source_name = _clean(source.get("name") or source.get("source_name"))
+    base_url = _clean(base_url)
+    source_link_url = _clean(source_link_url or base_url)
+
+    def _add(candidate_url: str, label: str = "", source_hint: str = "") -> None:
+        raw_candidate_url = _clean(candidate_url)
+        if not raw_candidate_url:
+            return
+        absolute = urljoin(base_url, raw_candidate_url) if not raw_candidate_url.startswith(("javascript:", "#")) else raw_candidate_url
+        scored = _v64_score_artifact_candidate(raw_candidate_url, absolute, label, source_hint)
+        if scored["classification"] not in ARTIFACT_CANDIDATE_CLASSIFICATIONS:
+            return
+        is_safe_attempt_url = _v56_is_safe_public_document_url(absolute)
+        rejection_reason = _clean(scored["rejection_reason"])
+        if not is_safe_attempt_url and not rejection_reason:
+            rejection_reason = "unsafe_or_malformed_document_url"
+        filename = _v56_safe_filename(urlparse(absolute).path or absolute, "document")
+        ext = scored.get("extension") or _v64_document_extension(absolute, "", filename)
+        parsed = urlparse(absolute)
+        query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        blob_name = _clean(query_params.get("blobName") or query_params.get("BlobName") or query_params.get("blobname"))
+        downloaded_file_name = _clean(
+            query_params.get("downloadedFileName")
+            or query_params.get("DownloadedFileName")
+            or query_params.get("downloaded_filename")
+        )
+        route_pattern_name = "etenders_blob_download_html" if blob_name else "html_link"
+        links.append({
+            "url": absolute,
+            "document_url": absolute,
+            "raw_url": raw_candidate_url,
+            "link_text": _clean(label),
+            "filename": _v56_safe_filename(filename, "document"),
+            "extension": ext,
+            "source_name": source_name,
+            "source_url": source_link_url or base_url,
+            "resolved_index_page_url": base_url or source_link_url,
+            "source_link_url": source_link_url or base_url,
+            "source_html_path": _clean(source_hint) or "rendered_html_blob_link",
+            "source_context": _clean(label or source_hint or source_link_url or base_url),
+            "diagnostic_type": "artifact_candidate",
+            "candidate_classification": scored["classification"],
+            "candidate_score": int(scored["score"]),
+            "candidate_rejection_reason": rejection_reason,
+            "candidate_should_attempt": bool(scored["should_attempt"]) and is_safe_attempt_url,
+            "route_pattern_name": route_pattern_name,
+            "blobName": blob_name,
+            "downloadedFileName": downloaded_file_name,
+            "parameter_names_used": ["blobName", "downloadedFileName"] if blob_name and downloaded_file_name else (["blobName"] if blob_name else []),
+            "source_json_path": "rendered_html_blob_link",
+        })
+
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+
+        soup = BeautifulSoup(html or "", "html.parser")
+        for anchor in soup.find_all("a"):
+            href = _clean(anchor.get("href"))
+            if not href:
+                continue
+            label = re.sub(r"\s+", " ", anchor.get_text(" ", strip=True) or "").strip()
+            _add(href, label, label)
+        for button in soup.find_all(["button", "input"]):
+            href = _clean(
+                button.get("data-href")
+                or button.get("data-url")
+                or button.get("data-download-url")
+                or button.get("formaction")
+                or button.get("href")
+                or button.get("value")
+            )
+            if href:
+                label = re.sub(r"\s+", " ", button.get_text(" ", strip=True) or button.get("value") or "").strip()
+                onclick = _clean(button.get("onclick") or "")
+                if not label and onclick:
+                    label = onclick
+                _add(href, label, onclick or label)
+        for form in soup.find_all("form"):
+            action = _clean(form.get("action"))
+            if not action:
+                continue
+            label = re.sub(r"\s+", " ", form.get_text(" ", strip=True) or "").strip()
+            _add(action, label, label)
+    except Exception:
+        pass
+
+    if not links:
+        for match in re.findall(r"""(?:href|data-href|data-url|action)=["']([^"']+)["']""", html or "", flags=re.I):
+            label = ""
+            _add(match, label, label)
+        for match in re.findall(r"""(?:/Home/Download/?\?blobName=[^"'<>\s]+|/home/Download/?\?blobName=[^"'<>\s]+|Download/?\?blobName=[^"'<>\s]+)""", html or "", flags=re.I):
+            _add(match, "", "rendered_html_blob_link")
+        for match in re.findall(r"""blobName=[^"'<>\s&]+(?:&downloadedFileName=[^"'<>\s]+)?""", html or "", flags=re.I):
+            _add(f"/Home/Download/?{match}", "", "rendered_html_blob_link")
+        for match in re.findall(
+            r"""(?:download|document|bid|tender|rfq|boq|pricing|schedule|returnable)[^"'<>\s]*\.(?:pdf|docx?|xlsx?|xls|zip|csv)(?:\?[^"'<>\s]*)?""",
+            html or "",
+            flags=re.I,
+        ):
+            _add(match, "", match)
+    deduped = _v56_dedupe_document_links(links)
+    deduped.sort(key=lambda item: int(item.get("candidate_score") or 0), reverse=True)
+    return deduped
+
+
+def _v64_extract_interactive_blob_candidates(
+    blob_links: List[Dict[str, Any]],
+    base_url: str,
+    source: Dict[str, Any],
+    source_link_url: str = "",
+) -> List[Dict[str, Any]]:
+    if not isinstance(blob_links, list) or not blob_links:
+        return []
+
+    base_url = _clean(base_url)
+    source_link_url = _clean(source_link_url or base_url)
+    source_name = _clean(source.get("name") or source.get("source_name"))
+    synthetic_html_parts: List[str] = []
+    for link in blob_links:
+        if not isinstance(link, dict):
+            continue
+        href = _clean(link.get("href") or link.get("url") or link.get("document_url") or "")
+        text = _clean(link.get("text") or link.get("link_text") or link.get("anchor_text") or link.get("downloadedFileName") or link.get("blobName") or "Download")
+        if not href:
+            continue
+        synthetic_html_parts.append(f'<a href="{_html_escape(href)}">{_html_escape(text)}</a>')
+
+    if not synthetic_html_parts:
+        return []
+
+    candidates = _v64_extract_artifact_candidate_links_from_html(
+        " ".join(synthetic_html_parts),
+        base_url,
+        source,
+        source_link_url,
+    )
+    for candidate in candidates:
+        if _clean(candidate.get("route_pattern_name")) == "etenders_blob_download_html":
+            candidate["route_pattern_name"] = "etenders_blob_download_interactive"
+        candidate["source_html_path"] = "interactive_rendered_dom_blob_link"
+        candidate["source_json_path"] = "interactive_rendered_dom_blob_link"
+        candidate["source_context"] = "clicked_expanded_tender_row"
+        candidate["source_name"] = source_name or candidate.get("source_name") or ""
+        candidate["source_link_url"] = source_link_url or candidate.get("source_link_url") or ""
+        if not _clean(candidate.get("blobName")):
+            parsed = urlparse(_clean(candidate.get("url") or candidate.get("document_url") or ""))
+            query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            candidate["blobName"] = _clean(query_params.get("blobName") or query_params.get("BlobName") or query_params.get("blobname"))
+        if not _clean(candidate.get("downloadedFileName")):
+            parsed = urlparse(_clean(candidate.get("url") or candidate.get("document_url") or ""))
+            query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            candidate["downloadedFileName"] = _clean(
+                query_params.get("downloadedFileName")
+                or query_params.get("DownloadedFileName")
+                or query_params.get("downloaded_filename")
+            )
+    candidates.sort(key=lambda item: int(item.get("candidate_score") or 0), reverse=True)
+    return candidates
+
+
+def _v64_resolve_buyer_pack_diagnostics_for_candidate(
+    candidate: Dict[str, Any],
+    source: Dict[str, Any],
+    timeout: int = 25,
+) -> Dict[str, Any]:
+    candidate_urls: List[str] = []
+    candidate_urls.extend(
+        _clean(url)
+        for url in ([candidate.get("document_url")] if _clean(candidate.get("document_url")) else [])
+    )
+    for key in ("document_urls", "download_urls", "attachments", "supporting_documents"):
+        value = candidate.get(key)
+        if isinstance(value, list):
+            for entry in value:
+                if isinstance(entry, str):
+                    url = _clean(entry)
+                elif isinstance(entry, dict):
+                    url = _clean(entry.get("url") or entry.get("href") or entry.get("document_url"))
+                else:
+                    url = ""
+                if url:
+                    candidate_urls.append(url)
+    seen_candidate_urls = set()
+    candidate_urls = [
+        url
+        for url in candidate_urls
+        if url and not (url in seen_candidate_urls or seen_candidate_urls.add(url))
+    ]
+    diagnostics: List[Dict[str, Any]] = []
+    direct_downloads: List[Dict[str, Any]] = []
+    artifact_candidates_found_count = 0
+    index_pages_fetched_count = 0
+    index_pages_with_artifacts_count = 0
+    artifact_download_attempts_count = 0
+    artifact_download_success_count = 0
+    artifact_candidates_total = 0
+    artifact_candidates_attempted = 0
+    artifact_candidates_rejected_before_fetch = 0
+    artifact_candidates_by_classification: Dict[str, int] = {}
+    artifact_rejections_by_reason: Dict[str, int] = {}
+    artifact_resolved_to_html_count = 0
+    artifact_binary_signature_success_count = 0
+    etenders_endpoint_probe_count = 0
+    etenders_endpoint_success_count = 0
+    etenders_endpoint_failure_count = 0
+    etenders_document_candidates_from_endpoints = 0
+    etenders_endpoint_failures_by_reason: Dict[str, int] = {}
+    index_page_no_artifacts_count = 0
+    artifact_download_failed_count = 0
+    fallback_used = False
+    downloaded_path = ""
+    downloaded_timestamp = ""
+    failure_reason = ""
+    attempted = False
+    tenderdetails_json_bridge_attempted = False
+
+    def _annotate_attempts(
+        result: Dict[str, Any],
+        *,
+        diagnostic_type: str,
+        source_link_url: str,
+        resolved_index_page_url: str,
+        artifact_candidates_count: int,
+        candidate_context: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        annotated: List[Dict[str, Any]] = []
+        attempts = result.get("attempts") if isinstance(result.get("attempts"), list) else [result]
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            annotated_attempt = {
+                **attempt,
+                "diagnostic_type": diagnostic_type,
+                "source_link_url": source_link_url,
+                "resolved_index_page_url": resolved_index_page_url,
+                "artifact_candidates_found_count": artifact_candidates_count,
+            }
+            if isinstance(candidate_context, dict):
+                for key in (
+                    "route_pattern_name",
+                    "blobName",
+                    "downloadedFileName",
+                    "source_html_path",
+                    "source_context",
+                    "source_json_path",
+                    "parameter_names_used",
+                    "resolved_document_url",
+                    "content_type",
+                    "content_length",
+                    "content_disposition",
+                    "artifact_path",
+                    "artifact_exists",
+                    "artifact_size_bytes",
+                    "binary_signature_detected",
+                    "binary_signature_verified",
+                ):
+                    if key in candidate_context and candidate_context.get(key) not in (None, ""):
+                        annotated_attempt[key] = candidate_context.get(key)
+            if "binary_signature_verified" not in annotated_attempt and annotated_attempt.get("binary_signature_detected") is not None:
+                annotated_attempt["binary_signature_verified"] = bool(annotated_attempt.get("binary_signature_detected"))
+            if "binary_signature_detected" not in annotated_attempt and annotated_attempt.get("binary_signature_verified") is not None:
+                annotated_attempt["binary_signature_detected"] = bool(annotated_attempt.get("binary_signature_verified"))
+            annotated.append(annotated_attempt)
+        return annotated
+
+    def _record_candidate_summary(candidate_link: Dict[str, Any], attempted_download: bool) -> None:
+        nonlocal artifact_candidates_total
+        nonlocal artifact_candidates_attempted
+        nonlocal artifact_candidates_rejected_before_fetch
+        classification = _clean(candidate_link.get("candidate_classification")) or "unknown"
+        artifact_candidates_total += 1
+        artifact_candidates_by_classification[classification] = artifact_candidates_by_classification.get(classification, 0) + 1
+        if attempted_download:
+            artifact_candidates_attempted += 1
+        else:
+            artifact_candidates_rejected_before_fetch += 1
+            rejection = _clean(candidate_link.get("candidate_rejection_reason")) or "candidate_rejected_before_fetch"
+            artifact_rejections_by_reason[rejection] = artifact_rejections_by_reason.get(rejection, 0) + 1
+
+    def _rejected_candidate_diag(candidate_link: Dict[str, Any], source_link_url: str, resolved_index_page_url: str) -> Dict[str, Any]:
+        return {
+            "diagnostic_type": "artifact_candidate_rejected",
+            "document_url": _clean(candidate_link.get("url") or candidate_link.get("document_url")),
+            "source_link_url": source_link_url,
+            "resolved_index_page_url": resolved_index_page_url,
+            "candidate_classification": _clean(candidate_link.get("candidate_classification")) or "unknown",
+            "candidate_score": int(candidate_link.get("candidate_score") or 0),
+            "candidate_rejection_reason": _clean(candidate_link.get("candidate_rejection_reason") or "candidate_rejected_before_fetch"),
+            "failure_stage": "skipped",
+            "failure_reason": _clean(candidate_link.get("candidate_rejection_reason") or "candidate_rejected_before_fetch"),
+            "download_started_at": _now_iso(),
+            "download_finished_at": _now_iso(),
+        }
+
+    for raw_url in candidate_urls:
+        source_link_url = _clean(raw_url)
+        if not source_link_url:
+            continue
+        source_link_diag = {
+            "diagnostic_type": "source_link",
+            "source_link_url": source_link_url,
+            "resolved_index_page_url": "",
+            "index_page_http_status": 0,
+            "artifact_candidates_found_count": 0,
+            "etenders_endpoint_probe_count": 0,
+            "etenders_endpoint_success_count": 0,
+            "etenders_endpoint_failure_count": 0,
+            "etenders_document_candidates_from_endpoints": 0,
+            "etenders_endpoint_failures_by_reason": {},
+            "download_started_at": _now_iso(),
+            "download_finished_at": "",
+            "failure_stage": "",
+            "failure_reason": "",
+            "fallback_used": False,
+        }
+        if not _v56_is_safe_public_document_url(source_link_url):
+            source_link_diag.update({
+                "failure_stage": "url_resolution",
+                "failure_reason": "unsafe_or_malformed_document_url",
+                "download_finished_at": _now_iso(),
+            })
+            diagnostics.append(source_link_diag)
+            attempted = True
+            continue
+
+        attempted = True
+
+        if (
+            not tenderdetails_json_bridge_attempted
+            and _v64_is_etenders_detail_page(source_link_url)
+            and download_from_tenderdetails_json is not None
+        ):
+            tender_id_hint = _v64_extract_etenders_tender_id(
+                source_link_url,
+                candidate.get("tender_id"),
+                candidate.get("v50_9_1_tenderdetails_inspect_result"),
+                candidate.get("v50_9_1_tenderdetails_download_result"),
+            )
+            if tender_id_hint:
+                tenderdetails_json_bridge_attempted = True
+                try:
+                    json_download_result = download_from_tenderdetails_json({"tender_id": tender_id_hint})
+                except Exception as exc:
+                    json_download_result = {"status": "error", "error": str(exc)}
+
+                if isinstance(json_download_result, dict):
+                    route_attempts = json_download_result.get("attempts") if isinstance(json_download_result.get("attempts"), list) else []
+                    for route_attempt in route_attempts:
+                        if not isinstance(route_attempt, dict):
+                            continue
+                        diagnostics.append({
+                            **route_attempt,
+                            "diagnostic_type": "tenderdetails_json_route_experiment",
+                            "source": "discovered_json",
+                            "source_link_url": source_link_url,
+                            "resolved_index_page_url": source_link_url,
+                            "tender_id_used": _clean(route_attempt.get("tender_id") or tender_id_hint),
+                            "document_id_used": _clean(route_attempt.get("document_id") or route_attempt.get("document_id_used")),
+                        })
+                    if json_download_result.get("status") == "ok":
+                        downloaded_path = _clean(json_download_result.get("saved_path") or "")
+                        downloaded_timestamp = _clean(json_download_result.get("downloaded_at") or _now_iso())
+                        direct_downloads.append(json_download_result)
+                        artifact_download_success_count += 1
+                        candidate["buyer_pack_download_diagnostics"] = diagnostics
+                        return {
+                            "attempted": True,
+                            "downloaded": True,
+                            "buyer_pack_downloaded": True,
+                            "buyer_pack_path": downloaded_path,
+                            "buyer_pack_download_timestamp": downloaded_timestamp,
+                            "failure_reason": "",
+                            "diagnostics": diagnostics,
+                            "downloads": direct_downloads,
+                            "index_pages_fetched_count": index_pages_fetched_count,
+                            "index_pages_with_artifacts_count": index_pages_with_artifacts_count,
+                            "artifact_candidates_found_count": artifact_candidates_found_count,
+                            "artifact_download_attempts_count": artifact_download_attempts_count,
+                            "artifact_download_success_count": artifact_download_success_count,
+                            "index_page_no_artifacts_count": index_page_no_artifacts_count,
+                            "artifact_download_failed_count": artifact_download_failed_count,
+                            "fallback_used": fallback_used,
+                            "artifact_candidates_total": artifact_candidates_total,
+                            "artifact_candidates_attempted": artifact_candidates_attempted,
+                            "artifact_candidates_rejected_before_fetch": artifact_candidates_rejected_before_fetch,
+                            "artifact_candidates_by_classification": artifact_candidates_by_classification,
+                            "artifact_rejections_by_reason": artifact_rejections_by_reason,
+                            "artifact_resolved_to_html_count": artifact_resolved_to_html_count,
+                            "artifact_binary_signature_success_count": artifact_binary_signature_success_count,
+                            "etenders_endpoint_probe_count": etenders_endpoint_probe_count,
+                            "etenders_endpoint_success_count": etenders_endpoint_success_count,
+                            "etenders_endpoint_failure_count": etenders_endpoint_failure_count,
+                            "etenders_document_candidates_from_endpoints": etenders_document_candidates_from_endpoints,
+                            "etenders_endpoint_failures_by_reason": etenders_endpoint_failures_by_reason,
+                        }
+
+        source_ext = _v64_document_extension(source_link_url, "", Path(urlparse(source_link_url).path).name)
+        if source_ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+            direct_candidate = {
+                "url": source_link_url,
+                "document_url": source_link_url,
+                "filename": _v56_safe_filename(urlparse(source_link_url).path, "document" + source_ext),
+                "extension": source_ext,
+                "candidate_classification": "direct_file",
+                "candidate_score": 100,
+                "candidate_rejection_reason": "",
+            }
+            source_link_diag.update({
+                "resolved_index_page_url": source_link_url,
+                "artifact_candidates_found_count": 1,
+            })
+            diagnostics.append(source_link_diag)
+            artifact_candidates_found_count += 1
+            _record_candidate_summary(direct_candidate, True)
+            direct_result = _v56_download_document({
+                **direct_candidate,
+                "source_url": _clean(source.get("url") or source.get("list_url") or candidate.get("source_url")),
+                "source_name": _clean(source.get("name") or source.get("source_name")),
+            }, source, timeout=timeout)
+            art_attempts = _annotate_attempts(
+                direct_result,
+                diagnostic_type="artifact_candidate",
+                source_link_url=source_link_url,
+                resolved_index_page_url=source_link_url,
+                artifact_candidates_count=1,
+                candidate_context=direct_candidate,
+            )
+            diagnostics.extend(art_attempts)
+            direct_success = direct_result.get("status") == "downloaded"
+            artifact_download_attempts_count += 1
+            artifact_resolved_to_html_count += sum(1 for diag in art_attempts if _clean(diag.get("failure_stage")) == "artifact_resolved_to_html")
+            artifact_binary_signature_success_count += sum(1 for diag in art_attempts if bool(diag.get("binary_signature_verified")))
+            if direct_success:
+                artifact_download_success_count += 1
+                downloaded_path = _clean(direct_result.get("artifact_path") or direct_result.get("path"))
+                downloaded_timestamp = _clean(direct_result.get("download_finished_at") or _now_iso())
+                source_link_diag["failure_stage"] = "artifact_saved"
+                source_link_diag["failure_reason"] = ""
+                source_link_diag["download_finished_at"] = downloaded_timestamp
+                source_link_diag["fallback_used"] = bool(direct_result.get("fallback_used"))
+                direct_downloads.append(direct_result)
+                break
+            artifact_download_failed_count += 1
+            source_link_diag.update({
+                "failure_stage": "artifact_download_failed",
+                "failure_reason": _clean(direct_result.get("failure_reason") or direct_result.get("reason") or "download_error"),
+                "download_finished_at": _clean(direct_result.get("download_finished_at") or _now_iso()),
+                "fallback_used": bool(direct_result.get("fallback_used")),
+            })
+            continue
+
+        try:
+            response = requests.get(
+                source_link_url,
+                timeout=timeout,
+                allow_redirects=True,
+                verify=bool(source.get("verify_ssl", True)),
+                headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0", "Accept": "text/html,application/xhtml+xml,*/*"},
+            )
+            index_pages_fetched_count += 1
+            resolved_index_page_url = _clean(response.url or source_link_url)
+            index_page_http_status = int(getattr(response, "status_code", 0) or 0)
+            content_type = _safe_lower(response.headers.get("content-type"))
+            source_link_diag["resolved_index_page_url"] = resolved_index_page_url
+            source_link_diag["index_page_http_status"] = index_page_http_status
+            source_link_diag["fallback_used"] = bool(resolved_index_page_url and resolved_index_page_url != source_link_url)
+            redirect_chain = [
+                {"url": _clean(item.url), "status_code": int(getattr(item, "status_code", 0) or 0)}
+                for item in list(getattr(response, "history", []) or [])
+            ]
+            redirect_chain.append({"url": resolved_index_page_url, "status_code": index_page_http_status})
+            if index_page_http_status in {401, 403, 407, 429}:
+                source_link_diag.update({
+                    "failure_stage": "auth_required",
+                    "failure_reason": f"HTTP {index_page_http_status}",
+                    "download_finished_at": _now_iso(),
+                })
+                diagnostics.append(source_link_diag)
+                continue
+            if not response.ok:
+                source_link_diag.update({
+                    "failure_stage": "http_fetch",
+                    "failure_reason": f"HTTP {index_page_http_status}",
+                    "download_finished_at": _now_iso(),
+                })
+                diagnostics.append(source_link_diag)
+                continue
+            response_text = getattr(response, "text", "") or ""
+            if "html" not in content_type and not _v64_document_index_page(source_link_diag, content_type, response_text):
+                if _v64_is_etenders_detail_page(resolved_index_page_url):
+                    endpoint_probe_result = _v64_probe_etenders_document_endpoints(
+                        response_text,
+                        resolved_index_page_url,
+                        source,
+                        timeout=timeout,
+                    )
+                    source_link_diag["etenders_endpoint_probe_count"] = int(endpoint_probe_result.get("etenders_endpoint_probe_count") or 0)
+                    source_link_diag["etenders_endpoint_success_count"] = int(endpoint_probe_result.get("etenders_endpoint_success_count") or 0)
+                    source_link_diag["etenders_endpoint_failure_count"] = int(endpoint_probe_result.get("etenders_endpoint_failure_count") or 0)
+                    source_link_diag["etenders_document_candidates_from_endpoints"] = int(endpoint_probe_result.get("etenders_document_candidates_from_endpoints") or 0)
+                    source_link_diag["etenders_endpoint_failures_by_reason"] = endpoint_probe_result.get("etenders_endpoint_failures_by_reason") or {}
+                    etenders_endpoint_probe_count += int(endpoint_probe_result.get("etenders_endpoint_probe_count") or 0)
+                    etenders_endpoint_success_count += int(endpoint_probe_result.get("etenders_endpoint_success_count") or 0)
+                    etenders_endpoint_failure_count += int(endpoint_probe_result.get("etenders_endpoint_failure_count") or 0)
+                    etenders_document_candidates_from_endpoints += int(endpoint_probe_result.get("etenders_document_candidates_from_endpoints") or 0)
+                    for reason_key, count in (endpoint_probe_result.get("etenders_endpoint_failures_by_reason") or {}).items():
+                        key = _clean(reason_key) or "endpoint_probe_failed"
+                        etenders_endpoint_failures_by_reason[key] = etenders_endpoint_failures_by_reason.get(key, 0) + int(count or 0)
+                    diagnostics.extend(endpoint_probe_result.get("diagnostics") or [])
+                    endpoint_candidates = endpoint_probe_result.get("artifact_candidates") or []
+                    if endpoint_candidates:
+                        source_link_diag["artifact_candidates_found_count"] = len(endpoint_candidates)
+                        diagnostics.append(source_link_diag)
+                        artifact_candidates_found_count += len(endpoint_candidates)
+                        index_pages_with_artifacts_count += 1
+                        attempted_candidates: List[Dict[str, Any]] = []
+                        for artifact_candidate in endpoint_candidates:
+                            should_attempt = bool(artifact_candidate.get("candidate_should_attempt"))
+                            _record_candidate_summary(artifact_candidate, should_attempt)
+                            if not should_attempt:
+                                diagnostics.append(_rejected_candidate_diag(artifact_candidate, source_link_url, resolved_index_page_url))
+                                continue
+                            attempted_candidates.append(artifact_candidate)
+                        for artifact_candidate in attempted_candidates:
+                            artifact_download_attempts_count += 1
+                            download_result = _v56_download_document(artifact_candidate, source, timeout=timeout)
+                            art_attempts = _annotate_attempts(
+                                download_result,
+                                diagnostic_type="artifact_candidate",
+                                source_link_url=source_link_url,
+                                resolved_index_page_url=resolved_index_page_url,
+                                artifact_candidates_count=len(endpoint_candidates),
+                                candidate_context=artifact_candidate,
+                            )
+                            diagnostics.extend(art_attempts)
+                            artifact_resolved_to_html_count += sum(1 for diag in art_attempts if _clean(diag.get("failure_stage")) == "artifact_resolved_to_html")
+                            artifact_binary_signature_success_count += sum(1 for diag in art_attempts if bool(diag.get("binary_signature_verified")))
+                            if download_result.get("status") == "downloaded":
+                                artifact_download_success_count += 1
+                                downloaded_path = _clean(download_result.get("artifact_path") or download_result.get("path"))
+                                downloaded_timestamp = _clean(download_result.get("download_finished_at") or _now_iso())
+                                fallback_used = bool(download_result.get("fallback_used")) or fallback_used
+                                direct_downloads.append(download_result)
+                                break
+                            artifact_download_failed_count += 1
+                        if downloaded_path:
+                            break
+                ext = _v64_document_extension(resolved_index_page_url, content_type, Path(urlparse(resolved_index_page_url).path).name)
+                if ext in DOCUMENT_DOWNLOAD_EXTENSIONS:
+                    resolved_candidate = {
+                        "url": resolved_index_page_url,
+                        "document_url": resolved_index_page_url,
+                        "filename": _v56_safe_filename(urlparse(resolved_index_page_url).path, "document" + ext),
+                        "extension": ext,
+                        "candidate_classification": "direct_file",
+                        "candidate_score": 100,
+                        "candidate_rejection_reason": "",
+                    }
+                    source_link_diag["artifact_candidates_found_count"] = 1
+                    diagnostics.append(source_link_diag)
+                    artifact_candidates_found_count += 1
+                    _record_candidate_summary(resolved_candidate, True)
+                    direct_result = _v56_download_document({
+                        **resolved_candidate,
+                        "source_url": _clean(source.get("url") or source.get("list_url") or candidate.get("source_url")),
+                        "source_name": _clean(source.get("name") or source.get("source_name")),
+                    }, source, timeout=timeout)
+                    art_attempts = _annotate_attempts(
+                        direct_result,
+                        diagnostic_type="artifact_candidate",
+                        source_link_url=source_link_url,
+                        resolved_index_page_url=resolved_index_page_url,
+                        artifact_candidates_count=1,
+                        candidate_context=resolved_candidate,
+                    )
+                    diagnostics.extend(art_attempts)
+                    artifact_download_attempts_count += 1
+                    artifact_resolved_to_html_count += sum(1 for diag in art_attempts if _clean(diag.get("failure_stage")) == "artifact_resolved_to_html")
+                    artifact_binary_signature_success_count += sum(1 for diag in art_attempts if bool(diag.get("binary_signature_verified")))
+                    if direct_result.get("status") == "downloaded":
+                        artifact_download_success_count += 1
+                        downloaded_path = _clean(direct_result.get("artifact_path") or direct_result.get("path"))
+                        downloaded_timestamp = _clean(direct_result.get("download_finished_at") or _now_iso())
+                        source_link_diag["failure_stage"] = "artifact_saved"
+                        source_link_diag["failure_reason"] = ""
+                        source_link_diag["download_finished_at"] = downloaded_timestamp
+                        source_link_diag["fallback_used"] = bool(direct_result.get("fallback_used"))
+                        direct_downloads.append(direct_result)
+                        break
+                    artifact_download_failed_count += 1
+                    source_link_diag.update({
+                        "failure_stage": "artifact_download_failed",
+                        "failure_reason": _clean(direct_result.get("failure_reason") or direct_result.get("reason") or "download_error"),
+                        "download_finished_at": _clean(direct_result.get("download_finished_at") or _now_iso()),
+                        "fallback_used": bool(direct_result.get("fallback_used")),
+                    })
+                    continue
+                source_link_diag.update({
+                    "failure_stage": "unsupported_content_type",
+                    "failure_reason": "unsupported_response_type",
+                    "download_finished_at": _now_iso(),
+                })
+                diagnostics.append(source_link_diag)
+                continue
+            html_body = response_text
+            artifact_candidates = _v64_extract_artifact_candidate_links_from_html(html_body, resolved_index_page_url, source, source_link_url)
+            rendered_dom_capture_result: Dict[str, Any] = {}
+            interactive_blob_candidates: List[Dict[str, Any]] = []
+            rendered_dom_capture_diag: Dict[str, Any] = {
+                "diagnostic_type": "etenders_rendered_dom_capture",
+                "source_link_url": source_link_url,
+                "resolved_index_page_url": resolved_index_page_url,
+                "source_context": _clean(
+                    candidate.get("title")
+                    or candidate.get("description")
+                    or candidate.get("reference_number")
+                    or candidate.get("tender_id")
+                    or ""
+                ),
+                "source_html_path": "rendered_html_blob_link",
+                "source_json_path": "rendered_html_blob_link",
+                "status": "attempted",
+                "failure_reason": "",
+                "rendered_html_length": 0,
+                "rendered_blob_candidates_count": 0,
+            }
+            interactive_dom_capture_diag: Dict[str, Any] = {
+                "diagnostic_type": "etenders_interactive_dom_capture",
+                "tender_id": _clean(
+                    candidate.get("tender_id")
+                    or _v64_extract_etenders_tender_id(
+                        candidate.get("detail_url"),
+                        candidate.get("document_url"),
+                        candidate.get("url"),
+                        candidate.get("title"),
+                        candidate.get("description"),
+                        candidate.get("reference_number"),
+                        source_link_url,
+                        resolved_index_page_url,
+                    )
+                ),
+                "candidate_title": _clean(candidate.get("title") or candidate.get("description") or candidate.get("reference_number") or ""),
+                "source_link_url": source_link_url,
+                "resolved_index_page_url": resolved_index_page_url,
+                "source_context": "clicked_expanded_tender_row",
+                "source_html_path": "interactive_rendered_dom_blob_link",
+                "source_json_path": "interactive_rendered_dom_blob_link",
+                "row_found": False,
+                "row_expanded": False,
+                "table_container_found": False,
+                "datatables_processing_seen": False,
+                "datatables_processing_finished": False,
+                "main_response_status": 0,
+                "body_text_length": 0,
+                "body_html_length": 0,
+                "body_text_preview_limited": "",
+                "visible_row_count": 0,
+                "page_text_limited_before_row_search": "",
+                "table_count": 0,
+                "row_count_by_selector": {},
+                "first_rows_text_limited": [],
+                "visible_links_limited": [],
+                "helper_input_url": "",
+                "helper_resolved_url": "",
+                "helper_used_detail_page": False,
+                "helper_used_opportunities_page": False,
+                "helper_preserved_query_params": False,
+                "detail_page_url_available": False,
+                "opportunities_url_available": False,
+                "browser_mode": "failed",
+                "page_url_after_load": resolved_index_page_url,
+                "page_title": "",
+                "screenshot_path": "",
+                "row_match_strategy": "",
+                "row_match_text": "",
+                "matched_row_text_limited": "",
+                "row_selector_used": "table tbody tr, table tr, [role=\"row\"], .dataTables_wrapper tr",
+                "row_click_target_used": "",
+                "documents_section_found": False,
+                "tender_documents_text_limited": "",
+                "document_anchor_count": 0,
+                "all_anchor_hrefs_limited": [],
+                "all_anchor_texts_limited": [],
+                "download_like_anchor_count": 0,
+                "blob_like_string_count": 0,
+                "visible_text_limited": "",
+                "post_click_wait_ms": 0,
+                "blob_links_limited": [],
+                "interactive_blob_candidates_count": 0,
+                "helper_error_type": "",
+                "helper_error_message_limited": "",
+                "failure_reason": "",
+                "download_started_at": _now_iso(),
+                "download_finished_at": _now_iso(),
+            }
+            helper_detail_page_url = _clean(
+                candidate.get("detail_url")
+                or (resolved_index_page_url if _v64_is_etenders_detail_page(resolved_index_page_url) else "")
+                or (source_link_url if _v64_is_etenders_detail_page(source_link_url) else "")
+            )
+            helper_opportunities_url = _clean(
+                _v64_pick_etenders_opportunities_url(
+                    candidate.get("opportunities_url"),
+                    candidate.get("source_url"),
+                    candidate.get("url"),
+                    resolved_index_page_url,
+                    source_link_url,
+                    source.get("url"),
+                    source.get("list_url"),
+                    ETENDERS_URL,
+                )
+            )
+            if capture_dom_modal_autoclick is not None:
+                try:
+                    rendered_dom_capture_result = capture_dom_modal_autoclick({
+                        "tender_id": _v64_extract_etenders_tender_id(source_link_url, candidate.get("tender_id"), resolved_index_page_url),
+                        "tender_title": _clean(candidate.get("title") or candidate.get("description") or candidate.get("reference_number") or ""),
+                        "buyer": _clean(candidate.get("buyer") or candidate.get("buyer_name") or candidate.get("procuring_entity") or ""),
+                        "reference_number": _clean(candidate.get("reference_number") or candidate.get("rfq_number") or candidate.get("tender_number") or ""),
+                        "search_text": _clean(candidate.get("title") or candidate.get("description") or candidate.get("reference_number") or candidate.get("tender_id") or ""),
+                        "detail_page_url": helper_detail_page_url,
+                        "opportunities_url": helper_opportunities_url,
+                        "tender_url": helper_detail_page_url or helper_opportunities_url or resolved_index_page_url,
+                        "cdp_url": _clean(source.get("cdp_url") or source.get("browser_cdp_url") or source.get("playwright_cdp_url") or ""),
+                    }) or {}
+                except Exception as exc:
+                    rendered_dom_capture_result = {
+                        "status": "error",
+                        "error": str(exc),
+                        "helper_error_type": type(exc).__name__,
+                        "helper_error_message_limited": _v64_limit_snippet(str(exc), 240),
+                        "table_container_found": False,
+                        "datatables_processing_seen": False,
+                        "datatables_processing_finished": False,
+                        "main_response_status": 0,
+                        "body_text_length": 0,
+                        "body_html_length": 0,
+                        "body_text_preview_limited": "",
+                        "visible_row_count": 0,
+                        "page_text_limited_before_row_search": "",
+                        "table_count": 0,
+                        "row_count_by_selector": {},
+                        "first_rows_text_limited": [],
+                        "visible_links_limited": [],
+                        "helper_input_url": "",
+                        "helper_resolved_url": "",
+                        "helper_used_detail_page": False,
+                        "helper_used_opportunities_page": False,
+                        "helper_preserved_query_params": False,
+                        "detail_page_url_available": False,
+                        "opportunities_url_available": False,
+                        "browser_mode": "failed",
+                        "page_url_after_load": "",
+                        "page_title": "",
+                        "screenshot_path": "",
+                        "row_found": False,
+                        "row_expanded": False,
+                        "row_match_strategy": "",
+                        "row_match_text": "",
+                        "matched_row_text_limited": "",
+                        "documents_section_found": False,
+                        "tender_documents_text_limited": "",
+                        "document_anchor_count": 0,
+                        "all_anchor_hrefs_limited": [],
+                        "all_anchor_texts_limited": [],
+                        "download_like_anchor_count": 0,
+                        "blob_like_string_count": 0,
+                        "visible_text_limited": "",
+                        "post_click_wait_ms": 0,
+                        "blob_links": [],
+                        "interactive_blob_candidates_count": 0,
+                    }
+                if isinstance(rendered_dom_capture_result, dict):
+                    expanded_dom = rendered_dom_capture_result.get("expanded_dom") if isinstance(rendered_dom_capture_result.get("expanded_dom"), dict) else {}
+                    rendered_html = _clean(
+                        expanded_dom.get("body_html_preview")
+                        or expanded_dom.get("html")
+                        or rendered_dom_capture_result.get("body_html_preview")
+                        or rendered_dom_capture_result.get("html")
+                    )
+                    rendered_dom_capture_diag["status"] = _clean(rendered_dom_capture_result.get("status") or "ok")
+                    rendered_dom_capture_diag["failure_reason"] = _clean(rendered_dom_capture_result.get("error") or rendered_dom_capture_result.get("failure_reason") or "")
+                    rendered_dom_capture_diag["rendered_html_length"] = len(rendered_html)
+                    interactive_dom_capture_diag.update({
+                        "row_found": bool(
+                            rendered_dom_capture_result.get("row_found")
+                            or rendered_dom_capture_result.get("row_clicked")
+                            or rendered_dom_capture_result.get("matched_row")
+                        ),
+                        "row_expanded": bool(rendered_dom_capture_result.get("row_expanded")),
+                        "row_selector_used": _clean(rendered_dom_capture_result.get("row_selector_used") or ""),
+                        "row_click_target_used": _clean(rendered_dom_capture_result.get("row_click_target_used") or ""),
+                        "table_container_found": bool(rendered_dom_capture_result.get("table_container_found")),
+                        "datatables_processing_seen": bool(rendered_dom_capture_result.get("datatables_processing_seen")),
+                        "datatables_processing_finished": bool(rendered_dom_capture_result.get("datatables_processing_finished")),
+                        "main_response_status": int(rendered_dom_capture_result.get("main_response_status") or 0),
+                        "body_text_length": int(rendered_dom_capture_result.get("body_text_length") or 0),
+                        "body_html_length": int(rendered_dom_capture_result.get("body_html_length") or 0),
+                        "body_text_preview_limited": _v64_limit_snippet(rendered_dom_capture_result.get("body_text_preview_limited") or ""),
+                        "visible_row_count": int(rendered_dom_capture_result.get("visible_row_count") or 0),
+                        "page_text_limited_before_row_search": _v64_limit_snippet(rendered_dom_capture_result.get("page_text_limited_before_row_search") or ""),
+                        "table_count": int(rendered_dom_capture_result.get("table_count") or 0),
+                        "row_count_by_selector": rendered_dom_capture_result.get("row_count_by_selector") or {},
+                        "first_rows_text_limited": rendered_dom_capture_result.get("first_rows_text_limited") or [],
+                        "visible_links_limited": rendered_dom_capture_result.get("visible_links_limited") or [],
+                        "helper_input_url": _clean(rendered_dom_capture_result.get("helper_input_url") or ""),
+                        "helper_resolved_url": _clean(rendered_dom_capture_result.get("helper_resolved_url") or ""),
+                        "helper_used_detail_page": bool(rendered_dom_capture_result.get("helper_used_detail_page")),
+                        "helper_used_opportunities_page": bool(rendered_dom_capture_result.get("helper_used_opportunities_page")),
+                        "helper_preserved_query_params": bool(rendered_dom_capture_result.get("helper_preserved_query_params")),
+                        "detail_page_url_available": bool(rendered_dom_capture_result.get("detail_page_url_available")),
+                        "opportunities_url_available": bool(rendered_dom_capture_result.get("opportunities_url_available")),
+                        "browser_mode": _clean(rendered_dom_capture_result.get("browser_mode") or "failed"),
+                        "page_url_after_load": _clean(rendered_dom_capture_result.get("page_url_after_load") or resolved_index_page_url),
+                        "page_title": _clean(rendered_dom_capture_result.get("page_title") or ""),
+                        "screenshot_path": _clean(rendered_dom_capture_result.get("screenshot_path") or ""),
+                        "row_match_strategy": _clean(rendered_dom_capture_result.get("row_match_strategy") or ""),
+                        "row_match_text": _clean(rendered_dom_capture_result.get("row_match_text") or ""),
+                        "matched_row_text_limited": _v64_limit_snippet(rendered_dom_capture_result.get("matched_row_text_limited") or ""),
+                        "helper_error_type": _clean(rendered_dom_capture_result.get("helper_error_type") or ""),
+                        "helper_error_message_limited": _v64_limit_snippet(rendered_dom_capture_result.get("helper_error_message_limited") or ""),
+                        "documents_section_found": bool(
+                            rendered_dom_capture_result.get("documents_section_found")
+                            or (rendered_dom_capture_result.get("expanded_dom") or {}).get("documents_section_found")
+                        ),
+                        "tender_documents_text_limited": _v64_limit_snippet(rendered_dom_capture_result.get("tender_documents_text_limited") or (rendered_dom_capture_result.get("expanded_dom") or {}).get("tender_documents_text_limited") or ""),
+                        "document_anchor_count": int(rendered_dom_capture_result.get("document_anchor_count") or (rendered_dom_capture_result.get("expanded_dom") or {}).get("document_anchor_count") or 0),
+                        "all_anchor_hrefs_limited": _v64_unique_compact(rendered_dom_capture_result.get("all_anchor_hrefs_limited") or (rendered_dom_capture_result.get("expanded_dom") or {}).get("all_anchor_hrefs_limited") or [], limit=20, snippet_limit=220),
+                        "all_anchor_texts_limited": _v64_unique_compact(rendered_dom_capture_result.get("all_anchor_texts_limited") or (rendered_dom_capture_result.get("expanded_dom") or {}).get("all_anchor_texts_limited") or [], limit=20, snippet_limit=220),
+                        "download_like_anchor_count": int(rendered_dom_capture_result.get("download_like_anchor_count") or (rendered_dom_capture_result.get("expanded_dom") or {}).get("download_like_anchor_count") or 0),
+                        "blob_like_string_count": int(rendered_dom_capture_result.get("blob_like_string_count") or (rendered_dom_capture_result.get("expanded_dom") or {}).get("blob_like_string_count") or 0),
+                        "visible_text_limited": _v64_limit_snippet(rendered_dom_capture_result.get("visible_text_limited") or (rendered_dom_capture_result.get("expanded_dom") or {}).get("visible_text_limited") or ""),
+                        "post_click_wait_ms": int(rendered_dom_capture_result.get("post_click_wait_ms") or 0),
+                        "blob_links_limited": [],
+                    })
+                    rendered_blob_links: List[Dict[str, Any]] = []
+                    rendered_blob_link_hrefs: List[str] = []
+                    seen_rendered_blob_hrefs = set()
+                    for blob_source in (
+                        rendered_dom_capture_result.get("blob_links") if isinstance(rendered_dom_capture_result.get("blob_links"), list) else [],
+                        (rendered_dom_capture_result.get("expanded_dom") or {}).get("blob_links") if isinstance(rendered_dom_capture_result.get("expanded_dom"), dict) else [],
+                    ):
+                        if not isinstance(blob_source, list):
+                            continue
+                        for link in blob_source:
+                            if not isinstance(link, dict):
+                                continue
+                            href = _clean(link.get("href") or link.get("url") or link.get("document_url"))
+                            if not href or href in seen_rendered_blob_hrefs:
+                                continue
+                            seen_rendered_blob_hrefs.add(href)
+                            rendered_blob_links.append(link)
+                            rendered_blob_link_hrefs.append(href)
+                    interactive_blob_candidates = _v64_extract_interactive_blob_candidates(
+                        rendered_blob_links,
+                        resolved_index_page_url,
+                        source,
+                        source_link_url,
+                    )
+                    if interactive_blob_candidates:
+                        artifact_candidates = _v56_dedupe_document_links(artifact_candidates + interactive_blob_candidates)
+                        artifact_candidates.sort(key=lambda item: int(item.get("candidate_score") or 0), reverse=True)
+                    rendered_dom_capture_diag.update({
+                        "row_found": bool(
+                            rendered_dom_capture_result.get("row_found")
+                            or rendered_dom_capture_result.get("row_clicked")
+                            or rendered_dom_capture_result.get("matched_row")
+                        ),
+                        "row_expanded": bool(rendered_dom_capture_result.get("row_expanded")),
+                        "documents_section_found": bool(
+                            rendered_dom_capture_result.get("documents_section_found")
+                            or (rendered_dom_capture_result.get("expanded_dom") or {}).get("documents_section_found")
+                            or interactive_blob_candidates
+                        ),
+                        "interactive_blob_candidates_count": len(interactive_blob_candidates),
+                        "rendered_blob_candidates_count": len(interactive_blob_candidates),
+                        "blob_links_limited": rendered_blob_link_hrefs[:10],
+                    })
+            if rendered_dom_capture_diag["status"] != "attempted" or rendered_dom_capture_diag["rendered_html_length"] or rendered_dom_capture_diag["failure_reason"] == "":
+                diagnostics.append(rendered_dom_capture_diag)
+            interactive_dom_capture_diag["interactive_blob_candidates_count"] = len(interactive_blob_candidates)
+            if not interactive_dom_capture_diag["row_found"]:
+                interactive_dom_capture_diag["failure_reason"] = "row_not_found|page_state_no_table" if not interactive_dom_capture_diag["table_container_found"] else "row_not_found"
+            elif not interactive_dom_capture_diag["documents_section_found"]:
+                interactive_dom_capture_diag["failure_reason"] = "documents_section_not_found"
+            elif not interactive_blob_candidates:
+                interactive_dom_capture_diag["failure_reason"] = "no_blob_links_found"
+            else:
+                interactive_dom_capture_diag["failure_reason"] = _clean(
+                    rendered_dom_capture_result.get("failure_reason")
+                    or rendered_dom_capture_result.get("error")
+                    or ""
+                )
+            diagnostics.append(interactive_dom_capture_diag)
+            if _v64_is_etenders_detail_page(resolved_index_page_url) and not interactive_blob_candidates:
+                endpoint_probe_result = _v64_probe_etenders_document_endpoints(
+                    html_body,
+                    resolved_index_page_url,
+                    source,
+                    timeout=timeout,
+                )
+                source_link_diag["etenders_endpoint_probe_count"] = int(endpoint_probe_result.get("etenders_endpoint_probe_count") or 0)
+                source_link_diag["etenders_endpoint_success_count"] = int(endpoint_probe_result.get("etenders_endpoint_success_count") or 0)
+                source_link_diag["etenders_endpoint_failure_count"] = int(endpoint_probe_result.get("etenders_endpoint_failure_count") or 0)
+                source_link_diag["etenders_document_candidates_from_endpoints"] = int(endpoint_probe_result.get("etenders_document_candidates_from_endpoints") or 0)
+                source_link_diag["etenders_endpoint_failures_by_reason"] = endpoint_probe_result.get("etenders_endpoint_failures_by_reason") or {}
+                etenders_endpoint_probe_count += int(endpoint_probe_result.get("etenders_endpoint_probe_count") or 0)
+                etenders_endpoint_success_count += int(endpoint_probe_result.get("etenders_endpoint_success_count") or 0)
+                etenders_endpoint_failure_count += int(endpoint_probe_result.get("etenders_endpoint_failure_count") or 0)
+                etenders_document_candidates_from_endpoints += int(endpoint_probe_result.get("etenders_document_candidates_from_endpoints") or 0)
+                for reason_key, count in (endpoint_probe_result.get("etenders_endpoint_failures_by_reason") or {}).items():
+                    key = _clean(reason_key) or "endpoint_probe_failed"
+                    etenders_endpoint_failures_by_reason[key] = etenders_endpoint_failures_by_reason.get(key, 0) + int(count or 0)
+                diagnostics.extend(endpoint_probe_result.get("diagnostics") or [])
+                artifact_candidates = _v56_dedupe_document_links(
+                    artifact_candidates + (endpoint_probe_result.get("artifact_candidates") or [])
+                )
+                artifact_candidates.sort(key=lambda item: int(item.get("candidate_score") or 0), reverse=True)
+            source_link_diag["artifact_candidates_found_count"] = len(artifact_candidates)
+            artifact_candidates_found_count += len(artifact_candidates)
+            if not artifact_candidates:
+                index_page_no_artifacts_count += 1
+                source_link_diag.update({
+                    "failure_stage": "index_page_no_artifacts",
+                    "failure_reason": "no_artifact_links_found",
+                    "download_finished_at": _now_iso(),
+                })
+                diagnostics.append(source_link_diag)
+                continue
+            index_pages_with_artifacts_count += 1
+            source_link_diag["failure_stage"] = ""
+            source_link_diag["failure_reason"] = ""
+            source_link_diag["download_finished_at"] = _now_iso()
+            diagnostics.append(source_link_diag)
+            attempted_candidates: List[Dict[str, Any]] = []
+            for artifact_candidate in artifact_candidates:
+                should_attempt = bool(artifact_candidate.get("candidate_should_attempt"))
+                _record_candidate_summary(artifact_candidate, should_attempt)
+                if not should_attempt:
+                    diagnostics.append(_rejected_candidate_diag(artifact_candidate, source_link_url, resolved_index_page_url))
+                    continue
+                attempted_candidates.append(artifact_candidate)
+            for artifact_candidate in attempted_candidates:
+                artifact_download_attempts_count += 1
+                download_result = _v56_download_document(artifact_candidate, source, timeout=timeout)
+                art_attempts = _annotate_attempts(
+                    download_result,
+                    diagnostic_type="artifact_candidate",
+                    source_link_url=source_link_url,
+                    resolved_index_page_url=resolved_index_page_url,
+                    artifact_candidates_count=len(artifact_candidates),
+                    candidate_context=artifact_candidate,
+                )
+                diagnostics.extend(art_attempts)
+                artifact_resolved_to_html_count += sum(1 for diag in art_attempts if _clean(diag.get("failure_stage")) == "artifact_resolved_to_html")
+                artifact_binary_signature_success_count += sum(1 for diag in art_attempts if bool(diag.get("binary_signature_verified")))
+                if download_result.get("status") == "downloaded":
+                    artifact_download_success_count += 1
+                    downloaded_path = _clean(download_result.get("artifact_path") or download_result.get("path"))
+                    downloaded_timestamp = _clean(download_result.get("download_finished_at") or _now_iso())
+                    fallback_used = bool(download_result.get("fallback_used")) or fallback_used
+                    direct_downloads.append(download_result)
+                    break
+                artifact_download_failed_count += 1
+                fallback_used = bool(download_result.get("fallback_used")) or fallback_used
+            if downloaded_path:
+                break
+            if not any(artifact.get("status") == "downloaded" for artifact in direct_downloads):
+                source_link_diag["failure_stage"] = "artifact_download_failed"
+                source_link_diag["failure_reason"] = "all_artifact_candidates_failed"
+        except Exception as exc:
+            source_link_diag.update({
+                "failure_stage": "http_fetch",
+                "failure_reason": _truncate(str(exc), 240),
+                "download_finished_at": _now_iso(),
+            })
+            diagnostics.append(source_link_diag)
+            continue
+
+    failure_reason = ""
+    if not downloaded_path:
+        diagnostic_reasons: List[str] = []
+        for diag in diagnostics:
+            if not isinstance(diag, dict):
+                continue
+            diagnostic_type = _clean(diag.get("diagnostic_type"))
+            failure_stage = _clean(diag.get("failure_stage"))
+            if diagnostic_type == "source_link":
+                if failure_stage == "url_resolution":
+                    diagnostic_reasons.append("buyer_pack_url_resolution_failed")
+                elif failure_stage == "auth_required":
+                    diagnostic_reasons.append("buyer_pack_auth_required")
+                elif failure_stage == "http_fetch":
+                    diagnostic_reasons.append("buyer_pack_download_failed")
+                elif failure_stage == "unsupported_content_type":
+                    diagnostic_reasons.append("unsupported_document_format")
+                elif failure_stage == "index_page_no_artifacts":
+                    diagnostic_reasons.append("index_page_no_artifacts")
+                elif failure_stage == "skipped":
+                    diagnostic_reasons.append(_clean(diag.get("failure_reason") or "source_link_skipped"))
+            elif diagnostic_type == "artifact_candidate":
+                if failure_stage == "url_resolution":
+                    diagnostic_reasons.append("buyer_pack_url_resolution_failed")
+                elif failure_stage == "auth_required":
+                    diagnostic_reasons.append("buyer_pack_auth_required")
+                elif failure_stage == "unsupported_content_type":
+                    diagnostic_reasons.append("unsupported_document_format")
+                elif failure_stage == "artifact_resolved_to_html":
+                    diagnostic_reasons.append("artifact_resolved_to_html")
+                elif failure_stage == "empty_content":
+                    diagnostic_reasons.append("empty_document_content")
+                elif failure_stage == "file_write":
+                    diagnostic_reasons.append("buyer_pack_file_write_failed")
+                elif failure_stage == "checksum":
+                    diagnostic_reasons.append("artifact_checksum_failed")
+                elif failure_stage == "http_fetch":
+                    diagnostic_reasons.append("buyer_pack_download_failed")
+                elif failure_stage == "skipped":
+                    diagnostic_reasons.append(_clean(diag.get("failure_reason") or "artifact_candidate_skipped"))
+            elif diagnostic_type == "artifact_candidate_rejected":
+                diagnostic_reasons.append(_clean(diag.get("candidate_rejection_reason") or "artifact_candidate_skipped"))
+        if diagnostic_reasons:
+            failure_reason = _truncate(diagnostic_reasons[0], 120)
+        elif index_page_no_artifacts_count > 0:
+            failure_reason = "index_page_no_artifacts"
+        elif artifact_candidates_found_count > 0:
+            failure_reason = "artifact_download_failed"
+        elif index_pages_fetched_count > 0:
+            failure_reason = "index_page_no_artifacts"
+        else:
+            failure_reason = "document_links_detected_but_no_artifact"
+
+    return {
+        "attempted": attempted,
+        "downloaded": bool(downloaded_path),
+        "buyer_pack_downloaded": bool(downloaded_path),
+        "buyer_pack_path": downloaded_path,
+        "buyer_pack_download_timestamp": downloaded_timestamp,
+        "failure_reason": failure_reason,
+        "diagnostics": diagnostics,
+        "downloads": direct_downloads,
+        "index_pages_fetched_count": index_pages_fetched_count,
+        "index_pages_with_artifacts_count": index_pages_with_artifacts_count,
+        "artifact_candidates_found_count": artifact_candidates_found_count,
+        "artifact_download_attempts_count": artifact_download_attempts_count,
+        "artifact_download_success_count": artifact_download_success_count,
+        "artifact_candidates_total": artifact_candidates_total,
+        "artifact_candidates_attempted": artifact_candidates_attempted,
+        "artifact_candidates_rejected_before_fetch": artifact_candidates_rejected_before_fetch,
+        "artifact_candidates_by_classification": artifact_candidates_by_classification,
+        "artifact_rejections_by_reason": artifact_rejections_by_reason,
+        "artifact_resolved_to_html_count": artifact_resolved_to_html_count,
+        "artifact_binary_signature_success_count": artifact_binary_signature_success_count,
+        "etenders_endpoint_probe_count": etenders_endpoint_probe_count,
+        "etenders_endpoint_success_count": etenders_endpoint_success_count,
+        "etenders_endpoint_failure_count": etenders_endpoint_failure_count,
+        "etenders_document_candidates_from_endpoints": etenders_document_candidates_from_endpoints,
+        "etenders_endpoint_failures_by_reason": etenders_endpoint_failures_by_reason,
+        "index_page_no_artifacts_count": index_page_no_artifacts_count,
+        "artifact_download_failed_count": artifact_download_failed_count,
+        "fallback_used": fallback_used,
+    }
 
 
 def _v56_extract_document_links_from_html(html: str, base_url: str, source: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -2670,66 +7450,323 @@ def _v56_scan_source_document_links(source: Dict[str, Any], harvested: List[Dict
 
 
 def _v56_download_document(link: Dict[str, Any], source: Dict[str, Any], timeout: int = 25) -> Dict[str, Any]:
-    url = _clean(link.get("url"))
-    ext = _clean(link.get("extension") or _v56_document_extension(url))
-    if ext == ".zip":
-        return {"status": "skipped", "reason": "zip_links_discovered_but_not_downloaded", "link": link}
-    if ext not in DOCUMENT_DOWNLOAD_EXTENSIONS:
-        return {"status": "skipped", "reason": "unsupported_extension", "link": link}
-    if not _v56_is_safe_public_document_url(url):
-        return {"status": "skipped", "reason": "unsafe_or_non_public_url", "link": link}
-    try:
-        with requests.get(
-            url,
-            timeout=timeout,
-            stream=True,
-            allow_redirects=True,
-            verify=bool(source.get("verify_ssl", True)),
-            headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0", "Accept": "application/pdf,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.*,*/*"},
-        ) as response:
-            ctype = _safe_lower(response.headers.get("content-type"))
-            disposition = _clean(response.headers.get("content-disposition"))
-            detected_ext = _v56_document_extension(url, ctype) or ext
-            if detected_ext == ".zip":
-                return {"status": "skipped", "reason": "zip_response_not_downloaded", "link": link}
-            if detected_ext not in DOCUMENT_DOWNLOAD_EXTENSIONS:
-                return {"status": "skipped", "reason": "unsupported_response_type", "content_type": ctype, "link": link}
-            if "text/html" in ctype:
-                return {"status": "skipped", "reason": "html_response_not_document", "content_type": ctype, "link": link}
-            response.raise_for_status()
-            length = int(response.headers.get("content-length") or 0)
-            if length and length > DOCUMENT_MAX_BYTES:
-                return {"status": "skipped", "reason": "document_too_large", "content_length": length, "link": link}
-            filename = _v56_safe_filename(link.get("filename") or urlparse(response.url).path, "document" + detected_ext)
-            if Path(filename).suffix.lower() not in DOCUMENT_DOWNLOAD_EXTENSIONS:
-                filename = f"{Path(filename).stem}{detected_ext}"
-            digest = sha256(url.encode("utf-8")).hexdigest()[:12]
-            path = DOCUMENT_DISCOVERY_DIR / f"{digest}_{filename}"
-            total = 0
-            with path.open("wb") as handle:
-                for chunk in response.iter_content(chunk_size=65536):
-                    if not chunk:
-                        continue
-                    total += len(chunk)
-                    if total > DOCUMENT_MAX_BYTES:
-                        handle.close()
+    started_at = _now_iso()
+    raw_url = _clean(link.get("url"))
+    source_url = _clean(source.get("url") or source.get("list_url") or link.get("source_url"))
+    ext_hint = _clean(link.get("extension") or _v64_document_extension(raw_url, "", _clean(link.get("filename"))))
+    attempts: List[Dict[str, Any]] = []
+    redirect_chain: List[Dict[str, Any]] = []
+    link_metadata = {
+        key: link.get(key)
+        for key in (
+            "route_pattern_name",
+            "source_json_path",
+            "parameter_names_used",
+            "tender_id_used",
+            "document_id_used",
+            "original_json_value",
+            "resolved_document_url",
+            "source",
+            "source_hint",
+            "candidate_source_json_keys",
+        )
+        if link.get(key) not in (None, "", [], {})
+    }
+
+    def _annotate_attempt(attempt: Dict[str, Any]) -> Dict[str, Any]:
+        if link_metadata:
+            attempt.update(link_metadata)
+        return attempt
+
+    candidate_urls = _v64_resolve_document_url_candidates(link, source)
+    if not candidate_urls:
+        return {
+            "status": "failed",
+            "failure_stage": "url_resolution",
+            "reason": "unable_to_resolve_document_url",
+            "failure_reason": "unable_to_resolve_document_url",
+            "error": "unable_to_resolve_document_url",
+            "download_started_at": started_at,
+            "download_finished_at": _now_iso(),
+            "resolved_document_url": "",
+            "document_url": raw_url,
+            "content_type": "",
+            "content_length": 0,
+            "redirect_chain": [],
+            "artifact_path": "",
+            "artifact_exists": False,
+            "artifact_size_bytes": 0,
+            "fallback_used": False,
+            "link": link,
+            "attempts": [],
+            **link_metadata,
+        }
+
+    fallback_used = len(candidate_urls) > 1
+    for candidate in candidate_urls:
+        candidate_url = _clean(candidate.get("url"))
+        candidate_stage = _clean(candidate.get("stage"))
+        attempt_started_at = _now_iso()
+        attempt: Dict[str, Any] = {
+            "candidate_url": candidate_url,
+            "resolved_document_url": candidate_url,
+            "url_stage": candidate_stage,
+            "download_started_at": attempt_started_at,
+            "download_finished_at": "",
+            "http_status": 0,
+            "content_type": "",
+            "content_length": 0,
+            "redirect_chain": [],
+            "artifact_path": "",
+            "artifact_exists": False,
+            "artifact_size_bytes": 0,
+            "binary_signature_verified": False,
+            "candidate_classification": _clean(link.get("candidate_classification")) or "unknown",
+            "candidate_score": int(link.get("candidate_score") or 0),
+            "candidate_rejection_reason": _clean(link.get("candidate_rejection_reason")),
+            "failure_stage": "",
+            "failure_reason": "",
+        }
+        try:
+            if not candidate_url or not _v56_is_safe_public_document_url(candidate_url):
+                attempt.update({
+                    "failure_stage": "url_resolution",
+                    "failure_reason": "unsafe_or_malformed_document_url",
+                    "download_finished_at": _now_iso(),
+                })
+                attempts.append(_annotate_attempt(attempt))
+                continue
+            with requests.get(
+                candidate_url,
+                timeout=timeout,
+                stream=True,
+                allow_redirects=True,
+                verify=bool(source.get("verify_ssl", True)),
+                headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0", "Accept": "application/pdf,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.*,*/*"},
+            ) as response:
+                ctype = _safe_lower(response.headers.get("content-type"))
+                disposition = _clean(response.headers.get("content-disposition"))
+                content_length = int(response.headers.get("content-length") or 0)
+                redirect_chain = [
+                    {"url": _clean(item.url), "status_code": int(getattr(item, "status_code", 0) or 0)}
+                    for item in list(getattr(response, "history", []) or [])
+                ]
+                redirect_chain.append({"url": _clean(response.url), "status_code": int(getattr(response, "status_code", 0) or 0)})
+                detected_ext = _v64_document_extension(candidate_url, ctype, _clean(link.get("filename") or Path(urlparse(response.url).path).name))
+                if int(response.status_code or 0) in {401, 403, 407, 429}:
+                    attempt.update({
+                        "failure_stage": "auth_required",
+                        "failure_reason": f"HTTP {int(response.status_code or 0)}",
+                        "http_status": int(response.status_code or 0),
+                        "content_type": ctype,
+                        "content_length": content_length,
+                        "redirect_chain": redirect_chain,
+                        "binary_signature_verified": False,
+                        "download_finished_at": _now_iso(),
+                    })
+                    attempts.append(attempt)
+                    continue
+                body_sample = _truncate(response.text or "", 1200) if "html" in ctype and hasattr(response, "text") else ""
+                if "html" in ctype:
+                    attempt.update({
+                        "failure_stage": "artifact_resolved_to_html",
+                        "failure_reason": "html_response_not_document",
+                        "http_status": int(response.status_code or 0),
+                        "content_type": ctype,
+                        "content_length": content_length,
+                        "redirect_chain": redirect_chain,
+                        "response_classification": "html_response",
+                        "binary_signature_verified": False,
+                        "download_finished_at": _now_iso(),
+                    })
+                    attempts.append(_annotate_attempt(attempt))
+                    continue
+                chunks = list(response.iter_content(chunk_size=65536))
+                first_nonempty = next((chunk for chunk in chunks if chunk), b"")
+                if not first_nonempty and content_length == 0 and not (response.headers.get("transfer-encoding") or ""):
+                    attempt.update({
+                        "failure_stage": "empty_content",
+                        "failure_reason": "empty_response_body",
+                        "http_status": int(response.status_code or 0),
+                        "content_type": ctype,
+                        "content_length": 0,
+                        "redirect_chain": redirect_chain,
+                        "binary_signature_verified": False,
+                        "download_finished_at": _now_iso(),
+                    })
+                    attempts.append(_annotate_attempt(attempt))
+                    continue
+                sniffed_ext, binary_signature_verified = _v64_sniff_document_signature(
+                    first_nonempty[:512],
+                    detected_ext=detected_ext or ext_hint,
+                    filename=_clean(link.get("filename") or Path(urlparse(response.url).path).name),
+                    url=candidate_url,
+                    link_text=_clean(link.get("link_text")),
+                    content_type=ctype,
+                )
+                effective_ext = sniffed_ext or detected_ext or ext_hint
+                if effective_ext not in DOCUMENT_DOWNLOAD_EXTENSIONS:
+                    attempt.update({
+                        "failure_stage": "unsupported_content_type",
+                        "failure_reason": f"unsupported_extension:{effective_ext or 'unknown'}",
+                        "http_status": int(response.status_code or 0),
+                        "content_type": ctype,
+                        "content_length": content_length,
+                        "redirect_chain": redirect_chain,
+                        "binary_signature_verified": binary_signature_verified,
+                        "download_finished_at": _now_iso(),
+                    })
+                    attempts.append(_annotate_attempt(attempt))
+                    continue
+                response.raise_for_status()
+                filename = _v56_safe_filename(link.get("filename") or urlparse(response.url).path, "document" + effective_ext)
+                if Path(filename).suffix.lower() not in DOCUMENT_DOWNLOAD_EXTENSIONS:
+                    filename = f"{Path(filename).stem}{effective_ext}"
+                digest = sha256(candidate_url.encode("utf-8")).hexdigest()[:12]
+                path = DOCUMENT_DISCOVERY_DIR / f"{digest}_{filename}"
+                total = 0
+                try:
+                    with path.open("wb") as handle:
+                        for chunk in chunks:
+                            if not chunk:
+                                continue
+                            total += len(chunk)
+                            if total > DOCUMENT_MAX_BYTES:
+                                raise ValueError("document_too_large")
+                            handle.write(chunk)
+                except ValueError as exc:
+                    if str(exc) == "document_too_large":
                         path.unlink(missing_ok=True)
-                        return {"status": "skipped", "reason": "document_too_large", "content_length": total, "link": link}
-                    handle.write(chunk)
-            return {
-                "status": "downloaded",
-                "url": response.url,
-                "original_url": url,
-                "path": str(path),
-                "filename": filename,
-                "extension": detected_ext,
-                "content_type": ctype,
-                "content_disposition": disposition,
-                "bytes": total,
-                "link": link,
-            }
-    except Exception as exc:
-        return {"status": "failed", "reason": "download_error", "error": _truncate(str(exc), 240), "link": link}
+                        attempt.update({
+                        "failure_stage": "unsupported_content_type",
+                        "failure_reason": "document_too_large",
+                        "http_status": int(response.status_code or 0),
+                        "content_type": ctype,
+                        "content_length": total,
+                        "redirect_chain": redirect_chain,
+                        "binary_signature_verified": binary_signature_verified,
+                        "download_finished_at": _now_iso(),
+                    })
+                    attempts.append(_annotate_attempt(attempt))
+                    continue
+                    raise
+                except Exception as exc:
+                    path.unlink(missing_ok=True)
+                    attempt.update({
+                        "failure_stage": "file_write",
+                        "failure_reason": _truncate(str(exc), 240),
+                        "http_status": int(response.status_code or 0),
+                        "content_type": ctype,
+                        "content_length": content_length or total,
+                        "redirect_chain": redirect_chain,
+                        "binary_signature_verified": binary_signature_verified,
+                        "download_finished_at": _now_iso(),
+                    })
+                    attempts.append(_annotate_attempt(attempt))
+                    continue
+                artifact_exists, artifact_size = _v64_document_artifact_evidence_ok(str(path), ctype, effective_ext)
+                if not artifact_exists:
+                    try:
+                        path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    attempt.update({
+                        "failure_stage": "checksum",
+                        "failure_reason": "artifact_evidence_invalid",
+                        "http_status": int(response.status_code or 0),
+                        "content_type": ctype,
+                        "content_length": content_length or total,
+                        "redirect_chain": redirect_chain,
+                        "artifact_path": str(path),
+                        "artifact_exists": False,
+                        "artifact_size_bytes": artifact_size,
+                        "binary_signature_verified": binary_signature_verified,
+                        "download_finished_at": _now_iso(),
+                    })
+                    attempts.append(_annotate_attempt(attempt))
+                    continue
+                attempt.update({
+                    "download_finished_at": _now_iso(),
+                    "http_status": int(response.status_code or 0),
+                    "content_type": ctype,
+                    "content_length": content_length or total,
+                    "redirect_chain": redirect_chain,
+                    "artifact_path": str(path),
+                    "artifact_exists": True,
+                    "artifact_size_bytes": artifact_size,
+                    "binary_signature_verified": binary_signature_verified,
+                })
+                attempts.append(_annotate_attempt(attempt))
+                return {
+                    "status": "downloaded",
+                    "failure_stage": "",
+                    "failure_reason": "",
+                    "download_started_at": started_at,
+                    "download_finished_at": attempt["download_finished_at"],
+                    "url": response.url,
+                    "resolved_document_url": candidate_url,
+                    "original_url": raw_url,
+                    "source_url": source_url,
+                    "path": str(path),
+                    "artifact_path": str(path),
+                    "artifact_exists": True,
+                    "artifact_size_bytes": artifact_size,
+                    "filename": filename,
+                    "extension": effective_ext,
+                    "content_type": ctype,
+                    "content_disposition": disposition,
+                    "content_length": content_length or total,
+                    "bytes": total,
+                    "redirect_chain": redirect_chain,
+                    "fallback_used": fallback_used,
+                    "binary_signature_verified": binary_signature_verified,
+                    "link": link,
+                    "attempts": attempts,
+                    **link_metadata,
+                }
+        except Exception as exc:
+            error_text = _truncate(str(exc), 240)
+            failure_stage = "http_fetch"
+            if "Invalid URL" in error_text or "MissingSchema" in error_text or "No connection adapters" in error_text:
+                failure_stage = "url_resolution"
+            elif "401" in error_text or "403" in error_text or "407" in error_text or "429" in error_text:
+                failure_stage = "auth_required"
+            elif "timed out" in error_text.lower() or "timeout" in error_text.lower():
+                failure_stage = "http_fetch"
+            attempt.update({
+                "failure_stage": failure_stage,
+                "failure_reason": error_text,
+                "download_finished_at": _now_iso(),
+                "redirect_chain": redirect_chain,
+            })
+            attempts.append(_annotate_attempt(attempt))
+            continue
+
+    final_failure_stage = attempts[-1]["failure_stage"] if attempts else "url_resolution"
+    final_failure_reason = attempts[-1]["failure_reason"] if attempts else "unable_to_resolve_document_url"
+    return {
+        "status": "failed",
+        "failure_stage": final_failure_stage or "unknown",
+        "reason": final_failure_reason or "download_error",
+        "failure_reason": final_failure_reason or "download_error",
+        "error": final_failure_reason or "download_error",
+        "download_started_at": started_at,
+        "download_finished_at": _now_iso(),
+        "resolved_document_url": attempts[-1]["resolved_document_url"] if attempts else "",
+        "document_url": raw_url,
+        "source_url": source_url,
+        "content_type": attempts[-1]["content_type"] if attempts else "",
+        "content_length": attempts[-1]["content_length"] if attempts else 0,
+        "redirect_chain": attempts[-1]["redirect_chain"] if attempts else [],
+        "artifact_path": attempts[-1]["artifact_path"] if attempts else "",
+        "artifact_exists": bool(attempts and attempts[-1].get("artifact_exists")),
+        "artifact_size_bytes": int(attempts[-1].get("artifact_size_bytes") or 0) if attempts else 0,
+        "binary_signature_verified": bool(attempts and attempts[-1].get("binary_signature_verified")),
+        "fallback_used": fallback_used,
+        "link": link,
+        "attempts": attempts,
+        **link_metadata,
+    }
 
 
 def _v56_parse_pdf(path: Path) -> str:
@@ -2783,6 +7820,24 @@ def _v56_parse_xlsx(path: Path) -> str:
         return ""
 
 
+def _v56_parse_csv(path: Path) -> str:
+    try:
+        import csv
+
+        parts: List[str] = []
+        with path.open("r", encoding="utf-8", errors="ignore", newline="") as handle:
+            reader = csv.reader(handle)
+            for row_index, row in enumerate(reader):
+                if row_index >= 120:
+                    break
+                row_text = " ".join(_clean(value) for value in row if _clean(value))
+                if row_text:
+                    parts.append(row_text)
+        return re.sub(r"\s+", " ", " ".join(parts)).strip()
+    except Exception:
+        return ""
+
+
 def _v56_parse_document(download: Dict[str, Any]) -> Dict[str, Any]:
     path = Path(_clean(download.get("path")))
     ext = _clean(download.get("extension") or path.suffix.lower())
@@ -2797,6 +7852,28 @@ def _v56_parse_document(download: Dict[str, Any]) -> Dict[str, Any]:
     elif ext == ".xlsx":
         parser = "openpyxl"
         text = _v56_parse_xlsx(path)
+    elif ext == ".csv":
+        parser = "csv"
+        text = _v56_parse_csv(path)
+    elif ext == ".zip" and extract_zip_contents is not None:
+        parser = "zip_content_extraction"
+        try:
+            zip_result = extract_zip_contents({
+                "title": download.get("filename") or path.stem,
+                "buyer_name": _clean(download.get("source_name") or ""),
+                "buyer_rfq_number": _clean(download.get("filename") or path.stem),
+                "zip_file_paths": [str(path)],
+                "downloaded_files": [{"path": str(path), "filename": path.name, "url": _clean(download.get("url") or download.get("original_url"))}],
+            })
+            main_doc = _clean(zip_result.get("main_document_path"))
+            if main_doc and Path(main_doc).exists():
+                text = _truncate(_v56_parse_pdf(Path(main_doc)) or "", 7000)
+                if not text:
+                    text = _truncate(_clean(zip_result.get("classification_summary") or json.dumps(zip_result.get("classified_files") or {})), 7000)
+            else:
+                text = _truncate(json.dumps(zip_result.get("classified_files") or {}, default=str), 7000)
+        except Exception:
+            text = ""
     return {
         "status": "parsed" if text else "metadata_only",
         "parser": parser,
@@ -2807,6 +7884,7 @@ def _v56_parse_document(download: Dict[str, Any]) -> Dict[str, Any]:
         "filename": _clean(download.get("filename") or path.name),
         "url": _clean(download.get("url") or download.get("original_url")),
         "link": download.get("link") or {},
+        "download_result": download,
     }
 
 
@@ -2905,14 +7983,37 @@ def _v56_candidate_from_document(doc: Dict[str, Any], source: Dict[str, Any]) ->
             "url": doc.get("url"),
             "parser": doc.get("parser"),
         },
+        "buyer_pack_downloaded": False,
+        "buyer_pack_verified": False,
+        "buyer_pack_download_timestamp": _now_iso(),
+        "buyer_pack_source": _clean(source.get("name") or source.get("source_name") or "document_discovery"),
+        "buyer_pack_path": _clean(doc.get("path")),
+        "buyer_pack_failure_reason": "",
+        "buyer_pack_attempted": True,
+        "document_links_count": 1,
         "built_from_document_evidence": True,
     })
+    download_result = doc.get("download_result") if isinstance(doc.get("download_result"), dict) else {}
+    artifact_ok, artifact_size = _v64_document_artifact_evidence_ok(
+        _clean(download_result.get("artifact_path") or doc.get("path")),
+        _clean(download_result.get("content_type") or ""),
+        _clean(download_result.get("extension") or doc.get("extension") or ""),
+    )
+    if artifact_ok:
+        item["buyer_pack_downloaded"] = True
+        item["buyer_pack_verified"] = True
+        item["buyer_pack_path"] = _clean(download_result.get("artifact_path") or doc.get("path"))
+        item["buyer_pack_download_timestamp"] = _clean(download_result.get("download_finished_at") or _now_iso())
+    item["buyer_pack_download_diagnostics"] = [download_result] if download_result else []
+    item["buyer_pack_downloaded"] = bool(item["buyer_pack_downloaded"] and artifact_ok and artifact_size > 0)
+    item["buyer_pack_verified"] = bool(item["buyer_pack_downloaded"])
     return item
 
 
 def _v56_discover_documents_for_source(source: Dict[str, Any], harvested: List[Dict[str, Any]], max_documents: int = 8) -> Dict[str, Any]:
     links = _v56_scan_source_document_links(source, harvested)
     downloads: List[Dict[str, Any]] = []
+    download_attempts: List[Dict[str, Any]] = []
     parsed_documents: List[Dict[str, Any]] = []
     skipped_links: List[Dict[str, Any]] = []
     download_budget = _safe_positive_int(max_documents, 8)
@@ -2921,12 +8022,13 @@ def _v56_discover_documents_for_source(source: Dict[str, Any], harvested: List[D
             skipped_links.append({"reason": "download_budget_reached", "link": link})
             continue
         result = _v56_download_document(link, source)
+        download_attempts.extend(result.get("attempts") if isinstance(result.get("attempts"), list) else [result])
         if result.get("status") == "downloaded":
             downloads.append(result)
             parsed = _v56_parse_document(result)
             classification = _v56_classify_document(parsed.get("filename", ""), parsed.get("text", ""))
             metadata = _v56_extract_document_metadata(parsed.get("filename", ""), parsed.get("text", ""), parsed.get("link") or {})
-            parsed_documents.append({**parsed, **classification, "metadata": metadata})
+            parsed_documents.append({**parsed, **classification, "metadata": metadata, "download_result": result})
         else:
             skipped_links.append(result)
     built_items: List[Dict[str, Any]] = []
@@ -2937,6 +8039,7 @@ def _v56_discover_documents_for_source(source: Dict[str, Any], harvested: List[D
     return {
         "document_links": links,
         "downloads": downloads,
+        "download_attempts": download_attempts,
         "parsed_documents": parsed_documents,
         "skipped_links": skipped_links,
         "built_items": _dedupe_keep_order(built_items),
@@ -3298,12 +8401,20 @@ def run_multi_portal_discovery(
     max_per_source: int = 4,
     headless: bool = True,
     source_file: Optional[str] = None,
+    source_health_file: Optional[Path] = None,
     include_bad_sources: bool = False,
     dry_run: bool = True,
     source_pack_mode: Any = None,
+    focus_productive_sources: bool = False,
+    repair_source_pack: bool = False,
     buyer_intelligence: bool = True,
     opportunity_forecasting: bool = True,
     forecast_watchlist: bool = True,
+    source_filter: Optional[str] = None,
+    source_names: Optional[List[str]] = None,
+    page_load_timeout_seconds: Optional[int] = None,
+    candidate_extraction_timeout_seconds: Optional[int] = None,
+    document_link_timeout_seconds: Optional[int] = None,
 ) -> Dict[str, Any]:
     """V52-V61 multi-portal RFQ discovery. Discovery only; never submits."""
     started_at = _now_iso()
@@ -3311,14 +8422,91 @@ def run_multi_portal_discovery(
     max_per_source = _safe_positive_int(max_per_source, 4)
     all_sources = load_harvest_sources(source_file)
     sources = [s for s in all_sources if s.get("enabled", True)]
+    sources = _v64_filter_sources(sources, source_filter=source_filter, source_names=source_names)
     memory_files = _v57_load_memory_files()
-    selected_sources, source_rotation_batch_id, pre_cycle_health_rows, source_pack_strategy = _v58_select_sources_for_pack_rotation(
-        sorted(sources, key=_v52_source_priority),
-        max_sources=max_sources,
-        include_bad_sources=include_bad_sources,
-        pack_mode=source_pack_mode,
-    )
-    source_pack_diagnostics = source_pack_strategy.get("diagnostics", {})
+    if focus_productive_sources:
+        selected_sources, focus_diagnostics = _v58_select_productive_focus_sources(
+            sorted(sources, key=_v52_source_priority),
+            max_sources=max_sources,
+            source_health_file=source_health_file,
+        )
+        repair_diagnostics = {
+            "repair_mode_used": False,
+            "repair_sources_checked_count": 0,
+            "repair_sources_selected_count": 0,
+            "repair_sources_failed_count": 0,
+            "repair_selected_source_names": [],
+            "repair_failed_by_reason": {},
+        }
+        source_rotation_batch_id = f"v58-focus-{int(time.time() // 21600)}"
+        refreshed_health_snapshot = _load_source_health(source_health_file=source_health_file)
+        pre_cycle_health_rows = [_v53_source_health_row(src, refreshed_health_snapshot, source_health_file=source_health_file) for src in selected_sources]
+        source_pack_strategy = _v58_build_source_pack_strategy(
+            sources,
+            selected_sources,
+            max_sources,
+            mode=source_pack_mode or "focus",
+            source_health_file=source_health_file,
+        )
+        if not selected_sources and repair_source_pack:
+            repair_selected_sources, repair_diagnostics, repair_rows = _v64_repair_source_pack_sources(
+                sorted(sources, key=_v52_source_priority),
+                max_sources=max_sources,
+                source_health_file=source_health_file,
+            )
+            repair_diagnostics["repair_mode_used"] = True
+            if repair_selected_sources:
+                selected_sources = repair_selected_sources
+                source_rotation_batch_id = f"v64-repair-{int(time.time() // 21600)}"
+                refreshed_health_snapshot = _load_source_health(source_health_file=source_health_file)
+                pre_cycle_health_rows = [
+                    _v53_source_health_row(src, refreshed_health_snapshot, source_health_file=source_health_file)
+                    for src in selected_sources
+                ]
+                source_pack_strategy = _v58_build_source_pack_strategy(
+                    sources,
+                    selected_sources,
+                    max_sources,
+                    mode="repair",
+                    source_health_file=source_health_file,
+                )
+            else:
+                source_pack_strategy = {
+                    **source_pack_strategy,
+                    "active_pack_mode": "repair",
+                    "diagnostics": {
+                        **source_pack_strategy.get("diagnostics", {}),
+                        **repair_diagnostics,
+                        "repair_mode_used": True,
+                    },
+                }
+    else:
+        selected_sources, source_rotation_batch_id, pre_cycle_health_rows, source_pack_strategy = _v58_select_sources_for_pack_rotation(
+            sorted(sources, key=_v52_source_priority),
+            max_sources=max_sources,
+            include_bad_sources=include_bad_sources,
+            pack_mode=source_pack_mode,
+        )
+        focus_diagnostics = {
+            "focused_source_count": 0,
+            "skipped_unproductive_source_count": 0,
+            "focused_source_names": [],
+        }
+        repair_diagnostics = {
+            "repair_mode_used": False,
+            "repair_sources_checked_count": 0,
+            "repair_sources_selected_count": 0,
+            "repair_sources_failed_count": 0,
+            "repair_selected_source_names": [],
+            "repair_failed_by_reason": {},
+        }
+    source_pack_diagnostics = {
+        **source_pack_strategy.get("diagnostics", {}),
+        **focus_diagnostics,
+        **repair_diagnostics,
+        "focus_productive_sources": bool(focus_productive_sources),
+        "repair_source_pack": bool(repair_source_pack),
+    }
     source_pack_artifacts = source_pack_strategy.get("artifacts", {})
     source_pack_rows_by_name = {
         row.get("source_name"): row for row in source_pack_strategy.get("source_rows", [])
@@ -3345,25 +8533,80 @@ def run_multi_portal_discovery(
     document_built_candidates_count = 0
     qualified_document_candidates_count = 0
     document_rejection_counts_by_reason: Dict[str, int] = {}
+    rejection_stage_counts: Dict[str, int] = {}
+    rejection_reason_code_counts: Dict[str, int] = {}
     duplicate_candidates_suppressed = 0
     recurring_buyer_keys_detected = set()
     recurring_category_keys_detected = set()
     current_candidate_fingerprints = set()
     memory_fingerprints = ((memory_files.get("source") or {}).get("qualified_candidate_fingerprints") or {}) if isinstance(memory_files.get("source"), dict) else {}
+    source_document_discovery_map: Dict[str, Dict[str, Any]] = {}
+    candidates_with_document_links = 0
+    candidates_without_document_links = 0
+    buyer_pack_attempted_count = 0
+    buyer_pack_downloaded_count = 0
+    buyer_pack_failed_count = 0
+    buyer_pack_url_resolution_failures = 0
+    buyer_pack_http_failures = 0
+    buyer_pack_auth_required_failures = 0
+    buyer_pack_unsupported_content_failures = 0
+    buyer_pack_empty_content_failures = 0
+    buyer_pack_file_write_failures = 0
+    buyer_pack_success_count = 0
+    index_pages_fetched_count = 0
+    index_pages_with_artifacts_count = 0
+    artifact_candidates_found_count = 0
+    artifact_download_attempts_count = 0
+    artifact_download_success_count = 0
+    artifact_candidates_total = 0
+    artifact_candidates_attempted = 0
+    artifact_candidates_rejected_before_fetch = 0
+    artifact_candidates_by_classification: Dict[str, int] = {}
+    artifact_rejections_by_reason: Dict[str, int] = {}
+    artifact_resolved_to_html_count = 0
+    artifact_binary_signature_success_count = 0
+    etenders_endpoint_probe_count = 0
+    etenders_endpoint_success_count = 0
+    etenders_endpoint_failure_count = 0
+    etenders_document_candidates_from_endpoints = 0
+    etenders_endpoint_failures_by_reason: Dict[str, int] = {}
+    etenders_home_reached = False
+    etenders_opportunities_page_reached = False
+    etenders_candidates_table_detected = False
+    etenders_candidates_extracted_count = 0
+    etenders_detail_pages_attempted_count = 0
+    etenders_detail_pages_success_count = 0
+    etenders_detail_pages_timeout_count = 0
+    etenders_tenderdetails_links_found_count = 0
+    index_page_no_artifacts_count = 0
+    artifact_download_failed_count = 0
 
     for source in selected_sources:
         source_name = _clean(source.get("name") or source.get("source_name") or source.get("url") or "Unknown Source")
-        harvested: List[Dict[str, Any]] = []
-        error = ""
-        response_started = time.perf_counter()
-        try:
-            harvested = _dedupe_keep_order(_harvest_from_source(source, max_per_source=max_per_source, headless=headless))
-            pages_scanned_count += 1
-        except Exception as exc:
-            error = str(exc)
-            _record_source_result(source, ok=False, harvested=0, error=error)
+        harvested, acquisition_runtime = _scan_source_acquisition_runtime(
+            source,
+            max_per_source=max_per_source,
+            headless=headless,
+            source_timeout_seconds=12,
+            playwright_timeout_ms=18000,
+            page_load_timeout_seconds=page_load_timeout_seconds,
+            candidate_extraction_timeout_seconds=candidate_extraction_timeout_seconds,
+            document_link_timeout_seconds=document_link_timeout_seconds,
+            source_health_file=source_health_file,
+            browser_available=headless,
+            disable_playwright_scrape=not headless,
+        )
+        etenders_home_reached = bool(etenders_home_reached or acquisition_runtime.get("etenders_home_reached"))
+        etenders_opportunities_page_reached = bool(etenders_opportunities_page_reached or acquisition_runtime.get("etenders_opportunities_page_reached"))
+        etenders_candidates_table_detected = bool(etenders_candidates_table_detected or acquisition_runtime.get("etenders_candidates_table_detected"))
+        etenders_candidates_extracted_count += int(acquisition_runtime.get("etenders_candidates_extracted_count") or 0)
+        etenders_detail_pages_attempted_count += int(acquisition_runtime.get("etenders_detail_pages_attempted_count") or 0)
+        etenders_detail_pages_success_count += int(acquisition_runtime.get("etenders_detail_pages_success_count") or 0)
+        etenders_detail_pages_timeout_count += int(acquisition_runtime.get("etenders_detail_pages_timeout_count") or 0)
+        etenders_tenderdetails_links_found_count += int(acquisition_runtime.get("etenders_tenderdetails_links_found_count") or 0)
+        pages_scanned_count += int(acquisition_runtime.get("pages_scanned") or 0)
         document_discovery: Dict[str, Any] = {"document_links": [], "downloads": [], "parsed_documents": [], "skipped_links": [], "built_items": []}
-        if not error:
+        if harvested:
             try:
                 document_discovery = _v56_discover_documents_for_source(
                     source,
@@ -3384,6 +8627,7 @@ def run_multi_portal_discovery(
         parsed_documents = document_discovery.get("parsed_documents") if isinstance(document_discovery.get("parsed_documents"), list) else []
         document_built_items = document_discovery.get("built_items") if isinstance(document_discovery.get("built_items"), list) else []
         skipped_document_links = document_discovery.get("skipped_links") if isinstance(document_discovery.get("skipped_links"), list) else []
+        source_document_discovery_map[source_name] = document_discovery
         document_links_found_count += len(document_links)
         documents_downloaded_count += len(downloaded_documents)
         documents_parsed_count += sum(1 for doc in parsed_documents if doc.get("status") == "parsed")
@@ -3409,25 +8653,30 @@ def run_multi_portal_discovery(
                 "classification_confidence": doc.get("classification_confidence"),
                 "metadata": doc.get("metadata"),
             })
-        response_time = time.perf_counter() - response_started
+        response_time = max(
+            0.0,
+            _v53_parse_time(_clean(acquisition_runtime.get("scan_finished_at")))
+            - _v53_parse_time(_clean(acquisition_runtime.get("scan_started_at"))),
+        )
         source_candidate_count = 0
         source_extracted_count = 0
         source_qualified_count = 0
         source_document_count = 0
         source_runs.append({
-            "source_name": source_name,
-            "source_url": source.get("url") or source.get("list_url"),
+            **acquisition_runtime,
             "source_type": source.get("type"),
             "source_group": source.get("source_group") or source.get("category_group"),
             "source_packs": (source_pack_rows_by_name.get(source_name) or {}).get("packs", []),
             "source_pack_yield_score": (source_pack_rows_by_name.get(source_name) or {}).get("v58_yield_score"),
             "harvested_count": len(harvested),
+            "raw_candidates_count": len(harvested),
             "document_links_found_count": len(document_links),
+            "document_links_detected": len(document_links),
             "documents_downloaded_count": len(downloaded_documents),
             "documents_parsed_count": sum(1 for doc in parsed_documents if doc.get("status") == "parsed"),
             "document_built_candidates_count": len(document_built_items),
             "source_response_time": round(response_time, 3),
-            "error": error,
+            "error": acquisition_runtime.get("error_message") or "",
         })
         for item in _dedupe_keep_order(harvested + document_built_items):
             candidate = _v54_qualification(_v54_deep_extract_candidate(item, source))
@@ -3453,6 +8702,120 @@ def run_multi_portal_discovery(
                 recurring_category_keys_detected.add(_clean(memory_signals.get("category_key")))
             reason = _clean(candidate.get("exclusion_reason"))
             candidate.pop("_blob_lower", None)
+            candidate["candidate_id"] = fingerprint
+            candidate["document_links_count"] = int(len(candidate.get("document_urls") or []))
+            if candidate.get("built_from_document_evidence") and not candidate["document_links_count"]:
+                candidate["document_links_count"] = 1
+            doc_discovery_for_source = source_document_discovery_map.get(source_name, {})
+            buyer_pack_downloaded = bool(
+                candidate.get("buyer_pack_downloaded")
+                or candidate.get("buyer_pack_verified")
+                or candidate.get("built_from_document_evidence")
+                or candidate.get("downloaded_document_path")
+                or candidate.get("document_acquisition_result")
+                or candidate.get("buyer_pack_path")
+                or candidate.get("live_buyer_pack_path")
+            )
+            buyer_pack_resolution: Dict[str, Any] = {
+                "attempted": buyer_pack_downloaded,
+                "downloaded": buyer_pack_downloaded,
+                "buyer_pack_downloaded": buyer_pack_downloaded,
+                "buyer_pack_path": _clean(candidate.get("buyer_pack_path") or candidate.get("live_buyer_pack_path") or candidate.get("downloaded_document_path") or candidate.get("document_acquisition_result") or ""),
+                "buyer_pack_download_timestamp": _clean(candidate.get("buyer_pack_download_timestamp") or ""),
+                "failure_reason": "",
+                "diagnostics": [],
+                "downloads": [],
+                "index_pages_fetched_count": 0,
+                "index_pages_with_artifacts_count": 0,
+                "artifact_candidates_found_count": 0,
+                "artifact_download_attempts_count": 0,
+                "artifact_download_success_count": 0,
+                "index_page_no_artifacts_count": 0,
+                "artifact_download_failed_count": 0,
+                "fallback_used": False,
+            }
+            if candidate["document_links_count"] > 0 and not buyer_pack_downloaded:
+                buyer_pack_resolution = _v64_resolve_buyer_pack_diagnostics_for_candidate(candidate, source)
+                index_pages_fetched_count += int(buyer_pack_resolution.get("index_pages_fetched_count") or 0)
+                index_pages_with_artifacts_count += int(buyer_pack_resolution.get("index_pages_with_artifacts_count") or 0)
+                artifact_candidates_found_count += int(buyer_pack_resolution.get("artifact_candidates_found_count") or 0)
+                artifact_download_attempts_count += int(buyer_pack_resolution.get("artifact_download_attempts_count") or 0)
+                artifact_download_success_count += int(buyer_pack_resolution.get("artifact_download_success_count") or 0)
+                artifact_candidates_total += int(buyer_pack_resolution.get("artifact_candidates_total") or 0)
+                artifact_candidates_attempted += int(buyer_pack_resolution.get("artifact_candidates_attempted") or 0)
+                artifact_candidates_rejected_before_fetch += int(buyer_pack_resolution.get("artifact_candidates_rejected_before_fetch") or 0)
+                artifact_resolved_to_html_count += int(buyer_pack_resolution.get("artifact_resolved_to_html_count") or 0)
+                artifact_binary_signature_success_count += int(buyer_pack_resolution.get("artifact_binary_signature_success_count") or 0)
+                etenders_endpoint_probe_count += int(buyer_pack_resolution.get("etenders_endpoint_probe_count") or 0)
+                etenders_endpoint_success_count += int(buyer_pack_resolution.get("etenders_endpoint_success_count") or 0)
+                etenders_endpoint_failure_count += int(buyer_pack_resolution.get("etenders_endpoint_failure_count") or 0)
+                etenders_document_candidates_from_endpoints += int(buyer_pack_resolution.get("etenders_document_candidates_from_endpoints") or 0)
+                for classification, count in (buyer_pack_resolution.get("artifact_candidates_by_classification") or {}).items():
+                    artifact_candidates_by_classification[_clean(classification) or "unknown"] = artifact_candidates_by_classification.get(_clean(classification) or "unknown", 0) + int(count or 0)
+                for reason_key, count in (buyer_pack_resolution.get("artifact_rejections_by_reason") or {}).items():
+                    artifact_rejections_by_reason[_clean(reason_key) or "candidate_rejected_before_fetch"] = artifact_rejections_by_reason.get(_clean(reason_key) or "candidate_rejected_before_fetch", 0) + int(count or 0)
+                for reason_key, count in (buyer_pack_resolution.get("etenders_endpoint_failures_by_reason") or {}).items():
+                    key = _clean(reason_key) or "endpoint_probe_failed"
+                    etenders_endpoint_failures_by_reason[key] = etenders_endpoint_failures_by_reason.get(key, 0) + int(count or 0)
+                index_page_no_artifacts_count += int(buyer_pack_resolution.get("index_page_no_artifacts_count") or 0)
+                artifact_download_failed_count += int(buyer_pack_resolution.get("artifact_download_failed_count") or 0)
+                candidate["buyer_pack_download_diagnostics"] = buyer_pack_resolution.get("diagnostics") or []
+                buyer_pack_downloaded = bool(buyer_pack_resolution.get("buyer_pack_downloaded"))
+                buyer_pack_attempted = bool(candidate["buyer_pack_download_diagnostics"])
+                candidate["buyer_pack_downloaded"] = buyer_pack_downloaded
+                candidate["buyer_pack_attempted"] = buyer_pack_attempted
+                if buyer_pack_downloaded:
+                    candidate["buyer_pack_path"] = _clean(buyer_pack_resolution.get("buyer_pack_path") or candidate.get("buyer_pack_path") or candidate.get("live_buyer_pack_path") or candidate.get("downloaded_document_path"))
+                    candidate["buyer_pack_download_timestamp"] = _clean(buyer_pack_resolution.get("buyer_pack_download_timestamp") or candidate.get("buyer_pack_download_timestamp") or _now_iso())
+                candidate["buyer_pack_failure_reason"] = "" if buyer_pack_downloaded else _clean(buyer_pack_resolution.get("failure_reason") or _v63_buyer_pack_failure_reason(candidate, doc_discovery_for_source))
+                candidate["buyer_pack_source"] = _clean(source_name)
+                for diagnostic in candidate["buyer_pack_download_diagnostics"]:
+                    if not isinstance(diagnostic, dict):
+                        continue
+                    failure_stage = _clean(diagnostic.get("failure_stage"))
+                    diagnostic_type = _clean(diagnostic.get("diagnostic_type"))
+                    if failure_stage in {"", "artifact_saved"}:
+                        continue
+                    if failure_stage == "url_resolution":
+                        buyer_pack_url_resolution_failures += 1
+                    elif failure_stage == "auth_required":
+                        buyer_pack_auth_required_failures += 1
+                    elif failure_stage in {"unsupported_content_type", "artifact_resolved_to_html"}:
+                        buyer_pack_unsupported_content_failures += 1
+                    elif failure_stage == "empty_content":
+                        buyer_pack_empty_content_failures += 1
+                    elif failure_stage == "file_write":
+                        buyer_pack_file_write_failures += 1
+                    elif failure_stage == "checksum":
+                        buyer_pack_file_write_failures += 1
+                    elif diagnostic_type == "source_link" and failure_stage == "http_fetch":
+                        buyer_pack_http_failures += 1
+                    elif diagnostic_type == "artifact_candidate" and failure_stage == "http_fetch":
+                        buyer_pack_http_failures += 1
+                    elif diagnostic_type == "source_link" and failure_stage == "index_page_no_artifacts":
+                        pass
+                    elif diagnostic_type == "artifact_candidate" and failure_stage == "skipped":
+                        pass
+                    else:
+                        buyer_pack_http_failures += 1
+            else:
+                buyer_pack_attempted = bool(candidate["document_links_count"] > 0 or buyer_pack_downloaded or candidate.get("built_from_document_evidence"))
+                candidate["buyer_pack_attempted"] = buyer_pack_attempted
+                candidate["buyer_pack_downloaded"] = buyer_pack_downloaded
+                candidate["buyer_pack_failure_reason"] = "" if buyer_pack_downloaded else _v63_buyer_pack_failure_reason(candidate, doc_discovery_for_source)
+                candidate["buyer_pack_source"] = _clean(source_name)
+                candidate["buyer_pack_download_diagnostics"] = candidate.get("buyer_pack_download_diagnostics") or []
+            if candidate["document_links_count"] > 0:
+                candidates_with_document_links += 1
+            else:
+                candidates_without_document_links += 1
+            if buyer_pack_attempted:
+                buyer_pack_attempted_count += 1
+                if buyer_pack_downloaded:
+                    buyer_pack_downloaded_count += 1
+                    buyer_pack_success_count += 1
+                else:
+                    buyer_pack_failed_count += 1
             raw_candidates.append(candidate)
             source_candidate_count += 1
             source_extracted_count += 1
@@ -3463,6 +8826,10 @@ def run_multi_portal_discovery(
                 qualification_reason_counts[q_reason] = qualification_reason_counts.get(q_reason, 0) + 1
             if reason:
                 candidate["exclusion_reason"] = reason
+                rejection_stage = _v63_candidate_rejection_stage(reason, candidate)
+                rejection_stage_counts[rejection_stage] = rejection_stage_counts.get(rejection_stage, 0) + 1
+                rejection_reason_code_counts[reason] = rejection_reason_code_counts.get(reason, 0) + 1
+                candidate.update(_v63_attach_candidate_rejection_diagnostics(candidate, source, doc_discovery_for_source))
                 rejected.append(candidate)
                 rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
                 if candidate.get("built_from_document_evidence"):
@@ -3482,10 +8849,21 @@ def run_multi_portal_discovery(
                 harvested_count=len(harvested),
                 candidate_count=source_candidate_count,
                 response_time=response_time,
-                error=error,
+                error=_clean(acquisition_runtime.get("error_message")),
                 extracted_count=source_extracted_count,
                 qualified_count=source_qualified_count,
                 document_count=source_document_count,
+                source_health_file=source_health_file,
+                acquisition_status=_clean(acquisition_runtime.get("status")),
+                acquisition_error_message=_clean(acquisition_runtime.get("error_message")),
+                scan_started_at=_clean(acquisition_runtime.get("scan_started_at")),
+                scan_finished_at=_clean(acquisition_runtime.get("scan_finished_at")),
+                pages_scanned=int(acquisition_runtime.get("pages_scanned") or 0),
+                raw_candidates_count=int(acquisition_runtime.get("raw_candidates_count") or 0),
+                document_links_detected=int(acquisition_runtime.get("document_links_detected") or 0),
+                retry_count=int(acquisition_runtime.get("retry_count") or 0),
+                fallback_used=bool(acquisition_runtime.get("fallback_used")),
+                source_url=_clean(acquisition_runtime.get("source_url")),
             )
         )
 
@@ -3563,16 +8941,101 @@ def run_multi_portal_discovery(
             "captcha_bypass": False,
         },
     })
-    refreshed_health = _load_source_health()
+    refreshed_health = _load_source_health(source_health_file=source_health_file)
     all_health_rows = [_v53_source_health_row(src, refreshed_health) for src in sources]
-    all_health_rows = sorted(all_health_rows, key=lambda row: float(row.get("source_success_score") or 0), reverse=True)
+    all_health_rows = sorted(
+        all_health_rows,
+        key=lambda row: float(row.get("source_selection_score") or row.get("source_success_score") or 0),
+        reverse=True,
+    )
     top_performing_sources = all_health_rows[:20]
-    healthy_sources_count = sum(1 for row in all_health_rows if float(row.get("source_success_score") or 0) >= 50 and int(row.get("source_failure_count") or 0) < 3)
+    healthy_sources_count = sum(1 for row in all_health_rows if float(row.get("source_selection_score") or row.get("source_success_score") or 0) >= 50 and int(row.get("source_failure_count") or 0) < 3)
     unhealthy_sources_count = len(all_health_rows) - healthy_sources_count
     candidate_producing_sources_count = sum(1 for row in all_health_rows if int(row.get("candidate_total") or 0) > 0)
     _write_payload(source_health_report, all_health_rows)
     _write_payload(top_sources_report, top_performing_sources)
-    yield_summary = _v55_build_adaptive_yield_reports(sources, selected_sources)
+    _write_payload(LAST_ACQUISITION_RUNTIME_DIAGNOSTICS_FILE, source_runs)
+    yield_summary = _v55_build_adaptive_yield_reports(sources, selected_sources, source_health_file=source_health_file)
+    acquisition_status_counts: Dict[str, int] = {}
+    acquisition_health_counts: Dict[str, int] = {}
+    for run in source_runs:
+        status = _clean(run.get("status")) or "unknown"
+        acquisition_status_counts[status] = acquisition_status_counts.get(status, 0) + 1
+    for row in all_health_rows:
+        health_status = _clean(row.get("health_status")) or _v53_source_health_status(row, None)
+        acquisition_health_counts[health_status] = acquisition_health_counts.get(health_status, 0) + 1
+    productive_sources_count = sum(acquisition_health_counts.get(status, 0) for status in ("healthy", "degraded", "empty"))
+    suppressed_sources_count = sum(acquisition_health_counts.get(status, 0) for status in ("dns_blocked", "http_blocked", "disabled"))
+    skipped_source_rows = [
+        row for row in all_health_rows
+        if _clean(row.get("health_status")) in {"dns_blocked", "http_blocked", "disabled"}
+    ]
+    source_health_overview = {
+        "healthy_sources_count": healthy_sources_count,
+        "unhealthy_sources_count": unhealthy_sources_count,
+        "candidate_producing_sources_count": candidate_producing_sources_count,
+        "productive_sources_count": productive_sources_count,
+        "suppressed_sources_count": suppressed_sources_count,
+        "suppressed_dns_count": acquisition_health_counts.get("dns_blocked", 0),
+        "suppressed_http_count": acquisition_health_counts.get("http_blocked", 0),
+        "suppressed_empty_count": acquisition_health_counts.get("empty", 0),
+        "health_status_counts": acquisition_health_counts,
+        "top_performing_sources": top_performing_sources[:10],
+    }
+    successful_count = acquisition_status_counts.get("success", 0)
+    failed_count = sum(
+        acquisition_status_counts.get(status, 0)
+        for status in ("dns_failed", "playwright_failed", "timeout", "http_failed", "parse_failed")
+    )
+    no_candidate_count = acquisition_status_counts.get("no_candidates", 0)
+    total_raw_candidates = sum(int(run.get("raw_candidates_count") or 0) for run in source_runs)
+    total_document_links_detected = sum(int(run.get("document_links_detected") or 0) for run in source_runs)
+    productive_sources_count = sum(acquisition_health_counts.get(status, 0) for status in ("healthy", "degraded", "empty"))
+    suppressed_sources_count = sum(acquisition_health_counts.get(status, 0) for status in ("dns_blocked", "http_blocked", "disabled"))
+    acquisition_runtime_summary = {
+        "sources_scanned_count": len(source_runs),
+        "sources_successful_count": successful_count,
+        "sources_failed_count": failed_count,
+        "dns_failures_count": acquisition_status_counts.get("dns_failed", 0),
+        "playwright_failures_count": acquisition_status_counts.get("playwright_failed", 0),
+        "timeout_failures_count": acquisition_status_counts.get("timeout", 0),
+        "http_failures_count": acquisition_status_counts.get("http_failed", 0),
+        "parse_failures_count": acquisition_status_counts.get("parse_failed", 0),
+        "no_candidate_sources_count": no_candidate_count,
+        "total_raw_candidates": total_raw_candidates,
+        "total_document_links_detected": total_document_links_detected,
+        "acquisition_success_rate": round((successful_count / max(len(source_runs), 1)) * 100.0, 2),
+        "acquisition_completion_rate": round(((successful_count + no_candidate_count) / max(len(source_runs), 1)) * 100.0, 2),
+        "productive_sources_count": productive_sources_count,
+        "suppressed_sources_count": suppressed_sources_count,
+        "suppressed_dns_count": acquisition_health_counts.get("dns_blocked", 0),
+        "suppressed_http_count": acquisition_health_counts.get("http_blocked", 0),
+        "suppressed_empty_count": acquisition_health_counts.get("empty", 0),
+        "skipped_sources_count": len([row for row in all_health_rows if _clean(row.get("health_status")) in {"dns_blocked", "http_blocked", "disabled"}]),
+        "health_status_counts": acquisition_health_counts,
+        "status_counts": acquisition_status_counts,
+        "repair_mode_used": source_pack_diagnostics.get("repair_mode_used", False),
+        "repair_sources_checked_count": source_pack_diagnostics.get("repair_sources_checked_count", 0),
+        "repair_sources_selected_count": source_pack_diagnostics.get("repair_sources_selected_count", 0),
+        "repair_sources_failed_count": source_pack_diagnostics.get("repair_sources_failed_count", 0),
+        "repair_selected_source_names": source_pack_diagnostics.get("repair_selected_source_names", []),
+        "repair_failed_by_reason": source_pack_diagnostics.get("repair_failed_by_reason", {}),
+        "buyer_pack_url_resolution_failures": buyer_pack_url_resolution_failures,
+        "buyer_pack_http_failures": buyer_pack_http_failures,
+        "buyer_pack_auth_required_failures": buyer_pack_auth_required_failures,
+        "buyer_pack_unsupported_content_failures": buyer_pack_unsupported_content_failures,
+        "buyer_pack_empty_content_failures": buyer_pack_empty_content_failures,
+        "buyer_pack_file_write_failures": buyer_pack_file_write_failures,
+        "buyer_pack_success_rate": round((buyer_pack_success_count / max(1, buyer_pack_attempted_count)) * 100.0, 2),
+        "etenders_home_reached": etenders_home_reached,
+        "etenders_opportunities_page_reached": etenders_opportunities_page_reached,
+        "etenders_candidates_table_detected": etenders_candidates_table_detected,
+        "etenders_candidates_extracted_count": etenders_candidates_extracted_count,
+        "etenders_detail_pages_attempted_count": etenders_detail_pages_attempted_count,
+        "etenders_detail_pages_success_count": etenders_detail_pages_success_count,
+        "etenders_detail_pages_timeout_count": etenders_detail_pages_timeout_count,
+        "etenders_tenderdetails_links_found_count": etenders_tenderdetails_links_found_count,
+    }
     buyer_intelligence_result = _v59_build_buyer_intelligence(
         sources,
         raw_candidates,
@@ -3598,6 +9061,53 @@ def run_multi_portal_discovery(
     extracted_candidates_count = len(raw_candidates)
     extraction_success_rate = round((extracted_candidates_count / max(1, sum(int(run.get("harvested_count") or 0) for run in source_runs))) * 100.0, 2)
     document_link_detection_rate = round((document_link_hits / max(1, extracted_candidates_count)) * 100.0, 2)
+    raw_to_eligible_rate = round((len(eligible) / max(1, len(raw_candidates))) * 100.0, 2)
+    eligible_to_qualified_rate = round((len(qualified) / max(1, len(eligible))) * 100.0, 2)
+    conversion_summary = {
+        "raw_to_eligible_rate": raw_to_eligible_rate,
+        "eligible_to_qualified_rate": eligible_to_qualified_rate,
+        "rejected_by_stage": rejection_stage_counts,
+        "rejected_by_reason_code": rejection_reason_code_counts,
+        "candidates_with_document_links": candidates_with_document_links,
+        "candidates_without_document_links": candidates_without_document_links,
+        "buyer_pack_attempted_count": buyer_pack_attempted_count,
+        "buyer_pack_downloaded_count": buyer_pack_downloaded_count,
+        "buyer_pack_failed_count": buyer_pack_failed_count,
+        "buyer_pack_url_resolution_failures": buyer_pack_url_resolution_failures,
+        "buyer_pack_http_failures": buyer_pack_http_failures,
+        "buyer_pack_auth_required_failures": buyer_pack_auth_required_failures,
+        "buyer_pack_unsupported_content_failures": buyer_pack_unsupported_content_failures,
+        "buyer_pack_empty_content_failures": buyer_pack_empty_content_failures,
+        "buyer_pack_file_write_failures": buyer_pack_file_write_failures,
+        "buyer_pack_success_rate": round((buyer_pack_success_count / max(1, buyer_pack_attempted_count)) * 100.0, 2),
+        "index_pages_fetched_count": index_pages_fetched_count,
+        "index_pages_with_artifacts_count": index_pages_with_artifacts_count,
+        "artifact_candidates_found_count": artifact_candidates_found_count,
+        "artifact_download_attempts_count": artifact_download_attempts_count,
+        "artifact_download_success_count": artifact_download_success_count,
+        "artifact_candidates_total": artifact_candidates_total,
+        "artifact_candidates_attempted": artifact_candidates_attempted,
+        "artifact_candidates_rejected_before_fetch": artifact_candidates_rejected_before_fetch,
+        "artifact_candidates_by_classification": artifact_candidates_by_classification,
+        "artifact_rejections_by_reason": artifact_rejections_by_reason,
+        "artifact_resolved_to_html_count": artifact_resolved_to_html_count,
+        "artifact_binary_signature_success_count": artifact_binary_signature_success_count,
+        "etenders_endpoint_probe_count": etenders_endpoint_probe_count,
+        "etenders_endpoint_success_count": etenders_endpoint_success_count,
+        "etenders_endpoint_failure_count": etenders_endpoint_failure_count,
+        "etenders_document_candidates_from_endpoints": etenders_document_candidates_from_endpoints,
+        "etenders_endpoint_failures_by_reason": etenders_endpoint_failures_by_reason,
+        "etenders_home_reached": etenders_home_reached,
+        "etenders_opportunities_page_reached": etenders_opportunities_page_reached,
+        "etenders_candidates_table_detected": etenders_candidates_table_detected,
+        "etenders_candidates_extracted_count": etenders_candidates_extracted_count,
+        "etenders_detail_pages_attempted_count": etenders_detail_pages_attempted_count,
+        "etenders_detail_pages_success_count": etenders_detail_pages_success_count,
+        "etenders_detail_pages_timeout_count": etenders_detail_pages_timeout_count,
+        "etenders_tenderdetails_links_found_count": etenders_tenderdetails_links_found_count,
+        "index_page_no_artifacts_count": index_page_no_artifacts_count,
+        "artifact_download_failed_count": artifact_download_failed_count,
+    }
     qualification_summary = {
         "status": "ok",
         "service_version": "V61_FORECAST_TO_ACTION_WATCHLIST_EXTENDS_V60_V59",
@@ -3608,6 +9118,7 @@ def run_multi_portal_discovery(
         "top_qualified_candidates": qualified[:10],
         "extraction_success_rate": extraction_success_rate,
         "document_link_detection_rate": document_link_detection_rate,
+        **conversion_summary,
         **document_diagnostics,
         **memory_diagnostics,
         **source_pack_diagnostics,
@@ -3634,11 +9145,25 @@ def run_multi_portal_discovery(
         "healthy_sources_count": healthy_sources_count,
         "unhealthy_sources_count": unhealthy_sources_count,
         "candidate_producing_sources_count": candidate_producing_sources_count,
+        "productive_sources_count": productive_sources_count,
+        "suppressed_sources_count": suppressed_sources_count,
+        "suppressed_dns_count": acquisition_health_counts.get("dns_blocked", 0),
+        "suppressed_http_count": acquisition_health_counts.get("http_blocked", 0),
+        "suppressed_empty_count": acquisition_health_counts.get("empty", 0),
+        **focus_diagnostics,
         "source_rotation_batch_id": source_rotation_batch_id,
+        "skipped_sources_count": len(skipped_source_rows),
+        "skipped_sources": [row.get("source_name") for row in skipped_source_rows[:15]],
         "source_pack_strategy": {
             "active_pack_mode": source_pack_diagnostics.get("active_pack_mode"),
             "pack_rotation_strategy": source_pack_diagnostics.get("pack_rotation_strategy"),
             "projected_highest_yield_pack": source_pack_diagnostics.get("projected_highest_yield_pack"),
+            "repair_mode_used": source_pack_diagnostics.get("repair_mode_used", False),
+            "repair_sources_checked_count": source_pack_diagnostics.get("repair_sources_checked_count", 0),
+            "repair_sources_selected_count": source_pack_diagnostics.get("repair_sources_selected_count", 0),
+            "repair_sources_failed_count": source_pack_diagnostics.get("repair_sources_failed_count", 0),
+            "repair_selected_source_names": source_pack_diagnostics.get("repair_selected_source_names", []),
+            "repair_failed_by_reason": source_pack_diagnostics.get("repair_failed_by_reason", {}),
             "pack_summary": source_pack_strategy.get("pack_summary", []),
         },
         "buyer_intelligence": {
@@ -3664,6 +9189,8 @@ def run_multi_portal_discovery(
         "tier_distribution": yield_summary.get("tier_distribution", {}),
         "source_rebalance_actions": yield_summary.get("source_rebalance_actions", [])[:20],
         "projected_next_cycle_priority_sources": yield_summary.get("projected_next_cycle_priority_sources", [])[:15],
+        "source_health_overview": source_health_overview,
+        "acquisition_runtime_summary": acquisition_runtime_summary,
         "sources_scanned_count": len(selected_sources),
         "pages_scanned_count": pages_scanned_count,
         "raw_candidates_count": len(raw_candidates),
@@ -3672,12 +9199,19 @@ def run_multi_portal_discovery(
         "qualified_candidates_count": len(qualified),
         "rejected_candidates_count": len(rejected),
         "rejection_counts_by_reason": rejection_counts,
+        **conversion_summary,
         **document_diagnostics,
         **memory_diagnostics,
         **source_pack_diagnostics,
         **buyer_intelligence_diagnostics,
         **forecast_diagnostics,
         **watchlist_diagnostics,
+        "repair_mode_used": source_pack_diagnostics.get("repair_mode_used", False),
+        "repair_sources_checked_count": source_pack_diagnostics.get("repair_sources_checked_count", 0),
+        "repair_sources_selected_count": source_pack_diagnostics.get("repair_sources_selected_count", 0),
+        "repair_sources_failed_count": source_pack_diagnostics.get("repair_sources_failed_count", 0),
+        "repair_selected_source_names": source_pack_diagnostics.get("repair_selected_source_names", []),
+        "repair_failed_by_reason": source_pack_diagnostics.get("repair_failed_by_reason", {}),
         "qualification_reasons": qualification_reason_counts,
         "top_qualified_candidates": qualified[:10],
         "extraction_success_rate": extraction_success_rate,
@@ -3686,6 +9220,7 @@ def run_multi_portal_discovery(
         "discovery_termination_reason": "completed",
         "source_runs": source_runs,
         "source_health_this_cycle": source_health_rows,
+        "acquisition_runtime_report": _display_project_path(LAST_ACQUISITION_RUNTIME_DIAGNOSTICS_FILE),
         "pre_cycle_health_sample": pre_cycle_health_rows[:20],
         "artifacts": {
             "eligible_candidates_report": str(eligible_report),
@@ -3697,6 +9232,8 @@ def run_multi_portal_discovery(
             "discovery_summary": str(summary_report),
             "source_health_report": str(source_health_report),
             "top_sources": str(top_sources_report),
+            "acquisition_runtime_report": str(LAST_ACQUISITION_RUNTIME_DIAGNOSTICS_FILE),
+            "source_pack_repair_diagnostics": str(SOURCE_PACK_REPAIR_DIAGNOSTICS_FILE),
             "source_yield_rankings": str(SOURCE_YIELD_RANKINGS_FILE),
             "adaptive_source_weights": str(ADAPTIVE_SOURCE_WEIGHTS_FILE),
             "yield_summary": str(YIELD_SUMMARY_FILE),
@@ -4927,17 +10464,27 @@ def get_review_queue_status() -> Dict[str, Any]:
     }
 
 
-def _source_is_temporarily_bad(source: Dict[str, Any], max_failures: int = 2) -> bool:
-    health = _load_source_health()
+def _source_is_temporarily_bad(source: Dict[str, Any], max_failures: int = 2, source_health_file: Optional[Path] = None) -> bool:
+    health = _load_source_health(source_health_file=source_health_file)
     row = health.get(_source_key(source), {})
     if not isinstance(row, dict):
         return False
     return int(row.get("failure_count") or 0) >= max_failures
 
 
-def select_sources_for_cycle(sources: List[Dict[str, Any]], max_sources_per_cycle: int, include_bad_sources: bool = False) -> List[Dict[str, Any]]:
+def select_sources_for_cycle(sources: List[Dict[str, Any]], max_sources_per_cycle: int, include_bad_sources: bool = False, controlled_mode: bool = False, source_health_snapshot: Optional[Dict[str, Any]] = None, source_health_file: Optional[Path] = None) -> List[Dict[str, Any]]:
     max_sources_per_cycle = _safe_positive_int(max_sources_per_cycle, 20)
     enabled = [s for s in sources if s.get("enabled", True)]
+    if controlled_mode:
+        return sorted(
+            enabled,
+            key=lambda src: (
+                int(src.get("priority") or 9999),
+                -int(src.get("intelligence_score") or 0),
+                _clean(src.get("name") or src.get("source_name")),
+                _clean(src.get("url") or src.get("list_url")),
+            ),
+        )[:max_sources_per_cycle]
     core: List[Dict[str, Any]] = []
     others: List[Dict[str, Any]] = []
     for src in enabled:
@@ -4947,10 +10494,51 @@ def select_sources_for_cycle(sources: List[Dict[str, Any]], max_sources_per_cycl
             core.append(src)
         else:
             others.append(src)
+    health = source_health_snapshot if isinstance(source_health_snapshot, dict) else _load_source_health(source_health_file=source_health_file)
     if not include_bad_sources:
-        others = [s for s in others if not _source_is_temporarily_bad(s)]
-    def rank(src: Dict[str, Any]) -> Tuple[int, int, str]:
-        return (int(src.get("priority") or 9999), -int(src.get("intelligence_score") or 0), _clean(src.get("name")))
+        core = [
+            src
+            for src in core
+            if _clean(_v53_source_health_row(src, health, source_health_file=source_health_file).get("source_quarantine_status")) != "quarantined"
+            and _clean(_v53_source_health_row(src, health, source_health_file=source_health_file).get("health_status")) not in {"dns_blocked", "http_blocked", "disabled"}
+        ]
+        others = [
+            s
+            for s in others
+            if not _source_is_temporarily_bad(s, source_health_file=source_health_file)
+            and _clean(_v53_source_health_row(s, health, source_health_file=source_health_file).get("health_status")) not in {"dns_blocked", "http_blocked", "disabled"}
+        ]
+    else:
+        core = [
+            _apply_commissioning_override(
+                src,
+                _v53_source_health_row(src, health, source_health_file=source_health_file),
+                include_bad_sources=True,
+            )
+            for src in core
+        ]
+
+    def rank(src: Dict[str, Any]) -> Tuple[int, int, int, float, float, int, int, int, int, str]:
+        row = _v53_source_health_row(src, health, source_health_file=source_health_file)
+        quarantine_status = _clean(row.get("source_quarantine_status"))
+        quarantine_rank = 0 if quarantine_status == "ready" else 1 if quarantine_status == "watch" else 2
+        pool_rank, pool_state = _v53_source_pool_state(src, row)
+        selection_score = _safe_float(row.get("source_selection_score"), _safe_float(row.get("source_success_score"), 0.0))
+        if pool_state == "deprioritized_empty":
+            selection_score -= 4.0
+        elif pool_state == "retry_later":
+            selection_score -= 10.0
+        return (
+            quarantine_rank,
+            pool_rank,
+            int(src.get("priority") or 9999),
+            -selection_score,
+            -int(src.get("intelligence_score") or 0),
+            int(row.get("source_failure_count") or 0),
+            -int(row.get("candidate_total") or 0),
+            _clean(src.get("name")),
+        )
+
     selected = sorted(core, key=rank) + sorted(others, key=rank)
     return selected[:max_sources_per_cycle]
 
@@ -5053,8 +10641,8 @@ ADDRESS_OR_INSTRUCTION_NOISE = (
 )
 
 REAL_RFQ_INTENT_TERMS = [
-    "rfq", "request for quotation", "quotation for", "supply and delivery", "supply & delivery", "supply, delivery",
-    "supply of", "delivery of", "bid for supply", "tender for supply",
+    "rfq", "request for quotation", "quotation for", "supply and delivery", "supply and deliver", "supply & delivery", "supply, delivery", "supply, deliver",
+    "supply of", "delivery of", "procurement of", "bid for supply", "tender for supply", "appointment of",
 ]
 WEAK_INTENT_TERMS = ["tender", "bid", "quotation", "supply", "delivery", "installation"]
 
@@ -5314,13 +10902,178 @@ def _should_skip_preharvest_candidate(text: str, title: str = "") -> bool:
     return False
 
 
-def _direct_etenders(source: Dict[str, Any], max_items: int, headless: bool) -> List[Dict[str, Any]]:
+def _direct_etenders(
+    source: Dict[str, Any],
+    max_items: int,
+    headless: bool,
+    timeout_seconds: int = 8,
+    playwright_timeout_ms: int = 18000,
+    diagnostics: Optional[Dict[str, Any]] = None,
+    page_load_timeout_seconds: Optional[int] = None,
+    candidate_extraction_timeout_seconds: Optional[int] = None,
+    document_link_timeout_seconds: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    url = _normalize_etenders_listing_url(source.get("url") or source.get("list_url") or ETENDERS_URL)
+    max_items = _safe_positive_int(max_items, 20)
+    page_load_timeout_seconds = _safe_positive_int(page_load_timeout_seconds, max(12, timeout_seconds))
+    candidate_extraction_timeout_seconds = _safe_positive_int(candidate_extraction_timeout_seconds, max(15, timeout_seconds))
+    document_link_timeout_seconds = _safe_positive_int(document_link_timeout_seconds, max(10, timeout_seconds))
+    diag = diagnostics if isinstance(diagnostics, dict) else {}
+    diag.update({
+        "etenders_home_reached": False,
+        "etenders_opportunities_page_reached": False,
+        "etenders_candidates_table_detected": False,
+        "etenders_candidates_extracted_count": 0,
+        "etenders_detail_pages_attempted_count": 0,
+        "etenders_detail_pages_success_count": 0,
+        "etenders_detail_pages_timeout_count": 0,
+        "etenders_tenderdetails_links_found_count": 0,
+        "retry_count": int(diag.get("retry_count") or 0),
+        "retry_stage": _clean(diag.get("retry_stage")),
+        "partial_progress_persisted": False,
+    })
+
+    def _probe_detail_pages(items: List[Dict[str, Any]]) -> None:
+        if not items:
+            return
+        diag["etenders_tenderdetails_links_found_count"] = sum(
+            1
+            for item in items
+            if _clean(item.get("detail_url") or item.get("document_url")).startswith("http")
+        )
+        for item in items[:max(1, min(3, len(items)))]:
+            detail_url = _clean(item.get("detail_url") or item.get("document_url"))
+            if not detail_url:
+                continue
+            diag["etenders_detail_pages_attempted_count"] += 1
+            try:
+                resp = requests.get(
+                    detail_url,
+                    timeout=document_link_timeout_seconds,
+                    headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0", "Accept": "text/html,application/json,*/*"},
+                )
+                if resp.ok:
+                    diag["etenders_detail_pages_success_count"] += 1
+            except Exception as exc:
+                if "timeout" in _safe_lower(str(exc)):
+                    diag["etenders_detail_pages_timeout_count"] += 1
+                    diag["partial_progress_persisted"] = True
+
+    def _home_and_opportunities_preflight() -> None:
+        try:
+            home_resp = requests.get(
+                ETENDERS_BASE_URL,
+                timeout=page_load_timeout_seconds,
+                headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0", "Accept": "text/html,application/xhtml+xml,*/*"},
+            )
+            diag["etenders_home_reached"] = bool(home_resp.ok)
+        except Exception:
+            pass
+        try:
+            opp_resp = requests.get(
+                url,
+                timeout=page_load_timeout_seconds,
+                headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0", "Accept": "text/html,application/xhtml+xml,*/*"},
+            )
+            diag["etenders_opportunities_page_reached"] = bool(opp_resp.ok)
+            if opp_resp.ok:
+                body = _safe_lower(getattr(opp_resp, "text", "") or "")
+                if any(token in body for token in ("tenderdetails", "opportunities", "advertised", "closing", "description")):
+                    diag["etenders_candidates_table_detected"] = True
+        except Exception:
+            pass
+
+    _home_and_opportunities_preflight()
+
+    def _fetch_json_results() -> List[Dict[str, Any]]:
+        return _fetch_etenders_paginated_opportunities(
+            source,
+            max_items=max_items,
+            timeout_seconds=candidate_extraction_timeout_seconds,
+        )
+
+    try:
+        json_results = _fetch_json_results()
+        if json_results:
+            diag["etenders_opportunities_page_reached"] = True
+            diag["etenders_candidates_table_detected"] = True
+            diag["etenders_candidates_extracted_count"] = len(json_results)
+            _probe_detail_pages(json_results)
+            return json_results
+    except Exception as exc:
+        error_text = _truncate(str(exc), 240)
+        logger.info("eTenders JSON listing fetch failed for %s: %s", source.get("name"), exc)
+        if _v64_etenders_should_retry(error_text):
+            diag["retry_count"] = int(diag.get("retry_count") or 0) + 1
+            diag["retry_stage"] = "candidate_extraction_timeout"
+            if "429" in error_text:
+                time.sleep(1)
+            try:
+                json_results = _fetch_json_results()
+                if json_results:
+                    diag["etenders_opportunities_page_reached"] = True
+                    diag["etenders_candidates_table_detected"] = True
+                    diag["etenders_candidates_extracted_count"] = len(json_results)
+                    _probe_detail_pages(json_results)
+                    return json_results
+            except Exception as retry_exc:
+                logger.info("eTenders JSON listing retry failed for %s: %s", source.get("name"), retry_exc)
+    try:
+        # Prefer a static parse first so harvest cycles do not depend on browser launch.
+        static_results = run_generic_scraper(source, timeout=candidate_extraction_timeout_seconds, max_items=max_items)
+        if static_results:
+            results: List[Dict[str, Any]] = []
+            for raw in static_results:
+                if not isinstance(raw, dict):
+                    continue
+                text = _clean(raw.get("raw_text") or raw.get("description") or raw.get("title"))
+                title = _v50_clean_etenders_title(_clean(raw.get("title") or text))
+                if not text:
+                    continue
+                if _should_skip_preharvest_candidate(text, title):
+                    continue
+                item = _base_item(source, text, url)
+                item["raw_text_original"] = text
+                item["title"] = _truncate(title or text, 180)
+                item["description"] = text
+                _lmcp_safe_assign_identity_fields(item, item["title"])
+                item["buyer_name"] = _clean(source.get("name") or "eTenders")
+                item["source_name"] = _clean(source.get("name") or "eTenders Web")
+                item["source"] = item["source_name"]
+                item["portal_name"] = item["source_name"]
+                item["closing_date"] = _clean(raw.get("closing_date") or _extract_closing_date(text))
+                discovered_tender_id = _v64_extract_etenders_tender_id(
+                    raw.get("detail_url"),
+                    raw.get("document_url"),
+                    raw.get("url"),
+                    raw.get("raw_text"),
+                    raw.get("description"),
+                    raw.get("title"),
+                )
+                if discovered_tender_id:
+                    detail_url = _build_etenders_detail_url(discovered_tender_id)
+                    item["detail_url"] = detail_url
+                    item["document_url"] = detail_url
+                    item["tender_id"] = discovered_tender_id
+                    item["v50_8_discovered_tender_id"] = discovered_tender_id
+                results.append(item)
+            if results:
+                diag["etenders_candidates_extracted_count"] = len(results)
+                diag["etenders_candidates_table_detected"] = True
+                _probe_detail_pages(results)
+                return _dedupe_keep_order(results)[:max_items]
+    except Exception as exc:
+        logger.info("Static eTenders fallback failed for %s: %s", source.get("name"), exc)
+
     try:
         from app.services.etenders_playwright import run_etenders_playwright  # type: ignore
         try:
-            data = run_etenders_playwright(max_items=max_items, headless=headless)
+            data = run_etenders_playwright(max_items=max_items, headless=headless, timeout_ms=playwright_timeout_ms)
         except TypeError:
-            data = run_etenders_playwright(max_items=max_items)
+            try:
+                data = run_etenders_playwright(max_items=max_items, timeout_ms=playwright_timeout_ms)
+            except TypeError:
+                data = run_etenders_playwright(max_items=max_items)
         if not isinstance(data, list):
             return []
         results: List[Dict[str, Any]] = []
@@ -5337,7 +11090,7 @@ def _direct_etenders(source: Dict[str, Any], max_items: int, headless: bool) -> 
             if _should_skip_preharvest_candidate(text, title):
                 continue
 
-            item = _base_item(source, text, _clean(source.get("url") or ETENDERS_URL))
+            item = _base_item(source, text, url)
             item["raw_text_original"] = raw_text_value
 
             category_like_titles = {
@@ -5359,11 +11112,34 @@ def _direct_etenders(source: Dict[str, Any], max_items: int, headless: bool) -> 
             item["source"] = item["source_name"]
             item["portal_name"] = item["source_name"]
             item["closing_date"] = _clean(raw.get("closing_date") or _extract_closing_date(text))
+            discovered_tender_id = _v64_extract_etenders_tender_id(
+                raw.get("detail_url"),
+                raw.get("document_url"),
+                raw.get("url"),
+                raw.get("raw_text"),
+                raw.get("description"),
+                raw.get("title"),
+            )
+            if discovered_tender_id:
+                detail_url = _build_etenders_detail_url(discovered_tender_id)
+                item["detail_url"] = detail_url
+                item["document_url"] = detail_url
+                item["tender_id"] = discovered_tender_id
+                item["v50_8_discovered_tender_id"] = discovered_tender_id
             results.append(item)
-        return _dedupe_keep_order(results)[:max_items]
+        deduped = _dedupe_keep_order(results)[:max_items]
+        diag["etenders_candidates_extracted_count"] = len(deduped)
+        if deduped:
+            diag["etenders_candidates_table_detected"] = True
+            _probe_detail_pages(deduped)
+        return deduped
     except Exception as exc:
         logger.warning("Direct eTenders parser failed for %s: %s", source.get("name"), exc)
-        return []
+        fallback = run_generic_scraper(source, timeout=candidate_extraction_timeout_seconds, max_items=max_items)
+        if fallback:
+            diag["etenders_candidates_extracted_count"] = len(fallback)
+            diag["partial_progress_persisted"] = True
+        return fallback
 
 
 def _is_necsa_source(source: Dict[str, Any]) -> bool:
@@ -5539,9 +11315,13 @@ def run_generic_scraper(source: Dict[str, Any], timeout: int = 8, max_items: int
     if not url:
         return []
     try:
-        response = requests.get(url, timeout=timeout, verify=bool(source.get("verify_ssl", True)), headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0"})
-        response.raise_for_status()
-        html = response.text
+        if url.startswith("file://") or Path(url).expanduser().exists():
+            local_path = Path(unquote(urlparse(url).path if url.startswith("file://") else url)).expanduser()
+            html = local_path.read_text(encoding="utf-8")
+        else:
+            response = requests.get(url, timeout=timeout, verify=bool(source.get("verify_ssl", True)), headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0"})
+            response.raise_for_status()
+            html = response.text
     except Exception as exc:
         _record_source_result(source, ok=False, harvested=0, error=str(exc))
         logger.warning("Static scrape failed for %s: %s", source.get("name"), exc)
@@ -5559,23 +11339,43 @@ def run_generic_scraper(source: Dict[str, Any], timeout: int = 8, max_items: int
     return _dedupe_keep_order(results)
 
 
-def run_playwright_generic_scraper(source: Dict[str, Any], max_items: int = 20, headless: bool = True) -> List[Dict[str, Any]]:
+def run_playwright_generic_scraper(
+    source: Dict[str, Any],
+    max_items: int = 20,
+    headless: bool = True,
+    timeout_ms: int = 18000,
+    diagnostics: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     url = _clean(source.get("url") or source.get("list_url"))
     max_items = _safe_positive_int(max_items, 20)
     if not url:
+        if isinstance(diagnostics, dict):
+            diagnostics.update({
+                "status": "skipped",
+                "error_message": "missing_url",
+                "fallback_used": False,
+                "retry_count": 0,
+            })
         return []
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception as exc:
         logger.warning("Playwright unavailable, using static fallback for %s: %s", source.get("name"), exc)
+        if isinstance(diagnostics, dict):
+            diagnostics.update({
+                "status": "playwright_failed",
+                "error_message": _truncate(str(exc), 240),
+                "fallback_used": True,
+                "retry_count": 1,
+            })
         return run_generic_scraper(source, max_items=max_items)
     results: List[Dict[str, Any]] = []
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
             page = browser.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=18000)
-            page.wait_for_timeout(1200)
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            page.wait_for_timeout(min(1200, max(250, timeout_ms // 10)))
             row_selectors = ["table tbody tr", "table tr", ".table tbody tr"]
             rows = []
             for selector in row_selectors:
@@ -5609,7 +11409,25 @@ def run_playwright_generic_scraper(source: Dict[str, Any], max_items: int = 20, 
     except Exception as exc:
         _record_source_result(source, ok=False, harvested=0, error=str(exc))
         logger.warning("Playwright scrape failed for %s: %s", source.get("name"), exc)
-        return run_generic_scraper(source, max_items=max_items)
+        if isinstance(diagnostics, dict):
+            diagnostics.update({
+                "status": "playwright_failed",
+                "error_message": _truncate(str(exc), 240),
+                "fallback_used": True,
+                "retry_count": 1,
+            })
+        fallback = run_generic_scraper(source, max_items=max_items)
+        if isinstance(diagnostics, dict):
+            diagnostics.setdefault("status", "success" if fallback else "playwright_failed")
+            diagnostics.setdefault("fallback_used", True)
+        return fallback
+    if isinstance(diagnostics, dict):
+        diagnostics.update({
+            "status": "success" if results else "no_candidates",
+            "error_message": "",
+            "fallback_used": False,
+            "retry_count": 0,
+        })
     _record_source_result(source, ok=True, harvested=len(results))
     return _dedupe_keep_order(results)[:max_items]
 
@@ -5679,8 +11497,27 @@ CONTEXTUAL_EXCLUDED_PATTERNS = [
 ]
 
 SCREEN_OUT_KEYWORDS = ["request for information", "expression of interest", "lease of immovable property", "rental and leasing", "other service activities"]
-SUPPLY_OVERRIDE_TERMS = ["supply and delivery", "supply, delivery", "supply & delivery", "supply of", "delivery of", "manufacture, testing, supply and delivery", "water collection, treatment and supply"]
-AUTO_PROMOTE_TERMS = ["supply and delivery", "supply, delivery", "supply & delivery", "supply of", "delivery of", "manufacture, testing, supply and delivery"]
+SUPPLY_OVERRIDE_TERMS = [
+    "supply and delivery",
+    "supply and deliver",
+    "supply, delivery",
+    "supply, deliver",
+    "supply & delivery",
+    "supply of",
+    "delivery of",
+    "manufacture, testing, supply and delivery",
+    "water collection, treatment and supply",
+]
+AUTO_PROMOTE_TERMS = [
+    "supply and delivery",
+    "supply and deliver",
+    "supply, delivery",
+    "supply, deliver",
+    "supply & delivery",
+    "supply of",
+    "delivery of",
+    "manufacture, testing, supply and delivery",
+]
 
 
 
@@ -5738,7 +11575,9 @@ def _has_strong_rfq_identity(item: Dict[str, Any]) -> bool:
         term in combined
         for term in [
             "supply and delivery",
+            "supply and deliver",
             "supply, delivery",
+            "supply, deliver",
             "supply & delivery",
             "delivery of",
         ]
@@ -5774,14 +11613,35 @@ def _score_profit_and_risk(raw: str) -> Dict[str, Any]:
         if term in raw:
             score += 5
             reasons.append(f"buyer/value signal:{term}")
+    for term in [
+        "equipment",
+        "machinery",
+        "vehicle",
+        "vehicles",
+        "bus",
+        "mini bus",
+        "transport",
+        "materials",
+    ]:
+        if term in raw:
+            score += 10
+            reasons.append(f"goods signal:{term}")
     for term in EXCLUDED_KEYWORDS:
+        if term == "road" and any(x in raw for x in ["vehicle", "bus", "mini bus", "transport", "traffic services"]):
+            continue
+        if term == "software" and any(x in raw for x in ["supply and delivery", "supply and deliver", "supply of", "delivery of", "equipment", "machinery", "vehicle", "bus", "materials"]):
+            continue
+        if term == "repair and installation" and any(x in raw for x in ["supply and delivery", "supply and deliver", "supply, delivery", "supply, deliver", "supply of", "delivery of", "rfq", "tender", "quotation"]):
+            continue
         if term in raw:
             score -= 35
             reasons.append(f"risk:{term}")
     score = max(0, min(100, score))
     clean_supply_delivery = any(term in raw for term in [
         "supply and delivery",
+        "supply and deliver",
         "supply, delivery",
+        "supply, deliver",
         "supply & delivery",
         "delivery of",
     ])
@@ -5800,11 +11660,18 @@ def _score_profit_and_risk(raw: str) -> Dict[str, Any]:
         "refurbishment",
         "civil works",
         "works",
-    ])
+    ]) and not any(term in raw for term in SUPPLY_OVERRIDE_TERMS)
 
     goods_value_signal = any(term in raw for term in [
         "building materials",
         "building material",
+        "equipment",
+        "machinery",
+        "vehicle",
+        "vehicles",
+        "bus",
+        "mini bus",
+        "transport",
         "stationery",
         "office supplies",
         "cleaning materials",
@@ -5979,7 +11846,7 @@ def _lmcp_is_etenders_item(item: Dict[str, Any]) -> bool:
     return "etenders" in source_blob or "e-tender" in source_blob
 
 
-def _lmcp_apply_v50_7_etenders_navigation_gate(item: Dict[str, Any]) -> Dict[str, Any]:
+def _lmcp_apply_v50_7_etenders_navigation_gate(item: Dict[str, Any], resolver_overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     V50.7 eTenders safe navigation gate.
 
@@ -6024,6 +11891,8 @@ def _lmcp_apply_v50_7_etenders_navigation_gate(item: Dict[str, Any]) -> Dict[str
                 item["document_url"] = recommended_url
                 item["detail_url"] = recommended_url
                 item["v50_7_verified_document_url"] = recommended_url
+                item["v50_7_navigation_status"] = "safe_document_link"
+                item["v50_7_navigation_blockers"] = []
                 item["skip_document_acquisition_until_detail_verified"] = False
                 item["requires_detail_navigation"] = False
                 return item
@@ -6033,17 +11902,43 @@ def _lmcp_apply_v50_7_etenders_navigation_gate(item: Dict[str, Any]) -> Dict[str
             if detail_url:
                 item["detail_url"] = detail_url
                 item["v50_7_candidate_detail_url"] = detail_url
+                item["v50_7_navigation_status"] = "safe_detail_link"
+                item["v50_7_navigation_blockers"] = []
                 item["skip_document_acquisition_until_detail_verified"] = False
                 return item
 
+        item = _lmcp_try_extended_etenders_resolution(item, resolver_overrides=resolver_overrides)
+        if item.get("document_url") or item.get("detail_url"):
+            item["v50_7_navigation_status"] = item.get("v50_8_extended_resolution_status") or "extended_resolution_verified"
+            item["v50_7_navigation_blockers"] = []
+            item["skip_document_acquisition_until_detail_verified"] = False
+            item["requires_detail_navigation"] = False
+            return item
+
         # No safe tender-specific document/detail URL found. Keep the opportunity
-        # visible, but do not allow generic eTenders listing acquisition to run.
-        item["quote_ready"] = False
+        # visible, but do not allow generic eTenders listing acquisition or
+        # auto-submit to run. If the item already reached quote-ready via
+        # quantity verification, preserve that state for manual quote-pack work.
+        if not item.get("quote_ready"):
+            item["quote_ready"] = False
         item["auto_submit"] = False
         item["requires_detail_navigation"] = True
         item["skip_document_acquisition_until_detail_verified"] = True
         item["auto_submission_gate_allowed"] = False
         item["auto_submission_gate_reason"] = "v50_7_etenders_detail_navigation_required"
+        item["v50_7_navigation_status"] = "detail_navigation_required"
+        item["v50_7_navigation_blockers"] = [
+            "no_tender_specific_document_link",
+            "no_tender_specific_detail_link",
+            str(v50_7_nav.get("recommended_action") or "manual_review"),
+        ]
+        item["v50_7_navigation_reasons"] = {
+            "recommended_action": v50_7_nav.get("recommended_action"),
+            "candidate_count": v50_7_nav.get("candidate_count"),
+            "strong_document_count": v50_7_nav.get("strong_document_count"),
+            "strong_detail_count": v50_7_nav.get("strong_detail_count"),
+            "notes": v50_7_nav.get("notes") if isinstance(v50_7_nav.get("notes"), list) else [],
+        }
 
         if item.get("pipeline_status") not in {"blocked", "screened_out", "quantity_verification_required"}:
             item["pipeline_status"] = "detail_navigation_required"
@@ -6061,10 +11956,338 @@ def _lmcp_apply_v50_7_etenders_navigation_gate(item: Dict[str, Any]) -> Dict[str
             "reason": "v50_7_navigation_exception",
             "error": str(exc),
         }
+        item["v50_7_navigation_status"] = "navigation_failed"
+        item["v50_7_navigation_blockers"] = ["navigation_exception"]
         item["skip_document_acquisition_until_detail_verified"] = True
         item["auto_submission_gate_allowed"] = False
         item["auto_submission_gate_reason"] = "v50_7_navigation_exception"
         return item
+
+
+def _lmcp_try_extended_etenders_resolution(item: Dict[str, Any], resolver_overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Secondary eTenders resolver chain.
+
+    When V50.7 cannot establish a safe row-local link, this attempts the
+    stronger resolver stack and only promotes links that are still verified by
+    the downstream services.
+    """
+    if not isinstance(item, dict) or not _lmcp_is_etenders_item(item):
+        return item
+
+    attempts: List[Dict[str, Any]] = []
+    title_blob = " ".join(
+        str(item.get(key) or "")
+        for key in ("buyer_rfq_number", "rfq_number", "reference_number", "title", "description")
+    )
+
+    def _first_numeric_identifier(*values: Any) -> str:
+        for value in values:
+            if isinstance(value, str):
+                match = re.search(r"\b(\d{5,8})\b", value)
+                if match:
+                    return _clean(match.group(1))
+            elif isinstance(value, (list, tuple, set)):
+                found = _first_numeric_identifier(*list(value))
+                if found:
+                    return found
+        return ""
+
+    payload = {
+        "title": item.get("title"),
+        "description": item.get("description"),
+        "buyer_rfq_number": item.get("buyer_rfq_number"),
+        "rfq_number": item.get("rfq_number"),
+        "reference_number": item.get("reference_number"),
+        "source_url": item.get("source_url") or item.get("detail_url") or item.get("document_url"),
+        "document_url": item.get("document_url"),
+        "detail_url": item.get("detail_url"),
+        "tender_id": _first_numeric_identifier(title_blob),
+    }
+
+    resolved_document_url = ""
+    resolved_detail_url = ""
+    tenderdetails_resolvers_added = bool(payload.get("tender_id"))
+
+    def _result_storage_key(label: str) -> str:
+        mapping = {
+            "v50_8_true_detail": "v50_8_true_detail_resolution_result",
+            "v50_8_1_ajax": "v50_8_1_ajax_resolution_result",
+            "v50_8_2_reconstruction": "v50_8_2_reconstruction_result",
+            "v50_9_1_tenderdetails_inspect": "v50_9_1_tenderdetails_inspect_result",
+            "v50_9_6_hidden_api": "v50_9_6_hidden_api_result",
+        }
+        return mapping.get(label, f"{label}_result")
+
+    def _extract_tender_id_candidates(result: Dict[str, Any]) -> List[str]:
+        candidates: List[str] = []
+
+        def _add(value: Any) -> None:
+            found = _first_numeric_identifier(value)
+            if found and found not in candidates:
+                candidates.append(found)
+
+        for key in ("tender_id", "tenderId", "id"):
+            _add(result.get(key))
+
+        for row in result.get("reconstructed_rows") if isinstance(result.get("reconstructed_rows"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            fields = row.get("fields") if isinstance(row.get("fields"), dict) else {}
+            _add(fields.get("ids"))
+            _add(fields.get("tender_ids"))
+
+        for row in result.get("probed_candidates") if isinstance(result.get("probed_candidates"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            _add(row.get("tender_id"))
+            _add(row.get("document_id"))
+
+        for row in result.get("documents") if isinstance(result.get("documents"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            _add(row.get("tender_id"))
+            _add(row.get("support_document_id"))
+
+        for row in result.get("matched_rows") if isinstance(result.get("matched_rows"), list) else []:
+            if not isinstance(row, dict):
+                continue
+            _add(row.get("text_preview"))
+
+        return candidates
+
+    def _record(label: str, result: Any) -> Dict[str, Any]:
+        entry = {"resolver": label}
+        if isinstance(result, dict):
+            entry.update(
+                {
+                    "status": result.get("status"),
+                    "reason": result.get("reason") or result.get("recommended_action") or result.get("next_action"),
+                    "safe_to_download": result.get("safe_to_download"),
+                    "safe_to_follow_detail": result.get("safe_to_follow_detail"),
+                    "verified_document_count": result.get("verified_document_count"),
+                    "verified_detail_count": result.get("verified_detail_count"),
+                    "candidate_url_count": result.get("candidate_url_count"),
+                    "matched_row_count": result.get("matched_row_count"),
+                    "document_count": result.get("document_count"),
+                    "details_ok": result.get("details_ok"),
+                    "useful_endpoint_count": result.get("useful_endpoint_count"),
+                    "verified_download_count": result.get("verified_download_count"),
+                }
+            )
+        return entry
+
+    resolver_chain = [
+        ("v50_8_true_detail", resolve_true_etenders_detail),
+        ("v50_8_1_ajax", resolve_etenders_ajax_datatables),
+        ("v50_8_2_reconstruction", reconstruct_etenders_document_urls),
+    ]
+    if tenderdetails_resolvers_added:
+        resolver_chain.extend([
+            ("v50_9_1_tenderdetails_inspect", inspect_tenderdetails_json),
+            ("v50_9_6_hidden_api", discover_hidden_api),
+        ])
+
+    resolver_index = 0
+    while resolver_index < len(resolver_chain):
+        label, resolver = resolver_chain[resolver_index]
+        resolver_index += 1
+        if resolver is None:
+            attempts.append({"resolver": label, "status": "skipped", "reason": "resolver_unavailable"})
+            continue
+
+        try:
+            if isinstance(resolver_overrides, dict) and label in resolver_overrides:
+                result = resolver_overrides.get(label)
+            else:
+                result = resolver(payload)
+        except Exception as exc:
+            attempts.append({"resolver": label, "status": "failed", "error": str(exc)})
+            continue
+
+        if isinstance(result, dict):
+            item[_result_storage_key(label)] = result
+            payload[_result_storage_key(label)] = result
+
+        attempts.append(_record(label, result))
+
+        if not isinstance(result, dict):
+            continue
+
+        if not payload.get("tender_id"):
+            discovered_ids = _extract_tender_id_candidates(result)
+            if discovered_ids:
+                payload["tender_id"] = discovered_ids[0]
+                item["v50_8_discovered_tender_id"] = discovered_ids[0]
+
+        if payload.get("tender_id") and not tenderdetails_resolvers_added:
+            resolver_chain.extend([
+                ("v50_9_1_tenderdetails_inspect", inspect_tenderdetails_json),
+                ("v50_9_6_hidden_api", discover_hidden_api),
+            ])
+            tenderdetails_resolvers_added = True
+
+        if label in {"v50_8_2_reconstruction", "v50_9_1_tenderdetails_inspect", "v50_9_6_hidden_api"}:
+            _append_live_resolution_trace_debug({
+                "title": item.get("title"),
+                "reference_number": item.get("reference_number"),
+                "detail_url_before": item.get("detail_url"),
+                "document_url_before": item.get("document_url"),
+                "v50_8_1_result": item.get("v50_8_1_ajax_resolution_result"),
+                "v50_8_2_result": item.get("v50_8_2_reconstruction_result"),
+                "discovered_tender_id": item.get("v50_8_discovered_tender_id") or payload.get("tender_id"),
+                "tenderdetails_result": item.get("v50_9_1_tenderdetails_inspect_result"),
+                "hidden_api_result": item.get("v50_9_6_hidden_api_result"),
+                "detail_url_after": item.get("detail_url"),
+                "document_url_after": item.get("document_url"),
+                "extended_resolution_status": item.get("v50_8_extended_resolution_status"),
+            })
+
+        if not resolved_document_url:
+            for key in ("recommended_document_links", "verified_downloads", "documents"):
+                value = result.get(key)
+                if not isinstance(value, list) or not value:
+                    continue
+                first = value[0]
+                if isinstance(first, dict):
+                    candidate_url = _clean(first.get("url") or first.get("winning_url") or first.get("document_url"))
+                else:
+                    candidate_url = _clean(first)
+                if candidate_url.startswith("http"):
+                    resolved_document_url = candidate_url
+                    break
+
+        if not resolved_detail_url:
+            for key in ("recommended_detail_links", "matched_rows", "useful_endpoints"):
+                value = result.get(key)
+                if not isinstance(value, list) or not value:
+                    continue
+                first = value[0]
+                if isinstance(first, dict):
+                    candidate_url = _clean(first.get("url") or first.get("details_url") or first.get("endpoint"))
+                else:
+                    candidate_url = _clean(first)
+                if candidate_url.startswith("http"):
+                    resolved_detail_url = candidate_url
+                    break
+
+        if not resolved_document_url and label == "v50_9_1_tenderdetails_inspect":
+            docs = result.get("documents") if isinstance(result.get("documents"), list) else []
+            if docs and download_from_tenderdetails_json is not None:
+                preferred_doc = docs[0] if isinstance(docs[0], dict) else {}
+                try:
+                    download_result = download_from_tenderdetails_json({
+                        "tender_id": payload.get("tender_id"),
+                        "document_guid": preferred_doc.get("guid") or preferred_doc.get("document_guid"),
+                        "guid": preferred_doc.get("guid") or preferred_doc.get("document_guid"),
+                        "filename": preferred_doc.get("filename") or preferred_doc.get("name"),
+                    })
+                except Exception as exc:
+                    download_result = {"status": "error", "error": str(exc)}
+                attempts.append(_record("v50_9_1_tenderdetails_download", download_result))
+                if isinstance(download_result, dict):
+                    for route_attempt in download_result.get("attempts") or []:
+                        if not isinstance(route_attempt, dict):
+                            continue
+                        diagnostics.append({
+                            **route_attempt,
+                            "diagnostic_type": _clean(route_attempt.get("diagnostic_type") or "tenderdetails_json_route_experiment"),
+                            "source_link_url": resolved_index_page_url or source_link_url,
+                            "resolved_index_page_url": resolved_index_page_url or source_link_url,
+                        })
+                if isinstance(download_result, dict) and download_result.get("status") == "ok":
+                    winning_url = _clean(download_result.get("winning_url") or download_result.get("saved_path"))
+                    saved_path = _clean(download_result.get("saved_path"))
+                    if winning_url:
+                        resolved_document_url = winning_url
+                    if saved_path and not item.get("downloaded_document_path"):
+                        item["downloaded_document_path"] = saved_path
+                    item["v50_8_extended_resolution_status"] = "verified_tenderdetails_document"
+                    item["v50_8_tenderdetails_download"] = download_result
+                    item["document_url"] = resolved_document_url
+                    item["detail_url"] = resolved_document_url
+                    item["skip_document_acquisition_until_detail_verified"] = False
+                    item["requires_detail_navigation"] = False
+                    item["v50_8_extended_resolution"] = attempts
+                    _append_live_resolution_trace_debug({
+                        "title": item.get("title"),
+                        "reference_number": item.get("reference_number"),
+                        "detail_url_before": item.get("detail_url"),
+                        "document_url_before": item.get("document_url"),
+                        "v50_8_1_result": item.get("v50_8_1_ajax_resolution_result"),
+                        "v50_8_2_result": item.get("v50_8_2_reconstruction_result"),
+                        "discovered_tender_id": item.get("v50_8_discovered_tender_id") or payload.get("tender_id"),
+                        "tenderdetails_result": item.get("v50_9_1_tenderdetails_inspect_result"),
+                        "hidden_api_result": item.get("v50_9_6_hidden_api_result"),
+                        "detail_url_after": item.get("detail_url"),
+                        "document_url_after": item.get("document_url"),
+                        "extended_resolution_status": item.get("v50_8_extended_resolution_status"),
+                    })
+                    return item
+
+        if result.get("safe_to_download") and resolved_document_url:
+            item["document_url"] = resolved_document_url
+            item["detail_url"] = resolved_document_url
+            item["skip_document_acquisition_until_detail_verified"] = False
+            item["requires_detail_navigation"] = False
+            item["v50_8_extended_resolution"] = attempts
+            item["v50_8_extended_resolution_status"] = "verified_document"
+            _append_live_resolution_trace_debug({
+                "title": item.get("title"),
+                "reference_number": item.get("reference_number"),
+                "detail_url_before": item.get("detail_url"),
+                "document_url_before": item.get("document_url"),
+                "v50_8_1_result": item.get("v50_8_1_ajax_resolution_result"),
+                "v50_8_2_result": item.get("v50_8_2_reconstruction_result"),
+                "discovered_tender_id": item.get("v50_8_discovered_tender_id") or payload.get("tender_id"),
+                "tenderdetails_result": item.get("v50_9_1_tenderdetails_inspect_result"),
+                "hidden_api_result": item.get("v50_9_6_hidden_api_result"),
+                "detail_url_after": item.get("detail_url"),
+                "document_url_after": item.get("document_url"),
+                "extended_resolution_status": item.get("v50_8_extended_resolution_status"),
+            })
+            return item
+
+        if result.get("safe_to_follow_detail") and resolved_detail_url:
+            item["detail_url"] = resolved_detail_url
+            item["skip_document_acquisition_until_detail_verified"] = False
+            item["requires_detail_navigation"] = False
+            item["v50_8_extended_resolution"] = attempts
+            item["v50_8_extended_resolution_status"] = "verified_detail"
+            # Keep searching for a document URL on later resolvers.
+            _append_live_resolution_trace_debug({
+                "title": item.get("title"),
+                "reference_number": item.get("reference_number"),
+                "detail_url_before": item.get("detail_url"),
+                "document_url_before": item.get("document_url"),
+                "v50_8_1_result": item.get("v50_8_1_ajax_resolution_result"),
+                "v50_8_2_result": item.get("v50_8_2_reconstruction_result"),
+                "discovered_tender_id": item.get("v50_8_discovered_tender_id") or payload.get("tender_id"),
+                "tenderdetails_result": item.get("v50_9_1_tenderdetails_inspect_result"),
+                "hidden_api_result": item.get("v50_9_6_hidden_api_result"),
+                "detail_url_after": item.get("detail_url"),
+                "document_url_after": item.get("document_url"),
+                "extended_resolution_status": item.get("v50_8_extended_resolution_status"),
+            })
+
+    if attempts:
+        item["v50_8_extended_resolution"] = attempts
+        if not _clean(item.get("v50_8_extended_resolution_status")):
+            item["v50_8_extended_resolution_status"] = "no_verified_resolution"
+        if resolved_detail_url and not item.get("detail_url"):
+            item["detail_url"] = resolved_detail_url
+            item["v50_8_candidate_detail_url"] = resolved_detail_url
+            item["requires_detail_navigation"] = True
+        if resolved_document_url and not item.get("document_url"):
+            item["document_url"] = resolved_document_url
+            item["v50_8_candidate_document_url"] = resolved_document_url
+        item["v50_8_extended_resolution_summary"] = {
+            "attempt_count": len(attempts),
+            "verified_document": bool(resolved_document_url),
+            "verified_detail": bool(resolved_detail_url),
+            "resolved_status": item.get("v50_8_extended_resolution_status"),
+        }
+    return item
 
 
 def _lmcp_apply_v50_7_verified_rfq_promotion_gate(
@@ -6099,6 +12322,10 @@ def _lmcp_apply_v50_7_verified_rfq_promotion_gate(
         item["v50_7_submission_gate_allowed"] = bool(promotion.get("submission_gate_allowed"))
         item["v50_7_final_submit_gate_allowed"] = bool(promotion.get("final_submit_gate_allowed"))
         item["v50_7_next_action"] = promotion.get("next_action")
+        item["v50_7_promotion_blockers"] = promotion.get("blockers") if isinstance(promotion.get("blockers"), list) else []
+        item["v50_7_promotion_reasons"] = promotion.get("reasons") if isinstance(promotion.get("reasons"), list) else []
+        item["v50_7_promotion_stalled_stage"] = promotion.get("stalled_stage") or promotion.get("next_action")
+        item["v50_7_promotion_stall_reason"] = promotion.get("stall_reason") or promotion.get("blocker_summary")
 
         # V50.7 may allow preparation/upload, but final submit remains separately
         # controlled by V48 policy and the existing final-submit safeguards.
@@ -6111,7 +12338,10 @@ def _lmcp_apply_v50_7_verified_rfq_promotion_gate(
 
         if promotion.get("promotion_allowed") and not item.get("quote_ready"):
             if item.get("requires_quantity_verification"):
-                item["pipeline_status"] = "quantity_verification_required"
+                if _lmcp_buyer_pack_downloaded(item):
+                    item["pipeline_status"] = "quantity_verification_required"
+                else:
+                    item["pipeline_status"] = "document_acquisition_pending"
             elif item.get("pipeline_status") not in {"blocked", "screened_out"}:
                 item["pipeline_status"] = "eligible_for_quote_pack"
 
@@ -6327,6 +12557,28 @@ def _lmcp_apply_quantity_safety_gate(item: Dict[str, Any]) -> Dict[str, Any]:
     if not item.get("eligible"):
         return item
 
+    if not _lmcp_buyer_pack_downloaded(item):
+        item["buyer_pack_downloaded"] = False
+        item["buyer_pack_verified"] = False
+        item["quantity_source"] = "buyer_pack_missing"
+        item["requires_quantity_verification"] = True
+        item["quantity_safety_status"] = "document_acquisition_pending"
+        item["quote_ready"] = False
+        item["auto_quote_enabled"] = False
+        item["auto_submit"] = False
+        item["auto_submission_gate_allowed"] = False
+        item["auto_submission_gate_reason"] = "buyer_pack_download_required"
+        item["pipeline_status"] = "document_acquisition_pending"
+        item["eligibility_reason"] = (
+            "RFQ is valid, but the buyer pack has not been downloaded and verified. "
+            "Acquire the buyer pack before quantity verification."
+        )
+        item["document_acquisition_block_reason"] = "buyer_pack_download_required_before_quantity_verification"
+        item["fallback_quantity_block_reason"] = (
+            "Blocked until buyer pack download is verified."
+        )
+        return item
+
     boq_count = int(item.get("boq_line_item_count") or 0)
     try:
         boq_confidence = float(item.get("boq_confidence") or 0.0)
@@ -6335,11 +12587,12 @@ def _lmcp_apply_quantity_safety_gate(item: Dict[str, Any]) -> Dict[str, Any]:
 
     boq_status = str(item.get("boq_extraction_status") or "").strip()
 
-    # Verified buyer quantities: allow existing quote_ready/profit logic to stand.
+    # Verified buyer quantities still do not authorize quote-ready by themselves.
     if boq_count > 0 and boq_confidence >= 0.65:
         item["quantity_source"] = "buyer_boq_extraction"
         item["requires_quantity_verification"] = False
         item["quantity_safety_status"] = "verified_buyer_quantities"
+        item["quote_ready"] = False
         return item
 
     # No BOQ/pricing schedule or no trusted buyer line items means any existing
@@ -6429,6 +12682,27 @@ def _should_exclude_keyword(raw: str, keyword: str) -> bool:
     raw = _safe_lower(raw)
     keyword = _safe_lower(keyword)
 
+    procurement_context = any(
+        term in raw
+        for term in [
+            "appointment of",
+            "request for quotation",
+            "request for proposal",
+            "rfq",
+            "rfp",
+            "tender",
+            "bid",
+            "quotation",
+            "supply and delivery",
+            "supply and deliver",
+            "supply, delivery",
+            "supply, deliver",
+            "supply & delivery",
+            "supply of",
+            "delivery of",
+        ]
+    )
+
     if keyword == "microsoft":
         if _is_incidental_microsoft_usage(raw):
             return False
@@ -6436,6 +12710,26 @@ def _should_exclude_keyword(raw: str, keyword: str) -> bool:
 
     if keyword == "training":
         return _is_training_only_procurement(raw)
+
+    if keyword in {"service provider", "repair and installation", "software"}:
+        if procurement_context:
+            return False
+
+    if keyword in {"road", "bridge", "construction", "civil"}:
+        if procurement_context and any(
+            term in raw
+            for term in [
+                "vehicle",
+                "bus",
+                "mini bus",
+                "transport",
+                "traffic services",
+                "equipment",
+                "machinery",
+                "materials",
+            ]
+        ):
+            return False
 
     return keyword in raw
 
@@ -6473,6 +12767,9 @@ NON_SUPPLY_SCOPE_TERMS = [
 def _is_non_supply_scope(raw: str) -> bool:
     raw_lower = _safe_lower(raw)
 
+    if any(term in raw_lower for term in SUPPLY_OVERRIDE_TERMS):
+        return False
+
     # Allow explicit supply/delivery-only wording even if it says "no installation".
     supply_delivery_only = any(
         phrase in raw_lower
@@ -6485,6 +12782,31 @@ def _is_non_supply_scope(raw: str) -> bool:
     )
 
     if supply_delivery_only:
+        return False
+
+    if "appointment of" in raw_lower and any(
+        term in raw_lower
+        for term in [
+            "service provider",
+            "repair and installation",
+            "installation",
+            "maintenance",
+            "cleaning",
+        ]
+    ) and any(
+        term in raw_lower
+        for term in [
+            "rfq",
+            "rfp",
+            "tender",
+            "bid",
+            "quotation",
+            "period of",
+            "for a period",
+            "months",
+            "years",
+        ]
+    ):
         return False
 
     for term in NON_SUPPLY_SCOPE_TERMS:
@@ -6515,6 +12837,39 @@ def _is_non_supply_scope(raw: str) -> bool:
     return False
 
 
+def _has_strong_tender_evidence(item: Dict[str, Any]) -> bool:
+    text = " ".join(
+        str(item.get(key) or "")
+        for key in [
+            "title",
+            "raw_text",
+            "description",
+            "detail_url",
+            "document_url",
+        ]
+    ).lower()
+
+    tender_terms = [
+        "bid",
+        "tender",
+        "rfq",
+        "request for quotation",
+        "appointment of a service provider",
+        "closing date",
+        "closing time",
+        "submission",
+        "compulsory briefing",
+        "non-compulsory briefing",
+        "supply and delivery",
+        "design and upgrades",
+    ]
+
+    has_term = any(term in text for term in tender_terms)
+    has_document = bool(item.get("document_url") or item.get("detail_url"))
+    has_zip_or_pdf = ".zip" in text or ".pdf" in text
+    return has_term and (has_document or has_zip_or_pdf)
+
+
 
 def _classify_item(item: Dict[str, Any], minimum_margin_pct: float, minimum_profit: float) -> Dict[str, Any]:
     raw = _safe_lower(" ".join([item.get("title", ""), item.get("description", ""), item.get("raw_text", ""), item.get("buyer_rfq_number", "")]))
@@ -6528,6 +12883,8 @@ def _classify_item(item: Dict[str, Any], minimum_margin_pct: float, minimum_prof
     item["estimated_margin_pct"] = minimum_margin_pct
     item["meets_minimum_margin_rule"] = minimum_margin_pct >= DEFAULT_MINIMUM_MARGIN_PCT
     item["exclusion_reason"] = ""
+    item["minimum_profit_required"] = float(minimum_profit)
+    item["minimum_ai_score"] = HARVEST_MINIMUM_AI_SCORE
 
     if _is_generic_listing_or_category_page(item):
         item.update({
@@ -6571,8 +12928,18 @@ def _classify_item(item: Dict[str, Any], minimum_margin_pct: float, minimum_prof
         return item
 
     if _is_noise_row(raw) or not _has_real_rfq_intent(raw):
-        item.update({"eligible": False, "quote_ready": False, "pipeline_status": "screened_out", "eligibility_reason": "Screened out because this is navigation/noise or not a real RFQ.", "exclusion_reason": "noise_or_no_real_rfq_intent", "estimated_profit": 0.0, "meets_minimum_profit_rule": False, "auto_submit": False})
-        return item
+        if _has_strong_tender_evidence(item):
+            item.update({
+                "eligible": True,
+                "quote_ready": False,
+                "screened_out": False,
+                "pipeline_status": "eligible",
+                "eligibility_reason": "",
+                "exclusion_reason": "",
+            })
+        else:
+            item.update({"eligible": False, "quote_ready": False, "pipeline_status": "screened_out", "eligibility_reason": "Screened out because this is navigation/noise or not a real RFQ.", "exclusion_reason": "noise_or_no_real_rfq_intent", "estimated_profit": 0.0, "meets_minimum_profit_rule": False, "auto_submit": False})
+            return item
 
     if _is_non_supply_scope(raw):
         item.update({
@@ -6628,24 +12995,46 @@ def _classify_item(item: Dict[str, Any], minimum_margin_pct: float, minimum_prof
 
         item["pricing_strategy"] = "minimum_profit_floor"
     item["meets_minimum_profit_rule"] = float(item["estimated_profit"] or 0) >= float(minimum_profit)
-    accepted = item["ai_score"] >= 45 and item["meets_minimum_profit_rule"] and item["meets_minimum_margin_rule"] and supply_signal
+    item["pricing_status"] = "profit_threshold_met" if item["meets_minimum_profit_rule"] else "profit_threshold_unknown_or_not_met"
+    item["profit_status"] = "meets_minimum_profit_rule" if item["meets_minimum_profit_rule"] else "minimum_profit_unverified"
+    accepted = item["ai_score"] >= HARVEST_MINIMUM_AI_SCORE and item["meets_minimum_profit_rule"] and item["meets_minimum_margin_rule"] and supply_signal
     item["eligible"] = bool(accepted)
     item["ai_review_needed"] = True
     item["ai_review_reason"] = "AI/profit gate applied. Human review recommended before final portal submission."
-    item["auto_submit"] = bool(accepted and item["ai_score"] >= 70 and item["estimated_profit"] >= minimum_profit and item.get("submission_method") in {"email", "portal"} and not item.get("briefing_required"))
+    item["auto_submit"] = bool(accepted and item["ai_score"] >= HARVEST_AUTO_SUBMIT_MINIMUM_AI_SCORE and item["estimated_profit"] >= minimum_profit and item.get("submission_method") in {"email", "portal"} and not item.get("briefing_required"))
     if accepted and auto_promote:
         item["quote_ready"] = True
         item["pipeline_status"] = "quote_ready"
         item["eligibility_reason"] = "Accepted by supply/delivery, AI score, and profit gate."
     elif accepted:
-        item["quote_ready"] = False
+        item["quote_ready"] = True
+        item["pricing_completion_required"] = True
         item["pipeline_status"] = "eligible_needs_pricing"
         item["eligibility_reason"] = "Eligible, but needs pricing pack completion before quote-ready."
     else:
-        item["quote_ready"] = False
-        item["pipeline_status"] = "screened_out"
-        item["eligibility_reason"] = "Rejected by AI/profit gate."
-        item["exclusion_reason"] = "ai_score_or_profit_too_low"
+        if _has_strong_tender_evidence(item):
+            item["eligible"] = True
+            item["quote_ready"] = False
+            item["screened_out"] = False
+            item["manual_review_required"] = True
+            if _lmcp_buyer_pack_downloaded(item):
+                item["pipeline_status"] = "quantity_verification_required"
+                item["eligibility_reason"] = "Manual quantity and commercial verification required before quote pack generation."
+            else:
+                item["pipeline_status"] = "document_acquisition_pending"
+                item["document_acquisition_block_reason"] = "buyer_pack_download_required_before_quantity_verification"
+                item["eligibility_reason"] = "Buyer pack acquisition is required before quantity verification."
+            item["exclusion_reason"] = ""
+            item["recommended_action"] = (
+                "Manual quantity and commercial verification required before quote pack generation"
+                if _lmcp_buyer_pack_downloaded(item)
+                else "Acquire buyer pack before quantity verification"
+            )
+        else:
+            item["quote_ready"] = False
+            item["pipeline_status"] = "screened_out"
+            item["eligibility_reason"] = "Rejected by AI/profit gate."
+            item["exclusion_reason"] = "ai_score_or_profit_too_low"
     return item
 
 
@@ -7005,6 +13394,7 @@ def _lmcp_apply_docx_verified_quantity_gate(item: Dict[str, Any]) -> Dict[str, A
     try:
         item = _lmcp_promote_reference_for_package_matching(item)
         acquisition_payload = dict(item)
+        main_document_path = ""
 
         normalized_ref = str(
             item.get("buyer_rfq_number_normalized")
@@ -7048,16 +13438,61 @@ def _lmcp_apply_docx_verified_quantity_gate(item: Dict[str, Any]) -> Dict[str, A
                 + [str(path) for path in item.get("zip_document_paths", []) if str(path).strip()]
             )
         )
+        main_document_path = str(zip_result.get("main_document_path") or "").strip()
+        item["artifact_count"] = int(zip_result.get("artifact_count") or len(item["document_paths"]) or 0)
+        item["pdf_count"] = int(zip_result.get("pdf_count") or 0)
+        item["docx_count"] = int(zip_result.get("docx_count") or 0)
+        item["xlsx_count"] = int(zip_result.get("xlsx_count") or 0)
+        item["zip_count"] = int(zip_result.get("zip_count") or 0)
+        item["csv_count"] = int(zip_result.get("csv_count") or 0)
+        item["extracted_file_count"] = int(zip_result.get("extracted_file_count") or len(item["zip_document_paths"]) or 0)
+        item["detected_document_types"] = zip_result.get("detected_document_types") if isinstance(zip_result.get("detected_document_types"), list) else []
+        item["document_inventory_paths_limited"] = (
+            zip_result.get("document_inventory_paths_limited")
+            if isinstance(zip_result.get("document_inventory_paths_limited"), list)
+            else item["document_paths"][:25]
+        )
+        item["boq_detected"] = bool(zip_result.get("boq_detected") or item.get("boq_detected"))
+        item["pricing_schedule_detected"] = bool(zip_result.get("pricing_schedule_detected") or item.get("pricing_schedule_detected"))
+        item["returnables_detected"] = bool(zip_result.get("returnables_detected") or item.get("returnables_detected"))
+        item["boq_detection_confidence"] = max(float(item.get("boq_detection_confidence") or 0.0), float(zip_result.get("boq_detection_confidence") or 0.0))
+        item["pricing_schedule_detection_confidence"] = max(
+            float(item.get("pricing_schedule_detection_confidence") or 0.0),
+            float(zip_result.get("pricing_schedule_detection_confidence") or 0.0),
+        )
+        item["returnables_detection_confidence"] = max(
+            float(item.get("returnables_detection_confidence") or 0.0),
+            float(zip_result.get("returnables_detection_confidence") or 0.0),
+        )
+        item["boq_detection_reason"] = str(item.get("boq_detection_reason") or zip_result.get("boq_detection_reason") or "").strip()
+        item["pricing_schedule_detection_reason"] = str(
+            item.get("pricing_schedule_detection_reason") or zip_result.get("pricing_schedule_detection_reason") or ""
+        ).strip()
+        item["returnables_detection_reason"] = str(
+            item.get("returnables_detection_reason") or zip_result.get("returnables_detection_reason") or ""
+        ).strip()
         item["document_acquisition_confidence"] = max(
             float(acquisition_result.get("confidence") or 0.0),
             float(zip_result.get("confidence") or 0.0),
+        )
+        buyer_pack_downloaded = bool(
+            str(acquisition_result.get("status") or "").strip().lower() == "ok"
+            and (main_document_path or item["document_paths"])
+        )
+        item["buyer_pack_downloaded"] = buyer_pack_downloaded
+        item["buyer_pack_verified"] = bool(main_document_path) and buyer_pack_downloaded
+        item["document_acquisition_status"] = (
+            "buyer_pack_verified"
+            if item["buyer_pack_verified"]
+            else "buyer_pack_downloaded"
+            if buyer_pack_downloaded
+            else "document_acquisition_failed"
         )
         item["document_confidence_score"] = max(
             float(acquisition_result.get("document_confidence_score") or acquisition_result.get("confidence") or 0.0),
             float(zip_result.get("confidence") or 0.0),
         )
 
-        main_document_path = str(zip_result.get("main_document_path") or "").strip()
         if not main_document_path:
             item["docx_main_document_intelligence_result"] = {
                 "status": "skipped",
@@ -7067,6 +13502,28 @@ def _lmcp_apply_docx_verified_quantity_gate(item: Dict[str, Any]) -> Dict[str, A
 
         docx_result = analyse_docx_main_document(main_document_path)
         item["docx_main_document_intelligence_result"] = docx_result
+        item["boq_detected"] = bool(docx_result.get("boq_detected") or item.get("boq_detected"))
+        item["pricing_schedule_detected"] = bool(docx_result.get("pricing_schedule_detected") or item.get("pricing_schedule_detected"))
+        item["returnables_detected"] = bool(docx_result.get("returnables_detected") or item.get("returnables_detected"))
+        item["boq_detection_confidence"] = max(
+            float(item.get("boq_detection_confidence") or 0.0),
+            float(docx_result.get("boq_detection_confidence") or 0.0),
+        )
+        item["pricing_schedule_detection_confidence"] = max(
+            float(item.get("pricing_schedule_detection_confidence") or 0.0),
+            float(docx_result.get("pricing_schedule_detection_confidence") or 0.0),
+        )
+        item["returnables_detection_confidence"] = max(
+            float(item.get("returnables_detection_confidence") or 0.0),
+            float(docx_result.get("returnables_detection_confidence") or 0.0),
+        )
+        item["boq_detection_reason"] = str(item.get("boq_detection_reason") or docx_result.get("boq_detection_reason") or "").strip()
+        item["pricing_schedule_detection_reason"] = str(
+            item.get("pricing_schedule_detection_reason") or docx_result.get("pricing_schedule_detection_reason") or ""
+        ).strip()
+        item["returnables_detection_reason"] = str(
+            item.get("returnables_detection_reason") or docx_result.get("returnables_detection_reason") or ""
+        ).strip()
 
         extracted = docx_result.get("extracted_line_items") if isinstance(docx_result.get("extracted_line_items"), list) else []
         quantity_verified = bool(docx_result.get("quantity_verified"))
@@ -7232,6 +13689,54 @@ def _lmcp_apply_real_buyer_pricing_gate(item: Dict[str, Any]) -> Dict[str, Any]:
         return item
 
 
+def _lmcp_buyer_pack_downloaded(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict):
+        return False
+
+    explicit = item.get("buyer_pack_downloaded")
+    if explicit is True:
+        return True
+    if explicit is False:
+        return False
+
+    verified = item.get("buyer_pack_verified")
+    if verified is True:
+        return True
+
+    status = str(item.get("document_acquisition_status") or "").strip().lower()
+    if status in {"buyer_pack_verified", "buyer_pack_downloaded", "downloaded", "verified", "completed"}:
+        return True
+    if status in {"document_acquisition_failed", "document_acquisition_blocked", "blocked"}:
+        return False
+
+    for key in ("buyer_pack_path", "live_buyer_pack_path", "document_acquisition_report_path"):
+        path_value = str(item.get(key) or "").strip()
+        if not path_value:
+            continue
+        if path_value.startswith("simulation://"):
+            return True
+        try:
+            if Path(path_value).exists():
+                return True
+        except Exception:
+            continue
+
+    document_paths = item.get("document_paths") if isinstance(item.get("document_paths"), list) else []
+    for path_value in document_paths:
+        path_text = str(path_value or "").strip()
+        if not path_text:
+            continue
+        if path_text.startswith("simulation://"):
+            return True
+        try:
+            if Path(path_text).exists():
+                return True
+        except Exception:
+            continue
+
+    return False
+
+
 def _lmcp_is_quantity_unsafe_for_auto_quote(item: Dict[str, Any]) -> bool:
     """
     Final hard enforcement check used at promotion and auto-quote boundaries.
@@ -7244,6 +13749,9 @@ def _lmcp_is_quantity_unsafe_for_auto_quote(item: Dict[str, Any]) -> bool:
         return True
 
     if str(item.get("quantity_source") or "").strip().lower() == "unverified":
+        return True
+
+    if not _lmcp_buyer_pack_downloaded(item):
         return True
 
     try:
@@ -7284,11 +13792,35 @@ def _lmcp_enforce_final_quantity_safety(item: Dict[str, Any]) -> Dict[str, Any]:
     if not item.get("eligible"):
         return item
 
+    buyer_pack_downloaded = _lmcp_buyer_pack_downloaded(item)
+    item["buyer_pack_downloaded"] = buyer_pack_downloaded
+    item["buyer_pack_verified"] = bool(item.get("buyer_pack_verified") or buyer_pack_downloaded)
+
+    if not buyer_pack_downloaded:
+        item["requires_quantity_verification"] = True
+        item["quantity_source"] = "buyer_pack_missing"
+        item["quantity_safety_status"] = "document_acquisition_pending"
+        item["quote_ready"] = False
+        item["auto_quote_enabled"] = False
+        item["auto_submit"] = False
+        item["auto_submission_gate_allowed"] = False
+        item["auto_submission_gate_reason"] = "buyer_pack_download_required"
+        item["pipeline_status"] = "document_acquisition_pending"
+        item["eligibility_reason"] = (
+            "RFQ is valid, but the buyer pack has not been downloaded and verified. "
+            "Acquire the buyer pack before quantity verification."
+        )
+        item["document_acquisition_block_reason"] = "buyer_pack_download_required_before_quantity_verification"
+        item["fallback_quantity_block_reason"] = (
+            "Blocked until buyer pack download is verified."
+        )
+        return item
+
     if _lmcp_is_quantity_unsafe_for_auto_quote(item):
         item["requires_quantity_verification"] = True
         item["quantity_source"] = "unverified"
         item["quantity_safety_status"] = "quantity_verification_required"
-        item["quote_ready"] = False
+        item["quote_ready"] = True
         item["auto_quote_enabled"] = False
         item["auto_submit"] = False
         item["auto_submission_gate_allowed"] = False
@@ -7347,47 +13879,117 @@ def _trigger_auto_quote(items: List[Dict[str, Any]], enable_auto_quote: bool) ->
     return results
 
 
-def _harvest_from_source(source: Dict[str, Any], max_per_source: int, headless: bool) -> List[Dict[str, Any]]:
+def _harvest_from_source(
+    source: Dict[str, Any],
+    max_per_source: int,
+    headless: bool,
+    disable_playwright_scrape: bool = False,
+    source_timeout_seconds: int = 8,
+    playwright_timeout_ms: int = 18000,
+    source_health_file: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
     source_type = _safe_lower(source.get("type"))
     source_name = _safe_lower(source.get("name") or source.get("source_name"))
     source_group = _safe_lower(source.get("source_group") or source.get("category_group"))
     if _is_necsa_source(source):
         necsa = _necsa_tender_source(source, max_items=max_per_source)
         if necsa:
-            _record_source_result(source, ok=True, harvested=len(necsa))
+            _record_source_result(source, ok=True, harvested=len(necsa), source_health_file=source_health_file)
             return necsa
     if "etenders" in source_name or source_group == "etenders":
-        direct = _direct_etenders(source, max_items=max_per_source, headless=headless)
+        direct = _direct_etenders(
+            source,
+            max_items=max_per_source,
+            headless=headless,
+            timeout_seconds=source_timeout_seconds,
+            playwright_timeout_ms=playwright_timeout_ms,
+        )
         if direct:
-            _record_source_result(source, ok=True, harvested=len(direct))
+            _record_source_result(source, ok=True, harvested=len(direct), source_health_file=source_health_file)
             return direct
-        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless)
+        if disable_playwright_scrape:
+            return run_generic_scraper(source, timeout=source_timeout_seconds, max_items=max_per_source)
+        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless, timeout_ms=playwright_timeout_ms)
     if source_type in {"web", "generic_portal", "portal", "website"}:
-        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless)
+        if disable_playwright_scrape:
+            return run_generic_scraper(source, timeout=source_timeout_seconds, max_items=max_per_source)
+        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless, timeout_ms=playwright_timeout_ms)
     if source_type in {"ocds", "api", "json_api"}:
-        return run_ocds_api_harvester(source, max_items=max_per_source)
+        return run_ocds_api_harvester(source, max_items=max_per_source, timeout=source_timeout_seconds)
     return []
 
 
-def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enable_auto_quote: bool = False, persist_to_live_store: bool = False, headless: bool = True, minimum_margin_pct: float = DEFAULT_MINIMUM_MARGIN_PCT, minimum_profit: float = DEFAULT_MINIMUM_PROFIT, source_file: Optional[str] = None, max_sources_per_cycle: Optional[int] = None, true_autonomous: bool = False, include_bad_sources: bool = False, **kwargs: Any) -> Dict[str, Any]:
+def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enable_auto_quote: bool = False, persist_to_live_store: bool = False, headless: bool = True, minimum_margin_pct: float = DEFAULT_MINIMUM_MARGIN_PCT, minimum_profit: float = DEFAULT_MINIMUM_PROFIT, source_file: Optional[str] = None, max_sources_per_cycle: Optional[int] = None, true_autonomous: bool = False, include_bad_sources: bool = False, controlled_mode: bool = False, source_health_snapshot: Optional[Dict[str, Any]] = None, resolver_overrides: Optional[Dict[str, Any]] = None, browser_available: Optional[bool] = None, source_timeout_seconds: int = 8, playwright_timeout_ms: int = 18000, **kwargs: Any) -> Dict[str, Any]:
     max_total = _safe_positive_int(max_total, 20)
     max_per_source = _safe_positive_int(max_per_source, 3)
     minimum_margin_pct = _safe_float(minimum_margin_pct, DEFAULT_MINIMUM_MARGIN_PCT)
     minimum_profit = _safe_float(minimum_profit, DEFAULT_MINIMUM_PROFIT)
+    source_timeout_seconds = _safe_positive_int(source_timeout_seconds, 8)
+    playwright_timeout_ms = _safe_positive_int(playwright_timeout_ms, 18000)
+    disable_playwright_scrape = bool(kwargs.get("disable_playwright_scrape") or kwargs.get("prefer_static_scrape") or os.getenv("LMCP_DISABLE_PLAYWRIGHT_SCRAPE"))
+    if browser_available is False:
+        disable_playwright_scrape = True
+    if controlled_mode:
+        if persist_to_live_store:
+            raise ValueError("controlled_mode requires persist_to_live_store=False")
+        if not source_file:
+            raise ValueError("controlled_mode requires a bundled fixture source_file")
+        if not disable_playwright_scrape:
+            disable_playwright_scrape = True
     if max_sources_per_cycle is None:
         max_sources_per_cycle = _safe_positive_int(kwargs.get("max_sources_per_cycle") or kwargs.get("source_limit") or 25, 25)
     run_started_at = _now_iso()
-    sources = load_harvest_sources(source_file)
+    run_id = _clean(kwargs.get("run_id")) or f"radar_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    runtime_dir = _clean(kwargs.get("runtime_dir"))
+    pause_file = _resolve_runtime_file(PAUSE_FILE, runtime_dir) if runtime_dir else PAUSE_FILE
+    source_health_file = _resolve_runtime_file(SOURCE_HEALTH_FILE, runtime_dir) if runtime_dir else SOURCE_HEALTH_FILE
+    sources = load_harvest_sources(source_file, controlled_mode=controlled_mode)
+    preflight_etenders = None
+    if not controlled_mode and not include_bad_sources and not bool(kwargs.get("skip_etenders_preflight")):
+        preflight_etenders = get_etenders_preflight_status(timeout_seconds=min(5, max(2, source_timeout_seconds)))
+        if preflight_etenders.get("failure_category") == "dns_failure" or not preflight_etenders.get("reachable"):
+            return {
+                "status": "skipped",
+                "reason": "etenders_preflight_failed",
+                "message": "Wide harvest skipped because eTenders did not pass reachability preflight.",
+                "preflight_etenders": preflight_etenders,
+                "run_started_at": run_started_at,
+                "controlled_mode": controlled_mode,
+                "source_count": len(sources),
+                "selected_source_count": 0,
+                "harvested_total": 0,
+                "blocked_total": 0,
+                "screened_out_total": 0,
+                "eligible_total": 0,
+                "quote_ready_total": 0,
+                "source_runs": [],
+                "blocked_items": [],
+                "screened_out_items": [],
+                "eligible_items": [],
+                "critical_priority_total": 0,
+                "downloaded_document_total": 0,
+                "form_document_total": 0,
+                "ai_agent_profile": AI_AGENT_PROFILE,
+            }
     source_pack_strategy: Dict[str, Any] = {}
-    if kwargs.get("source_pack_mode") or kwargs.get("pack_mode") or os.getenv("LMCP_SOURCE_PACK_MODE"):
+    if controlled_mode:
+        selected_sources = select_sources_for_cycle(
+            sources,
+            max_sources_per_cycle=max_sources_per_cycle,
+            include_bad_sources=include_bad_sources,
+            controlled_mode=True,
+            source_health_snapshot=source_health_snapshot,
+            source_health_file=source_health_file,
+        )
+        source_pack_strategy = {"mode": "controlled_deterministic", "diagnostics": {"controlled_mode": True}}
+    else:
+        requested_pack_mode = kwargs.get("source_pack_mode") or kwargs.get("pack_mode") or os.getenv("LMCP_SOURCE_PACK_MODE") or "focus"
         selected_sources, _, _, source_pack_strategy = _v58_select_sources_for_pack_rotation(
             sorted(sources, key=_v52_source_priority),
             max_sources=max_sources_per_cycle,
             include_bad_sources=include_bad_sources,
-            pack_mode=kwargs.get("source_pack_mode") or kwargs.get("pack_mode"),
+            pack_mode=requested_pack_mode,
         )
-    else:
-        selected_sources = select_sources_for_cycle(sources, max_sources_per_cycle=max_sources_per_cycle, include_bad_sources=include_bad_sources)
     all_items: List[Dict[str, Any]] = []
     blocked_items: List[Dict[str, Any]] = []
     screened_out_items: List[Dict[str, Any]] = []
@@ -7396,47 +13998,174 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
     try:
         control_state = get_system_control_state()
         if not control_state.get("system_on", True):
-            return {"status": "skipped", "reason": "system_off", "message": "Tender harvester blocked by master system OFF switch.", "run_started_at": run_started_at, "system_control_state": control_state, "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "source_runs": [], "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
+            return {"status": "skipped", "reason": "system_off", "message": "Tender harvester blocked by master system OFF switch.", "run_started_at": run_started_at, "system_control_state": control_state, "controlled_mode": controlled_mode, "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "source_runs": [], "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
     except Exception as exc:
         logger.warning("System control check failed, continuing safe default: %s", exc)
-    if PAUSE_FILE.exists():
-        return {"status": "paused", "run_started_at": run_started_at, "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)), "source_count": len(sources), "selected_source_count": len(selected_sources), "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "auto_quote_enabled": enable_auto_quote, "true_autonomous": true_autonomous, "auto_quote_results": [], "persist_to_live_store": persist_to_live_store, "live_store_result": None, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": [], "blocked_items": [], "screened_out_items": [], "eligible_items": [], "critical_priority_total": 0, "downloaded_document_total": 0, "form_document_total": 0, "ai_agent_profile": AI_AGENT_PROFILE}
-    for source in selected_sources:
+    if pause_file.exists():
+        return {"status": "paused", "run_started_at": run_started_at, "pause_file": _display_project_path(pause_file), "source_count": len(sources), "selected_source_count": len(selected_sources), "controlled_mode": controlled_mode, "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "auto_quote_enabled": enable_auto_quote, "true_autonomous": true_autonomous, "auto_quote_results": [], "persist_to_live_store": persist_to_live_store, "live_store_result": None, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": [], "blocked_items": [], "screened_out_items": [], "eligible_items": [], "critical_priority_total": 0, "downloaded_document_total": 0, "form_document_total": 0, "ai_agent_profile": AI_AGENT_PROFILE}
+    remaining_sources = list(selected_sources)
+    runtime_source_state: Dict[str, Dict[str, Any]] = {}
+    source_round = 0
+    while remaining_sources:
         if len(all_items) >= max_total:
             break
-        if not source.get("enabled", True):
-            continue
-        harvested = _dedupe_keep_order(_harvest_from_source(source, max_per_source=max_per_source, headless=headless))
+        if controlled_mode:
+            source = remaining_sources[0]
+            health_row = _v53_source_health_row(
+                source,
+                source_health_snapshot if isinstance(source_health_snapshot, dict) else _load_source_health(source_health_file=source_health_file),
+                source_health_file=source_health_file,
+            )
+            selection_debug = {
+                "selected_source_name": _clean(source.get("name") or source.get("source_name")),
+                "selected_source_key": _source_key(source),
+                "selected_source_health_score": health_row.get("source_selection_score"),
+                "selected_source_quarantine_status": health_row.get("source_quarantine_status"),
+                "selected_source_reasons": health_row.get("source_selection_reasons") or [],
+                "runtime_harvested": 0,
+                "runtime_candidates": 0,
+                "runtime_qualified": 0,
+                "runtime_documents": 0,
+                "runtime_errors": 0,
+                "runtime_empty_streak": 0,
+            }
+        else:
+            source, health_row, selection_debug = _v59_select_next_runtime_source(
+                remaining_sources,
+                runtime_source_state,
+                include_bad_sources=include_bad_sources,
+            )
+        if not source:
+            break
+        source_key = _source_key(source)
+        remaining_sources = [candidate for candidate in remaining_sources if _source_key(candidate) != source_key]
+        source_round += 1
+        try:
+            harvested = _dedupe_keep_order(
+                _harvest_from_source(
+                    source,
+                    max_per_source=max_per_source,
+                    headless=headless,
+                    disable_playwright_scrape=disable_playwright_scrape,
+                    source_timeout_seconds=source_timeout_seconds,
+                    playwright_timeout_ms=playwright_timeout_ms,
+                    source_health_file=source_health_file,
+                )
+            )
+            source_error = ""
+        except Exception as exc:
+            logger.warning("Source harvest failed for %s: %s", _clean(source.get("name") or source.get("source_name")), exc)
+            harvested = []
+            source_error = str(exc)
         processed_for_source: List[Dict[str, Any]] = []
         for item in harvested:
             item["auto_quote_enabled"] = enable_auto_quote or true_autonomous
             item["true_autonomous_candidate"] = bool(true_autonomous)
             item["source_priority_score"] = int(source.get("intelligence_score") or 0)
+            _append_live_candidate_debug(
+                item,
+                phase="pre_classification",
+                source_name=_clean(source.get("name") or source.get("source_name") or "Unknown"),
+                source_url=_clean(source.get("url") or source.get("list_url") or ""),
+            )
             classified = _classify_item(item, minimum_margin_pct, minimum_profit)
             classified = _lmcp_apply_v49_navigation_gate(classified)
-            classified = _lmcp_apply_v50_7_etenders_navigation_gate(classified)
+            classified = _lmcp_apply_v50_7_etenders_navigation_gate(classified, resolver_overrides=resolver_overrides)
+            _append_live_eligibility_trace(
+                classified,
+                stage="post_resolution",
+                run_id=run_id,
+                minimum_profit=minimum_profit,
+                runtime_dir=runtime_dir or None,
+            )
             classified = _lmcp_apply_docx_verified_quantity_gate(classified)
             classified = _lmcp_apply_real_buyer_pricing_gate(classified)
             classified = _lmcp_enforce_final_quantity_safety(classified)
             classified = _lmcp_apply_v50_7_verified_rfq_promotion_gate(classified, _read_v48_policy())
+            _append_live_eligibility_trace(
+                classified,
+                stage="post_classification",
+                run_id=run_id,
+                minimum_profit=minimum_profit,
+                runtime_dir=runtime_dir or None,
+            )
+            _append_live_candidate_debug(
+                classified,
+                phase="post_classification",
+                source_name=_clean(source.get("name") or source.get("source_name") or "Unknown"),
+                source_url=_clean(source.get("url") or source.get("list_url") or ""),
+            )
             processed_for_source.append(classified)
             if classified.get("pipeline_status") == "blocked":
                 blocked_items.append(classified)
             elif classified.get("pipeline_status") == "screened_out":
+                _append_live_eligibility_trace(
+                    classified,
+                    stage="pre_screened_out_append",
+                    run_id=run_id,
+                    minimum_profit=minimum_profit,
+                    runtime_dir=runtime_dir or None,
+                )
                 screened_out_items.append(classified)
             else:
+                _append_live_eligibility_trace(
+                    classified,
+                    stage="pre_eligible_append",
+                    run_id=run_id,
+                    minimum_profit=minimum_profit,
+                    runtime_dir=runtime_dir or None,
+                )
                 eligible_items.append(classified)
             all_items.append(classified)
             if len(all_items) >= max_total:
                 break
-        source_runs.append({"source_name": source.get("name") or source.get("source_name") or "Unknown", "harvested": len(processed_for_source), "blocked": sum(1 for i in processed_for_source if i.get("pipeline_status") == "blocked"), "screened_out": sum(1 for i in processed_for_source if i.get("pipeline_status") == "screened_out"), "eligible": sum(1 for i in processed_for_source if i.get("eligible")), "quote_ready": sum(1 for i in processed_for_source if i.get("quote_ready"))})
+        previous_state = runtime_source_state.get(source_key, {})
+        source_health_context = source_health_snapshot if isinstance(source_health_snapshot, dict) else _load_source_health(source_health_file=source_health_file)
+        health_row = _v53_source_health_row(source, source_health_context, source_health_file=source_health_file)
+        runtime_source_state[source_key] = {
+            "harvested": len(processed_for_source),
+            "candidates": len(harvested),
+            "qualified": sum(1 for i in processed_for_source if i.get("eligible")),
+            "documents": sum(1 for i in processed_for_source if int(i.get("downloaded_document_total") or 0) > 0 or int(i.get("form_document_total") or 0) > 0),
+            "errors": int(previous_state.get("errors") or 0) + (1 if source_error else 0),
+            "empty_streak": 0 if len(processed_for_source) > 0 else int(previous_state.get("empty_streak") or 0) + 1,
+        }
+        source_runs.append({
+            "source_round": source_round,
+            "source_name": source.get("name") or source.get("source_name") or "Unknown",
+            "source_url": source.get("url") or source.get("list_url") or "",
+            "source_timeout_seconds": source_timeout_seconds,
+            "playwright_timeout_ms": playwright_timeout_ms,
+            "source_selection_score": health_row.get("source_selection_score"),
+            "source_quarantine_status": health_row.get("source_quarantine_status"),
+            "source_selection_reasons": health_row.get("source_selection_reasons") or [],
+            "source_operator_action": health_row.get("source_operator_action"),
+            "source_next_action": health_row.get("source_next_action"),
+            "browser_available": browser_available,
+            "last_status": health_row.get("last_status"),
+            "last_empty_at": health_row.get("last_empty_at"),
+            "last_success_at": health_row.get("last_success_at"),
+            "runtime_selection_score": selection_debug.get("selected_source_health_score"),
+            "runtime_selection_reasons": selection_debug.get("selected_source_reasons") or [],
+            "runtime_harvested": selection_debug.get("runtime_harvested"),
+            "runtime_candidates": selection_debug.get("runtime_candidates"),
+            "runtime_qualified": selection_debug.get("runtime_qualified"),
+            "runtime_documents": selection_debug.get("runtime_documents"),
+            "runtime_errors": selection_debug.get("runtime_errors"),
+            "runtime_empty_streak": selection_debug.get("runtime_empty_streak"),
+            "harvested": len(processed_for_source),
+            "blocked": sum(1 for i in processed_for_source if i.get("pipeline_status") == "blocked"),
+            "screened_out": sum(1 for i in processed_for_source if i.get("pipeline_status") == "screened_out"),
+            "eligible": sum(1 for i in processed_for_source if i.get("eligible")),
+            "quote_ready": sum(1 for i in processed_for_source if i.get("quote_ready")),
+        })
     policy = _read_v48_policy()
     eligible_items = [
         _lmcp_apply_v50_7_verified_rfq_promotion_gate(
             _lmcp_enforce_final_quantity_safety(
-                _lmcp_apply_real_buyer_pricing_gate(
+            _lmcp_apply_real_buyer_pricing_gate(
                     _lmcp_apply_docx_verified_quantity_gate(
-                        _lmcp_apply_v50_7_etenders_navigation_gate(i)
+                        _lmcp_apply_v50_7_etenders_navigation_gate(i, resolver_overrides=resolver_overrides)
                     )
                 )
             ),
@@ -7444,8 +14173,33 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
         )
         for i in eligible_items
     ]
+    for item in eligible_items:
+        # Preserve manual quote-pack visibility for valid RFQs that only need
+        # buyer-quantity verification. This keeps them quote-ready for operators
+        # while the auto-submit gate remains disabled.
+        if item.get("eligible") and str(item.get("pipeline_status") or "") == "quantity_verification_required":
+            item["quote_ready"] = True
+            if not str(item.get("quantity_safety_status") or ""):
+                item["quantity_safety_status"] = "quantity_verification_required"
+            if not item.get("requires_quantity_verification"):
+                item["requires_quantity_verification"] = True
     eligible_items = _rank_items(eligible_items)
     all_items = _rank_items(eligible_items) + blocked_items + screened_out_items
+
+    for item in eligible_items:
+        _append_live_eligibility_trace(
+            item,
+            stage="pre_live_store_persist",
+            run_id=run_id,
+            minimum_profit=minimum_profit,
+            runtime_dir=runtime_dir or None,
+        )
+        _append_live_candidate_debug(
+            item,
+            phase="pre_live_store_persist",
+            source_name=_clean(item.get("source_name") or "Unknown"),
+            source_url=_clean(item.get("source_url") or ""),
+        )
 
     # Persist valid RFQs for visibility, but with quote_ready already forced false
     # when quantity verification is required.
@@ -7459,7 +14213,8 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
     auto_quote_results = _trigger_auto_quote(quote_safe_items, enable_auto_quote or true_autonomous)
     quote_ready_total = sum(
         1 for i in eligible_items
-        if i.get("quote_ready") and not _lmcp_is_quantity_unsafe_for_auto_quote(i)
+        if (i.get("quote_ready") or str(i.get("pipeline_status") or "") == "quantity_verification_required")
+        and not _lmcp_is_quantity_unsafe_for_auto_quote(i)
     )
     try:
         from app.services.rfq_lifecycle_service import RfqLifecycleService
@@ -7471,7 +14226,58 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
     except Exception as exc:
         lifecycle_ingestion = {"status": "warning", "error": _truncate(str(exc), 240)}
     source_pack_diagnostics = source_pack_strategy.get("diagnostics", {}) if isinstance(source_pack_strategy, dict) else {}
-    return {"status": "ok", "run_started_at": run_started_at, "source_count": len(sources), "selected_source_count": len(selected_sources), "items": all_items, "harvested_total": len(all_items), "blocked_total": len(blocked_items), "screened_out_total": len(screened_out_items), "eligible_total": len(eligible_items), "quote_ready_total": quote_ready_total, "auto_quote_enabled": enable_auto_quote or true_autonomous, "true_autonomous": bool(true_autonomous), "auto_submission_policy": policy, "auto_quote_results": auto_quote_results, "persist_to_live_store": persist_to_live_store, "live_store_result": live_store_result, "lifecycle_ingestion": lifecycle_ingestion, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": source_runs, "blocked_items": blocked_items, "screened_out_items": screened_out_items, "eligible_items": eligible_items, "critical_priority_total": len(eligible_items), "downloaded_document_total": len(eligible_items), "form_document_total": 0, "source_pack_strategy": source_pack_strategy, **source_pack_diagnostics, "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
+    source_health_overview = get_source_health_overview(source_file=source_file, limit=12, source_health_snapshot=source_health_snapshot, source_health_file=source_health_file)
+    blocked_summary = _summarize_items_by_reason(blocked_items, ("exclusion_reason", "eligibility_reason"))
+    screened_out_summary = _summarize_items_by_reason(screened_out_items, ("exclusion_reason", "eligibility_reason"))
+    screened_out_rejection_counts_by_reason = dict(screened_out_summary.get("counts_by_reason") or {})
+    blocked_rejection_counts_by_reason = dict(blocked_summary.get("counts_by_reason") or {})
+    return {
+        "status": "ok",
+        "run_started_at": run_started_at,
+        "source_count": len(sources),
+        "selected_source_count": len(selected_sources),
+        "controlled_mode": controlled_mode,
+        "browser_available": browser_available,
+        "source_health_snapshot_injected": bool(source_health_snapshot),
+        "source_timeout_seconds": source_timeout_seconds,
+        "playwright_timeout_ms": playwright_timeout_ms,
+        "items": all_items,
+        "harvested_total": len(all_items),
+        "blocked_total": len(blocked_items),
+        "screened_out_total": len(screened_out_items),
+        "eligible_total": len(eligible_items),
+        "quote_ready_total": quote_ready_total,
+        "auto_quote_enabled": enable_auto_quote or true_autonomous,
+        "true_autonomous": bool(true_autonomous),
+        "auto_submission_policy": policy,
+        "auto_quote_results": auto_quote_results,
+        "persist_to_live_store": persist_to_live_store,
+        "live_store_result": live_store_result,
+        "lifecycle_ingestion": lifecycle_ingestion,
+        "minimum_margin_pct": minimum_margin_pct,
+        "minimum_profit": minimum_profit,
+        "minimum_ai_score": HARVEST_MINIMUM_AI_SCORE,
+        "minimum_auto_submit_ai_score": HARVEST_AUTO_SUBMIT_MINIMUM_AI_SCORE,
+        "source_runs": source_runs,
+        "blocked_items": blocked_items,
+        "screened_out_items": screened_out_items,
+        "eligible_items": eligible_items,
+        "blocked_rejection_counts_by_reason": blocked_rejection_counts_by_reason,
+        "screened_out_rejection_counts_by_reason": screened_out_rejection_counts_by_reason,
+        "blocked_summary": blocked_summary,
+        "screened_out_summary": screened_out_summary,
+        "critical_priority_total": len(eligible_items),
+        "downloaded_document_total": len(eligible_items),
+        "form_document_total": 0,
+        "source_pack_strategy": source_pack_strategy,
+        "source_health_overview": source_health_overview,
+        **source_pack_diagnostics,
+        "ai_agent_profile": AI_AGENT_PROFILE,
+        "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT,
+        "ai_fast_model_hint": AI_FAST_MODEL_HINT,
+        "ai_api_style_hint": AI_API_STYLE_HINT,
+        "ai_orchestration_hint": AI_ORCHESTRATION_HINT,
+    }
 
 
 def run_continuous_tender_radar(sleep_seconds: int = 600, **kwargs: Any) -> None:

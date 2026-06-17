@@ -1,18 +1,9 @@
-import { requestJson } from "../api/httpClient";
+import { getJson, postJson } from "../api/httpClient";
 
-export async function loginWithCredentials(email, password) {
-  return requestJson("/auth/login", { method: "post", data: { email, password } });
+export async function login(payload: { email: string; password: string }) {
+  return postJson("/auth/login", payload);
 }
 
-export async function logoutSession() {
-  return requestJson("/auth/logout", { method: "post" });
+export async function getCurrentUser() {
+  return getJson("/auth/me");
 }
-
-export async function fetchCurrentUser() {
-  return requestJson("/auth/me");
-}
-
-export async function fetchCurrentPermissions() {
-  return requestJson("/auth/permissions");
-}
-

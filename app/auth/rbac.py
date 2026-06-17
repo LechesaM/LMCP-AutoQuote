@@ -1,75 +1,43 @@
 from __future__ import annotations
 
-from typing import Dict, Iterable, Tuple
-
-from app.auth.auth_models import AuthPermission, AuthRole
+from .auth_models import AuthPermission
 
 
-ROLE_PERMISSIONS: Dict[str, Tuple[str, ...]] = {
-    AuthRole.ADMIN.value: (
-        AuthPermission.VIEW_DASHBOARD.value,
-        AuthPermission.VIEW_RFQS.value,
-        AuthPermission.VIEW_OPERATOR_QUEUE.value,
-        AuthPermission.ASSIGN_OPERATOR.value,
-        AuthPermission.MARK_REVIEWED.value,
-        AuthPermission.ESCALATE_REVIEW.value,
-        AuthPermission.ARCHIVE_RFQ.value,
-        AuthPermission.ACKNOWLEDGE_ALERT.value,
-        AuthPermission.VIEW_AUDIT.value,
-        AuthPermission.VIEW_GOVERNANCE.value,
-        AuthPermission.MANAGE_SOURCES.value,
-        AuthPermission.MANAGE_USERS.value,
-    ),
-    AuthRole.SUPERVISOR.value: (
-        AuthPermission.VIEW_DASHBOARD.value,
-        AuthPermission.VIEW_RFQS.value,
-        AuthPermission.VIEW_OPERATOR_QUEUE.value,
-        AuthPermission.ASSIGN_OPERATOR.value,
-        AuthPermission.MARK_REVIEWED.value,
-        AuthPermission.ESCALATE_REVIEW.value,
-        AuthPermission.ARCHIVE_RFQ.value,
-        AuthPermission.ACKNOWLEDGE_ALERT.value,
-        AuthPermission.VIEW_AUDIT.value,
-        AuthPermission.VIEW_GOVERNANCE.value,
-    ),
-    AuthRole.OPERATOR.value: (
-        AuthPermission.VIEW_DASHBOARD.value,
-        AuthPermission.VIEW_RFQS.value,
-        AuthPermission.VIEW_OPERATOR_QUEUE.value,
-        AuthPermission.MARK_REVIEWED.value,
-        AuthPermission.ACKNOWLEDGE_ALERT.value,
-    ),
-    AuthRole.GOVERNANCE.value: (
-        AuthPermission.VIEW_DASHBOARD.value,
-        AuthPermission.VIEW_RFQS.value,
-        AuthPermission.VIEW_OPERATOR_QUEUE.value,
-        AuthPermission.VIEW_AUDIT.value,
-        AuthPermission.VIEW_GOVERNANCE.value,
-        AuthPermission.ACKNOWLEDGE_ALERT.value,
-    ),
-    AuthRole.READ_ONLY.value: (
-        AuthPermission.VIEW_DASHBOARD.value,
-        AuthPermission.VIEW_RFQS.value,
-        AuthPermission.VIEW_OPERATOR_QUEUE.value,
-        AuthPermission.VIEW_AUDIT.value,
-        AuthPermission.VIEW_GOVERNANCE.value,
-    ),
+READ_ONLY_PERMISSIONS = (
+    AuthPermission.view_rfqs.value,
+    AuthPermission.view_operator_queue.value,
+    AuthPermission.view_operator_review.value,
+    AuthPermission.view_audit.value,
+    AuthPermission.view_governance.value,
+    AuthPermission.view_supplier_quote_intelligence.value,
+)
+
+OPERATOR_PERMISSIONS = READ_ONLY_PERMISSIONS
+
+SUPERVISOR_PERMISSIONS = (
+    *OPERATOR_PERMISSIONS,
+    AuthPermission.run_operator_assign_supplier.value,
+    AuthPermission.run_operator_mark_reviewed.value,
+    AuthPermission.run_operator_request_clarification.value,
+    AuthPermission.run_operator_reject_rfq.value,
+    AuthPermission.run_operator_escalate_rfq.value,
+    AuthPermission.run_operator_acknowledge_alert.value,
+    AuthPermission.execute_submission.value,
+    AuthPermission.approve_submission.value,
+    AuthPermission.verify_submission.value,
+    AuthPermission.reconcile_submission.value,
+    AuthPermission.export_audit.value,
+    AuthPermission.run_submission_package_generate.value,
+    AuthPermission.run_supplier_quote_intelligence.value,
+    AuthPermission.run_supplier_quote_auto_ingest.value,
+    AuthPermission.run_supplier_quote_ingestion.value,
+)
+
+ADMIN_PERMISSIONS = (*SUPERVISOR_PERMISSIONS, AuthPermission.manage_users.value)
+
+ROLE_PERMISSIONS = {
+    "read_only": READ_ONLY_PERMISSIONS,
+    "operator": OPERATOR_PERMISSIONS,
+    "supervisor": SUPERVISOR_PERMISSIONS,
+    "admin": ADMIN_PERMISSIONS,
 }
-
-
-def permissions_for_role(role: str) -> Tuple[str, ...]:
-    return ROLE_PERMISSIONS.get(str(role or "").lower(), tuple())
-
-
-def role_has_permission(role: str, permission: str) -> bool:
-    return str(permission or "").lower() in permissions_for_role(role)
-
-
-def permissions_for_roles(roles: Iterable[str]) -> Tuple[str, ...]:
-    values = []
-    for role in roles:
-        for permission in permissions_for_role(role):
-            if permission not in values:
-                values.append(permission)
-    return tuple(values)
-

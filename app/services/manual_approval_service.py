@@ -1,24 +1,31 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from app.domain.submission import ApprovalRecord
-from app.core.runtime_paths import get_runtime_paths
-from app.persistence import jsonl_compat
+from app.persistence import db as persistence_db
 
-logger = logging.getLogger(__name__)
 
-RUNTIME_DIR = get_runtime_paths().runtime_root
-MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
+RUNTIME_DIR = Path("runtime")
+MANUAL_PRODUCTION_DIR = RUNTIME_DIR / "manual_production"
 MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
 APPROVAL_LOG_FILE = MANUAL_PRODUCTION_DIR / "approvals.jsonl"
 
 _LOCK = Lock()
+
+
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
 
 
 def _now_iso() -> str:
@@ -37,41 +44,28 @@ def _safe_list(value: Any) -> List[Any]:
     return [value]
 
 
-def append_manual_approval(record: Dict[str, Any]) -> Dict[str, Any]:
+def append_manual_approval(record: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     item = dict(record or {})
     item.setdefault("timestamp", _now_iso())
-    MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
+    approval_file = _resolve_runtime_path(APPROVAL_LOG_FILE, runtime_dir)
+    approval_file.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(item, ensure_ascii=False, default=str)
     with _LOCK:
-        with APPROVAL_LOG_FILE.open("a", encoding="utf-8") as handle:
+        with approval_file.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
-    jsonl_compat.persist_approval(item)
-    if (
-        _clean(item.get("status")) == "recorded"
-        and bool(item.get("manual_approval_recorded", False))
-        and bool(item.get("approved_by_operator", False))
-    ):
-        try:
-            from app.core.workflow_state_engine import WorkflowStage, record_transition
-
-            record_transition(
-                tender_id=_clean(item.get("tender_id")),
-                from_stage=WorkflowStage.APPROVAL_REQUIRED,
-                to_stage=WorkflowStage.APPROVED,
-                actor=_clean(item.get("operator_name")) or "manual_approval_service",
-                reason="manual approval recorded",
-                details={"source_log": "approvals.jsonl", "status": _clean(item.get("status"))},
-            )
-        except Exception:
-            logger.warning("workflow transition approval_required -> approved was not recorded", exc_info=True)
+    try:
+        persistence_db.insert_json_record("approval_record_entities", item)
+    except Exception:
+        pass
     return item
 
 
-def list_recent_manual_approvals(limit: int = 20) -> Dict[str, Any]:
+def list_recent_manual_approvals(limit: int = 20, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    approval_file = _resolve_runtime_path(APPROVAL_LOG_FILE, runtime_dir)
     records: List[Dict[str, Any]] = []
-    if APPROVAL_LOG_FILE.exists():
+    if approval_file.exists():
         try:
-            for line in APPROVAL_LOG_FILE.read_text(encoding="utf-8").splitlines():
+            for line in approval_file.read_text(encoding="utf-8").splitlines():
                 line = line.strip()
                 if not line:
                     continue
@@ -85,7 +79,7 @@ def list_recent_manual_approvals(limit: int = 20) -> Dict[str, Any]:
         "status": "ok",
         "items": recent,
         "total": len(records),
-        "log_file": str(APPROVAL_LOG_FILE),
+        "log_file": str(approval_file),
         "updated_at": _now_iso(),
     }
 
@@ -122,7 +116,7 @@ def build_manual_approval_record(
     confirm_approval: bool = False,
 ) -> Dict[str, Any]:
     gate = evaluate_manual_approval_gate(result)
-    record = {
+    return {
         "tender_id": _clean(tender_id or result.get("tender_id")),
         "tender_root": _clean(tender_root or result.get("tender_root")),
         "pricing_file": _clean(pricing_file),
@@ -139,4 +133,3 @@ def build_manual_approval_record(
         "gate": gate,
         "status": "recorded" if gate["approved"] and confirm_approval else "refused",
     }
-    return ApprovalRecord.validate_payload(record).to_jsonable_dict()

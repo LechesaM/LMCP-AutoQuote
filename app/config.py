@@ -7,16 +7,29 @@ from pathlib import Path
 from typing import Tuple
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from app.core.runtime_config import env as _env
-from app.core.runtime_config import env_bool as _env_bool
-from app.core.runtime_config import env_csv as _env_csv
-from app.core.runtime_config import get_runtime_config
-from app.core.runtime_paths import get_runtime_paths
+from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-runtime_config = get_runtime_config()
-runtime_paths = get_runtime_paths()
+load_dotenv(BASE_DIR / ".env")
+
+
+def _env(name: str, default: str = "") -> str:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    value = value.strip()
+    return value or default
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = _env(name, "1" if default else "0").lower()
+    return raw in {"1", "true", "yes", "y", "on"}
+
+
+def _env_csv(name: str, default: str = "") -> Tuple[str, ...]:
+    raw = _env(name, default)
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
 def _normalize_scheme(raw_url: str) -> str:
@@ -42,10 +55,27 @@ def _replace_host(raw_url: str, new_host: str) -> str:
 
 
 def _ensure_connect_timeout(raw_url: str, seconds: int = 10) -> str:
+    # SQLite URLs do not accept the same query normalization as networked DB URLs.
+    # Leave them untouched so local file-backed test databases remain valid.
+    if raw_url.startswith("sqlite:"):
+        return raw_url
     parsed = urlparse(raw_url)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query.setdefault("connect_timeout", str(seconds))
     return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _sqlite_database_url() -> str:
+    raw_path = _env(
+        "LMCP_MANUAL_PRODUCTION_DB_PATH",
+        str(BASE_DIR / "runtime" / "manual_production" / "lmcp_operations.db"),
+    )
+    db_path = Path(raw_path).expanduser()
+    if not db_path.is_absolute():
+        db_path = (BASE_DIR / db_path).resolve()
+    else:
+        db_path = db_path.resolve()
+    return f"sqlite:///{db_path.as_posix()}"
 
 
 def _is_running_in_docker() -> bool:
@@ -62,6 +92,10 @@ def _is_running_in_docker() -> bool:
 
 
 def _derive_database_url() -> str:
+    backend = _env("LMCP_DB_BACKEND", "sqlite").lower()
+    if backend == "sqlite":
+        return _sqlite_database_url()
+
     in_docker = _is_running_in_docker()
 
     db_user = _env("POSTGRES_USER") or _env("DB_USER")
@@ -87,6 +121,9 @@ def _derive_database_url() -> str:
 
     raw_url = _normalize_scheme(raw_url)
 
+    if raw_url.startswith("sqlite:"):
+        return raw_url
+
     parsed = urlparse(raw_url)
     current_host = (parsed.hostname or "").strip().lower()
     docker_hosts = {"postgres", "db", "database", "lmcp-db", "postgresql"}
@@ -105,27 +142,28 @@ class Settings:
     app_name: str = "LMCP AutoQuote System"
     app_version: str = _env("LMCP_APP_VERSION", "2.6.0-manual-production")
     environment: str = _env("LMCP_ENV", _env("ENVIRONMENT", "development")).lower()
-    production_mode: str = runtime_config.mode.value
     debug: bool = _env_bool("LMCP_DEBUG", False)
     secret_key: str = _env("LMCP_SECRET_KEY", _env("SECRET_KEY", "lmcp-dev-secret"))
     cors_origins: Tuple[str, ...] = field(default_factory=lambda: _env_csv("LMCP_CORS_ORIGINS", "*"))
 
     base_dir: Path = BASE_DIR
-    project_root: Path = runtime_paths.project_root
-    runtime_dir: Path = runtime_paths.runtime_root
-    monthly_quotes_dir: Path = runtime_paths.downloads_dir
-    log_dir: Path = runtime_paths.logs_dir
-    handwriting_runtime_dir: Path = runtime_paths.handwriting_runtime_dir
-    tender_form_runtime_dir: Path = runtime_paths.tender_form_runtime_dir
-    clickable_navigation_runtime_dir: Path = runtime_paths.clickable_navigation_runtime_dir
-    submission_proofs_dir: Path = runtime_paths.proofs_dir
-    portal_submission_dir: Path = runtime_paths.submissions_dir
-    final_submission_dir: Path = runtime_paths.final_submission_dir
-    proof_center_dir: Path = runtime_paths.proof_center_dir
-    manual_production_dir: Path = runtime_paths.manual_production_dir
-    temp_dir: Path = runtime_paths.temp_dir
-    exports_dir: Path = runtime_paths.exports_dir
-    operator_auth_db_path: Path = runtime_paths.operator_auth_db_path
+    project_root: Path = Path(_env("LMCP_PROJECT_ROOT", _env("PROJECT_ROOT", str(BASE_DIR)))).expanduser().resolve()
+    runtime_dir: Path = Path(
+        _env(
+            "LMCP_RUNTIME_DIR",
+            _env("RUNTIME_DIR", _env("SUPPLY_COMMAND_RUNTIME", _env("DATA_DIR", str(BASE_DIR / "runtime")))),
+        )
+    ).expanduser().resolve()
+    monthly_quotes_dir: Path = Path(_env("LMCP_MONTHLY_QUOTES_DIR", str(BASE_DIR / "monthly_quotes"))).expanduser().resolve()
+    log_dir: Path = Path(_env("LMCP_LOG_DIR", str(BASE_DIR / "runtime" / "logs"))).expanduser().resolve()
+    handwriting_runtime_dir: Path = Path(_env("LMCP_HANDWRITING_RUNTIME_DIR", str(BASE_DIR / "runtime" / "handwriting_simulation"))).expanduser().resolve()
+    tender_form_runtime_dir: Path = Path(_env("LMCP_TENDER_FORM_RUNTIME_DIR", str(BASE_DIR / "runtime" / "tender_form_intelligence"))).expanduser().resolve()
+    clickable_navigation_runtime_dir: Path = Path(_env("LMCP_CLICKABLE_NAVIGATION_RUNTIME_DIR", str(BASE_DIR / "runtime" / "clickable_navigation_v40"))).expanduser().resolve()
+    submission_proofs_dir: Path = Path(_env("LMCP_SUBMISSION_PROOFS_DIR", str(BASE_DIR / "runtime" / "submission_proofs"))).expanduser().resolve()
+    portal_submission_dir: Path = Path(_env("LMCP_PORTAL_SUBMISSION_DIR", str(BASE_DIR / "runtime" / "portal_submission"))).expanduser().resolve()
+    final_submission_dir: Path = Path(_env("LMCP_FINAL_SUBMISSION_DIR", str(BASE_DIR / "runtime" / "final_submission_v47_5"))).expanduser().resolve()
+    proof_center_dir: Path = Path(_env("LMCP_PROOF_CENTER_DIR", str(BASE_DIR / "runtime" / "proof_center"))).expanduser().resolve()
+    operator_auth_db_path: Path = Path(_env("LMCP_OPERATOR_AUTH_DB_PATH", str(BASE_DIR / "runtime" / "operator_auth" / "operator_auth.sqlite3"))).expanduser().resolve()
     operator_session_cookie_name: str = _env("LMCP_OPERATOR_SESSION_COOKIE_NAME", "lmcp_operator_session")
     operator_session_timeout_seconds: int = max(300, int(_env("LMCP_OPERATOR_SESSION_TIMEOUT_SECONDS", "28800") or "28800"))
     operator_session_cookie_secure: bool = _env_bool("LMCP_OPERATOR_SESSION_COOKIE_SECURE", False)
@@ -169,24 +207,56 @@ class Settings:
     minimum_supply_margin_ratio: float = float(_env("LMCP_MIN_SUPPLY_MARGIN_RATIO", "0.25"))
     final_submit_manual_only: bool = True
     require_buyer_pricing_schedule_completion: bool = True
-    manual_production_enforced: bool = runtime_config.manual_production_enforced
-    enable_legacy_routers: bool = runtime_config.enable_legacy_routers
-    allow_degraded_startup: bool = runtime_config.allow_degraded_startup
-    runtime_safety_enabled: bool = runtime_config.runtime_safety_enabled
-    strict_production_startup: bool = runtime_config.strict_production_startup
 
     def ensure_directories(self) -> None:
-        runtime_paths.ensure_directories()
+        for directory in (
+            self.runtime_dir,
+            self.monthly_quotes_dir,
+            self.log_dir,
+            self.handwriting_runtime_dir,
+            self.tender_form_runtime_dir,
+            self.clickable_navigation_runtime_dir,
+            self.submission_proofs_dir,
+            self.portal_submission_dir,
+            self.final_submission_dir,
+            self.proof_center_dir,
+            self.operator_auth_db_path.parent,
+        ):
+            directory.mkdir(parents=True, exist_ok=True)
 
     def configure_environment(self) -> None:
-        runtime_config.configure_environment()
+        os.environ.setdefault("LMCP_PROJECT_ROOT", str(self.project_root))
+        os.environ.setdefault("LMCP_RUNTIME_DIR", str(self.runtime_dir))
+        os.environ.setdefault("LMCP_ENV", self.environment)
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     config = Settings()
     config.configure_environment()
-    config.ensure_directories()
+    try:
+        config.ensure_directories()
+    except (PermissionError, OSError):
+        fallback_runtime = BASE_DIR / "runtime"
+        object.__setattr__(config, "project_root", BASE_DIR)
+        object.__setattr__(config, "runtime_dir", fallback_runtime)
+        object.__setattr__(config, "monthly_quotes_dir", BASE_DIR / "monthly_quotes")
+        object.__setattr__(config, "log_dir", fallback_runtime / "logs")
+        object.__setattr__(config, "handwriting_runtime_dir", fallback_runtime / "handwriting_simulation")
+        object.__setattr__(config, "tender_form_runtime_dir", fallback_runtime / "tender_form_intelligence")
+        object.__setattr__(config, "clickable_navigation_runtime_dir", fallback_runtime / "clickable_navigation_v40")
+        object.__setattr__(config, "submission_proofs_dir", fallback_runtime / "submission_proofs")
+        object.__setattr__(config, "portal_submission_dir", fallback_runtime / "portal_submission")
+        object.__setattr__(config, "final_submission_dir", fallback_runtime / "final_submission_v47_5")
+        object.__setattr__(config, "proof_center_dir", fallback_runtime / "proof_center")
+        object.__setattr__(config, "temp_dir", fallback_runtime / "tmp")
+        object.__setattr__(config, "exports_dir", fallback_runtime / "exports")
+        object.__setattr__(config, "audit_trail_dir", fallback_runtime / "audit_trail")
+        object.__setattr__(config, "submission_history_dir", fallback_runtime / "submission_history")
+        object.__setattr__(config, "health_dir", fallback_runtime / "health")
+        object.__setattr__(config, "locks_dir", fallback_runtime / "locks")
+        object.__setattr__(config, "operator_auth_db_path", fallback_runtime / "operator_auth" / "operator_auth.sqlite3")
+        config.ensure_directories()
     return config
 
 

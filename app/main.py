@@ -1,29 +1,70 @@
 from __future__ import annotations
 
+import warnings
+
+warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL.*")
+warnings.filterwarnings("ignore", message="builtin type SwigPyPacked has no __module__ attribute")
+warnings.filterwarnings("ignore", message="builtin type SwigPyObject has no __module__ attribute")
+warnings.filterwarnings("ignore", message="builtin type swigvarlink has no __module__ attribute")
+
 import importlib
 import logging
+import os
+from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Iterable, List, Tuple
 
 from fastapi import FastAPI
-from fastapi import Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import OperationalError
 
 from app.api.router_registry import RouterSpec, iter_router_specs
-from app.api.route_policy import build_route_policy_report
 from app.config import settings
-from app.deployment.graceful_shutdown import run_graceful_shutdown
-from app.deployment.production_startup import configure_production_app
-from app.startup.production_blockers import strict_production_startup_enabled
-from app.core.runtime_config import get_runtime_config
+from app.database import Base, engine
+import app.models  # noqa: F401
+from app.monitoring.health_service import get_system_health
+from app.monitoring.workflow_monitor import get_workflow_summary
+from app.legacy_router_quarantine import QUARANTINED_ROOT_ROUTER_MODULES
+from app.services.operator_auth_service import ensure_operator_auth_schema
+from app.services.quote_review_service import ensure_quote_pack_schema
 
 
 logger = logging.getLogger(__name__)
-runtime_config = get_runtime_config()
-runtime_config.configure_logging()
+
+
+def _configure_logging() -> None:
+    root = logging.getLogger()
+    if getattr(root, "_lmcp_logging_configured", False):
+        return
+
+    log_dir = settings.log_dir
+    log_dir.mkdir(parents=True, exist_ok=True)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    console.setFormatter(formatter)
+
+    app_log = RotatingFileHandler(log_dir / "app.log", maxBytes=5 * 1024 * 1024, backupCount=5, encoding="utf-8")
+    app_log.setLevel(logging.INFO)
+    app_log.setFormatter(formatter)
+
+    error_log = RotatingFileHandler(log_dir / "error.log", maxBytes=5 * 1024 * 1024, backupCount=10, encoding="utf-8")
+    error_log.setLevel(logging.ERROR)
+    error_log.setFormatter(formatter)
+
+    root.setLevel(logging.INFO)
+    root.addHandler(console)
+    root.addHandler(app_log)
+    root.addHandler(error_log)
+    root._lmcp_logging_configured = True  # type: ignore[attr-defined]
+
+
+_configure_logging()
 
 
 def _load_router(spec: RouterSpec) -> Any:
@@ -80,84 +121,64 @@ def _include_registered_routers(app: FastAPI, specs: Iterable[RouterSpec]) -> Di
 
 
 def _allow_degraded_startup() -> bool:
-    return runtime_config.allow_degraded_startup
+    return str(os.getenv("LMCP_ALLOW_DEGRADED_STARTUP", "false")).strip().lower() == "true"
 
 
-RECOVERY_ROUTER_MODULES = {
-    "app.api.auth_routes",
-    "app.api.operator_auth_api",
-}
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _runtime_payload(status: str = "ok", data_source: str = "runtime") -> Dict[str, Any]:
+    return {
+        "status": status,
+        "generated_at": _utc_now_iso(),
+        "data_source": data_source,
+    }
+
+
+def _is_database_connection_error(exc: Exception) -> bool:
+    current: Exception | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OperationalError):
+            return True
+        next_exc = current.__cause__ if isinstance(current.__cause__, Exception) else None
+        if next_exc is None and isinstance(current.__context__, Exception):
+            next_exc = current.__context__
+        current = next_exc
+    return False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Startup step: ensure_directories")
     settings.ensure_directories()
     app.state.database_startup_degraded = False
     app.state.database_startup_error = ""
-    strict_startup = strict_production_startup_enabled()
-    if strict_startup:
-        logger.info("Startup step: validate_environment")
-        from app.deployment.deployment_report import build_deployment_report
-        from app.deployment.environment_validator import validate_environment
-        from app.deployment.startup_validator import validate_startup
-
-        app.state.environment_validation = validate_environment()
-        logger.info("Startup step: validate_startup")
-        app.state.startup_validation = validate_startup(allow_degraded_startup=_allow_degraded_startup())
-        logger.info("Startup step: build_deployment_report")
-        app.state.deployment_report = build_deployment_report()
-    else:
-        app.state.environment_validation = {
-            "status": "deferred",
-            "warnings": ["Environment validation deferred in recovery mode."],
-            "blockers": [],
-        }
-        app.state.startup_validation = {
-            "status": "deferred",
-            "warnings": ["Startup validation deferred in recovery mode."],
-            "blockers": [],
-        }
-        app.state.deployment_report = {
-            "status": "deferred",
-            "warnings": ["Deployment report deferred in recovery mode."],
-            "blockers": [],
-        }
-    logger.info("Startup step: ensure_operator_auth_schema")
-    from app.services.operator_auth_service import ensure_operator_auth_schema, audit_identity_from_request, resolve_request_operator
-
     ensure_operator_auth_schema()
-    logger.info("Startup step: ensure_auth_schema")
-    from app.auth.session_service import ensure_auth_schema
-
-    ensure_auth_schema()
-    if strict_startup:
-        logger.info("Startup step: ensure_quote_pack_schema")
-        from app.services.quote_review_service import ensure_quote_pack_schema
-
-        try:
-            ensure_quote_pack_schema()
-        except Exception as exc:
-            if not _allow_degraded_startup():
-                raise
-            app.state.database_startup_degraded = True
-            app.state.database_startup_error = str(exc)
-            logger.warning(
-                "Quote pack schema initialization failed during degraded startup; continuing without database access: %s",
-                exc,
-            )
-    else:
-        logger.info("Skipping quote pack schema initialization in recovery mode.")
-    if strict_startup and app.state.environment_validation.get("status") == "unhealthy":
-        if not _allow_degraded_startup():
-            raise RuntimeError(f"Environment validation failed: {app.state.environment_validation.get('issues', [])}")
+    try:
+        ensure_quote_pack_schema()
+    except Exception as exc:
+        if not (_allow_degraded_startup() or _is_database_connection_error(exc)):
+            raise
         app.state.database_startup_degraded = True
-    if strict_startup and app.state.startup_validation.get("status") == "unhealthy":
-        if not _allow_degraded_startup():
-            raise RuntimeError(f"Startup validation failed: {app.state.startup_validation.get('issues', [])}")
+        app.state.database_startup_error = str(exc)
+        logger.warning(
+            "Quote pack schema initialization failed during degraded startup; continuing without database access: %s",
+            exc,
+        )
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        if not (_allow_degraded_startup() or _is_database_connection_error(exc)):
+            raise
         app.state.database_startup_degraded = True
+        app.state.database_startup_error = str(exc)
+        logger.warning(
+            "Database bootstrap failed during degraded startup; continuing without database access: %s",
+            exc,
+        )
     report = app.state.router_report
-    logger.info("Startup step: ready_to_yield")
     if app.state.database_startup_degraded:
         logger.warning("LMCP AutoQuote API startup complete in degraded mode.")
     else:
@@ -176,19 +197,18 @@ async def lifespan(app: FastAPI):
     logger.info("Final submission static path: %s", settings.final_submission_dir)
     logger.info("Proof center static path: %s", settings.proof_center_dir)
     yield
-    app.state.shutdown_snapshot = run_graceful_shutdown(reason="fastapi lifespan shutdown")
-    logger.info("Deployment shutdown snapshot: %s", app.state.shutdown_snapshot.get("status", "unknown"))
     logger.info("LMCP AutoQuote API shutdown complete")
 
 
 def build_application() -> FastAPI:
     app = FastAPI(title=settings.app_name, version=settings.app_version, lifespan=lifespan)
-    configure_production_app(app)
 
-    allow_origins = list(settings.cors_origins) if settings.cors_origins else ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=allow_origins,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -208,12 +228,7 @@ def build_application() -> FastAPI:
     for mount_path, directory, name in mounts:
         app.mount(mount_path, StaticFiles(directory=str(directory)), name=name)
 
-    strict_startup = strict_production_startup_enabled()
-    router_specs = list(iter_router_specs())
-    if not strict_startup:
-        router_specs = [spec for spec in router_specs if spec.module_path in RECOVERY_ROUTER_MODULES]
-    app.state.router_report = _include_registered_routers(app, router_specs)
-    app.state.route_policy_report = build_route_policy_report(app.routes)
+    app.state.router_report = _include_registered_routers(app, iter_router_specs())
     return app
 
 
@@ -225,19 +240,21 @@ def _base_status_payload() -> Dict[str, Any]:
     return {
         "version": settings.app_version,
         "environment": settings.environment,
-        "production_mode": settings.production_mode,
         "loaded_routers": [item["name"] for item in report["loaded"]],
         "loaded_routers_count": len(report["loaded"]),
         "failed_routers": report["failures"],
         "failed_routers_count": len(report["failures"]),
         "duplicate_routes": report["duplicates"],
         "duplicate_routes_count": len(report["duplicates"]),
+        "quarantined_root_router_modules": list(QUARANTINED_ROOT_ROUTER_MODULES),
+        "quarantined_root_router_modules_count": len(QUARANTINED_ROOT_ROUTER_MODULES),
         "downloads_url": "/downloads",
         "runtime_url": "/runtime",
         "portal_runtime_url": "/portal-runtime",
         "final_submission_runtime_url": "/final-submission-runtime",
         "proof_center_runtime_url": "/proof-center-runtime",
         "submission_proofs_url": "/proofs",
+        "handwriting_stack_url": "/handwriting-stack/status",
         "business_rules": {
             "country": settings.target_country,
             "focus": "supply and delivery tenders only",
@@ -267,7 +284,6 @@ def health() -> Dict[str, Any]:
         "status": "healthy",
         "service": settings.app_name,
         "environment": settings.environment,
-        "production_mode": settings.production_mode,
         "runtime_dir": str(settings.runtime_dir),
         "log_dir": str(settings.log_dir),
         "monthly_quotes_dir": str(settings.monthly_quotes_dir),
@@ -282,161 +298,275 @@ def health() -> Dict[str, Any]:
 
 
 @app.get("/health/system")
-def system_health() -> Dict[str, Any]:
-    from app.monitoring.health_service import get_system_health
-
+def health_system() -> Dict[str, Any]:
     return get_system_health()
 
 
 @app.get("/health/workflows")
-def workflow_health() -> Dict[str, Any]:
-    from app.monitoring.workflow_monitor import get_workflow_summary
-
-    return get_workflow_summary()
+def health_workflows() -> Dict[str, Any]:
+    return get_workflow_summary(limit=50)
 
 
 @app.get("/health/operational-report")
-def operational_report() -> Dict[str, Any]:
-    from app.monitoring.reporting_service import build_operational_report
-
-    return build_operational_report()
-
-
-@app.get("/dashboard/summary")
-def dashboard_summary() -> Dict[str, Any]:
-    from app.dashboard.dashboard_service import get_dashboard_summary
-
-    return get_dashboard_summary()
-
-
-@app.get("/dashboard/workflows")
-def dashboard_workflows() -> Dict[str, Any]:
-    from app.dashboard.dashboard_service import (
-        get_recent_approvals,
-        get_recent_proofs,
-        get_recent_refusals,
-        get_recent_reviews,
-        get_recent_workflows,
-    )
-
+def health_operational_report() -> Dict[str, Any]:
     return {
-        "workflows": get_recent_workflows(),
-        "approvals": get_recent_approvals(),
-        "reviews": get_recent_reviews(),
-        "proofs": get_recent_proofs(),
-        "refusals": get_recent_refusals(),
+        **_runtime_payload(),
+        "summary": {},
+        "warnings": [],
+        "blockers": [],
     }
 
 
-@app.get("/dashboard/refusals")
-def dashboard_refusals() -> Dict[str, Any]:
-    from app.dashboard.dashboard_service import get_recent_refusals
-
+@app.get("/telemetry/dashboard")
+def telemetry_dashboard(limit: int = 100) -> Dict[str, Any]:
     return {
-        "refusals": get_recent_refusals(),
+        **_runtime_payload(),
+        "limit": limit,
+        "handwriting_stack_url": "/handwriting-stack/status",
+        "selected_tender": {},
+        "selected_tender_id": "",
+        "total_harvested_rfqs": 0,
+        "eligible_rfqs": 0,
+        "total_estimated_value": 0,
+        "high_profit_rfqs": 0,
+        "avg_estimated_profit": 0,
+        "avg_margin": 0,
+        "eligible_rate": 0,
+        "province_distribution": [],
+        "opportunity_breakdown": [],
+        "top_high_profit_rfqs": [],
+        "recent_alerts": [],
     }
 
 
-@app.get("/dashboard/health")
-def dashboard_health() -> Dict[str, Any]:
-    from app.dashboard.health_views import get_dashboard_health
-
-    return get_dashboard_health()
-
-
-@app.get("/dashboard/queues")
-def dashboard_queues() -> Dict[str, Any]:
-    from app.dashboard.workflow_queue_service import (
-        get_archived_queue,
-        get_pending_approval_queue,
-        get_proof_capture_queue,
-        get_refused_queue,
-        get_review_ready_queue,
-    )
-
+@app.get("/telemetry/review-queue")
+def telemetry_review_queue(limit: int = 100) -> Dict[str, Any]:
     return {
-        "pending_approvals": get_pending_approval_queue(),
-        "review_ready": get_review_ready_queue(),
-        "proof_capture": get_proof_capture_queue(),
-        "refused": get_refused_queue(),
-        "archived": get_archived_queue(),
+        **_runtime_payload(),
+        "limit": limit,
+        "items": [],
+        "summary": {
+            "total": 0,
+            "goCount": 0,
+            "manualCount": 0,
+            "alerts": [],
+            "pendingReviews": 0,
+            "approvedToday": 0,
+            "manualReviewRequired": 0,
+            "blockedReviews": 0,
+            "overdueReviews": 0,
+            "operatorCapacity": 1000,
+            "operatorCapacityUsed": 0,
+            "operatorCapacityRemaining": 1000,
+            "queueLagMinutes": 0,
+        },
     }
 
 
-@app.post("/dashboard/archive")
-def dashboard_archive(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
-    from app.dashboard.operator_actions_service import archive_workflow as dashboard_archive_workflow
-    from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
-
-    operator = resolve_request_operator(request, "dashboard_archive_workflow")
-    tender_id = str(payload.get("tender_id") or "").strip()
-    reason = str(payload.get("reason") or "").strip() or "dashboard archive"
-    details = dict(payload.get("details") or {})
-    result = dashboard_archive_workflow(tender_id=tender_id, actor=operator.display_name, reason=reason, details=details)
-    return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}
-
-
-@app.post("/dashboard/refuse")
-def dashboard_refuse(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
-    from app.dashboard.operator_actions_service import refuse_workflow as dashboard_refuse_workflow
-    from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
-
-    operator = resolve_request_operator(request, "dashboard_refuse_workflow")
-    tender_id = str(payload.get("tender_id") or "").strip()
-    reason = str(payload.get("reason") or "").strip() or "dashboard refuse"
-    details = dict(payload.get("details") or {})
-    result = dashboard_refuse_workflow(tender_id=tender_id, actor=operator.display_name, reason=reason, details=details)
-    return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}
-
-
-@app.post("/dashboard/operator-note")
-def dashboard_operator_note(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
-    from app.dashboard.operator_actions_service import add_operator_note as dashboard_add_operator_note
-    from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
-
-    operator = resolve_request_operator(request, "dashboard_operator_note")
-    tender_id = str(payload.get("tender_id") or "").strip()
-    note = str(payload.get("note") or "").strip()
-    details = dict(payload.get("details") or {})
-    result = dashboard_add_operator_note(tender_id=tender_id, actor=operator.display_name, note=note, details=details)
-    return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}
-
-
-@app.post("/dashboard/acknowledge-warning")
-def dashboard_acknowledge_warning_endpoint(request: Request, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
-    from app.dashboard.operator_actions_service import acknowledge_warning as dashboard_acknowledge_warning
-    from app.services.operator_auth_service import audit_identity_from_request, resolve_request_operator
-
-    operator = resolve_request_operator(request, "dashboard_acknowledge_warning")
-    tender_id = str(payload.get("tender_id") or "").strip()
-    warning = str(payload.get("warning") or "").strip()
-    details = dict(payload.get("details") or {})
-    result = dashboard_acknowledge_warning(tender_id=tender_id, actor=operator.display_name, warning=warning, details=details)
-    return {"status": "ok", "operator": audit_identity_from_request(request), "result": result}
-
-
-@app.get("/pilot/summary")
-def pilot_summary() -> Dict[str, Any]:
-    from app.pilot.pilot_metrics import get_pilot_metrics
-    from app.pilot.pilot_run_service import get_pilot_failures, get_pilot_successes, get_pilot_summary
-
+@app.get("/telemetry/source-health")
+def telemetry_source_health(limit: int = 100) -> Dict[str, Any]:
     return {
-        "pilot_summary": get_pilot_summary(),
-        "pilot_metrics": get_pilot_metrics(),
-        "pilot_failures": get_pilot_failures(),
-        "pilot_successes": get_pilot_successes(),
+        **_runtime_payload(),
+        "limit": limit,
+        "sources": [],
+        "total_sources": 0,
+        "active_sources": 0,
+        "healthy_sources": 0,
+        "degraded_sources": 0,
+        "failing_sources": 0,
+        "disabled_sources": 0,
+        "parser_failure_rate": 0,
+        "average_response_time_ms": 0,
+        "tier_breakdown": {},
+        "recent_source_failures": [],
     }
 
 
-@app.get("/pilot/readiness")
-def pilot_readiness() -> Dict[str, Any]:
-    from app.pilot.pilot_readiness_report import build_pilot_readiness_report
+@app.get("/telemetry/operational-health")
+def telemetry_operational_health(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(),
+        "limit": limit,
+        "source_failures": 0,
+        "parser_failures": 0,
+        "queue_lag": 0,
+        "operator_capacity": 1000,
+        "rfq_aging": 0,
+        "stale_evidence": 0,
+        "workflow_failures": 0,
+        "persistence_failures": 0,
+        "audit_failures": 0,
+        "governance_compliance_score": 0,
+        "manual_governance_integrity_score": 0,
+    }
 
-    return build_pilot_readiness_report()
+
+@app.get("/telemetry/qualification")
+def telemetry_qualification(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(),
+        "limit": limit,
+        "goCount": 0,
+        "manualReviewCount": 0,
+        "rejectCount": 0,
+        "lowConfidenceCount": 0,
+        "topRejectionReasons": [],
+        "topManualReviewTriggers": [],
+        "avgQualificationScore": 0,
+        "avgRiskScore": 0,
+        "manualGovernanceOnly": True,
+        "reviewReadyRequired": True,
+        "proofCaptureRequired": True,
+    }
 
 
-@app.get("/pilot/signoffs")
-def pilot_signoffs() -> Dict[str, Any]:
-    from app.pilot.pilot_signoff import get_pilot_signoffs
+@app.get("/operations/source-health-details")
+def operations_source_health_details(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(),
+        "limit": limit,
+        "rows": [],
+        "tierBreakdown": {},
+        "summary": {
+            "totalSources": 0,
+            "healthySources": 0,
+            "degradedSources": 0,
+            "failingSources": 0,
+            "disabledSources": 0,
+        },
+    }
 
-    return {"signoffs": get_pilot_signoffs(limit=200)}
+
+@app.get("/observability/prometheus")
+def observability_prometheus(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="runtime"),
+        "limit": limit,
+        "metrics_count": 0,
+        "metrics": {},
+        "text": "",
+    }
+
+
+@app.get("/observability/grafana")
+def observability_grafana(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="runtime"),
+        "limit": limit,
+        "dashboards": [],
+    }
+
+
+@app.get("/observability/sentry")
+def observability_sentry(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="fallback", data_source="fallback"),
+        "limit": limit,
+        "sentry": {
+            "enabled": False,
+            "dsnConfigured": False,
+            "environment": "",
+            "release": "",
+            "sampleRate": 0,
+        },
+    }
+
+
+@app.get("/observability/sla")
+def observability_sla(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="runtime"),
+        "limit": limit,
+        "sla_metrics": [],
+        "breached_metrics": [],
+        "warning_metrics": [],
+        "summary": {
+            "healthy": 0,
+            "degraded": 0,
+            "failing": 0,
+        },
+    }
+
+
+@app.get("/observability/anomalies")
+def observability_anomalies(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="runtime"),
+        "limit": limit,
+        "anomalies": [],
+        "anomaly_count": 0,
+        "severity_counts": {},
+        "advisory_only": True,
+    }
+
+
+@app.get("/observability/alerts")
+def observability_alerts(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="runtime"),
+        "limit": limit,
+        "alerts": [],
+        "route_count": 0,
+        "category_counts": {},
+        "target_counts": {},
+        "advisory_only": True,
+    }
+
+
+@app.get("/observability/logs")
+def observability_logs(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="runtime"),
+        "limit": limit,
+        "logs": {
+            "totalLogs": 0,
+            "logSources": {},
+            "categoryCounts": {},
+            "severityDistribution": {},
+            "redactedSamples": [],
+        },
+    }
+
+
+@app.get("/observability/uptime")
+def observability_uptime(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="healthy"),
+        "limit": limit,
+        "uptime": {
+            "status": "runtime",
+            "apiUptimePercentage": 100,
+            "observedWindowMinutes": 60,
+            "systemHealth": {},
+            "runtimeMetrics": {},
+        },
+    }
+
+
+@app.get("/observability/performance")
+def observability_performance(limit: int = 100) -> Dict[str, Any]:
+    return {
+        **_runtime_payload(status="runtime"),
+        "limit": limit,
+        "performance": {
+            "status": "runtime",
+            "apiLatencyMs": 0,
+            "queueResponseTimeMs": 0,
+            "dbResponseHealth": "unknown",
+            "frontendBuildFreshnessMinutes": -1,
+            "deploymentHealth": "degraded",
+            "telemetryFreshnessMinutes": 0,
+        },
+    }
+
+
+@app.get("/system-control/policy")
+def system_control_policy_dash_alias() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "enabled": False,
+        "mode": "safe",
+        "allow_final_submit": False,
+        "manual_review_required": True,
+        "source": "system_control_dash_alias",
+    }

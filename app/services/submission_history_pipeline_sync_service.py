@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.core.runtime_paths import get_runtime_paths
 
-RUNTIME_DIR = get_runtime_paths().runtime_root
-SUBMISSION_HISTORY_DIR = get_runtime_paths().submission_history_dir
+RUNTIME_DIR = Path("runtime")
+SUBMISSION_HISTORY_DIR = RUNTIME_DIR / "submission_history"
 SUBMISSION_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 SUBMISSION_HISTORY_FILE = SUBMISSION_HISTORY_DIR / "submission_history.json"
-MONTHLY_QUOTES_DIR = get_runtime_paths().downloads_dir
+MONTHLY_QUOTES_DIR = Path("monthly_quotes")
 
 
 def _now() -> str:

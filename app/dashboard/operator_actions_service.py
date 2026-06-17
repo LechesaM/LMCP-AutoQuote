@@ -1,112 +1,49 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from app.core import workflow_state_engine
-from app.orchestration.operator_recovery_actions import (
-    acknowledge_queue_warning as queue_acknowledge_warning,
-    archive_failed_job as queue_archive_failed_job,
-    mark_job_blocked as queue_mark_job_blocked,
-    retry_failed_job as queue_retry_failed_job,
-)
-from app.services.audit_trail_service import record_audit_event
+from app.services import audit_trail_service
 
 
-async def _emit_operator_audit(
-    *,
-    event_type: str,
-    tender_id: str,
-    actor: str,
-    message: str,
-    payload: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    return await record_audit_event(
-        event_type=event_type,
-        source="operator-dashboard",
-        severity="info",
-        title=event_type.replace("_", " ").title(),
-        message=message,
-        buyer_rfq_number=tender_id,
-        payload=payload or {},
-    )
-
-
-def _dispatch_audit(event_type: str, tender_id: str, actor: str, message: str, payload: Optional[Dict[str, Any]] = None) -> None:
-    coroutine = _emit_operator_audit(
-        event_type=event_type,
-        tender_id=tender_id,
-        actor=actor,
-        message=message,
-        payload=payload or {},
-    )
+def _record_audit(event_type: str, payload: Dict[str, Any]) -> None:
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.run(audit_trail_service.record_audit_event(event_type=event_type, source="operator-dashboard", payload=payload))
     except RuntimeError:
-        asyncio.run(coroutine)
-        return
-    loop.create_task(coroutine)
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(audit_trail_service.record_audit_event(event_type=event_type, source="operator-dashboard", payload=payload))
+        finally:
+            loop.close()
 
 
-def refuse_workflow(tender_id: str, actor: str, reason: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    state = workflow_state_engine.refuse_workflow(tender_id=tender_id, actor=actor, reason=reason, details=details)
-    try:
-        _dispatch_audit(
-            "operator_refuse_workflow",
-            tender_id,
-            actor,
-            reason,
-            {"details": details or {}, "stage": state.stage.value, "actor": actor},
-        )
-    except Exception:
-        pass
-    return state.to_jsonable_dict()
+def archive_workflow(tender_id: str, actor: str, reason: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    current = workflow_state_engine.get_current_state(tender_id)
+    if current.stage is not workflow_state_engine.WorkflowStage.ARCHIVED:
+        state = workflow_state_engine.archive_workflow(tender_id, actor=actor, reason=reason, details=details)
+    else:
+        state = current
+    _record_audit("operator_archive_workflow", {"tender_id": tender_id, "actor": actor, "reason": reason, "details": details})
+    return {"tender_id": tender_id, "stage": state.stage.value, "actor": actor, "reason": reason, "details": details}
 
 
-def archive_workflow(tender_id: str, actor: str, reason: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    state = workflow_state_engine.archive_workflow(tender_id=tender_id, actor=actor, reason=reason, details=details)
-    try:
-        _dispatch_audit(
-            "operator_archive_workflow",
-            tender_id,
-            actor,
-            reason,
-            {"details": details or {}, "stage": state.stage.value, "actor": actor},
-        )
-    except Exception:
-        pass
-    return state.to_jsonable_dict()
+def refuse_workflow(tender_id: str, actor: str, reason: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    current = workflow_state_engine.get_current_state(tender_id)
+    if current.stage is workflow_state_engine.WorkflowStage.ARCHIVED:
+        raise ValueError("Archived workflows cannot be refused again.")
+    state = workflow_state_engine.refuse_workflow(tender_id, actor=actor, reason=reason, details=details)
+    _record_audit("operator_refuse_workflow", {"tender_id": tender_id, "actor": actor, "reason": reason, "details": details})
+    return {"tender_id": tender_id, "stage": state.stage.value, "actor": actor, "reason": reason, "details": details}
 
 
-def add_operator_note(tender_id: str, actor: str, note: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    payload = {"note": note, "details": details or {}, "actor": actor}
-    try:
-        _dispatch_audit("operator_note", tender_id, actor, note, payload)
-    except Exception:
-        pass
-    return {"status": "ok", "tender_id": tender_id, "actor": actor, "note": note, "details": details or {}}
+def add_operator_note(tender_id: str, actor: str, note: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    payload = {"tender_id": tender_id, "actor": actor, "note": note, "details": details}
+    _record_audit("operator_note", payload)
+    return {"status": "ok", **payload}
 
 
-def acknowledge_warning(tender_id: str, actor: str, warning: str, details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    payload = {"warning": warning, "details": details or {}, "actor": actor}
-    try:
-        _dispatch_audit("operator_acknowledge_warning", tender_id, actor, warning, payload)
-    except Exception:
-        pass
-    return {"status": "ok", "tender_id": tender_id, "actor": actor, "warning": warning, "details": details or {}}
-
-
-def retry_failed_job(job_id: str, actor: str, operator: str = "", reason: str = "") -> Dict[str, Any]:
-    return queue_retry_failed_job(job_id=job_id, actor=actor, operator=operator, reason=reason)
-
-
-def archive_failed_job(job_id: str, actor: str, operator: str = "", reason: str = "") -> Dict[str, Any]:
-    return queue_archive_failed_job(job_id=job_id, actor=actor, operator=operator, reason=reason)
-
-
-def mark_job_blocked(job_id: str, actor: str, operator: str = "", reason: str = "") -> Dict[str, Any]:
-    return queue_mark_job_blocked(job_id=job_id, actor=actor, operator=operator, reason=reason)
-
-
-def acknowledge_queue_warning(job_id: str, actor: str, operator: str = "", warning: str = "") -> Dict[str, Any]:
-    return queue_acknowledge_warning(job_id=job_id, actor=actor, operator=operator, warning=warning)
+def acknowledge_warning(tender_id: str, actor: str, warning: str, details: Dict[str, Any]) -> Dict[str, Any]:
+    payload = {"tender_id": tender_id, "actor": actor, "warning": warning, "details": details}
+    _record_audit("operator_acknowledge_warning", payload)
+    return {"status": "ok", **payload}

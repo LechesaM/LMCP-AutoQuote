@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class OpportunityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     source: str
     source_url: Optional[str] = None
@@ -22,11 +24,6 @@ class OpportunityOut(BaseModel):
     submission_instructions: Optional[str] = None
     is_relevant: bool
     relevance_score: float
-
-    class Config:
-        from_attributes = True
-
-
 class QuoteLineItemCreate(BaseModel):
     description: str
     unit: Optional[str] = "item"
@@ -36,6 +33,8 @@ class QuoteLineItemCreate(BaseModel):
 
 
 class QuoteLineItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     line_no: int
     description: str
@@ -45,12 +44,9 @@ class QuoteLineItemOut(BaseModel):
     markup_percent: float
     unit_price: float
     line_total: float
-
-    class Config:
-        from_attributes = True
-
-
 class QuoteDraftOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     opportunity_id: int
     quote_number: str
@@ -63,11 +59,6 @@ class QuoteDraftOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     line_items: List[QuoteLineItemOut] = []
-
-    class Config:
-        from_attributes = True
-
-
 class SupplierItemCreate(BaseModel):
     supplier_name: str
     item_name: str
@@ -82,6 +73,8 @@ class SupplierItemCreate(BaseModel):
 
 
 class SupplierItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     supplier_name: str
     item_name: str
@@ -93,11 +86,6 @@ class SupplierItemOut(BaseModel):
     lead_time_days: int
     brand: Optional[str] = None
     category: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-
-
 class MarkupRuleCreate(BaseModel):
     name: str
     min_value: float = 0.0
@@ -107,17 +95,14 @@ class MarkupRuleCreate(BaseModel):
 
 
 class MarkupRuleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     min_value: float
     max_value: Optional[float] = None
     markup_percent: float
     is_active: bool
-
-    class Config:
-        from_attributes = True
-
-
 class SubmissionEmailRequest(BaseModel):
     quote_draft_id: int
     recipient_email: Optional[EmailStr] = None
@@ -128,6 +113,8 @@ class SubmissionEmailRequest(BaseModel):
 
 
 class SubmissionRecordOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     opportunity_id: int
     quote_draft_id: int
@@ -141,6 +128,3 @@ class SubmissionRecordOut(BaseModel):
     error_message: Optional[str] = None
     message_id: Optional[str] = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True

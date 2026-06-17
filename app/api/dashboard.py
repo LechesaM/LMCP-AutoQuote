@@ -1,17 +1,29 @@
 from __future__ import annotations
 
+import socket
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
+from app.services.live_rfq_store import LiveRFQStore
 from app.services.operator_auth_service import OperatorAuthError, resolve_request_operator
 from app.services.portal_radar_service import get_portal_radar_summary
 from app.services.procurement_heatmap import build_procurement_heatmap
 from app.services.quote_review_service import list_pilot_runs, list_review_queue, validate_quote_pack
+from app.services.tender_harvester import (
+    get_productive_source_pack_report,
+    get_runtime_stability_report,
+    get_runtime_stability_source_report,
+    recheck_source_health,
+    recheck_suppressed_source_health,
+    reset_source_health,
+)
+from app.services.weekly_operations_report_service import build_weekly_operations_report
+from app.pilot import pilot_core
 
 try:
     from app.services.submission_history_service import (
@@ -202,6 +214,7 @@ def dashboard_system_health() -> Dict[str, Any]:
         "status": "ok",
         "timestamp": _utc_now_iso(),
         "system_status": "ok",
+        "handwriting_stack_url": "/handwriting-stack/status",
         "portal_radar": portal_radar,
         "submission_history": {
             "available": submission_history.get("available", False),
@@ -232,10 +245,12 @@ def dashboard_summary() -> Dict[str, Any]:
     recent_submissions = _get_recent_submission_items_safe(limit=10)
     success_tracking = _safe_success_tracking()
     profit_tracking = _safe_profit_tracking()
+    controlled_pilot_dashboard = pilot_core.build_controlled_pilot_dashboard(limit=50)
 
     return {
         "status": "ok",
         "timestamp": _utc_now_iso(),
+        "handwriting_stack_url": "/handwriting-stack/status",
         "summary": {
             "rfq_folders": artifact_summary["rfq_folders"],
             "quote_pdfs": artifact_summary["quote_pdfs"],
@@ -273,12 +288,22 @@ def dashboard_summary() -> Dict[str, Any]:
             "estimated_margin": profit_tracking.get("estimated_margin", 0.0),
             "by_method": profit_tracking.get("by_method", []),
         },
+        "controlled_pilot_dashboard": controlled_pilot_dashboard,
         "recent_submissions": recent_submissions,
         "note": (
             "Dashboard summary includes file-based quote metrics, submission history metrics, and "
             "submission analytics metrics. Profit tracking depends on estimated financial values "
             "being present in submission history metadata/raw_result."
         ),
+    }
+
+
+@router.get("/pilot")
+def dashboard_pilot() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "timestamp": _utc_now_iso(),
+        "controlled_pilot_dashboard": pilot_core.build_controlled_pilot_dashboard(limit=50),
     }
 
 
@@ -374,4 +399,79 @@ def dashboard_manual_review_pilot_summary(request: Request) -> Dict[str, Any]:
         "total_runs": len(runs),
         "latest_run": latest or {},
         "runs": runs[:10],
+    }
+
+
+@router.get("/buyer-pack-acquisition")
+def dashboard_buyer_pack_acquisition() -> Dict[str, Any]:
+    return LiveRFQStore.get_buyer_pack_acquisition_report()
+
+
+@router.get("/external-submission-candidate-queue")
+def dashboard_external_submission_candidate_queue(limit: int = 3) -> Dict[str, Any]:
+    return LiveRFQStore.get_external_submission_candidate_queue(limit=limit)
+
+
+@router.get("/benchmark-candidate-search")
+def dashboard_benchmark_candidate_search(limit: int = 5) -> Dict[str, Any]:
+    return LiveRFQStore.get_benchmark_candidate_search(limit=limit)
+
+
+@router.get("/procurement-shape-distribution")
+def dashboard_procurement_shape_distribution() -> Dict[str, Any]:
+    return LiveRFQStore.get_procurement_shape_distribution_report()
+
+
+@router.get("/source-shape-performance")
+def dashboard_source_shape_performance(limit: int = 10) -> Dict[str, Any]:
+    return LiveRFQStore.get_source_shape_performance_report(limit=limit)
+
+
+@router.get("/runtime-stability")
+def dashboard_runtime_stability(limit: int = 15) -> Dict[str, Any]:
+    return get_runtime_stability_report(limit=limit)
+
+
+@router.get("/runtime-stability/sources")
+def dashboard_runtime_stability_sources(limit: int = 1000) -> Dict[str, Any]:
+    return get_runtime_stability_source_report(limit=limit)
+
+
+@router.get("/source-pool/productive")
+def dashboard_productive_source_pool(limit: int = 25) -> Dict[str, Any]:
+    return get_productive_source_pack_report(limit=limit)
+
+
+@router.post("/source-pool/health/reset")
+def dashboard_reset_source_health(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    identifier = payload.get("source_name") or payload.get("source_url") or payload.get("identifier")
+    return reset_source_health(identifier)
+
+
+@router.post("/source-pool/health/recheck")
+def dashboard_recheck_source_health(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    if payload.get("all_suppressed"):
+        return recheck_suppressed_source_health()
+    identifier = payload.get("source_name") or payload.get("source_url") or payload.get("identifier")
+    return recheck_source_health(identifier)
+
+
+@router.get("/weekly-operations")
+def dashboard_weekly_operations(window_days: int = 7, limit: int = 25) -> Dict[str, Any]:
+    return build_weekly_operations_report(window_days=window_days, limit=limit)
+
+
+@router.get("/debug/network")
+def dashboard_debug_network() -> Dict[str, Any]:
+    def _resolve(host: str) -> str:
+        try:
+            return socket.gethostbyname(host)
+        except Exception as exc:
+            return str(exc)
+
+    return {
+        "status": "ok",
+        "timestamp": _utc_now_iso(),
+        "google": _resolve("google.com"),
+        "etenders": _resolve("www.etenders.gov.za"),
     }

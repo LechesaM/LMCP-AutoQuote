@@ -81,15 +81,89 @@ def _extracted_line_item_descriptions(result: Dict[str, Any]) -> List[str]:
     return [_clean(item) for item in _safe_list(result.get("extracted_line_item_descriptions")) if _clean(item)]
 
 
+def _workspace_section_for_stage(stage_key: str) -> str:
+    if stage_key in {"tender_pack_intake", "archive_extraction", "rfq_document_analysis"}:
+        return "Import"
+    if stage_key in {
+        "mandatory_form_detection",
+        "company_director_data_injection",
+        "quote_submission_pack_generation",
+        "proof_audit_output",
+        "quote_pack_quality_assessment",
+        "human_approval_gate",
+    }:
+        return "Review"
+    return "Outcome"
+
+
+def _append_workspace_run_log(result: Dict[str, Any], workspace_root: str, pilot_id: str) -> Optional[str]:
+    log_path: Optional[str] = None
+    stages = [stage for stage in _safe_list(result.get("pipeline_stages")) if isinstance(stage, dict)]
+    for stage in stages:
+        stage_key = _clean(stage.get("key") or stage.get("stage") or stage.get("name") or "stage")
+        section = _workspace_section_for_stage(stage_key)
+        details = stage.get("details") if isinstance(stage.get("details"), dict) else {}
+        fields = {
+            "Stage": stage.get("name") or stage_key,
+            "Stage Key": stage_key,
+            "Status": stage.get("status", ""),
+        }
+        for key in (
+            "tender_root",
+            "file_count",
+            "supported_file_count",
+            "required_form_count",
+            "missing_form_count",
+            "document_count",
+            "quote_pack_quality_status",
+            "approval_blocked",
+            "submission_pack_manifest_path",
+            "audit_output_path",
+            "message",
+            "reason",
+        ):
+            if key in details:
+                fields[key] = details.get(key)
+        log_path = pilot_run_log_service.append_workspace_log_entry(
+            workspace_root,
+            pilot_id,
+            section,
+            fields=fields,
+        )
+
+    pilot_run_log_service.append_workspace_log_entry(
+        workspace_root,
+        pilot_id,
+        "Outcome",
+        fields={
+            "Status": result.get("status"),
+            "Quote Pack Quality Status": result.get("quote_pack_quality_status"),
+            "Approval Blocked": bool(result.get("approval_blocked", False)),
+            "Submission Ready": bool(result.get("submission_ready", False)),
+            "Quote Pack Generated": _quote_pack_generated(result),
+            "Submission Pack Generated": _submission_pack_generated(result),
+            "Pricing Items Matched": int(result.get("pricing_items_matched", 0) or 0),
+            "Pricing Items Unmatched": int(result.get("pricing_items_unmatched", 0) or 0),
+        },
+        notes=[
+            f"Warnings: {'; '.join(_warnings(result)) or 'none'}",
+            f"Errors: {'; '.join(_errors(result)) or 'none'}",
+        ],
+    )
+    return log_path
+
+
 def run_manual_pilot(
     *,
     tender_root: str,
     tender_id: str,
     instructions_text: Optional[str] = None,
     pricing_file: Optional[str] = None,
+    workspace_root: Optional[str] = None,
+    workspace_pilot_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     pipeline = TenderSubmissionPipeline()
-    return pipeline.run(
+    result = pipeline.run(
         tender_root=tender_root,
         tender_id=tender_id,
         instructions_text=instructions_text,
@@ -99,6 +173,9 @@ def run_manual_pilot(
         require_human_approval=True,
         human_approval_granted=False,
     )
+    if workspace_root and workspace_pilot_id:
+        _append_workspace_run_log(result, workspace_root, workspace_pilot_id)
+    return result
 
 
 def print_summary(result: Dict[str, Any]) -> None:
@@ -129,6 +206,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--tender-id", required=True, help="Stable tender identifier for the pilot run.")
     parser.add_argument("--instructions-text", default=None, help="Optional extracted instructions or tender text.")
     parser.add_argument("--pricing-file", default=None, help="Optional JSON file with manual supplier pricing input.")
+    parser.add_argument("--pilot-workspace-root", default=None, help="Optional pilot workspace root for appending live run logs.")
+    parser.add_argument("--pilot-workspace-id", default=None, help="Optional pilot workspace folder name such as PILOT-001.")
     args = parser.parse_args(argv)
 
     result = run_manual_pilot(
@@ -136,6 +215,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         tender_id=args.tender_id,
         instructions_text=args.instructions_text,
         pricing_file=args.pricing_file,
+        workspace_root=args.pilot_workspace_root,
+        workspace_pilot_id=args.pilot_workspace_id,
     )
     print_summary(result)
     return 0

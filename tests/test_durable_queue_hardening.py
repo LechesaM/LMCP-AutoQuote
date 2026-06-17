@@ -7,6 +7,7 @@ from app.core.runtime_paths import get_runtime_paths
 from app.orchestration.dead_letter_queue import archive_dlq_item, list_dlq, move_to_dlq, retry_from_dlq
 from app.orchestration.durable_queue import acknowledge_job, dequeue_job, enqueue_job, fail_job, get_queue_depth, get_queue_health
 from app.orchestration.queue_recovery_service import detect_queue_recovery_needs
+from app.orchestration.queue_state_service import build_queue_restart_recovery_report, capture_queue_state, load_queue_state_snapshot
 from app.orchestration.worker_supervision import detect_stale_workers, record_worker_heartbeat
 from app.orchestration.job_models import QueueJobType
 
@@ -28,11 +29,63 @@ def _prepare_runtime(monkeypatch, tmp_path: Path) -> None:
 
 def test_local_durable_queue_enqueue_dequeue_ack(monkeypatch, tmp_path: Path) -> None:
     _prepare_runtime(monkeypatch, tmp_path)
-    job = enqueue_job(tender_id="RFQ-1", job_type=QueueJobType.SUBMISSION_REVIEW, actor="tester", operator="op1", workflow_stage="review")
+    job = enqueue_job(
+        tender_id="RFQ-1",
+        job_type=QueueJobType.SUBMISSION_REVIEW,
+        actor="tester",
+        operator="op1",
+        workflow_stage="review",
+        idempotency_key="rfq-1-review",
+    )
     dequeued = dequeue_job()
     assert dequeued["job_id"] == job["job_id"]
     completed = acknowledge_job(job["job_id"])
     assert completed["status"].lower() == "completed"
+
+
+def test_queue_recovers_from_missing_jsonl_shadow(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    job = enqueue_job(
+        tender_id="RFQ-RECOVER",
+        job_type=QueueJobType.SUBMISSION_REVIEW,
+        actor="tester",
+        operator="op1",
+        workflow_stage="review",
+        idempotency_key="recover-shadow",
+    )
+    shadow = tmp_path / "runtime" / "manual_production" / "durable_queue.jsonl"
+    if shadow.exists():
+        shadow.unlink()
+
+    depth = get_queue_depth()
+    dequeued = dequeue_job()
+
+    assert depth["counts"].get("queued", 0) >= 1
+    assert dequeued["job_id"] == job["job_id"]
+
+
+def test_queue_enqueue_is_idempotent(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    first = enqueue_job(
+        tender_id="RFQ-IDEMP",
+        job_type=QueueJobType.PRICING,
+        actor="tester",
+        operator="op1",
+        workflow_stage="pricing",
+        payload={"rfq": "RFQ-IDEMP"},
+        idempotency_key="pricing-rfq-idemp",
+    )
+    second = enqueue_job(
+        tender_id="RFQ-IDEMP",
+        job_type=QueueJobType.PRICING,
+        actor="tester",
+        operator="op1",
+        workflow_stage="pricing",
+        payload={"rfq": "RFQ-IDEMP"},
+        idempotency_key="pricing-rfq-idemp",
+    )
+    assert second["job_id"] == first["job_id"]
+    assert second["idempotent_replay"] is True
 
 
 def test_fail_and_retry_job(monkeypatch, tmp_path: Path) -> None:
@@ -72,6 +125,28 @@ def test_queue_recovery_detects_stuck_job(monkeypatch, tmp_path: Path) -> None:
     payload = detect_queue_recovery_needs()
     assert payload["status"] == "degraded"
     assert payload["blocked_operator_jobs"] >= 0
+
+
+def test_queue_restart_snapshot_and_report(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    job = enqueue_job(
+        tender_id="RFQ-RESTART",
+        job_type=QueueJobType.QUOTE_GENERATION,
+        actor="tester",
+        operator="op1",
+        workflow_stage="quote_generation",
+        idempotency_key="restart-proof",
+    )
+    snapshot = capture_queue_state(limit=20)
+    loaded = load_queue_state_snapshot()
+    report = build_queue_restart_recovery_report(limit=20)
+
+    assert snapshot["snapshot"]["jobs"]
+    assert loaded["snapshot"]["jobs"]
+    assert report["snapshot_path"].endswith("queue_state_snapshot.json")
+    assert report["queued_jobs"] >= 0
+    assert (tmp_path / "runtime" / "manual_production" / "queue_state_snapshot.json").exists()
+    assert job["job_id"]
 
 
 def test_worker_supervision_detects_stale_heartbeat(monkeypatch, tmp_path: Path) -> None:

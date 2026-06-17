@@ -5,12 +5,14 @@ from pathlib import Path
 
 from app.api.persistence_ops_contracts import (
     build_backup_status_response,
+    build_migration_bundle_response,
     build_migration_plan_response,
     build_persistence_health_response,
     build_queue_durability_response,
     build_retention_policy_response,
     build_restore_readiness_response,
 )
+from app.config import get_settings
 from app.core.runtime_config import get_runtime_config
 from app.core.runtime_paths import get_runtime_paths
 from app.persistence.backup_scheduler import create_runtime_backup
@@ -19,7 +21,7 @@ from app.persistence.migration_plan import generate_migration_plan
 from app.persistence.persistence_health import validate_persistence_health
 from app.persistence.postgres_config import get_postgres_config, postgres_connection_ready
 from app.persistence.retention_policy import run_retention_dry_run
-from app.main import app
+from app.api.persistence_ops_routes import router as persistence_ops_router
 
 
 def _prepare_runtime(monkeypatch, tmp_path: Path, *, env: str = "development") -> None:
@@ -42,6 +44,7 @@ def _prepare_runtime(monkeypatch, tmp_path: Path, *, env: str = "development") -
     monkeypatch.setenv("LMCP_ENABLE_LEGACY_ROUTERS", "0")
     get_runtime_config.cache_clear()
     get_runtime_paths.cache_clear()
+    get_settings.cache_clear()
 
 
 def test_postgres_config_parses(monkeypatch, tmp_path: Path) -> None:
@@ -67,6 +70,18 @@ def test_sqlite_fallback_works(monkeypatch, tmp_path: Path) -> None:
     assert database_connection_ready() is True
 
 
+def test_sqlite_backend_uses_local_sqlite_database_url(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("LMCP_DB_BACKEND", "sqlite")
+    get_runtime_config.cache_clear()
+    get_runtime_paths.cache_clear()
+    get_settings.cache_clear()
+
+    settings = get_settings()
+    assert settings.database_url.startswith("sqlite:///")
+    assert str(tmp_path / "runtime" / "manual_production" / "lmcp_operations.db") in settings.database_url
+
+
 def test_production_warns_when_sqlite_used(monkeypatch, tmp_path: Path) -> None:
     _prepare_runtime(monkeypatch, tmp_path, env="production")
 
@@ -80,6 +95,16 @@ def test_migration_plan_json_safe(monkeypatch, tmp_path: Path) -> None:
     plan = generate_migration_plan()
     json.dumps(plan, default=str)
     assert "migration_blockers" in plan
+
+
+def test_migration_bundle_json_safe(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    payload = build_migration_bundle_response()
+    json.dumps(payload, default=str)
+    bundle = payload["migration_bundle"]["migration_bundle"]
+    assert Path(bundle["bundlePath"]).exists()
+    assert Path(bundle["manifestPath"]).exists()
+    assert Path(bundle["sqlite_dump_path"]).exists()
 
 
 def test_persistence_health_json_safe(monkeypatch, tmp_path: Path) -> None:
@@ -107,13 +132,14 @@ def test_backup_scheduler_manifest_json_safe(monkeypatch, tmp_path: Path) -> Non
 
 
 def test_persistence_ops_responses_cover_readonly_views(monkeypatch, tmp_path: Path) -> None:
-    _prepare_runtime(monkeypatch, tmp_path)
-    paths = {route.path for route in app.routes}
-    assert {"/persistence/health", "/persistence/migration-plan", "/persistence/retention-policy", "/persistence/backup-status", "/persistence/restore-readiness"} <= paths
+    _prepare_runtime(monkeypatch, tmp_path, env="production")
+    paths = {route.path for route in persistence_ops_router.routes}
+    assert {"/persistence/health", "/persistence/migration-plan", "/persistence/migration-bundle", "/persistence/migration-bundle/download", "/persistence/retention-policy", "/persistence/backup-status", "/persistence/restore-readiness"} <= paths
     assert {"/queue/durability", "/queue/dead-letter", "/queue/recovery", "/queue/workers"} <= paths
     for payload in [
         build_persistence_health_response(),
         build_migration_plan_response(),
+        build_migration_bundle_response(),
         build_retention_policy_response(),
         build_backup_status_response(),
         build_restore_readiness_response(),

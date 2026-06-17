@@ -1,90 +1,46 @@
 from __future__ import annotations
 
-from datetime import datetime
-from uuid import uuid4
-from typing import Any, Dict, List, Optional
-
-from pydantic import Field
-
-from app.domain.base import StrictBaseModel, utc_now
+from dataclasses import dataclass, field
+from typing import Any, Dict, Mapping, Optional
 
 
-class OperatorActionRequest(StrictBaseModel):
-    operator_id: str
-    tender_id: str = ""
-    action: str = ""
-    note: str = ""
-    target_type: str = "rfq"
-    details: Dict[str, Any] = Field(default_factory=dict)
-
-
-class OperatorActionRecord(StrictBaseModel):
-    action_id: str
-    action: str
-    operator_id: str
-    tender_id: str = ""
-    target_type: str = "rfq"
-    note: str = ""
-    status: str = "queued_for_manual_followup"
-    reversible: bool = True
-    reviewable: bool = True
-    audit_event_id: str = ""
-    created_at: Any = Field(default_factory=utc_now)
-    updated_at: Any = Field(default_factory=utc_now)
-    details: Dict[str, Any] = Field(default_factory=dict)
-
-
-class OperatorAssignmentRecord(StrictBaseModel):
-    assignment_id: str
+@dataclass
+class OperatorActionRequest:
     operator_id: str
     tender_id: str
-    status: str = "assigned"
-    priority: int = 0
-    assigned_at: Any = Field(default_factory=utc_now)
-    due_at: Optional[datetime] = None
-    workload: int = 0
-    recommendation: str = "manual"
-    source: str = "runtime"
-    details: Dict[str, Any] = Field(default_factory=dict)
+    action: str
+    note: str = ""
+    details: Dict[str, Any] = field(default_factory=dict)
+    target_operator_id: str = ""
 
+    @classmethod
+    def validate_payload(cls, payload: Mapping[str, Any]) -> "OperatorActionRequest":
+        data = dict(payload or {})
+        operator_id = str(data.get("operator_id") or "").strip()
+        tender_id = str(data.get("tender_id") or "").strip()
+        action = str(data.get("action") or "").strip()
+        if not operator_id:
+            raise ValueError("operator_id is required")
+        if not tender_id:
+            raise ValueError("tender_id is required")
+        if not action:
+            raise ValueError("action is required")
+        return cls(
+            operator_id=operator_id,
+            tender_id=tender_id,
+            action=action,
+            note=str(data.get("note") or "").strip(),
+            details=dict(data.get("details") or {}),
+            target_operator_id=str(data.get("target_operator_id") or "").strip(),
+        )
 
-class OperatorNotificationRecord(StrictBaseModel):
-    notification_id: str
-    type: str = "info"
-    severity: str = "info"
-    title: str = ""
-    message: str = ""
-    tender_id: str = ""
-    operator_id: str = ""
-    acknowledged: bool = False
-    created_at: Any = Field(default_factory=utc_now)
-    details: Dict[str, Any] = Field(default_factory=dict)
+    def model_dump(self) -> Dict[str, Any]:
+        return {
+            "operator_id": self.operator_id,
+            "tender_id": self.tender_id,
+            "action": self.action,
+            "note": self.note,
+            "details": dict(self.details or {}),
+            "target_operator_id": self.target_operator_id,
+        }
 
-
-class OperatorTimelineEvent(StrictBaseModel):
-    event_id: str
-    event_type: str
-    operator_id: str = ""
-    tender_id: str = ""
-    title: str = ""
-    severity: str = "info"
-    reversible: bool = True
-    reviewable: bool = True
-    created_at: Any = Field(default_factory=utc_now)
-    details: Dict[str, Any] = Field(default_factory=dict)
-
-
-class OperatorCapacitySnapshot(StrictBaseModel):
-    team_size: int = 10
-    per_operator_daily_capacity: int = 100
-    total_daily_capacity: int = 1000
-    assigned_today: int = 0
-    remaining_capacity: int = 1000
-    overloaded: bool = False
-    recommended_load: int = 0
-    generated_at: Any = Field(default_factory=utc_now)
-    status: str = "ok"
-
-
-def new_operator_id(prefix: str) -> str:
-    return f"{prefix}-{uuid4().hex[:12]}"

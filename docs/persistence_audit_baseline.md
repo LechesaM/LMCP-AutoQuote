@@ -7,7 +7,7 @@ LMCP AutoQuote now uses a dual persistence model:
 - JSONL remains the operational compatibility layer
 - SQLite provides additive durability for structured persistence
 
-The default database lives at `runtime/manual_production/lmcp_operations.db`.
+The local default database lives at `runtime/manual_production/lmcp_operations.db`.
 
 This is intentionally local-file safe and does not require an external database.
 

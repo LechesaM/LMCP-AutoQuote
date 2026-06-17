@@ -29,13 +29,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-try:
-    import fitz  # PyMuPDF
-except Exception as exc:  # pragma: no cover
-    fitz = None
-    FITZ_IMPORT_ERROR = exc
-else:
-    FITZ_IMPORT_ERROR = None
+fitz = None
+FITZ_IMPORT_ERROR = None
+
+
+def _get_fitz():
+    global fitz, FITZ_IMPORT_ERROR
+    if fitz is not None or FITZ_IMPORT_ERROR is not None:
+        return fitz
+    try:
+        import fitz as fitz_module  # PyMuPDF
+    except Exception as exc:  # pragma: no cover
+        FITZ_IMPORT_ERROR = exc
+        return None
+    fitz = fitz_module
+    return fitz
 
 try:
     from PIL import Image, ImageDraw, ImageOps
@@ -99,9 +107,10 @@ def _resolve_path(path_value: Any) -> Optional[Path]:
 
 
 def _render_page(page: Any, zoom: float = 2.0) -> Image.Image:
-    if fitz is None:
+    fitz_module = _get_fitz()
+    if fitz_module is None:
         raise RuntimeError(f"PyMuPDF is not available: {FITZ_IMPORT_ERROR}")
-    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    pix = page.get_pixmap(matrix=fitz_module.Matrix(zoom, zoom), alpha=False)
     return Image.frombytes("RGB", [pix.width, pix.height], pix.samples).convert("RGB")
 
 
@@ -319,6 +328,7 @@ def detect_pdf_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
       }
     }
     """
+    _get_fitz()
     payload = payload or {}
     input_pdf = _resolve_path(payload.get("input_pdf") or payload.get("pdf_path") or payload.get("source_pdf"))
     if not input_pdf or not input_pdf.exists():
@@ -513,6 +523,7 @@ def build_handwriting_payload_from_detection(payload: Dict[str, Any]) -> Dict[st
     """
     Detect fields and return a ready payload for /handwriting-simulation/complete-form.
     """
+    _get_fitz()
     detection = detect_pdf_fields(payload)
     if detection.get("status") != "ok":
         return detection
@@ -566,4 +577,3 @@ def example_payload() -> Dict[str, Any]:
 
 if __name__ == "__main__":
     print(json.dumps(get_field_detector_status(), indent=2))
-

@@ -22,6 +22,16 @@ def test_runtime_dirs_resolve_correctly(tmp_path) -> None:
     assert paths.manual_production_dir == (tmp_path / "project" / "runtime_root" / "manual_production").resolve()
 
 
+def test_runtime_dirs_accept_legacy_aliases(tmp_path) -> None:
+    env = {
+        "PROJECT_ROOT": str(tmp_path / "project"),
+        "RUNTIME_DIR": str(tmp_path / "project" / "runtime_root"),
+    }
+    paths = RuntimePaths.from_environ(env)
+    assert paths.project_root == (tmp_path / "project").resolve()
+    assert paths.runtime_root == (tmp_path / "project" / "runtime_root").resolve()
+
+
 def test_required_dirs_auto_create(tmp_path) -> None:
     env = {
         "LMCP_PROJECT_ROOT": str(tmp_path / "project"),
@@ -50,6 +60,11 @@ def test_invalid_production_modes_fail_safely() -> None:
 def test_manual_production_mode_remains_enforced(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LMCP_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("LMCP_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DIR", str(tmp_path / "runtime" / "manual_production"))
+    monkeypatch.setenv(
+        "LMCP_MANUAL_PRODUCTION_DB_PATH",
+        str(tmp_path / "runtime" / "manual_production" / "lmcp_operations.db"),
+    )
     monkeypatch.setenv("LMCP_PRODUCTION_MODE", "manual_production")
     get_runtime_paths.cache_clear()
     get_runtime_config.cache_clear()
@@ -62,6 +77,11 @@ def test_manual_production_mode_remains_enforced(monkeypatch, tmp_path) -> None:
 def test_legacy_routers_remain_disabled_by_default(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LMCP_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("LMCP_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DIR", str(tmp_path / "runtime" / "manual_production"))
+    monkeypatch.setenv(
+        "LMCP_MANUAL_PRODUCTION_DB_PATH",
+        str(tmp_path / "runtime" / "manual_production" / "lmcp_operations.db"),
+    )
     monkeypatch.delenv("LMCP_ENABLE_LEGACY_ROUTERS", raising=False)
     get_runtime_paths.cache_clear()
     get_runtime_config.cache_clear()
@@ -74,6 +94,11 @@ def test_legacy_routers_remain_disabled_by_default(monkeypatch, tmp_path) -> Non
 def test_logging_configuration_uses_central_logs_dir(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LMCP_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("LMCP_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DIR", str(tmp_path / "runtime" / "manual_production"))
+    monkeypatch.setenv(
+        "LMCP_MANUAL_PRODUCTION_DB_PATH",
+        str(tmp_path / "runtime" / "manual_production" / "lmcp_operations.db"),
+    )
     monkeypatch.setenv("LMCP_LOG_DIR", str(tmp_path / "runtime" / "logs"))
     get_runtime_paths.cache_clear()
     get_runtime_config.cache_clear()

@@ -96,6 +96,7 @@ def _extract_payload(payload: Dict[str, Any]) -> Dict[str, str]:
         or payload.get("guid")
     )
     filename = _clean(payload.get("filename") or payload.get("fileName") or payload.get("document_name"))
+    search_text = _clean(payload.get("search_text") or payload.get("searchText") or payload.get("click_text") or "")
 
     tender_url = _clean(payload.get("tender_url") or "")
     if not tender_url and tender_id:
@@ -105,8 +106,101 @@ def _extract_payload(payload: Dict[str, Any]) -> Dict[str, str]:
         "tender_id": tender_id,
         "support_document_id": support_document_id,
         "filename": filename,
+        "search_text": search_text,
         "tender_url": tender_url,
     }
+
+
+async def _dismiss_obstructive_ui(page) -> List[Dict[str, Any]]:
+    actions: List[Dict[str, Any]] = []
+
+    for selector in [
+        "#educationalPopup button",
+        "#educationalPopup .close",
+        "#educationalPopup [data-dismiss='modal']",
+        "#TempPopupModal button",
+        "#TempPopupModal .close",
+        "#TempPopupModal [data-dismiss='modal']",
+        "#genericModal button",
+        "#genericModal .close",
+        "#genericModal [data-dismiss='modal']",
+        ".modal button.close",
+        ".modal [data-dismiss='modal']",
+        "[role='dialog'] button.close",
+        "[role='dialog'] [data-dismiss='modal']",
+    ]:
+        try:
+            loc = page.locator(selector)
+            count = await loc.count()
+            if count:
+                for idx in range(min(count, 3)):
+                    try:
+                        await loc.nth(idx).click(timeout=1500, force=True)
+                        actions.append({"action": "clicked_close_selector", "selector": selector, "index": idx})
+                        await page.wait_for_timeout(300)
+                    except Exception as exc:
+                        actions.append({"action": "close_click_error", "selector": selector, "index": idx, "error": str(exc)})
+        except Exception as exc:
+            actions.append({"action": "close_selector_error", "selector": selector, "error": str(exc)})
+
+    for text in ["Got it, Thanks!", "Got it", "Close", "Next", "OK", "Ok", "Dismiss", "×", "x"]:
+        for selector in [
+            f"button:has-text('{text}')",
+            f"a:has-text('{text}')",
+            f"text={text}",
+        ]:
+            try:
+                loc = page.locator(selector)
+                count = await loc.count()
+                if count:
+                    try:
+                        await loc.first.click(timeout=1500, force=True)
+                        actions.append({"action": "clicked_text", "selector": selector, "count": count})
+                        await page.wait_for_timeout(300)
+                    except Exception as exc:
+                        actions.append({"action": "text_click_error", "selector": selector, "count": count, "error": str(exc)})
+            except Exception as exc:
+                actions.append({"action": "text_selector_error", "selector": selector, "error": str(exc)})
+
+    try:
+        removed = await page.evaluate(
+            """
+            () => {
+              const out = [];
+              const selectors = [
+                '#educationalPopup',
+                '#TempPopupModal',
+                '#genericModal',
+                '.modal-backdrop',
+                '.modal-open',
+                '.overlay',
+                '[role="dialog"]'
+              ];
+              for (const sel of selectors) {
+                document.querySelectorAll(sel).forEach(el => {
+                  out.push({selector: sel, text: (el.innerText || el.textContent || '').slice(0, 200)});
+                  if (el.classList && el.classList.contains('modal-open')) {
+                    el.classList.remove('modal-open');
+                  }
+                  el.style.display = 'none';
+                  el.style.visibility = 'hidden';
+                  el.style.pointerEvents = 'none';
+                  el.setAttribute('data-lmcp-hidden', '1');
+                });
+              }
+              document.body.classList.remove('modal-open');
+              document.body.style.overflow = 'auto';
+              document.body.style.pointerEvents = 'auto';
+              return out;
+            }
+            """
+        )
+        if removed:
+            actions.append({"action": "hid_obstructive_ui", "items": removed[:30]})
+    except Exception as exc:
+        actions.append({"action": "hide_error", "error": str(exc)})
+
+    return actions
 
 
 def _resolve_cdp_endpoint(cdp_url: str) -> Dict[str, Any]:
@@ -209,6 +303,9 @@ async def _capture_with_playwright(payload: Dict[str, Any]) -> Dict[str, Any]:
     playwright = None
     cdp_resolution = _resolve_cdp_endpoint(cdp_url)
 
+    if data["tender_url"].rstrip("/").endswith("/Home/opportunities"):
+        data["tender_url"] = f"{ETENDERS_BASE}/Home/opportunities?id=1"
+
     try:
         playwright = await async_playwright().start()
 
@@ -234,13 +331,16 @@ async def _capture_with_playwright(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "safe_to_process": False,
                 }
 
-            browser = await playwright.chromium.launch(headless=True, accept_downloads=True)
+            browser = await playwright.chromium.launch(headless=True)
+            context = await browser.new_context(accept_downloads=True)
+            page = await context.new_page()
             attach_mode = "headless_fallback"
 
-        if browser.contexts:
-            context = browser.contexts[0]
-        else:
-            context = await browser.new_context(accept_downloads=True)
+        if not context:
+            if browser.contexts:
+                context = browser.contexts[0]
+            else:
+                context = await browser.new_context(accept_downloads=True)
 
         try:
             context.set_default_timeout(wait_seconds * 1000)
@@ -312,6 +412,98 @@ async def _capture_with_playwright(payload: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as exc:
                 network_events.append({"type": "goto_warning", "error": str(exc), "url": data["tender_url"]})
 
+        tab_clicked = False
+        for selector in [
+            "#Search",
+            "text=Currently Advertised",
+            "button:has-text('Currently Advertised')",
+            "a:has-text('Currently Advertised')",
+        ]:
+            try:
+                loc = page.locator(selector)
+                if await loc.count():
+                    await loc.first.click(timeout=1500, force=True)
+                    network_events.append({"type": "clicked_tab", "selector": selector})
+                    tab_clicked = True
+                    await page.wait_for_timeout(1500)
+                    break
+            except Exception as exc:
+                network_events.append({"type": "tab_click_error", "selector": selector, "error": str(exc)})
+
+        if not tab_clicked:
+            try:
+                clicked = await page.evaluate(
+                    """() => {
+                      const nodes = Array.from(document.querySelectorAll('a,button,li,span,div'));
+                      const el = nodes.find((node) => {
+                        const text = (node.innerText || node.textContent || '').trim().toLowerCase();
+                        return text === 'currently advertised' || text.includes('currently advertised');
+                      });
+                      if (!el) return false;
+                      const clickable = el.closest('a,button') || el;
+                      clickable.scrollIntoView({ block: 'center', inline: 'center' });
+                      clickable.click();
+                      return true;
+                    }"""
+                )
+                network_events.append({"type": "clicked_tab_dom", "clicked": bool(clicked)})
+                if clicked:
+                    tab_clicked = True
+                    await page.wait_for_timeout(2500)
+            except Exception as exc:
+                network_events.append({"type": "tab_click_dom_error", "error": str(exc)})
+
+        await _dismiss_obstructive_ui(page)
+        try:
+            await page.wait_for_timeout(1000)
+        except Exception:
+            pass
+
+        if data["search_text"]:
+            for selector in ["#my-text-input", "input#my-text-input"]:
+                try:
+                    loc = page.locator(selector)
+                    if await loc.count():
+                        field = loc.first
+                        await field.click(timeout=1500, force=True)
+                        await field.fill(data["search_text"], timeout=1500)
+                        network_events.append({"type": "filled_search_input", "selector": selector, "value": data["search_text"][:160]})
+                        break
+                except Exception as exc:
+                    network_events.append({"type": "search_input_error", "selector": selector, "error": str(exc)})
+
+            for selector in ["#btnSearch", "button#btnSearch", "button.search"]:
+                try:
+                    loc = page.locator(selector)
+                    if await loc.count():
+                        await loc.first.click(timeout=2000, force=True)
+                        network_events.append({"type": "clicked_search_button", "selector": selector})
+                        await page.wait_for_timeout(2500)
+                        break
+                except Exception as exc:
+                    network_events.append({"type": "search_button_error", "selector": selector, "error": str(exc)})
+
+            for selector in [
+                "input[placeholder*='Quick' i]",
+                "input[placeholder*='Search' i]",
+                "input[type='search']",
+                "input[name*='search' i]",
+                "input[id*='quick' i]",
+                "input[id*='search' i]",
+            ]:
+                try:
+                    loc = page.locator(selector)
+                    if await loc.count():
+                        field = loc.first
+                        await field.click(timeout=1500, force=True)
+                        await field.fill(data["search_text"], timeout=1500)
+                        await field.press("Enter", timeout=1500)
+                        network_events.append({"type": "filled_search", "selector": selector, "value": data["search_text"][:160]})
+                        await page.wait_for_timeout(2000)
+                        break
+                except Exception as exc:
+                    network_events.append({"type": "search_fill_error", "selector": selector, "error": str(exc)})
+
         try:
             output_dir.mkdir(parents=True, exist_ok=True)
             shot = output_dir / f"ETENDERS_{data['tender_id']}__v50_9_3_page.png"
@@ -324,6 +516,7 @@ async def _capture_with_playwright(payload: Dict[str, Any]) -> Dict[str, Any]:
         click_attempts: List[Dict[str, Any]] = []
 
         if auto_click:
+            await _dismiss_obstructive_ui(page)
             selectors = []
             if data["filename"]:
                 selectors += [
@@ -333,6 +526,11 @@ async def _capture_with_playwright(payload: Dict[str, Any]) -> Dict[str, Any]:
 
             if click_text:
                 selectors.append(f"text={click_text}")
+            if data["search_text"]:
+                selectors.extend([
+                    f"text={data['search_text']}",
+                    f"a:has-text('{data['search_text'][:60]}')",
+                ])
 
             selectors += [
                 "text=Download",

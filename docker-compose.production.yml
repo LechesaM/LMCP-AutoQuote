@@ -1,0 +1,322 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.production
+    environment:
+      LMCP_ENV: production
+      LMCP_PRODUCTION_MODE: locked_production
+      LMCP_DEPLOYMENT_PROFILE: production
+      STRICT_PRODUCTION_STARTUP: "1"
+      LMCP_DB_BACKEND: postgres
+      LMCP_QUEUE_BACKEND: redis
+      LMCP_DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp}:${POSTGRES_PASSWORD:-lmcp}@postgres:5432/${POSTGRES_DB:-lmcp}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp}:${POSTGRES_PASSWORD:-lmcp}@postgres:5432/${POSTGRES_DB:-lmcp}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LMCP_PROJECT_ROOT: /app
+      LMCP_RUNTIME_DIR: /app/runtime
+      LMCP_MANUAL_PRODUCTION_DIR: /app/runtime/manual_production
+      LMCP_MANUAL_PRODUCTION_DB_PATH: /app/runtime/manual_production/lmcp_operations.db
+      LMCP_BACKUPS_DIR: /app/runtime/backups
+      LMCP_HEALTH_DIR: /app/runtime/health
+      LMCP_LOG_DIR: /app/runtime/logs
+      LMCP_EXPORTS_DIR: /app/runtime/exports
+      LMCP_TLS_CERT_DIR: /app/runtime/certs
+    command:
+      [
+        "uvicorn",
+        "${LMCP_APP_ENTRYPOINT:-app.main:app}",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    expose:
+      - "8000"
+    volumes:
+      - ./runtime:/app/runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.production
+    environment:
+      LMCP_ENV: production
+      LMCP_PRODUCTION_MODE: locked_production
+      LMCP_DEPLOYMENT_PROFILE: production
+      STRICT_PRODUCTION_STARTUP: "1"
+      LMCP_DB_BACKEND: postgres
+      LMCP_QUEUE_BACKEND: redis
+      LMCP_DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp}:${POSTGRES_PASSWORD:-lmcp}@postgres:5432/${POSTGRES_DB:-lmcp}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp}:${POSTGRES_PASSWORD:-lmcp}@postgres:5432/${POSTGRES_DB:-lmcp}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LMCP_PROJECT_ROOT: /app
+      LMCP_RUNTIME_DIR: /app/runtime
+      LMCP_MANUAL_PRODUCTION_DIR: /app/runtime/manual_production
+      LMCP_MANUAL_PRODUCTION_DB_PATH: /app/runtime/manual_production/lmcp_operations.db
+      LMCP_BACKUPS_DIR: /app/runtime/backups
+      LMCP_HEALTH_DIR: /app/runtime/health
+      LMCP_LOG_DIR: /app/runtime/logs
+      LMCP_EXPORTS_DIR: /app/runtime/exports
+    command:
+      [
+        "celery",
+        "-A",
+        "app.celery_app.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--hostname=lmcp-worker@%h",
+      ]
+    volumes:
+      - ./runtime:/app/runtime
+    depends_on:
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  operations-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.production
+    environment:
+      LMCP_ENV: production
+      LMCP_PRODUCTION_MODE: locked_production
+      LMCP_DEPLOYMENT_PROFILE: production
+      STRICT_PRODUCTION_STARTUP: "1"
+      LMCP_DB_BACKEND: postgres
+      LMCP_QUEUE_BACKEND: redis
+      LMCP_DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp}:${POSTGRES_PASSWORD:-lmcp}@postgres:5432/${POSTGRES_DB:-lmcp}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp}:${POSTGRES_PASSWORD:-lmcp}@postgres:5432/${POSTGRES_DB:-lmcp}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LMCP_PROJECT_ROOT: /app
+      LMCP_RUNTIME_DIR: /app/runtime
+      LMCP_MANUAL_PRODUCTION_DIR: /app/runtime/manual_production
+      LMCP_MANUAL_PRODUCTION_DB_PATH: /app/runtime/manual_production/lmcp_operations.db
+      LMCP_BACKUPS_DIR: /app/runtime/backups
+      LMCP_HEALTH_DIR: /app/runtime/health
+      LMCP_LOG_DIR: /app/runtime/logs
+      LMCP_EXPORTS_DIR: /app/runtime/exports
+    command:
+      [
+        "celery",
+        "-A",
+        "app.celery_app.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--hostname=lmcp-operations@%h",
+        "--queues=operations_queue",
+      ]
+    volumes:
+      - ./runtime:/app/runtime
+    depends_on:
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.production
+    environment:
+      LMCP_ENV: production
+      LMCP_PRODUCTION_MODE: locked_production
+      LMCP_DEPLOYMENT_PROFILE: production
+      STRICT_PRODUCTION_STARTUP: "1"
+      LMCP_DB_BACKEND: postgres
+      LMCP_QUEUE_BACKEND: redis
+      LMCP_DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp}:${POSTGRES_PASSWORD:-lmcp}@postgres:5432/${POSTGRES_DB:-lmcp}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp}:${POSTGRES_PASSWORD:-lmcp}@postgres:5432/${POSTGRES_DB:-lmcp}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LMCP_PROJECT_ROOT: /app
+      LMCP_RUNTIME_DIR: /app/runtime
+      LMCP_MANUAL_PRODUCTION_DIR: /app/runtime/manual_production
+      LMCP_MANUAL_PRODUCTION_DB_PATH: /app/runtime/manual_production/lmcp_operations.db
+      LMCP_BACKUPS_DIR: /app/runtime/backups
+      LMCP_HEALTH_DIR: /app/runtime/health
+      LMCP_LOG_DIR: /app/runtime/logs
+      LMCP_EXPORTS_DIR: /app/runtime/exports
+      DAILY_SUPERVISED_PRODUCTION_RITUAL_INTERVAL_HOURS: ${DAILY_SUPERVISED_PRODUCTION_RITUAL_INTERVAL_HOURS:-24}
+    command:
+      [
+        "celery",
+        "-A",
+        "app.celery_app.celery_app",
+        "beat",
+        "--loglevel=INFO",
+      ]
+    volumes:
+      - ./runtime:/app/runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/command-centre/Dockerfile
+      args:
+        NGINX_CONF: nginx/production.conf
+    env_file:
+      - .env.production
+    environment:
+      LMCP_BACKEND_URL: http://backend:8000
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./runtime/certs:/etc/nginx/certs:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lmcp}
+      POSTGRES_USER: ${POSTGRES_USER:-lmcp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lmcp}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lmcp} -d ${POSTGRES_DB:-lmcp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    volumes:
+      - ./docker/prometheus:/etc/prometheus:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    environment:
+      GF_SECURITY_ADMIN_USER: ${LMCP_GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${LMCP_GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

@@ -1,13 +1,13 @@
 import json
 import math
 import os
+from pathlib import Path
 import threading
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 RUNTIME_DIR = os.getenv("LMCP_RUNTIME_DIR", "runtime")
-PORTAL_HEALTH_FILE = os.path.join(RUNTIME_DIR, "portal_health_state.json")
 
 _LOCK = threading.Lock()
 
@@ -16,8 +16,16 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ensure_runtime_dir() -> None:
-    os.makedirs(RUNTIME_DIR, exist_ok=True)
+def _runtime_dir(runtime_dir: Optional[str] = None) -> Path:
+    return Path(runtime_dir or RUNTIME_DIR)
+
+
+def _portal_health_file(runtime_dir: Optional[str] = None) -> Path:
+    return _runtime_dir(runtime_dir) / "portal_health_state.json"
+
+
+def _ensure_runtime_dir(runtime_dir: Optional[str] = None) -> None:
+    _runtime_dir(runtime_dir).mkdir(parents=True, exist_ok=True)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -75,13 +83,14 @@ def _default_portal_record(portal_slug: str, portal_name: Optional[str] = None) 
     }
 
 
-def _load_state() -> Dict[str, Any]:
-    _ensure_runtime_dir()
-    if not os.path.exists(PORTAL_HEALTH_FILE):
+def _load_state(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    portal_health_file = _portal_health_file(runtime_dir)
+    _ensure_runtime_dir(runtime_dir)
+    if not portal_health_file.exists():
         return _default_state()
 
     try:
-        with open(PORTAL_HEALTH_FILE, "r", encoding="utf-8") as f:
+        with open(portal_health_file, "r", encoding="utf-8") as f:
             data = json.load(f)
             if not isinstance(data, dict):
                 return _default_state()
@@ -92,15 +101,16 @@ def _load_state() -> Dict[str, Any]:
         return _default_state()
 
 
-def _save_state(state: Dict[str, Any]) -> None:
-    _ensure_runtime_dir()
+def _save_state(state: Dict[str, Any], runtime_dir: Optional[str] = None) -> None:
+    portal_health_file = _portal_health_file(runtime_dir)
+    _ensure_runtime_dir(runtime_dir)
     state["updated_at"] = _utc_now_iso()
-    tmp_file = f"{PORTAL_HEALTH_FILE}.tmp"
+    tmp_file = portal_health_file.with_name(f"{portal_health_file.name}.tmp")
 
     with open(tmp_file, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
 
-    os.replace(tmp_file, PORTAL_HEALTH_FILE)
+    os.replace(tmp_file, portal_health_file)
 
 
 def _get_or_create_portal_record(
@@ -145,12 +155,13 @@ def _recalculate_portal_metrics(record: Dict[str, Any]) -> None:
 def register_portal(
     portal_slug: str,
     portal_name: Optional[str] = None,
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _LOCK:
-        state = _load_state()
+        state = _load_state(runtime_dir=runtime_dir)
         record = _get_or_create_portal_record(state, portal_slug, portal_name)
         _recalculate_portal_metrics(record)
-        _save_state(state)
+        _save_state(state, runtime_dir=runtime_dir)
         return deepcopy(record)
 
 
@@ -161,9 +172,10 @@ def record_portal_success(
     http_status: Optional[int] = 200,
     opportunities_seen: int = 0,
     notes: Optional[str] = None,
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _LOCK:
-        state = _load_state()
+        state = _load_state(runtime_dir=runtime_dir)
         record = _get_or_create_portal_record(state, portal_slug, portal_name)
 
         record["last_checked_at"] = _utc_now_iso()
@@ -195,7 +207,7 @@ def record_portal_success(
         )
 
         _recalculate_portal_metrics(record)
-        _save_state(state)
+        _save_state(state, runtime_dir=runtime_dir)
         return deepcopy(record)
 
 
@@ -207,9 +219,10 @@ def record_portal_failure(
     duration_seconds: Optional[float] = None,
     isolated: bool = False,
     notes: Optional[str] = None,
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _LOCK:
-        state = _load_state()
+        state = _load_state(runtime_dir=runtime_dir)
         record = _get_or_create_portal_record(state, portal_slug, portal_name)
 
         record["last_checked_at"] = _utc_now_iso()
@@ -227,7 +240,7 @@ def record_portal_failure(
         record["consecutive_failures"] = _safe_int(record.get("consecutive_failures")) + 1
 
         _recalculate_portal_metrics(record)
-        _save_state(state)
+        _save_state(state, runtime_dir=runtime_dir)
         return deepcopy(record)
 
 
@@ -236,9 +249,10 @@ def set_portal_isolation(
     portal_name: Optional[str] = None,
     isolated: bool = True,
     reason: Optional[str] = None,
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _LOCK:
-        state = _load_state()
+        state = _load_state(runtime_dir=runtime_dir)
         record = _get_or_create_portal_record(state, portal_slug, portal_name)
 
         record["is_isolated"] = bool(isolated)
@@ -253,7 +267,7 @@ def set_portal_isolation(
                 record["last_error"] = None
 
         _recalculate_portal_metrics(record)
-        _save_state(state)
+        _save_state(state, runtime_dir=runtime_dir)
         return deepcopy(record)
 
 
@@ -306,9 +320,9 @@ def _try_load_known_portals() -> List[Dict[str, Any]]:
     return list(deduped.values())
 
 
-def build_portal_health_dashboard() -> Dict[str, Any]:
+def build_portal_health_dashboard(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     with _LOCK:
-        state = _load_state()
+        state = _load_state(runtime_dir=runtime_dir)
 
     known_portals = _try_load_known_portals()
 
@@ -366,7 +380,7 @@ def build_portal_health_dashboard() -> Dict[str, Any]:
     return {
         "dashboard": "portal_health_dashboard",
         "generated_at": _utc_now_iso(),
-        "source_file": PORTAL_HEALTH_FILE,
+        "source_file": str(_portal_health_file(runtime_dir)),
         "summary": {
             "total_portals": total_portals,
             "healthy_portals": healthy_count,

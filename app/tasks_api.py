@@ -8,6 +8,7 @@ from app.tasks import celery
 from app.tasks import run_harvest_only as run_harvest_only_task
 from app.tasks import run_harvest_pipeline as run_harvest_pipeline_task
 from app.tasks import run_scheduled_tender_harvest_task
+from app.services.harvest_source_registry_service import get_curated_live_source_file
 from app.scripts.run_source_by_source_live_smoke import run_source_by_source_live_smoke as run_source_by_source_live_smoke_helper
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
@@ -54,6 +55,8 @@ def trigger_run_scheduled_harvest(
     source_timeout_seconds: int = 8,
     playwright_timeout_ms: int = 18000,
 ):
+    if source_file is None and not controlled_mode:
+        source_file = get_curated_live_source_file()
     if controlled_mode and source_file is None:
         source_file = str(SMOKE_SOURCE_FILE)
     if controlled_mode:
@@ -114,6 +117,8 @@ def run_scheduled_harvest_now(
     try:
         from app.services.harvest_scheduler_service import run_scheduled_tender_harvest
 
+        if source_file is None and not controlled_mode:
+            source_file = get_curated_live_source_file()
         if controlled_mode and source_file is None:
             source_file = str(SMOKE_SOURCE_FILE)
         if controlled_mode:
@@ -168,6 +173,10 @@ def run_scheduled_harvest_smoke_now(
 ):
     try:
         from app.services.harvest_scheduler_service import run_scheduled_tender_harvest
+
+        source_file = str(SMOKE_SOURCE_FILE)
+        controlled_mode = True
+        persist_to_live_store = False
 
         return {
             "status": "ok",

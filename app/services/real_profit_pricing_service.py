@@ -7,19 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from app.core.runtime_paths import get_runtime_paths
-from app.domain.pricing import PricingDecision
-from app.persistence import jsonl_compat
-from app.pricing_evidence import (
-    assess_pricing_confidence,
-    assess_quote_aging,
-    build_pricing_traceability,
-    build_supplier_quote_evidence,
-    validate_pricing_evidence,
-)
-
-RUNTIME_DIR = get_runtime_paths().runtime_root
-LEGACY_SERVICE = False
+RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "runtime"))
 PRICING_DIR = RUNTIME_DIR / "real_profit_pricing"
 PRICING_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -80,6 +68,17 @@ CATEGORY_BASE_COSTS = {
 }
 
 
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -128,12 +127,13 @@ def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
-def _append_history(item: Dict[str, Any]) -> None:
-    history = _read_json(HISTORY_FILE, [])
+def _append_history(item: Dict[str, Any], runtime_dir: Optional[str] = None) -> None:
+    history_file = _resolve_runtime_path(HISTORY_FILE, runtime_dir)
+    history = _read_json(history_file, [])
     if not isinstance(history, list):
         history = []
     history.append(item)
-    _write_json(HISTORY_FILE, history[-1000:])
+    _write_json(history_file, history[-1000:])
 
 
 def _looks_excluded(payload: Dict[str, Any]) -> Tuple[bool, List[str]]:
@@ -250,7 +250,7 @@ def _existing_profit_margin(payload: Dict[str, Any]) -> Tuple[float, float]:
     return _to_float(profit), _to_float(margin)
 
 
-def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
+def enrich_with_real_profit_pricing(payload: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     payload = dict(payload or {})
     buyer_rfq = (
         payload.get("buyer_rfq_number")
@@ -285,8 +285,9 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
             "finished_at": _now(),
             "payload": payload,
         })
-        _write_json(LAST_FILE, result)
-        _append_history({k: v for k, v in result.items() if k != "payload"})
+        last_file = _resolve_runtime_path(LAST_FILE, runtime_dir)
+        _write_json(last_file, result)
+        _append_history({k: v for k, v in result.items() if k != "payload"}, runtime_dir=runtime_dir)
         return result
 
     if not supply_like:
@@ -297,8 +298,9 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
             "finished_at": _now(),
             "payload": payload,
         })
-        _write_json(LAST_FILE, result)
-        _append_history({k: v for k, v in result.items() if k != "payload"})
+        last_file = _resolve_runtime_path(LAST_FILE, runtime_dir)
+        _write_json(last_file, result)
+        _append_history({k: v for k, v in result.items() if k != "payload"}, runtime_dir=runtime_dir)
         return result
 
     if existing_profit >= MIN_PROFIT_REQUIRED and existing_margin >= MIN_MARGIN_PERCENT:
@@ -313,8 +315,9 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
             "finished_at": _now(),
             "payload": payload,
         })
-        _write_json(LAST_FILE, result)
-        _append_history({k: v for k, v in result.items() if k != "payload"})
+        last_file = _resolve_runtime_path(LAST_FILE, runtime_dir)
+        _write_json(last_file, result)
+        _append_history({k: v for k, v in result.items() if k != "payload"}, runtime_dir=runtime_dir)
         return result
 
     item_value = _line_items_value(payload)
@@ -353,44 +356,6 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
         "minimum_margin_percent": MIN_MARGIN_PERCENT,
         "target_margin_percent": target_margin,
     }
-    pricing_evidence = build_supplier_quote_evidence(payload)
-    pricing_validation = validate_pricing_evidence(payload)
-    quote_aging = assess_quote_aging(payload)
-    pricing_confidence = assess_pricing_confidence(
-        payload,
-        evidence_report=pricing_evidence,
-        validation_report=pricing_validation,
-        quote_aging_report=quote_aging,
-    )
-    pricing_traceability = build_pricing_traceability(
-        payload,
-        evidence_report=pricing_evidence,
-        validation_report=pricing_validation,
-        quote_aging_report=quote_aging,
-    )
-    payload["pricing_decision"] = PricingDecision(
-        tender_id=_safe_str(buyer_rfq),
-        quantity=1.0,
-        unit_cost=round(estimated_cost, 2),
-        gross_margin_ratio=round(achieved_margin / 100.0, 4),
-        profit_amount=round(target_profit, 2),
-        minimum_profit_required=MIN_PROFIT_REQUIRED,
-        minimum_supply_margin_ratio=MIN_MARGIN_PERCENT / 100.0,
-        supplier_evidence_score=pricing_evidence.get("evidence_completeness_score", 0.0),
-        pricing_confidence=pricing_confidence.get("overall_pricing_confidence", 0.0),
-        supplier_evidence_summary=pricing_evidence,
-        pricing_validation_summary=pricing_validation,
-        pricing_traceability_summary=pricing_traceability.get("pricing_traceability_summary", {}),
-        quote_aging_summary=quote_aging,
-        manual_pricing_review_required=bool(pricing_validation.get("manual_review_required") or quote_aging.get("risk_level") == "HIGH_RISK"),
-        stale_quote_warning=bool(quote_aging.get("stale_pricing_warnings")),
-    ).to_jsonable_dict()
-    jsonl_compat.persist_pricing_decision(payload["pricing_decision"])
-    payload["supplier_quote_evidence"] = pricing_evidence
-    payload["pricing_validation"] = pricing_validation
-    payload["quote_aging"] = quote_aging
-    payload["pricing_confidence"] = pricing_confidence
-    payload["pricing_traceability"] = pricing_traceability
 
     if not payload.get("line_items"):
         payload["line_items"] = [
@@ -412,33 +377,36 @@ def enrich_with_real_profit_pricing(payload: Dict[str, Any]) -> Dict[str, Any]:
         "estimated_cost": round(estimated_cost, 2),
         "estimated_profit": payload["estimated_profit"],
         "estimated_margin_percent": payload["estimated_margin_percent"],
-        "supplier_evidence_score": pricing_evidence.get("evidence_completeness_score", 0.0),
-        "pricing_confidence": pricing_confidence.get("overall_pricing_confidence", 0.0),
-        "stale_quote_warning": bool(quote_aging.get("stale_pricing_warnings")),
-        "manual_pricing_review_required": bool(pricing_validation.get("manual_review_required") or quote_aging.get("risk_level") == "HIGH_RISK"),
-        "pricing_traceability_summary": pricing_traceability.get("pricing_traceability_summary", {}),
         "finished_at": _now(),
         "payload": payload,
     })
 
-    _write_json(LAST_FILE, result)
-    _append_history({k: v for k, v in result.items() if k != "payload"})
+    last_file = _resolve_runtime_path(LAST_FILE, runtime_dir)
+    _write_json(last_file, result)
+    _append_history({k: v for k, v in result.items() if k != "payload"}, runtime_dir=runtime_dir)
     return result
 
 
-def get_real_profit_pricing_status(limit: int = 20) -> Dict[str, Any]:
-    history = _read_json(HISTORY_FILE, [])
+def get_real_profit_pricing_status(limit: int = 20, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    history_file = _resolve_runtime_path(HISTORY_FILE, runtime_dir)
+    last_file = _resolve_runtime_path(LAST_FILE, runtime_dir)
+    history = _read_json(history_file, [])
     if not isinstance(history, list):
         history = []
     return {
         "status": "ok",
         "service_version": "LMCP_REAL_PROFIT_PRICING_V1",
-        "last": _read_json(LAST_FILE, {}),
+        "last": _read_json(last_file, {}),
         "recent": history[-limit:],
         "settings": {
             "minimum_profit_required": MIN_PROFIT_REQUIRED,
             "minimum_margin_percent": MIN_MARGIN_PERCENT,
             "default_target_margin_percent": DEFAULT_TARGET_MARGIN_PERCENT,
+        },
+        "files": {
+            "last": str(last_file),
+            "history": str(history_file),
+            "runtime_dir": str(_resolve_runtime_path(PRICING_DIR, runtime_dir)),
         },
         "updated_at": _now(),
     }

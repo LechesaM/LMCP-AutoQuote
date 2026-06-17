@@ -81,6 +81,22 @@ def test_it_equipment_is_rejected() -> None:
     assert result["category"] == "it_equipment"
 
 
+def test_medical_consumables_are_rejected() -> None:
+    result = qualify_rfq(
+        {
+            "tender_id": "R-MEDICAL",
+            "title": "Medical consumables supply",
+            "category": "medical consumables",
+            "extracted_text": "Medical consumables and medical supplies delivery by email.",
+            "estimated_profit": 60000.0,
+            "gross_margin_ratio": 0.3,
+        }
+    )
+
+    assert result["recommendation"] == "REJECT"
+    assert result["category"] == "medical_consumables"
+
+
 def test_fuel_diesel_is_rejected() -> None:
     result = qualify_rfq(
         {

@@ -14,6 +14,8 @@ STATE_FILE = CONTROL_DIR / "state.json"
 HARVESTER_PAUSE_FILE = RUNTIME_DIR / "harvester.paused"
 SUBMISSION_PAUSE_FILE = RUNTIME_DIR / "submission.paused"
 EMERGENCY_STOP_FILE = RUNTIME_DIR / "emergency.stop"
+V48_STATE_FILE = RUNTIME_DIR / "system_control" / "v48_autonomous_state.json"
+V48_POLICY_FILE = RUNTIME_DIR / "full_autonomous_v48" / "policy.json"
 
 
 def _utc_now_iso() -> str:
@@ -23,7 +25,7 @@ def _utc_now_iso() -> str:
 @dataclass
 class SystemControlState:
     system_enabled: bool = True
-    autonomous_enabled: bool = True
+    autonomous_enabled: bool = False
     harvester_enabled: bool = True
     submission_scheduler_enabled: bool = True
     last_action: str = "initialized"
@@ -45,6 +47,33 @@ class SystemControlService:
     def _default_state(self) -> SystemControlState:
         return SystemControlState(updated_at=_utc_now_iso())
 
+    def _read_json(self, path: Path) -> Dict[str, Any]:
+        try:
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {}
+
+    def _resolve_control_mode(self, state: Dict[str, Any]) -> str:
+        """
+        Keep the legacy on/off system control semantics, but surface the active
+        policy mode when controlled-mode policy is present.
+        """
+        candidate_sources = (
+            state.get("mode"),
+            state.get("policy", {}).get("mode") if isinstance(state.get("policy"), dict) else None,
+            self._read_json(V48_STATE_FILE).get("policy", {}).get("mode"),
+            self._read_json(V48_POLICY_FILE).get("mode"),
+        )
+        for raw_mode in candidate_sources:
+            mode = str(raw_mode or "").strip().lower()
+            if mode:
+                return mode
+        return "on"
+
     def _normalize_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         # Accept BOTH schemas:
         # old schema: system_enabled / harvester_enabled / submission_scheduler_enabled
@@ -63,9 +92,7 @@ class SystemControlService:
         else:
             submission_scheduler_enabled = not bool(state.get("submission_paused", False))
 
-        autonomous_enabled = bool(
-            state.get("autonomous_enabled", system_enabled)
-        )
+        autonomous_enabled = bool(state.get("autonomous_enabled", False)) and system_enabled
 
         emergency_stop = bool(
             state.get(
@@ -148,7 +175,16 @@ class SystemControlService:
         state["submission_pause_file"] = str(SUBMISSION_PAUSE_FILE)
         state["emergency_stop_file"] = str(EMERGENCY_STOP_FILE)
         state["state_file"] = str(STATE_FILE)
-        state["effective_system_status"] = "on" if state.get("system_on") else "off"
+        control_mode = self._resolve_control_mode(state)
+        if not state.get("system_on"):
+            state["effective_system_status"] = "off"
+        elif state.get("emergency_stop"):
+            state["effective_system_status"] = "off"
+        elif control_mode == "controlled":
+            state["effective_system_status"] = "controlled"
+        else:
+            state["effective_system_status"] = "on"
+        state["control_mode"] = control_mode
         return state
 
     def is_system_enabled(self) -> bool:
@@ -167,12 +203,13 @@ class SystemControlService:
         result = self._write_state(state)
         result["message"] = "LMCP system turned OFF successfully."
         result["effective_system_status"] = "off"
+        result["control_mode"] = self._resolve_control_mode(result)
         return result
 
     def turn_on(self, reason: str = "Manual startup from dashboard") -> Dict[str, Any]:
         state = SystemControlState(
             system_enabled=True,
-            autonomous_enabled=True,
+            autonomous_enabled=False,
             harvester_enabled=True,
             submission_scheduler_enabled=True,
             last_action="turned_on",
@@ -181,7 +218,8 @@ class SystemControlService:
         )
         result = self._write_state(state)
         result["message"] = "LMCP system turned ON successfully."
-        result["effective_system_status"] = "on"
+        result["control_mode"] = self._resolve_control_mode(result)
+        result["effective_system_status"] = "controlled" if result["control_mode"] == "controlled" else "on"
         return result
 
     def toggle(self, reason: str = "Manual toggle from dashboard") -> Dict[str, Any]:
@@ -308,5 +346,3 @@ def clear_emergency_stop(reason: str = "emergency stop cleared") -> Dict[str, An
 
 def resume_all(reason: str = "all services resumed") -> Dict[str, Any]:
     return system_control_service.resume_all(reason=reason)
-
-

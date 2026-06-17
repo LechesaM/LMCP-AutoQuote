@@ -10,7 +10,6 @@ import re
 import shutil
 import traceback
 
-LEGACY_SERVICE = True
 SERVICE_VERSION = "V44_QUOTE_PACK_GENERATOR"
 DEFAULT_OUTPUT_DIR = Path("runtime/quote_pack_v44")
 DEFAULT_COMPANY_NAME = "Lechesa Manaba Consulting and Projects (Pty) Ltd"

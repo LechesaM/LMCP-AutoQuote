@@ -51,21 +51,41 @@ PRICING_TERMS = [
     "pricing schedule",
     "price schedule",
     "schedule of prices",
+    "schedule of rates",
     "quotation schedule",
     "financial offer",
     "form of offer",
+    "pricing data",
+    "section c2",
+    "scope and pricing",
+    "activity schedule",
+    "pricing/billing model",
+    "billing model",
+    "sbd 3.1",
+    "sbd 3.2",
     "unit price",
     "total price",
+    "sub-total",
+    "subtotal",
+    "rate",
     "amount",
 ]
 
 BOQ_TERMS = [
     "bill of quantities",
+    "bills of quantities",
     "boq",
     "pricing schedule",
+    "price schedule",
     "schedule of quantities",
     "schedule of prices",
+    "schedule of rates",
+    "pricing data",
+    "section c2",
+    "scope and pricing",
+    "activity schedule",
     "quantity",
+    "quantities",
     "unit of measure",
     "uom",
 ]
@@ -103,6 +123,19 @@ SPEC_SECTION_TERMS = [
     "terms of reference",
     "description of goods",
     "bid description",
+]
+
+RETURNABLE_TERMS = [
+    "returnable documents",
+    "returnable documents checklist",
+    "mandatory documents",
+    "compliance documents",
+    "tax compliance",
+    "central supplier database",
+    "csd",
+    "b-bbee",
+    "bbbee",
+    "sbd",
 ]
 
 
@@ -381,10 +414,79 @@ def _table_is_pricing_or_boq(table: List[List[str]]) -> bool:
         joined = " ".join(_safe_lower(cell) for cell in row)
         has_desc = any(x in joined for x in ["description", "item", "specification", "goods", "service"])
         has_qty = any(x in joined for x in ["quantity", "qty", "unit", "uom", "unit of measure"])
-        has_price = any(x in joined for x in ["unit price", "total price", "amount", "rate", "price"])
+        has_price = any(x in joined for x in ["unit price", "total price", "amount", "rate", "price", "sub-total", "subtotal", "cost"])
         if has_desc and (has_qty or has_price):
             return True
     return False
+
+
+def _returnables_detected(text: str, paragraphs: List[str], tables: List[List[List[str]]]) -> bool:
+    t = _safe_lower(text)
+    if any(term in t for term in RETURNABLE_TERMS):
+        return True
+    for paragraph in paragraphs[:50]:
+        if any(term in _safe_lower(paragraph) for term in RETURNABLE_TERMS):
+            return True
+    for table in tables[:8]:
+        for row in table[:10]:
+            if any(term in " ".join(_safe_lower(cell) for cell in row) for term in RETURNABLE_TERMS):
+                return True
+    return False
+
+
+def _detection_summary(text: str, paragraphs: List[str], tables: List[List[List[str]]]) -> Dict[str, Any]:
+    t = _safe_lower(text)
+    pricing_confidence = 0.0
+    boq_confidence = 0.0
+    returnables_confidence = 0.0
+    pricing_reasons: List[str] = []
+    boq_reasons: List[str] = []
+    returnables_reasons: List[str] = []
+
+    has_pricing_schedule = _has_pricing_schedule(text, tables)
+    has_boq_table = _has_boq_table(text, tables)
+    returnables_detected = _returnables_detected(text, paragraphs, tables)
+
+    if has_pricing_schedule:
+        pricing_confidence += 0.35
+        pricing_reasons.append("pricing_terms_or_table")
+    if any(term in t for term in ("sbd 3.1", "sbd 3.2", "pricing data", "section c2", "scope and pricing")):
+        pricing_confidence += 0.30
+        pricing_reasons.append("pricing_form_or_section")
+    if any(term in t for term in ("unit price", "total price", "amount", "rate", "sub-total", "subtotal", "billing model", "pricing/billing model")):
+        pricing_confidence += 0.20
+        pricing_reasons.append("price_amount_terms")
+    if has_boq_table:
+        boq_confidence += 0.35
+        boq_reasons.append("boq_like_table")
+    if any(term in t for term in BOQ_TERMS):
+        boq_confidence += 0.25
+        boq_reasons.append("boq_terms")
+    if any(term in t for term in ("quantity", "quantities", "schedule of rates", "activity schedule")):
+        boq_confidence += 0.15
+        boq_reasons.append("quantity_or_rates_terms")
+    if returnables_detected:
+        returnables_confidence += 0.35
+        returnables_reasons.append("returnables_terms")
+    if any(term in t for term in ("sbd", "tax compliance", "csd", "b-bbee", "bbbee")):
+        returnables_confidence += 0.20
+        returnables_reasons.append("sbd_or_compliance_terms")
+
+    pricing_confidence = round(min(pricing_confidence, 1.0), 4)
+    boq_confidence = round(min(boq_confidence, 1.0), 4)
+    returnables_confidence = round(min(returnables_confidence, 1.0), 4)
+
+    return {
+        "pricing_schedule_detected": pricing_confidence >= 0.55 or has_pricing_schedule,
+        "pricing_schedule_detection_confidence": pricing_confidence,
+        "pricing_schedule_detection_reason": ";".join(dict.fromkeys(pricing_reasons)),
+        "boq_detected": boq_confidence >= 0.55 or has_boq_table,
+        "boq_detection_confidence": boq_confidence,
+        "boq_detection_reason": ";".join(dict.fromkeys(boq_reasons)),
+        "returnables_detected": returnables_confidence >= 0.45 or returnables_detected,
+        "returnables_detection_confidence": returnables_confidence,
+        "returnables_detection_reason": ";".join(dict.fromkeys(returnables_reasons)),
+    }
 
 
 def _column_indexes(header: List[str]) -> Dict[str, int]:
@@ -714,6 +816,7 @@ def analyse_docx_main_document(main_document_path: str | Path) -> Dict[str, Any]
     has_boq_table = _has_boq_table(text, tables)
     briefing_required = _briefing_required(text)
     quantity_verified = bool(line_items)
+    detection = _detection_summary(text, paragraphs, tables)
 
     result: Dict[str, Any] = {
         "status": "ok" if parsed.get("status") == "ok" else "failed",
@@ -738,6 +841,7 @@ def analyse_docx_main_document(main_document_path: str | Path) -> Dict[str, Any]
         "extracted_line_items": line_items,
         "confidence": _overall_confidence(text, tables, line_items, has_pricing_schedule, has_boq_table),
         "reject_hallucinated_quantities": True,
+        **detection,
     }
 
     report_path = REPORT_DIR / f"{_slug(title)}__docx_main_document_intelligence_report.json"

@@ -1,0 +1,56 @@
+name: AutoQuote Libraries
+
+on:
+  push:
+    paths:
+      - "frontend/command-centre/src/data/autoquoteLibraries.source.json"
+      - "frontend/command-centre/src/data/autoquoteLibraries.ts"
+      - "frontend/command-centre/scripts/autoquote-libraries.shared.mjs"
+      - "frontend/command-centre/scripts/generate-autoquote-libraries.mjs"
+      - "frontend/command-centre/scripts/check-autoquote-libraries.mjs"
+      - "frontend/command-centre/package.json"
+      - "frontend/command-centre/package-lock.json"
+      - "docs/autoquote_*.md"
+      - "docs/autoquote_libraries.json"
+      - "docs/autoquote_libraries.yaml"
+      - ".github/workflows/autoquote-libraries.yml"
+  pull_request:
+    paths:
+      - "frontend/command-centre/src/data/autoquoteLibraries.source.json"
+      - "frontend/command-centre/src/data/autoquoteLibraries.ts"
+      - "frontend/command-centre/scripts/autoquote-libraries.shared.mjs"
+      - "frontend/command-centre/scripts/generate-autoquote-libraries.mjs"
+      - "frontend/command-centre/scripts/check-autoquote-libraries.mjs"
+      - "frontend/command-centre/package.json"
+      - "frontend/command-centre/package-lock.json"
+      - "docs/autoquote_*.md"
+      - "docs/autoquote_libraries.json"
+      - "docs/autoquote_libraries.yaml"
+      - ".github/workflows/autoquote-libraries.yml"
+  workflow_dispatch:
+
+jobs:
+  autoquote-libraries:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/command-centre
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/command-centre/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check AutoQuote library drift
+        run: npm run check:autoquote-libraries
+
+      - name: Build frontend
+        run: npm run build

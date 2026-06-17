@@ -287,7 +287,7 @@ class TenderFormPriorityEngine:
                 extracted = False
 
             ext = path.suffix.lower()
-            if ext not in {".pdf", ".docx", ".xlsx", ".xls", ".zip", ".doc", ".xlsm"}:
+            if ext not in {".pdf", ".docx", ".xlsx", ".xls", ".zip", ".doc", ".xlsm", ".txt", ".csv"}:
                 continue
 
             try:

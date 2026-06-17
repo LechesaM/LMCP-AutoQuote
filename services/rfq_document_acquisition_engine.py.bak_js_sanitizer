@@ -1,0 +1,3185 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, unquote
+import hashlib
+import html as html_lib
+import json
+import os
+import re
+import time
+import uuid
+import zipfile
+
+try:
+    import requests
+except Exception:  # pragma: no cover
+    requests = None
+
+
+ENGINE_VERSION = "RFQ_DOCUMENT_ACQUISITION_ENGINE_V1"
+
+RUNTIME_DIR = Path("runtime/rfq_document_acquisition")
+DOWNLOAD_DIR = RUNTIME_DIR / "downloads"
+REPORT_DIR = RUNTIME_DIR / "reports"
+METRICS_FILE = RUNTIME_DIR / "acquisition_metrics.json"
+CACHE_INDEX_FILE = RUNTIME_DIR / "download_cache_index.json"
+SOURCE_HEALTH_FILE = RUNTIME_DIR / "source_health.json"
+DEAD_LETTER_FILE = RUNTIME_DIR / "dead_letter_urls.json"
+PORTAL_LATENCY_FILE = RUNTIME_DIR / "portal_latency.json"
+ETENDERS_PRECISION_FILE = RUNTIME_DIR / "etenders_precision_learning.json"
+ETENDERS_TOKEN_CACHE_FILE = RUNTIME_DIR / "etenders_token_cache.json"
+
+DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_MAX_CONCURRENT_DOWNLOADS = int(os.getenv("RFQ_MAX_CONCURRENT_DOWNLOADS", "4") or "4")
+DEFAULT_RETRY_BACKOFF_SECONDS = float(os.getenv("RFQ_RETRY_BACKOFF_SECONDS", "0.75") or "0.75")
+DEFAULT_DOWNLOAD_RETRIES = int(os.getenv("RFQ_DOWNLOAD_RETRIES", "2") or "2")
+SOURCE_COOLDOWN_SECONDS = int(os.getenv("RFQ_SOURCE_COOLDOWN_SECONDS", "900") or "900")
+PORTAL_FETCH_WORKERS = int(os.getenv("RFQ_PORTAL_FETCH_WORKERS", "6") or "6")
+DIRECT_LINK_FAST_PATH_LIMIT = int(os.getenv("RFQ_DIRECT_LINK_FAST_PATH_LIMIT", "10") or "10")
+MAX_RECURSIVE_ATTACHMENT_DEPTH = int(os.getenv("RFQ_MAX_RECURSIVE_ATTACHMENT_DEPTH", "1") or "1")
+MAX_LINKS_PER_PAGE = 120
+MAX_DOWNLOADS_PER_RFQ = 25
+MAX_FILE_SIZE_BYTES = 80 * 1024 * 1024
+FAILED_CANDIDATE_TIMEOUT_SECONDS = int(os.getenv("RFQ_FAILED_CANDIDATE_TIMEOUT_SECONDS", "4") or "4")
+PREFLIGHT_TIMEOUT_SECONDS = int(os.getenv("RFQ_PREFLIGHT_TIMEOUT_SECONDS", "3") or "3")
+ETENDERS_TOKEN_CACHE_TTL_SECONDS = int(os.getenv("RFQ_ETENDERS_TOKEN_CACHE_TTL_SECONDS", "900") or "900")
+REPEATED_404_SKIP_THRESHOLD = int(os.getenv("RFQ_REPEATED_404_SKIP_THRESHOLD", "2") or "2")
+
+SUPPORTED_EXTENSIONS = {
+    ".pdf",
+    ".zip",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".csv",
+}
+
+REJECT_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".ico",
+    ".css",
+    ".js",
+    ".mp4",
+    ".mp3",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+}
+
+PRIORITY_TERMS = [
+    "pricing schedule",
+    "bill of quantities",
+    "boq",
+    "pricing",
+    "schedule",
+    "annexure",
+    "annex",
+    "sbd",
+    "specification",
+    "specifications",
+    "terms of reference",
+    "tor",
+    "scope of work",
+    "returnable",
+    "returnables",
+    "quotation",
+    "rfq",
+    "bid document",
+    "tender document",
+]
+
+BOQ_TERMS = [
+    "boq",
+    "bill of quantities",
+    "pricing schedule",
+    "price schedule",
+    "schedule of prices",
+    "quotation schedule",
+]
+
+PRICING_TERMS = [
+    "pricing",
+    "price schedule",
+    "pricing schedule",
+    "schedule of prices",
+    "quotation schedule",
+]
+
+SBD_TERMS = [
+    "sbd",
+    "standard bidding document",
+    "preference points",
+    "declaration of interest",
+]
+
+SPEC_TERMS = [
+    "specification",
+    "specifications",
+    "scope of work",
+    "terms of reference",
+    "tor",
+    "technical",
+]
+
+REJECT_URL_TERMS = [
+    "logo",
+    "favicon",
+    "facebook",
+    "twitter",
+    "linkedin",
+    "instagram",
+    "youtube",
+    "wp-content/uploads/logo",
+    "header",
+    "footer",
+    "banner",
+    "icon",
+    "image",
+    "newsletter",
+    "privacy-policy",
+    "terms-and-conditions",
+]
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_str(value: Any) -> str:
+    try:
+        if value is None:
+            return ""
+        return str(value).strip()
+    except Exception:
+        return ""
+
+
+def _safe_lower(value: Any) -> str:
+    return _safe_str(value).lower()
+
+
+def _slug(value: Any, limit: int = 100) -> str:
+    text = _safe_str(value)
+    text = re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-")
+    return (text[:limit].strip("-") or "rfq-document")
+
+
+def _ensure_dirs() -> None:
+    DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _read_json_file(path: Path, default: Any) -> Any:
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data if data is not None else default
+    except Exception:
+        return default
+    return default
+
+
+def _write_json_file(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    os.replace(tmp_path, path)
+
+
+def _source_key(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        return parsed.netloc.lower() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _normalise_url(url: str, base_url: str = "") -> str:
+    cleaned = html_lib.unescape(_safe_str(url)).strip()
+    if base_url:
+        cleaned = urljoin(base_url, cleaned)
+    return cleaned
+
+
+def _canonical_url(url: str) -> str:
+    url = _normalise_url(url)
+    try:
+        parsed = urlparse(url)
+        query = urlencode(sorted(parse_qsl(parsed.query, keep_blank_values=True)))
+        return parsed._replace(query=query, fragment="").geturl()
+    except Exception:
+        return url
+
+
+def _browser_headers(
+    accept: str = "text/html,application/xhtml+xml,application/xml,application/pdf,application/zip,*/*;q=0.8",
+    referer: str = "https://www.etenders.gov.za/Home/opportunities",
+    ajax: bool = False,
+) -> Dict[str, str]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146 Safari/537.36"
+        ),
+        "Accept": accept,
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Referer": referer,
+    }
+    if ajax:
+        headers["X-Requested-With"] = "XMLHttpRequest"
+    return headers
+
+
+def _aspnet_markers(text: str) -> Dict[str, bool]:
+    blob = _safe_lower(text)
+    return {
+        "viewstate": "__viewstate" in blob,
+        "eventvalidation": "__eventvalidation" in blob,
+        "request_verification_token": "__requestverificationtoken" in blob or "requestverificationtoken" in blob,
+        "datatables": "paginatedtenderopportunities" in blob or "datatable" in blob,
+        "downloadspec": "downloadspec" in blob,
+        "support_document": "supportdocument" in blob,
+    }
+
+
+def _response_debug_details(response: Any, body: bytes = b"") -> Dict[str, Any]:
+    text = ""
+    try:
+        if body:
+            text = body[:1200].decode("utf-8", errors="replace")
+        else:
+            text = (getattr(response, "text", "") or "")[:1200]
+    except Exception:
+        text = ""
+    history = []
+    try:
+        for item in getattr(response, "history", []) or []:
+            history.append({
+                "status_code": int(getattr(item, "status_code", 0) or 0),
+                "url": str(getattr(item, "url", "") or ""),
+                "location": str(getattr(item, "headers", {}).get("location", "") or ""),
+            })
+    except Exception:
+        history = []
+    return {
+        "status_code": int(getattr(response, "status_code", 0) or 0),
+        "content_type": str(getattr(response, "headers", {}).get("content-type", "") or ""),
+        "content_disposition": str(getattr(response, "headers", {}).get("content-disposition", "") or ""),
+        "final_url": str(getattr(response, "url", "") or ""),
+        "redirect_chain": history,
+        "short_response_snippet": re.sub(r"\s+", " ", text).strip()[:500],
+        "detected_aspnet_markers": _aspnet_markers(text),
+    }
+
+
+def _cache_key(url: str) -> str:
+    return hashlib.sha256(_safe_str(url).encode("utf-8")).hexdigest()
+
+
+def _load_cache_index() -> Dict[str, Any]:
+    data = _read_json_file(CACHE_INDEX_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_cache_index(data: Dict[str, Any]) -> None:
+    _write_json_file(CACHE_INDEX_FILE, data)
+
+
+def _cache_hit(url: str) -> Optional[Dict[str, Any]]:
+    cache = _load_cache_index()
+    row = cache.get(_cache_key(url))
+    if not isinstance(row, dict):
+        return None
+    path = Path(str(row.get("path") or ""))
+    if path.exists() and path.is_file():
+        return {
+            **row,
+            "status": "downloaded",
+            "cache_hit": True,
+            "url": url,
+            "download_time_seconds": 0.0,
+            "attempts": 0,
+        }
+    return None
+
+
+def _record_cache(url: str, result: Dict[str, Any]) -> None:
+    if result.get("status") != "downloaded" or not result.get("path"):
+        return
+    cache = _load_cache_index()
+    cache[_cache_key(url)] = {
+        "url": url,
+        "final_url": result.get("final_url"),
+        "path": result.get("path"),
+        "filename": result.get("filename"),
+        "extension": result.get("extension"),
+        "content_type": result.get("content_type"),
+        "size_bytes": result.get("size_bytes", 0),
+        "cached_at": _now_iso(),
+    }
+    _save_cache_index(cache)
+
+
+def _load_source_health() -> Dict[str, Any]:
+    data = _read_json_file(SOURCE_HEALTH_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_source_health(data: Dict[str, Any]) -> None:
+    _write_json_file(SOURCE_HEALTH_FILE, data)
+
+
+def _source_in_cooldown(source: str) -> bool:
+    health = _load_source_health()
+    row = health.get(source)
+    if not isinstance(row, dict):
+        return False
+    try:
+        until = float(row.get("cooldown_until_epoch") or 0)
+        return until > time.time()
+    except Exception:
+        return False
+
+
+def _update_source_health(source: str, success: bool, elapsed: float, retry_count: int = 0) -> None:
+    health = _load_source_health()
+    row = health.get(source) if isinstance(health.get(source), dict) else {}
+    attempts = int(row.get("attempts") or 0) + 1
+    failures = int(row.get("failures") or 0) + (0 if success else 1)
+    successes = int(row.get("successes") or 0) + (1 if success else 0)
+    retries = int(row.get("retries") or 0) + int(retry_count)
+    avg_time = ((float(row.get("average_download_time") or 0.0) * (attempts - 1)) + float(elapsed or 0.0)) / max(attempts, 1)
+    failure_rate = failures / max(attempts, 1)
+    cooldown_until = 0.0
+    if attempts >= 3 and failure_rate >= 0.75:
+        cooldown_until = time.time() + SOURCE_COOLDOWN_SECONDS
+    health[source] = {
+        "attempts": attempts,
+        "successes": successes,
+        "failures": failures,
+        "retries": retries,
+        "failure_rate": round(failure_rate, 4),
+        "average_download_time": round(avg_time, 4),
+        "cooldown_until_epoch": cooldown_until,
+        "cooldown_active": cooldown_until > time.time(),
+        "updated_at": _now_iso(),
+    }
+    _save_source_health(health)
+
+
+def _source_reliability_rows() -> List[Dict[str, Any]]:
+    rows = []
+    for source, row in _load_source_health().items():
+        if not isinstance(row, dict):
+            continue
+        attempts = int(row.get("attempts") or 0)
+        successes = int(row.get("successes") or 0)
+        failures = int(row.get("failures") or 0)
+        retries = int(row.get("retries") or 0)
+        failure_rate = float(row.get("failure_rate") or 0.0)
+        avg_time = float(row.get("average_download_time") or 0.0)
+        reliability = 100.0
+        reliability -= min(60.0, failure_rate * 60.0)
+        reliability -= min(20.0, retries / max(attempts, 1) * 20.0)
+        reliability -= min(20.0, max(0.0, avg_time - 2.0) * 2.0)
+        rows.append(
+            {
+                "source": source,
+                "attempts": attempts,
+                "successes": successes,
+                "failures": failures,
+                "retries": retries,
+                "failure_rate": round(failure_rate, 4),
+                "average_download_time": round(avg_time, 4),
+                "cooldown_active": bool(row.get("cooldown_active")),
+                "reliability_score": round(max(0.0, min(100.0, reliability)), 2),
+            }
+        )
+    return sorted(rows, key=lambda item: item["reliability_score"], reverse=True)
+
+
+def _record_portal_latency(source: str, elapsed: float, success: bool) -> None:
+    data = _read_json_file(PORTAL_LATENCY_FILE, {})
+    if not isinstance(data, dict):
+        data = {}
+    row = data.get(source) if isinstance(data.get(source), dict) else {}
+    attempts = int(row.get("attempts") or 0) + 1
+    failures = int(row.get("failures") or 0) + (0 if success else 1)
+    previous_avg = float(row.get("average_latency_seconds") or 0.0)
+    avg = ((previous_avg * (attempts - 1)) + float(elapsed or 0.0)) / max(attempts, 1)
+    data[source] = {
+        "attempts": attempts,
+        "failures": failures,
+        "successes": attempts - failures,
+        "average_latency_seconds": round(avg, 4),
+        "failure_rate": round(failures / max(attempts, 1), 4),
+        "last_latency_seconds": round(float(elapsed or 0.0), 4),
+        "updated_at": _now_iso(),
+    }
+    _write_json_file(PORTAL_LATENCY_FILE, data)
+
+
+def _portal_latency_rows() -> List[Dict[str, Any]]:
+    data = _read_json_file(PORTAL_LATENCY_FILE, {})
+    if not isinstance(data, dict):
+        return []
+    rows = [{"source": source, **row} for source, row in data.items() if isinstance(row, dict)]
+    return sorted(rows, key=lambda row: float(row.get("average_latency_seconds") or 0.0), reverse=True)
+
+
+def _record_dead_letter(candidate: Dict[str, Any], result: Dict[str, Any], reason: str = "") -> None:
+    if bool(candidate.get("suppress_dead_letter")):
+        return
+    url = _safe_str(candidate.get("url") or result.get("url"))
+    if not url:
+        return
+    payload = _read_json_file(DEAD_LETTER_FILE, {"version": "rfq_acquisition_dead_letter_v1", "updated_at": _now_iso(), "items": []})
+    if not isinstance(payload, dict):
+        payload = {"version": "rfq_acquisition_dead_letter_v1", "updated_at": _now_iso(), "items": []}
+    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    items.append(
+        {
+            "at": _now_iso(),
+            "url": url,
+            "source": _source_key(url),
+            "reason": reason or _safe_str(result.get("error") or result.get("status") or "download_failed"),
+            "status": result.get("status"),
+            "status_code": result.get("status_code"),
+            "retry_count": int(result.get("retry_count") or 0),
+            "source_page": candidate.get("source_page"),
+            "link_text": candidate.get("link_text"),
+        }
+    )
+    payload["version"] = "rfq_acquisition_dead_letter_v1"
+    payload["updated_at"] = _now_iso()
+    payload["items"] = items[-5000:]
+    _write_json_file(DEAD_LETTER_FILE, payload)
+
+
+def _load_dead_letters() -> List[Dict[str, Any]]:
+    payload = _read_json_file(DEAD_LETTER_FILE, {"items": []})
+    return payload.get("items") if isinstance(payload, dict) and isinstance(payload.get("items"), list) else []
+
+
+def _write_dead_letters(items: List[Dict[str, Any]]) -> None:
+    _write_json_file(
+        DEAD_LETTER_FILE,
+        {
+            "version": "rfq_acquisition_dead_letter_v1",
+            "updated_at": _now_iso(),
+            "items": items[-5000:],
+        },
+    )
+
+
+def _dedupe_dead_letters(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for item in reversed(items):
+        if not isinstance(item, dict):
+            continue
+        key = (_canonical_url(item.get("url")), _safe_str(item.get("reason") or ""))
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return list(reversed(deduped))
+
+
+def _dead_letter_summary() -> Dict[str, Any]:
+    items = _load_dead_letters()
+    by_source = {}
+    by_reason = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        source = _safe_str(item.get("source") or "unknown")
+        reason = _safe_str(item.get("reason") or "unknown")
+        by_source[source] = int(by_source.get(source, 0)) + 1
+        by_reason[reason] = int(by_reason.get(reason, 0)) + 1
+    return {
+        "dead_letter_count": len(items),
+        "dead_letter_by_source": sorted(
+            [{"source": k, "count": v} for k, v in by_source.items()],
+            key=lambda row: row["count"],
+            reverse=True,
+        )[:10],
+        "dead_letter_by_reason": sorted(
+            [{"reason": k, "count": v} for k, v in by_reason.items()],
+            key=lambda row: row["count"],
+            reverse=True,
+        )[:10],
+    }
+
+
+def _metric_increment(updates: Dict[str, int]) -> Dict[str, Any]:
+    metrics = _read_json_file(METRICS_FILE, {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+    for key, amount in updates.items():
+        metrics[key] = int(metrics.get(key) or 0) + int(amount or 0)
+    metrics["updated_at"] = _now_iso()
+    _write_json_file(METRICS_FILE, metrics)
+    return metrics
+
+
+def _update_replay_metrics(
+    replayed: int,
+    recovered: int,
+    repeated_404_skipped: int,
+    preflight_results: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    metrics = _read_json_file(METRICS_FILE, {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+    metrics["dead_letters_replayed"] = int(metrics.get("dead_letters_replayed") or 0) + int(replayed or 0)
+    metrics["dead_letters_recovered"] = int(metrics.get("dead_letters_recovered") or 0) + int(recovered or 0)
+    metrics["repeated_404_skipped"] = int(metrics.get("repeated_404_skipped") or 0) + int(repeated_404_skipped or 0)
+    existing_total = int(metrics.get("etenders_preflight_total") or 0)
+    existing_success = int(metrics.get("etenders_preflight_success") or 0)
+    existing_time = float(metrics.get("preflight_time_total_seconds") or 0.0)
+    existing_lookups = int(metrics.get("token_cache_lookups") or 0)
+    existing_hits = int(metrics.get("token_cache_hits") or 0)
+    added_total = len(preflight_results)
+    added_success = sum(1 for row in preflight_results if isinstance(row, dict) and row.get("ok"))
+    added_time = sum(float(row.get("preflight_time_seconds") or 0.0) for row in preflight_results if isinstance(row, dict))
+    added_hits = sum(1 for row in preflight_results if isinstance(row, dict) and row.get("cache_hit"))
+    total = existing_total + added_total
+    hits = existing_hits + added_hits
+    lookups = existing_lookups + added_total
+    metrics["etenders_preflight_total"] = total
+    metrics["etenders_preflight_success"] = existing_success + added_success
+    metrics["preflight_success_rate"] = round(((existing_success + added_success) / max(total, 1)) * 100.0, 2)
+    metrics["preflight_time_total_seconds"] = round(existing_time + added_time, 4)
+    metrics["average_preflight_time"] = round((existing_time + added_time) / max(total, 1), 4)
+    metrics["token_cache_lookups"] = lookups
+    metrics["token_cache_hits"] = hits
+    metrics["token_cache_hit_rate"] = round((hits / max(lookups, 1)) * 100.0, 2)
+    dead_letter = _dead_letter_summary()
+    metrics["dead_letter_count"] = int(dead_letter.get("dead_letter_count") or 0)
+    metrics["document_failure_analytics"] = dead_letter
+    metrics["updated_at"] = _now_iso()
+    _write_json_file(METRICS_FILE, metrics)
+    return metrics
+
+
+def _adaptive_retry_profile(source: str, base_backoff: float, default_retries: int) -> Dict[str, Any]:
+    row = _load_source_health().get(source)
+    if not isinstance(row, dict):
+        return {"backoff_seconds": base_backoff, "max_retries": default_retries, "reason": "default"}
+    failure_rate = float(row.get("failure_rate") or 0.0)
+    avg_time = float(row.get("average_download_time") or 0.0)
+    if failure_rate >= 0.75:
+        return {"backoff_seconds": max(base_backoff, 1.5), "max_retries": 1, "reason": "high_failure_fast_isolation"}
+    if avg_time >= 8.0:
+        return {"backoff_seconds": max(base_backoff, 1.25), "max_retries": max(1, min(default_retries, 1)), "reason": "slow_source_timeout_isolation"}
+    if failure_rate <= 0.15 and avg_time <= 2.0:
+        return {"backoff_seconds": min(base_backoff, 0.25), "max_retries": default_retries, "reason": "reliable_source_fast_retry"}
+    return {"backoff_seconds": base_backoff, "max_retries": default_retries, "reason": "balanced"}
+
+
+def _update_acquisition_metrics(result: Dict[str, Any], elapsed: float, max_concurrent_downloads: int) -> Dict[str, Any]:
+    metrics = _read_json_file(METRICS_FILE, {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+    runs = int(metrics.get("runs") or 0) + 1
+    attempts = int(result.get("download_attempt_count") or 0)
+    successes = int(result.get("downloaded_count") or 0)
+    retries = sum(int(row.get("retry_count") or 0) for row in result.get("downloaded_files", []) if isinstance(row, dict))
+    previous_attempts = int(metrics.get("total_attempts") or 0)
+    previous_successes = int(metrics.get("total_successes") or 0)
+    previous_retries = int(metrics.get("total_retries") or 0)
+    total_attempts = previous_attempts + attempts
+    total_successes = previous_successes + successes
+    total_retries = previous_retries + retries
+    total_elapsed = float(metrics.get("total_elapsed_seconds") or 0.0) + float(elapsed or 0.0)
+    direct_fast_path_total = int(metrics.get("direct_link_fast_path_total") or 0) + int(result.get("fast_path_direct_link_count") or 0)
+    cache_hit_total = int(metrics.get("cache_hit_total") or 0) + int(result.get("cache_hit_count") or 0)
+    duplicate_candidate_total = int(metrics.get("duplicate_candidate_total") or 0) + int(result.get("candidate_duplicate_count") or 0)
+    previous_avg = float(metrics.get("average_document_download_time") or 0.0)
+    avg_time = ((previous_avg * (runs - 1)) + float(elapsed or 0.0)) / max(runs, 1)
+    source_health = _load_source_health()
+    sources = [
+        {"source": key, **value}
+        for key, value in source_health.items()
+        if isinstance(value, dict)
+    ]
+    slowest = sorted(sources, key=lambda row: float(row.get("average_download_time") or 0.0), reverse=True)[:5]
+    retry_heavy = sorted(sources, key=lambda row: int(row.get("retries") or 0), reverse=True)[:5]
+    failure_sources = sorted(sources, key=lambda row: float(row.get("failure_rate") or 0.0), reverse=True)
+    dead_letter = _dead_letter_summary()
+    portal_rows = _portal_latency_rows()
+    source_reliability = _source_reliability_rows()
+    document_resolution_rate = round((successes / max(attempts, 1)) * 100.0, 2)
+    cumulative_resolution_rate = round((total_successes / max(total_attempts, 1)) * 100.0, 2)
+    downloaded_files = result.get("downloaded_files") if isinstance(result.get("downloaded_files"), list) else []
+    strategy_rows = metrics.get("strategy_performance") if isinstance(metrics.get("strategy_performance"), dict) else {}
+    portal_rows_perf = metrics.get("portal_type_performance") if isinstance(metrics.get("portal_type_performance"), dict) else {}
+    failure_taxonomy = metrics.get("acquisition_failure_taxonomy") if isinstance(metrics.get("acquisition_failure_taxonomy"), dict) else {}
+    etenders_attempts = int(metrics.get("etenders_attempts") or 0)
+    etenders_successes = int(metrics.get("etenders_token_successes") or 0)
+    etenders_http_errors = int(metrics.get("etenders_http_error_count") or 0)
+    etenders_candidate_links_found = int(metrics.get("etenders_candidate_links_found") or 0)
+    etenders_reconstruction_success_count = int(metrics.get("etenders_reconstruction_success_count") or 0)
+    candidate_rejection_total = int(metrics.get("candidate_rejection_total") or 0) + int(result.get("candidate_rejection_count") or 0)
+    candidate_seen_total = int(metrics.get("candidate_seen_total") or 0) + int(result.get("candidate_pool_count") or 0) + int(result.get("candidate_rejection_count") or 0)
+    etenders_invalid_candidate_total = int(metrics.get("etenders_invalid_candidate_total") or 0)
+    rejection_reasons = metrics.get("candidate_rejection_reasons") if isinstance(metrics.get("candidate_rejection_reasons"), dict) else {}
+    invalid_url_patterns = metrics.get("top_invalid_url_patterns") if isinstance(metrics.get("top_invalid_url_patterns"), dict) else {}
+    reconstruction_conf_values = metrics.get("reconstruction_confidence_values") if isinstance(metrics.get("reconstruction_confidence_values"), list) else []
+
+    for rejection in result.get("candidate_rejections") if isinstance(result.get("candidate_rejections"), list) else []:
+        etenders_invalid_candidate_total += 1
+        for reason in rejection.get("reasons") if isinstance(rejection.get("reasons"), list) else []:
+            key = _safe_str(reason or "unknown")
+            rejection_reasons[key] = int(rejection_reasons.get(key) or 0) + 1
+        signature = _etenders_pattern_signature(rejection.get("url"))
+        invalid_url_patterns[signature] = int(invalid_url_patterns.get(signature) or 0) + 1
+        scoring = rejection.get("scoring") if isinstance(rejection.get("scoring"), dict) else {}
+        if scoring.get("reconstruction_confidence") is not None:
+            reconstruction_conf_values.append(float(scoring.get("reconstruction_confidence") or 0.0))
+
+    preflight_results = result.get("etenders_preflight_results") if isinstance(result.get("etenders_preflight_results"), list) else []
+    preflight_total = int(metrics.get("etenders_preflight_total") or 0) + len(preflight_results)
+    preflight_success = int(metrics.get("etenders_preflight_success") or 0) + sum(1 for row in preflight_results if isinstance(row, dict) and row.get("ok"))
+    previous_preflight_time_total = float(metrics.get("preflight_time_total_seconds") or 0.0)
+    preflight_time_total = previous_preflight_time_total + sum(float(row.get("preflight_time_seconds") or 0.0) for row in preflight_results if isinstance(row, dict))
+    token_cache_lookups = int(metrics.get("token_cache_lookups") or 0) + sum(1 for row in preflight_results if isinstance(row, dict))
+    token_cache_hits = int(metrics.get("token_cache_hits") or 0) + sum(1 for row in preflight_results if isinstance(row, dict) and row.get("cache_hit"))
+    repeated_404_skipped = int(metrics.get("repeated_404_skipped") or 0) + sum(
+        1 for row in preflight_results if isinstance(row, dict) and row.get("reason") == "preflight_repeated_404_skipped"
+    )
+
+    for candidate in (result.get("selected_candidates") if isinstance(result.get("selected_candidates"), list) else []):
+        if not isinstance(candidate, dict):
+            continue
+        if candidate.get("source_handler") == "etenders" or "etenders.gov.za" in _safe_lower(candidate.get("url")):
+            etenders_candidate_links_found += 1
+
+    for row in downloaded_files:
+        if not isinstance(row, dict):
+            continue
+        strategy = _safe_str(row.get("acquisition_strategy") or "generic_download")
+        portal_type = _safe_str(row.get("portal_type") or "unknown")
+        ok = row.get("status") == "downloaded"
+        strat = strategy_rows.get(strategy) if isinstance(strategy_rows.get(strategy), dict) else {"attempts": 0, "successes": 0}
+        strat["attempts"] = int(strat.get("attempts") or 0) + 1
+        strat["successes"] = int(strat.get("successes") or 0) + (1 if ok else 0)
+        strat["success_rate"] = round((int(strat["successes"]) / max(int(strat["attempts"]), 1)) * 100.0, 2)
+        strategy_rows[strategy] = strat
+
+        perf = portal_rows_perf.get(portal_type) if isinstance(portal_rows_perf.get(portal_type), dict) else {"attempts": 0, "successes": 0, "failures": 0}
+        perf["attempts"] = int(perf.get("attempts") or 0) + 1
+        perf["successes"] = int(perf.get("successes") or 0) + (1 if ok else 0)
+        perf["failures"] = int(perf.get("failures") or 0) + (0 if ok else 1)
+        perf["success_rate"] = round((int(perf["successes"]) / max(int(perf["attempts"]), 1)) * 100.0, 2)
+        portal_rows_perf[portal_type] = perf
+
+        if not ok:
+            reason = _safe_str(row.get("error") or row.get("status") or "unknown")
+            failure_taxonomy[reason] = int(failure_taxonomy.get(reason) or 0) + 1
+        if row.get("source_handler") == "etenders" or "etenders.gov.za" in _safe_lower(row.get("url")):
+            etenders_attempts += 1
+            scoring = row.get("etenders_candidate_scoring") if isinstance(row.get("etenders_candidate_scoring"), dict) else {}
+            if scoring.get("reconstruction_confidence") is not None:
+                reconstruction_conf_values.append(float(scoring.get("reconstruction_confidence") or 0.0))
+            if ok:
+                etenders_successes += 1
+                if "reconstruction" in strategy or "v50_" in strategy:
+                    etenders_reconstruction_success_count += 1
+            elif "http_error" in _safe_lower(row.get("error")) or int(row.get("status_code") or 0) >= 400:
+                etenders_http_errors += 1
+
+    strategy_leaderboard = sorted(
+        [{"strategy": key, **value} for key, value in strategy_rows.items() if isinstance(value, dict)],
+        key=lambda row: (float(row.get("success_rate") or 0.0), int(row.get("successes") or 0)),
+        reverse=True,
+    )
+    portal_breakdown = sorted(
+        [{"portal_type": key, **value} for key, value in portal_rows_perf.items() if isinstance(value, dict)],
+        key=lambda row: int(row.get("attempts") or 0),
+        reverse=True,
+    )
+    precision_learning = _load_etenders_precision()
+    successful_patterns = sorted(
+        [
+            {"pattern": key, **value}
+            for key, value in (precision_learning.get("patterns") if isinstance(precision_learning.get("patterns"), dict) else {}).items()
+            if isinstance(value, dict) and int(value.get("successes") or 0) > 0
+        ],
+        key=lambda row: (float(row.get("success_rate") or 0.0), int(row.get("successes") or 0)),
+        reverse=True,
+    )[:10]
+    confidence_distribution = {
+        "low": sum(1 for value in reconstruction_conf_values if float(value) < 0.45),
+        "medium": sum(1 for value in reconstruction_conf_values if 0.45 <= float(value) < 0.70),
+        "high": sum(1 for value in reconstruction_conf_values if float(value) >= 0.70),
+        "average": round(sum(float(v) for v in reconstruction_conf_values) / max(len(reconstruction_conf_values), 1), 4),
+        "count": len(reconstruction_conf_values),
+    }
+    attachment_discovery_count = int(metrics.get("attachment_discovery_count") or 0) + int(result.get("discovered_count") or 0)
+    recursive_success_count = int(metrics.get("recursive_extraction_success_count") or 0) + sum(
+        1 for row in downloaded_files if isinstance(row, dict) and row.get("status") == "downloaded" and _safe_str(row.get("acquisition_strategy")) == "recursive_attachment_scan"
+    )
+    live_feed = metrics.get("live_attachment_discovery_feed") if isinstance(metrics.get("live_attachment_discovery_feed"), list) else []
+    for candidate in (result.get("selected_candidates") if isinstance(result.get("selected_candidates"), list) else [])[:10]:
+        live_feed.append({
+            "at": _now_iso(),
+            "title": result.get("title"),
+            "url": candidate.get("url"),
+            "strategy": candidate.get("acquisition_strategy"),
+            "portal_type": candidate.get("portal_type"),
+            "score": candidate.get("score"),
+        })
+    metrics.update(
+        {
+            "status": "ok",
+            "runs": runs,
+            "updated_at": _now_iso(),
+            "total_elapsed_seconds": round(total_elapsed, 4),
+            "average_document_download_time": round(avg_time, 4),
+            "acquisition_success_rate": cumulative_resolution_rate,
+            "acquisition_retry_rate": round((total_retries / max(total_attempts, 1)) * 100.0, 2),
+            "concurrent_download_count": int(max_concurrent_downloads),
+            "source_failure_rate": round(
+                sum(float(row.get("failure_rate") or 0.0) for row in sources) / max(len(sources), 1) * 100.0,
+                2,
+            ),
+            "download_throughput_per_minute": round((total_successes / max(total_elapsed, 0.001)) * 60.0, 2),
+            "document_resolution_rate": cumulative_resolution_rate,
+            "document_resolution_rates": {
+                "last_run": document_resolution_rate,
+                "cumulative": cumulative_resolution_rate,
+            },
+            "direct_link_fast_path_total": direct_fast_path_total,
+            "cache_hit_total": cache_hit_total,
+            "duplicate_candidate_total": duplicate_candidate_total,
+            "total_attempts": total_attempts,
+            "total_successes": total_successes,
+            "total_retries": total_retries,
+            "dead_letter_count": int(dead_letter.get("dead_letter_count") or 0),
+            "last_run": {
+                "title": result.get("title"),
+                "status": result.get("status"),
+                "download_attempt_count": attempts,
+                "downloaded_count": successes,
+                "elapsed_seconds": round(float(elapsed or 0.0), 4),
+                "portal_fetch_count": int(result.get("portal_fetch_count") or 0),
+                "fast_path_direct_link_count": int(result.get("fast_path_direct_link_count") or 0),
+                "candidate_duplicate_count": int(result.get("candidate_duplicate_count") or 0),
+                "portal_fingerprint_summary": result.get("portal_fingerprint_summary") if isinstance(result.get("portal_fingerprint_summary"), dict) else {},
+                "selected_strategy_counts": result.get("selected_strategy_counts") if isinstance(result.get("selected_strategy_counts"), dict) else {},
+                "acquisition_confidence": float(result.get("acquisition_confidence") or 0.0),
+                "attachment_probability": float(result.get("attachment_probability") or 0.0),
+                "source_stability_score": float(result.get("source_stability_score") or 0.0),
+            },
+            "slowest_sources": slowest,
+            "retry_heavy_sources": retry_heavy,
+            "highest_failure_sources": failure_sources[:5],
+            "slowest_portals": portal_rows[:5],
+            "portal_latency_tracking": portal_rows[:20],
+            "document_failure_analytics": {
+                **dead_letter,
+                "highest_failure_sources": failure_sources[:10],
+            },
+            "source_reliability_scoring": source_reliability[:20],
+            "portal_fingerprint_breakdown": portal_breakdown,
+            "top_failing_portal_types": sorted(portal_breakdown, key=lambda row: (int(row.get("failures") or 0), -float(row.get("success_rate") or 0.0)), reverse=True)[:8],
+            "acquisition_strategy_leaderboard": strategy_leaderboard[:12],
+            "strategy_performance": strategy_rows,
+            "portal_type_performance": portal_rows_perf,
+            "attachment_discovery_rate": round((attachment_discovery_count / max(runs, 1)), 2),
+            "attachment_discovery_count": attachment_discovery_count,
+            "recursive_extraction_success_count": recursive_success_count,
+            "recursive_extraction_success_rate": round((recursive_success_count / max(total_successes, 1)) * 100.0, 2),
+            "acquisition_failure_taxonomy": failure_taxonomy,
+            "live_attachment_discovery_feed": live_feed[-50:],
+            "etenders_attempts": etenders_attempts,
+            "etenders_token_successes": etenders_successes,
+            "etenders_token_success_rate": round((etenders_successes / max(etenders_attempts, 1)) * 100.0, 2),
+            "etenders_http_error_count": etenders_http_errors,
+            "etenders_candidate_links_found": etenders_candidate_links_found,
+            "etenders_reconstruction_success_count": etenders_reconstruction_success_count,
+            "candidate_rejection_total": candidate_rejection_total,
+            "candidate_seen_total": candidate_seen_total,
+            "candidate_rejection_rate": round((candidate_rejection_total / max(candidate_seen_total, 1)) * 100.0, 2),
+            "invalid_candidate_rate": round((etenders_invalid_candidate_total / max(etenders_candidate_links_found + etenders_invalid_candidate_total, 1)) * 100.0, 2),
+            "etenders_invalid_candidate_total": etenders_invalid_candidate_total,
+            "etenders_preflight_total": preflight_total,
+            "etenders_preflight_success": preflight_success,
+            "preflight_success_rate": round((preflight_success / max(preflight_total, 1)) * 100.0, 2),
+            "preflight_time_total_seconds": round(preflight_time_total, 4),
+            "average_preflight_time": round((preflight_time_total / max(preflight_total, 1)), 4),
+            "token_cache_lookups": token_cache_lookups,
+            "token_cache_hits": token_cache_hits,
+            "token_cache_hit_rate": round((token_cache_hits / max(token_cache_lookups, 1)) * 100.0, 2),
+            "repeated_404_skipped": repeated_404_skipped,
+            "candidate_precision_score": round((etenders_successes / max(etenders_attempts + etenders_invalid_candidate_total, 1)) * 100.0, 2),
+            "candidate_rejection_reasons": rejection_reasons,
+            "top_invalid_url_patterns": dict(sorted(invalid_url_patterns.items(), key=lambda item: item[1], reverse=True)[:10]),
+            "successful_candidate_patterns": successful_patterns,
+            "reconstruction_confidence_distribution": confidence_distribution,
+            "source_precision_score": round(100.0 - min(100.0, (etenders_http_errors / max(etenders_attempts, 1)) * 100.0), 2),
+            "reconstruction_accuracy_trend": successful_patterns,
+            "404_rate": round((etenders_http_errors / max(etenders_attempts, 1)) * 100.0, 2),
+        }
+    )
+    _write_json_file(METRICS_FILE, metrics)
+    return metrics
+
+
+def _is_http_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def _unique_preserve_order(values: List[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for value in values:
+        cleaned = _safe_str(value)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        out.append(cleaned)
+    return out
+
+
+def _extension_from_url(url: str) -> str:
+    path = unquote(urlparse(url).path or "")
+    suffix = Path(path).suffix.lower()
+    return suffix
+
+
+def _extension_from_content_type(content_type: str) -> str:
+    ct = _safe_lower(content_type)
+    if "pdf" in ct:
+        return ".pdf"
+    if "zip" in ct or "compressed" in ct:
+        return ".zip"
+    if "spreadsheet" in ct or "excel" in ct:
+        return ".xlsx"
+    if "wordprocessingml" in ct or "msword" in ct:
+        return ".docx"
+    if "csv" in ct:
+        return ".csv"
+    return ""
+
+
+def _looks_like_rejected_asset(url: str, link_text: str = "") -> bool:
+    blob = f"{url} {link_text}".lower()
+    ext = _extension_from_url(url)
+
+    if ext in REJECT_EXTENSIONS:
+        return True
+
+    if any(term in blob for term in REJECT_URL_TERMS):
+        return True
+
+    return False
+
+
+def _looks_like_downloadable_document(url: str, link_text: str = "") -> bool:
+    ext = _extension_from_url(url)
+    blob = f"{url} {link_text}".lower()
+
+    if ext in SUPPORTED_EXTENSIONS:
+        return True
+
+    if any(term in blob for term in PRIORITY_TERMS):
+        return True
+
+    if "download" in blob or "attachment" in blob or "document" in blob:
+        return True
+
+    return False
+
+
+def _portal_fingerprint(url: str, html: str = "", content_type: str = "") -> Dict[str, Any]:
+    blob = f"{url} {content_type} {html[:12000]}".lower()
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    traits: List[str] = []
+    portal_type = "tender_viewer_page"
+    handler = "generic"
+    confidence = 0.45
+
+    if _extension_from_url(url) in SUPPORTED_EXTENSIONS or any(x in content_type.lower() for x in ["pdf", "zip", "msword", "spreadsheet", "excel"]):
+        portal_type = "direct_pdf_portal" if ".pdf" in url.lower() or "pdf" in content_type.lower() else "direct_document_portal"
+        traits.append("direct_document_response")
+        confidence = 0.95
+    if "etenders.gov.za" in host:
+        portal_type = "aspnet_download_token_portal"
+        handler = "etenders"
+        traits.extend(["etenders", "aspnet", "download_token"])
+        confidence = max(confidence, 0.85)
+    if "necsa.co.za" in host:
+        handler = "necsa"
+        traits.append("necsa")
+        confidence = max(confidence, 0.7)
+    if "sharepoint" in blob or "download.aspx" in blob or "_layouts/15/" in blob or "sourcedoc=" in blob:
+        portal_type = "sharepoint_procurement_page"
+        handler = "sharepoint"
+        traits.append("sharepoint")
+        confidence = max(confidence, 0.85)
+    if ("__viewstate" in blob or "__eventvalidation" in blob or "asp.net" in blob or ".aspx" in blob) and portal_type != "aspnet_download_token_portal":
+        portal_type = "aspnet_portal"
+        traits.append("aspnet")
+        confidence = max(confidence, 0.75)
+    if "supportdocument" in blob or "attachment" in blob or "documentid" in blob or "downloadspec" in blob:
+        if handler == "generic":
+            portal_type = "download_token_portal"
+        traits.append("attachment_list")
+        traits.append("download_token")
+        confidence = max(confidence, 0.8)
+    if "<script" in blob and not re.search(r'href\s*=', blob):
+        portal_type = "javascript_rendered_portal"
+        traits.append("javascript_rendered")
+        confidence = max(confidence, 0.65)
+    if any(x in host for x in ["gov.za", "muni", "municipality", "metro"]) and handler == "generic":
+        handler = "municipal"
+        traits.append("municipal")
+
+    strategy_map = {
+        "direct_pdf_portal": ["direct_document_fast_path", "head_get_adaptive_validation"],
+        "direct_document_portal": ["direct_document_fast_path", "head_get_adaptive_validation"],
+        "aspnet_download_token_portal": ["etenders_reconstruction", "download_token_probe", "html_attachment_extraction"],
+        "aspnet_portal": ["button_download_pattern_detection", "html_attachment_extraction", "head_get_adaptive_validation"],
+        "sharepoint_procurement_page": ["sharepoint_attachment_discovery", "html_attachment_extraction", "recursive_attachment_scan"],
+        "javascript_rendered_portal": ["js_rendered_fallback_discovery", "button_download_pattern_detection"],
+        "download_token_portal": ["download_token_probe", "button_download_pattern_detection", "html_attachment_extraction"],
+        "tender_viewer_page": ["html_attachment_extraction", "pdf_link_discovery", "recursive_attachment_scan"],
+    }
+    strategies = strategy_map.get(portal_type, ["html_attachment_extraction"])
+    return {
+        "portal_type": portal_type,
+        "handler": handler,
+        "traits": _unique_preserve_order(traits),
+        "fingerprint_confidence": round(confidence, 4),
+        "strategies": strategies,
+        "retry_profile": {
+            "timeout_multiplier": 1.5 if portal_type in {"javascript_rendered_portal", "sharepoint_procurement_page"} else 1.0,
+            "alternate_paths": len(strategies),
+        },
+    }
+
+
+def _candidate_with_strategy(
+    url: str,
+    source_page: str,
+    link_text: str,
+    strategy: str,
+    fingerprint: Dict[str, Any],
+    score_boost: float = 0.0,
+    bypass_cooldown: bool = False,
+) -> Dict[str, Any]:
+    score, reasons = _document_score(url, link_text)
+    if score_boost:
+        score = round(min(1.0, score + score_boost), 4)
+        reasons.append(f"strategy_boost:{strategy}")
+    return {
+        "url": url,
+        "source_page": source_page,
+        "link_text": link_text,
+        "score": score,
+        "reasons": reasons,
+        "direct_seed_document": _extension_from_url(url) in SUPPORTED_EXTENSIONS,
+        "portal_fingerprint": fingerprint,
+        "portal_type": fingerprint.get("portal_type"),
+        "source_handler": fingerprint.get("handler"),
+        "acquisition_strategy": strategy,
+        "bypass_source_cooldown": bool(bypass_cooldown),
+    }
+
+
+def _extract_action_links_from_html(html: str, base_url: str, fingerprint: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if not html:
+        return []
+    links: List[Dict[str, Any]] = []
+
+    attr_pattern = r'(?:href|src|data-href|data-url|data-download|data-file|formaction|action)\s*=\s*["\']([^"\']+)["\']'
+    for match in re.finditer(attr_pattern, html, flags=re.I):
+        raw = match.group(1).strip()
+        if not raw or raw.startswith("#") or raw.lower().startswith(("javascript:", "mailto:")):
+            continue
+        full = _normalise_url(raw, base_url)
+        if not _is_http_url(full):
+            continue
+        text_start = max(0, match.start() - 180)
+        text_end = min(len(html), match.end() + 180)
+        context = re.sub(r"<[^>]+>", " ", html[text_start:text_end])
+        context = re.sub(r"\s+", " ", context).strip()
+        if _looks_like_downloadable_document(full, context):
+            strategy = "button_download_pattern_detection" if any(x in context.lower() for x in ["button", "download", "onclick", "fa-download"]) else "html_attachment_extraction"
+            links.append(_candidate_with_strategy(full, base_url, context, strategy, fingerprint, score_boost=0.10, bypass_cooldown=True))
+
+    js_patterns = [
+        r'(?:window\.open|location\.href|open)\s*\(\s*["\']([^"\']+)["\']',
+        r'["\']([^"\']*(?:Download|download|Document|document|Attachment|attachment)[^"\']*)["\']',
+    ]
+    for pattern in js_patterns:
+        for match in re.finditer(pattern, html, flags=re.I):
+            raw = match.group(1).strip()
+            if not raw or raw.startswith("#") or raw.lower().startswith(("javascript:", "mailto:")):
+                continue
+            full = _normalise_url(raw, base_url)
+            if _is_http_url(full) and _looks_like_downloadable_document(full, raw):
+                links.append(_candidate_with_strategy(full, base_url, raw, "js_rendered_fallback_discovery", fingerprint, score_boost=0.08, bypass_cooldown=True))
+
+    return links
+
+
+def _build_etenders_candidates(item: Dict[str, Any], html: str, base_url: str, fingerprint: Dict[str, Any]) -> List[Dict[str, Any]]:
+    try:
+        html_unescaped = html_lib.unescape(_safe_str(html))[:40000]
+    except Exception:
+        html_unescaped = _safe_str(html)[:40000]
+    blob = " ".join([json.dumps(item, default=str), html_unescaped, base_url])
+    ids = _unique_preserve_order(re.findall(r"\b\d{5,8}\b", blob))
+    guids = _unique_preserve_order(re.findall(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b", blob))
+    candidates: List[Dict[str, Any]] = []
+    endpoints = [
+        "/Home/DownloadSpec",
+        "/Home/DownloadTenderDocument",
+        "/Home/DownloadSupportDocument",
+        "/Home/DownloadDocument",
+        "/Home/DownloadFile",
+    ]
+    for value in ids[:8] + guids[:8]:
+        for endpoint in endpoints:
+            for key in ["documentId", "supportDocumentID", "documentGuid", "id"]:
+                url = f"https://www.etenders.gov.za{endpoint}?{key}={value}&source=sharepoint"
+                candidates.append(_candidate_with_strategy(url, base_url, f"eTenders {key}", "etenders_reconstruction", fingerprint, score_boost=0.18, bypass_cooldown=True))
+    return candidates
+
+
+def _build_etenders_structured_candidates(item: Dict[str, Any], fingerprint: Dict[str, Any]) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    title = _safe_str(item.get("title") or item.get("description") or item.get("buyer_rfq_number"))
+    if not title:
+        return candidates
+
+    try:
+        from app.services.etenders_structured_json_parser_v50_8_3_service import parse_etenders_structured_json
+
+        parsed = parse_etenders_structured_json({
+            "title": title,
+            "description": item.get("description") or title,
+            "buyer_rfq_number": item.get("buyer_rfq_number") or item.get("rfq_number") or "",
+        })
+    except Exception as exc:
+        return [
+            {
+                "url": "",
+                "source_page": "https://www.etenders.gov.za/Home/opportunities",
+                "link_text": "",
+                "score": 0.0,
+                "reasons": ["v50_8_structured_json_failed", str(exc)[:120]],
+                "crawl_status": "failed",
+                "portal_fingerprint": fingerprint,
+                "portal_type": fingerprint.get("portal_type"),
+                "source_handler": "etenders",
+                "acquisition_strategy": "v50_8_structured_json_reconstruction",
+            }
+        ]
+
+    source_page = "https://www.etenders.gov.za/Home/opportunities"
+    rows = parsed.get("structured_candidates") if isinstance(parsed.get("structured_candidates"), list) else []
+    verified = parsed.get("recommended_document_links") if isinstance(parsed.get("recommended_document_links"), list) else []
+    for row in verified + rows:
+        if not isinstance(row, dict):
+            continue
+        url = _normalise_url(row.get("url"), source_page)
+        if not _is_http_url(url) or not _looks_like_downloadable_document(url, row.get("url", "")):
+            continue
+        score = max(0.42, float(row.get("score") or row.get("row_match_score") or 0.0))
+        reasons = ["v50_8_structured_json_reconstruction"]
+        if row.get("probe", {}).get("verified_download") if isinstance(row.get("probe"), dict) else False:
+            reasons.append("v50_8_probe_verified")
+            score = max(score, 0.85)
+        candidates.append(_candidate_with_strategy(url, source_page, "eTenders structured JSON candidate", "v50_8_structured_json_reconstruction", fingerprint, score_boost=min(0.30, score), bypass_cooldown=True))
+        candidates[-1]["score"] = min(1.0, score)
+        candidates[-1]["reasons"] = _unique_preserve_order((candidates[-1].get("reasons") or []) + reasons)
+        candidates[-1]["etenders_structured_candidate"] = row
+
+    try:
+        from app.services.etenders_support_document_download_v50_9_2_service import build_support_document_candidates
+    except Exception:
+        build_support_document_candidates = None
+
+    matched_rows = parsed.get("matched_rows") if isinstance(parsed.get("matched_rows"), list) else []
+    if build_support_document_candidates:
+        for row in matched_rows[:5]:
+            ids = row.get("ids") if isinstance(row.get("ids"), list) else []
+            guids = row.get("guids") if isinstance(row.get("guids"), list) else []
+            filenames = row.get("filenames") if isinstance(row.get("filenames"), list) else []
+            for guid in guids[:3]:
+                payload = {
+                    "supportDocumentID": guid,
+                    "tender_id": ids[0] if ids else "",
+                    "filename": filenames[0] if filenames else "",
+                }
+                for support_candidate in build_support_document_candidates(payload)[:20]:
+                    url = _normalise_url(support_candidate.get("url"), source_page)
+                    if _is_http_url(url):
+                        candidate = _candidate_with_strategy(url, source_page, "eTenders support document candidate", "v50_9_2_support_document_reconstruction", fingerprint, score_boost=0.28, bypass_cooldown=True)
+                        candidate["etenders_support_candidate"] = support_candidate
+                        candidates.append(candidate)
+
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for candidate in candidates:
+        url = _safe_str(candidate.get("url"))
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        deduped.append(candidate)
+    return deduped[:80]
+
+
+def _build_sharepoint_candidates(html: str, base_url: str, fingerprint: Dict[str, Any]) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    for match in re.finditer(r'["\']([^"\']*(?:download\.aspx|_layouts/15/download|sourcedoc=|\.pdf|\.docx?|\.xlsx?|\.zip)[^"\']*)["\']', html, flags=re.I):
+        url = _normalise_url(match.group(1), base_url)
+        if _is_http_url(url):
+            candidates.append(_candidate_with_strategy(url, base_url, "sharepoint attachment", "sharepoint_attachment_discovery", fingerprint, score_boost=0.16, bypass_cooldown=True))
+    return candidates
+
+
+def _summarise_portal_fingerprints(fingerprints: List[Dict[str, Any]]) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        "portal_types": {},
+        "source_handlers": {},
+        "traits": {},
+        "average_fingerprint_confidence": 0.0,
+    }
+    if not fingerprints:
+        return summary
+
+    total_confidence = 0.0
+    for row in fingerprints:
+        if not isinstance(row, dict):
+            continue
+        portal_type = _safe_str(row.get("portal_type") or "unknown")
+        handler = _safe_str(row.get("handler") or "generic")
+        summary["portal_types"][portal_type] = int(summary["portal_types"].get(portal_type, 0)) + 1
+        summary["source_handlers"][handler] = int(summary["source_handlers"].get(handler, 0)) + 1
+        total_confidence += float(row.get("fingerprint_confidence") or 0.0)
+        for trait in row.get("traits") if isinstance(row.get("traits"), list) else []:
+            trait_key = _safe_str(trait or "unknown")
+            if trait_key:
+                summary["traits"][trait_key] = int(summary["traits"].get(trait_key, 0)) + 1
+
+    summary["average_fingerprint_confidence"] = round(total_confidence / max(len(fingerprints), 1), 4)
+    return summary
+
+
+def _source_stability_score(urls: List[str]) -> float:
+    scores = []
+    health = _load_source_health()
+    for url in urls:
+        source = _source_key(url)
+        row = health.get(source) if isinstance(health.get(source), dict) else {}
+        failure_rate = float(row.get("failure_rate") or 0.0)
+        retries = int(row.get("retries") or 0)
+        attempts = int(row.get("attempts") or 0)
+        score = 1.0 - min(0.75, failure_rate * 0.75) - min(0.25, retries / max(attempts, 1) * 0.25)
+        scores.append(max(0.0, min(1.0, score)))
+    if not scores:
+        return 0.5
+    return round(sum(scores) / max(len(scores), 1), 4)
+
+
+def _load_etenders_precision() -> Dict[str, Any]:
+    data = _read_json_file(ETENDERS_PRECISION_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_etenders_precision(data: Dict[str, Any]) -> None:
+    _write_json_file(ETENDERS_PRECISION_FILE, data)
+
+
+def _etenders_pattern_signature(url: str) -> str:
+    try:
+        parsed = urlparse(_canonical_url(url))
+        params = [key for key, _ in parse_qsl(parsed.query, keep_blank_values=True)]
+        return f"{parsed.path}?{','.join(sorted(params))}"
+    except Exception:
+        return "unknown"
+
+
+def _record_etenders_pattern(url: str, success: bool, status_code: int = 0) -> None:
+    if "etenders.gov.za" not in _safe_lower(url):
+        return
+    data = _load_etenders_precision()
+    patterns = data.get("patterns") if isinstance(data.get("patterns"), dict) else {}
+    signature = _etenders_pattern_signature(url)
+    row = patterns.get(signature) if isinstance(patterns.get(signature), dict) else {"attempts": 0, "successes": 0, "failures": 0, "status_codes": {}}
+    row["attempts"] = int(row.get("attempts") or 0) + 1
+    row["successes"] = int(row.get("successes") or 0) + (1 if success else 0)
+    row["failures"] = int(row.get("failures") or 0) + (0 if success else 1)
+    row["success_rate"] = round((int(row["successes"]) / max(int(row["attempts"]), 1)) * 100.0, 2)
+    status_codes = row.get("status_codes") if isinstance(row.get("status_codes"), dict) else {}
+    if status_code:
+        key = str(status_code)
+        status_codes[key] = int(status_codes.get(key) or 0) + 1
+    row["status_codes"] = status_codes
+    row["updated_at"] = _now_iso()
+    patterns[signature] = row
+    data["patterns"] = patterns
+    data["updated_at"] = _now_iso()
+    _save_etenders_precision(data)
+
+
+def _etenders_pattern_row(url: str) -> Dict[str, Any]:
+    row = (_load_etenders_precision().get("patterns") or {}).get(_etenders_pattern_signature(url))
+    return row if isinstance(row, dict) else {}
+
+
+def _should_skip_repeated_404(url: str) -> bool:
+    row = _etenders_pattern_row(url)
+    status_codes = row.get("status_codes") if isinstance(row.get("status_codes"), dict) else {}
+    return (
+        int(row.get("successes") or 0) == 0
+        and int(status_codes.get("404") or 0) >= REPEATED_404_SKIP_THRESHOLD
+    )
+
+
+def _token_cache_key(url: str) -> str:
+    return hashlib.sha256(_canonical_url(url).encode("utf-8")).hexdigest()
+
+
+def _load_token_cache() -> Dict[str, Any]:
+    data = _read_json_file(ETENDERS_TOKEN_CACHE_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_token_cache(data: Dict[str, Any]) -> None:
+    data["updated_at"] = _now_iso()
+    _write_json_file(ETENDERS_TOKEN_CACHE_FILE, data)
+
+
+def _get_token_cache(url: str) -> Optional[Dict[str, Any]]:
+    data = _load_token_cache()
+    entries = data.get("entries") if isinstance(data.get("entries"), dict) else {}
+    row = entries.get(_token_cache_key(url))
+    if not isinstance(row, dict):
+        return None
+    if float(row.get("expires_at_epoch") or 0.0) < time.time():
+        return None
+    return row
+
+
+def _set_token_cache(url: str, payload: Dict[str, Any], ttl_seconds: int = ETENDERS_TOKEN_CACHE_TTL_SECONDS) -> None:
+    data = _load_token_cache()
+    entries = data.get("entries") if isinstance(data.get("entries"), dict) else {}
+    entries[_token_cache_key(url)] = {
+        **payload,
+        "url": _canonical_url(url),
+        "cached_at": _now_iso(),
+        "expires_at_epoch": time.time() + max(30, int(ttl_seconds)),
+    }
+    data["entries"] = entries
+    _save_token_cache(data)
+
+
+def _candidate_learning_adjustment(url: str) -> float:
+    row = (_load_etenders_precision().get("patterns") or {}).get(_etenders_pattern_signature(url))
+    if not isinstance(row, dict):
+        return 0.0
+    attempts = int(row.get("attempts") or 0)
+    success_rate = float(row.get("success_rate") or 0.0)
+    if attempts < 3:
+        return 0.0
+    if success_rate >= 70.0:
+        return 0.08
+    if success_rate <= 15.0:
+        return -0.18
+    return 0.0
+
+
+def _validate_etenders_candidate(candidate: Dict[str, Any], item: Dict[str, Any]) -> Dict[str, Any]:
+    url = _canonical_url(candidate.get("url"))
+    parsed = urlparse(url)
+    params = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    reasons: List[str] = []
+    rejection_reasons: List[str] = []
+
+    if parsed.netloc.lower() != "www.etenders.gov.za":
+        rejection_reasons.append("not_etenders_host")
+    if not re.match(r"^/(Home|home)/(DownloadSpec|DownloadTenderDocument|DownloadSupportDocument|DownloadDocument|DownloadFile|GetDocument|GetFile)$", parsed.path):
+        rejection_reasons.append("invalid_download_path")
+
+    has_guid = bool(re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", params.get("documentGuid", "") or params.get("supportDocumentID", "")))
+    has_file = bool(re.search(r"\.(pdf|docx?|xlsx?|xls|zip)$", params.get("fileName", "") or params.get("filename", ""), flags=re.I))
+    has_numeric_doc = bool(re.fullmatch(r"\d{2,8}", params.get("documentId", "") or params.get("id", "")))
+
+    if not (has_guid or has_file or has_numeric_doc):
+        rejection_reasons.append("missing_document_token")
+    if has_numeric_doc and not (has_file or candidate.get("acquisition_strategy") == "button_download_pattern_detection"):
+        rejection_reasons.append("numeric_document_without_filename_or_button_context")
+    if "documentId" in params and re.fullmatch(r"20\d{2}", params.get("documentId", "")) and has_file:
+        rejection_reasons.append("document_id_looks_like_year")
+
+    source_row = candidate.get("etenders_structured_candidate") if isinstance(candidate.get("etenders_structured_candidate"), dict) else {}
+    row_match = float(source_row.get("row_match_score") or candidate.get("row_match_score") or 0.0)
+    if source_row and row_match < 0.70:
+        rejection_reasons.append("low_rfq_row_consistency")
+
+    filename = params.get("fileName") or params.get("filename") or " ".join(source_row.get("filenames") or [])
+    title_tokens = set(_safe_lower(item.get("title")).split())
+    filename_tokens = set(_safe_lower(filename).split())
+    filename_overlap = len(title_tokens & filename_tokens) / max(len(title_tokens), 1) if title_tokens and filename else 0.0
+
+    exact_attachment_match_score = 0.0
+    if filename:
+        exact_attachment_match_score += 0.35
+        reasons.append("filename_present")
+    if has_guid:
+        exact_attachment_match_score += 0.35
+        reasons.append("guid_token_present")
+    if has_numeric_doc:
+        exact_attachment_match_score += 0.15
+        reasons.append("numeric_document_token_present")
+    if filename_overlap >= 0.18:
+        exact_attachment_match_score += 0.15
+        reasons.append("filename_title_overlap")
+
+    portal_token_confidence = 0.75 if has_guid else 0.55 if has_file else 0.35 if has_numeric_doc else 0.0
+    filename_confidence = 0.80 if has_file else 0.25 if filename else 0.0
+    rfq_row_consistency_score = row_match if source_row else float(candidate.get("score") or 0.0)
+    reconstruction_confidence = round(
+        min(1.0, (exact_attachment_match_score * 0.35) + (rfq_row_consistency_score * 0.30) + (portal_token_confidence * 0.20) + (filename_confidence * 0.15) + _candidate_learning_adjustment(url)),
+        4,
+    )
+
+    if candidate.get("acquisition_strategy") == "v50_8_structured_json_reconstruction" and reconstruction_confidence < 0.68:
+        rejection_reasons.append("low_reconstruction_confidence")
+    if _should_skip_repeated_404(url):
+        rejection_reasons.append("repeated_404_signature")
+
+    return {
+        "accepted": not rejection_reasons,
+        "canonical_url": url,
+        "rejection_reasons": _unique_preserve_order(rejection_reasons),
+        "scoring": {
+            "exact_attachment_match_score": round(min(1.0, exact_attachment_match_score), 4),
+            "rfq_row_consistency_score": round(min(1.0, rfq_row_consistency_score), 4),
+            "portal_token_confidence": round(portal_token_confidence, 4),
+            "filename_confidence": round(filename_confidence, 4),
+            "reconstruction_confidence": reconstruction_confidence,
+            "filename_title_overlap": round(filename_overlap, 4),
+            "pattern_signature": _etenders_pattern_signature(url),
+        },
+        "reasons": reasons,
+    }
+
+
+def _preflight_etenders_candidate(candidate: Dict[str, Any], timeout_seconds: int = 6) -> Dict[str, Any]:
+    url = _canonical_url(candidate.get("url"))
+    started = time.monotonic()
+    result = {
+        "ok": False,
+        "url": url,
+        "status_code": 0,
+        "content_type": "",
+        "content_length": 0,
+        "content_disposition": "",
+        "final_url": url,
+        "redirect_sane": True,
+        "attachment_filename": "",
+        "reason": "",
+        "cache_hit": False,
+        "preflight_time_seconds": 0.0,
+    }
+    cached = _get_token_cache(url)
+    if cached and cached.get("kind") == "preflight":
+        payload = cached.get("payload") if isinstance(cached.get("payload"), dict) else {}
+        if payload:
+            payload["cache_hit"] = True
+            payload["preflight_time_seconds"] = round(time.monotonic() - started, 4)
+            return payload
+    if _should_skip_repeated_404(url):
+        result["reason"] = "preflight_repeated_404_skipped"
+        result["preflight_time_seconds"] = round(time.monotonic() - started, 4)
+        return result
+    if requests is None:
+        result["reason"] = "requests_not_available"
+        result["preflight_time_seconds"] = round(time.monotonic() - started, 4)
+        return result
+    try:
+        response = requests.head(
+            url,
+            headers=_browser_headers(
+                accept="application/pdf,application/zip,application/octet-stream,*/*",
+                referer="https://www.etenders.gov.za/Home/opportunities",
+                ajax=True,
+            ),
+            timeout=max(1, min(int(timeout_seconds), PREFLIGHT_TIMEOUT_SECONDS)),
+            allow_redirects=True,
+        )
+        result["status_code"] = int(response.status_code)
+        result["content_type"] = response.headers.get("content-type", "")
+        result["content_disposition"] = response.headers.get("content-disposition", "")
+        result["final_url"] = str(response.url)
+        try:
+            result["content_length"] = int(response.headers.get("content-length") or 0)
+        except Exception:
+            result["content_length"] = 0
+        result["attachment_filename"] = _content_disposition_filename(result["content_disposition"])
+        result["redirect_sane"] = "etenders.gov.za" in _safe_lower(result["final_url"])
+
+        ctype = _safe_lower(result["content_type"])
+        if result["status_code"] == 404:
+            result["reason"] = "preflight_404"
+        elif result["status_code"] >= 500:
+            result["reason"] = "preflight_server_error"
+        elif result["content_length"] > MAX_FILE_SIZE_BYTES:
+            result["reason"] = "preflight_file_too_large"
+        elif result["content_length"] and result["content_length"] < 128 and not result["attachment_filename"]:
+            result["reason"] = "preflight_too_small"
+        elif not result["redirect_sane"]:
+            result["reason"] = "preflight_bad_redirect"
+        elif "text/html" in ctype and not result["attachment_filename"]:
+            result["reason"] = "preflight_html_without_attachment"
+        else:
+            result["ok"] = 200 <= result["status_code"] < 400
+            result["reason"] = "preflight_passed" if result["ok"] else f"preflight_status_{result['status_code']}"
+        result["preflight_time_seconds"] = round(time.monotonic() - started, 4)
+        if result["reason"] in {"preflight_passed", "preflight_404", "preflight_bad_redirect", "preflight_file_too_large", "preflight_too_small"}:
+            _set_token_cache(url, {"kind": "preflight", "payload": result}, ttl_seconds=ETENDERS_TOKEN_CACHE_TTL_SECONDS)
+        return result
+    except Exception as exc:
+        result["reason"] = f"preflight_exception:{str(exc)[:80]}"
+        result["preflight_time_seconds"] = round(time.monotonic() - started, 4)
+        return result
+
+
+def _document_score(url: str, link_text: str = "", content_type: str = "") -> Tuple[float, List[str]]:
+    blob = f"{unquote(url)} {link_text} {content_type}".lower()
+    ext = _extension_from_url(url) or _extension_from_content_type(content_type)
+
+    score = 0.0
+    reasons: List[str] = []
+
+    if ext in SUPPORTED_EXTENSIONS:
+        score += 0.25
+        reasons.append(f"supported_extension:{ext}")
+
+    if ext in {".pdf", ".docx", ".xlsx", ".xls", ".zip"}:
+        score += 0.10
+        reasons.append("high_value_file_type")
+
+    for term in PRIORITY_TERMS:
+        if term in blob:
+            score += 0.08
+            reasons.append(f"priority_term:{term}")
+
+    if any(term in blob for term in BOQ_TERMS):
+        score += 0.20
+        reasons.append("boq_candidate")
+
+    if any(term in blob for term in PRICING_TERMS):
+        score += 0.15
+        reasons.append("pricing_candidate")
+
+    if any(term in blob for term in SBD_TERMS):
+        score += 0.12
+        reasons.append("sbd_candidate")
+
+    if any(term in blob for term in SPEC_TERMS):
+        score += 0.12
+        reasons.append("specification_candidate")
+
+    if "download" in blob:
+        score += 0.06
+        reasons.append("download_signal")
+
+    if "tender" in blob or "rfq" in blob or "bid" in blob:
+        score += 0.06
+        reasons.append("procurement_signal")
+
+    if _looks_like_rejected_asset(url, link_text):
+        score -= 0.60
+        reasons.append("rejected_asset_signal")
+
+    return round(max(0.0, min(score, 1.0)), 4), reasons
+
+
+def _extract_seed_urls(item: Dict[str, Any]) -> List[str]:
+    if not isinstance(item, dict):
+        return []
+
+    urls: List[str] = []
+    for key in ("document_url", "source_url", "detail_url", "pdf_url", "download_url", "attachment_url", "tender_document_url"):
+        value = item.get(key)
+        if isinstance(value, list):
+            urls.extend(_safe_str(v) for v in value)
+        else:
+            urls.append(_safe_str(value))
+
+    for key in ("documents", "attachments", "links"):
+        value = item.get(key)
+        if isinstance(value, list):
+            for entry in value:
+                if isinstance(entry, dict):
+                    for inner_key in ("url", "href", "download_url", "document_url"):
+                        urls.append(_safe_str(entry.get(inner_key)))
+                else:
+                    urls.append(_safe_str(entry))
+        elif isinstance(value, dict):
+            for inner_key in ("url", "href", "download_url", "document_url"):
+                urls.append(_safe_str(value.get(inner_key)))
+
+    return [u for u in _unique_preserve_order(urls) if _is_http_url(u)]
+
+
+def _http_get(url: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> Optional[Any]:
+    if requests is None:
+        return None
+
+    headers = _browser_headers(
+        referer="https://www.etenders.gov.za/Home/opportunities" if "etenders.gov.za" in _safe_lower(url) else url,
+        ajax="paginated" in _safe_lower(url),
+    )
+
+    try:
+        return requests.get(url, timeout=timeout_seconds, headers=headers, allow_redirects=True, stream=False)
+    except Exception:
+        return None
+
+
+def _extract_links_from_html(html: str, base_url: str) -> List[Dict[str, str]]:
+    if not html:
+        return []
+
+    links: List[Dict[str, str]] = []
+
+    # Anchor tags
+    for match in re.finditer(r"<a\b([^>]*)>(.*?)</a>", html, flags=re.I | re.S):
+        attrs = match.group(1) or ""
+        body = match.group(2) or ""
+
+        href_match = re.search(r'href\s*=\s*["\']([^"\']+)["\']', attrs, flags=re.I)
+        if not href_match:
+            continue
+
+        href = href_match.group(1).strip()
+        if not href or href.startswith("#") or href.lower().startswith("javascript:") or href.lower().startswith("mailto:"):
+            continue
+
+        text = re.sub(r"<[^>]+>", " ", body)
+        text = re.sub(r"\s+", " ", text).strip()
+
+        full_url = _normalise_url(href, base_url)
+        if _is_http_url(full_url):
+            links.append({"url": full_url, "text": text})
+
+    # Direct file URLs embedded in page text
+    file_pattern = r'https?://[^\s"\'<>]+(?:\.pdf|\.zip|\.docx?|\.xlsx?|\.csv)(?:\?[^\s"\'<>]*)?'
+    for m in re.finditer(file_pattern, html, flags=re.I):
+        full_url = _normalise_url(m.group(0))
+        if _is_http_url(full_url):
+            links.append({"url": full_url, "text": ""})
+
+    # Relative direct file links not inside anchors
+    relative_pattern = r'["\']([^"\']+\.(?:pdf|zip|docx?|xlsx?|csv)(?:\?[^"\']*)?)["\']'
+    for m in re.finditer(relative_pattern, html, flags=re.I):
+        full_url = _normalise_url(m.group(1), base_url)
+        if _is_http_url(full_url):
+            links.append({"url": full_url, "text": ""})
+
+    unique: List[Dict[str, str]] = []
+    seen = set()
+    for link in links:
+        key = link["url"]
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(link)
+
+    return unique[:MAX_LINKS_PER_PAGE]
+
+
+def crawl_rfq_document_links(item: Dict[str, Any], timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> Dict[str, Any]:
+    seeds = _extract_seed_urls(item)
+    discovered: List[Dict[str, Any]] = []
+    portal_fetch_count = 0
+    direct_seed_count = 0
+    fingerprints: List[Dict[str, Any]] = []
+    strategy_counts: Dict[str, int] = {}
+    candidate_rejections: List[Dict[str, Any]] = []
+
+    def add_rows(rows: List[Dict[str, Any]]) -> None:
+        discovered.extend(rows)
+        for row in rows:
+            strategy = _safe_str(row.get("acquisition_strategy") or "unknown")
+            strategy_counts[strategy] = int(strategy_counts.get(strategy, 0)) + 1
+
+    def inspect_seed(seed: str) -> Tuple[List[Dict[str, Any]], int]:
+        rows: List[Dict[str, Any]] = []
+        if _looks_like_rejected_asset(seed):
+            return rows, 0
+
+        ext = _extension_from_url(seed)
+        seed_score, seed_reasons = _document_score(seed, "")
+        seed_fingerprint = _portal_fingerprint(seed)
+
+        if ext in SUPPORTED_EXTENSIONS:
+            rows.append({
+                "url": seed,
+                "source_page": seed,
+                "link_text": "",
+                "score": seed_score,
+                "reasons": seed_reasons,
+                "direct_seed_document": True,
+                "portal_fingerprint": seed_fingerprint,
+                "portal_type": seed_fingerprint.get("portal_type"),
+                "source_handler": seed_fingerprint.get("handler"),
+                "acquisition_strategy": "direct_document_fast_path",
+                "bypass_source_cooldown": True,
+            })
+            return rows, 0
+
+        started = time.monotonic()
+        response = _http_get(seed, timeout_seconds=timeout_seconds)
+        latency = round(time.monotonic() - started, 4)
+        _record_portal_latency(_source_key(seed), latency, response is not None and int(getattr(response, "status_code", 0) or 0) < 500)
+        if response is None:
+            rows.append({
+                "url": seed,
+                "source_page": seed,
+                "link_text": "",
+                "score": 0.0,
+                "reasons": ["crawl_failed"],
+                "crawl_status": "failed",
+            })
+            return rows, 1
+
+        content_type = response.headers.get("content-type", "")
+        ext_from_type = _extension_from_content_type(content_type)
+        html = ""
+        try:
+            html = response.text or ""
+        except Exception:
+            html = ""
+        fingerprint = _portal_fingerprint(str(response.url or seed), html, content_type)
+        fingerprints.append({"source": _source_key(seed), **fingerprint})
+
+        if ext_from_type in SUPPORTED_EXTENSIONS:
+            score, reasons = _document_score(str(response.url or seed), "", content_type)
+            rows.append({
+                "url": str(response.url or seed),
+                "source_page": seed,
+                "link_text": "",
+                "score": score,
+                "reasons": reasons,
+                "direct_seed_document": True,
+                "content_type": content_type,
+                "portal_fingerprint": fingerprint,
+                "portal_type": fingerprint.get("portal_type"),
+                "source_handler": fingerprint.get("handler"),
+                "acquisition_strategy": "direct_document_fast_path",
+                "bypass_source_cooldown": True,
+            })
+            return rows, 1
+
+        for link in _extract_links_from_html(html, str(response.url or seed)):
+            url = link["url"]
+            text = link.get("text", "")
+
+            if _looks_like_rejected_asset(url, text):
+                continue
+
+            if not _looks_like_downloadable_document(url, text):
+                continue
+
+            score, reasons = _document_score(url, text)
+            if score <= 0.05:
+                continue
+
+            strategy = "pdf_link_discovery" if _extension_from_url(url) == ".pdf" else "html_attachment_extraction"
+            row = _candidate_with_strategy(url, seed, text, strategy, fingerprint, score_boost=0.05, bypass_cooldown=True)
+            row["score"] = max(float(row.get("score") or 0.0), score)
+            row["reasons"] = _unique_preserve_order((row.get("reasons") or []) + reasons)
+            rows.append(row)
+
+        rows.extend(_extract_action_links_from_html(html, str(response.url or seed), fingerprint))
+        if fingerprint.get("handler") == "etenders":
+            rows.extend(_build_etenders_candidates(item, html, str(response.url or seed), fingerprint))
+            rows.extend(_build_etenders_structured_candidates(item, fingerprint))
+        if fingerprint.get("handler") == "sharepoint" or fingerprint.get("portal_type") == "sharepoint_procurement_page":
+            rows.extend(_build_sharepoint_candidates(html, str(response.url or seed), fingerprint))
+
+        if MAX_RECURSIVE_ATTACHMENT_DEPTH > 0:
+            attachment_pages = [
+                row for row in rows
+                if row.get("acquisition_strategy") in {"html_attachment_extraction", "button_download_pattern_detection"}
+                and not row.get("direct_seed_document")
+            ][:5]
+            for page_candidate in attachment_pages:
+                nested_url = _safe_str(page_candidate.get("url"))
+                if not nested_url or nested_url == seed or _extension_from_url(nested_url) in SUPPORTED_EXTENSIONS:
+                    continue
+                nested_started = time.monotonic()
+                nested_response = _http_get(nested_url, timeout_seconds=max(2, int(timeout_seconds * 0.75)))
+                nested_latency = round(time.monotonic() - nested_started, 4)
+                _record_portal_latency(_source_key(nested_url), nested_latency, nested_response is not None and int(getattr(nested_response, "status_code", 0) or 0) < 500)
+                if nested_response is None:
+                    continue
+                nested_type = nested_response.headers.get("content-type", "")
+                nested_html = ""
+                try:
+                    nested_html = nested_response.text or ""
+                except Exception:
+                    nested_html = ""
+                nested_fingerprint = _portal_fingerprint(str(nested_response.url or nested_url), nested_html, nested_type)
+                nested_rows = []
+                for link in _extract_links_from_html(nested_html, str(nested_response.url or nested_url)):
+                    if _looks_like_downloadable_document(link["url"], link.get("text", "")):
+                        nested_rows.append(_candidate_with_strategy(link["url"], nested_url, link.get("text", ""), "recursive_attachment_scan", nested_fingerprint, score_boost=0.12, bypass_cooldown=True))
+                nested_rows.extend(_extract_action_links_from_html(nested_html, str(nested_response.url or nested_url), nested_fingerprint))
+                for nested in nested_rows:
+                    nested["recursive_depth"] = 1
+                rows.extend(nested_rows)
+        return rows, 1
+
+    seed_fetches = []
+    for seed in seeds:
+        ext = _extension_from_url(seed)
+        if ext in SUPPORTED_EXTENSIONS and not _looks_like_rejected_asset(seed):
+            fingerprint = _portal_fingerprint(seed)
+            score, reasons = _document_score(seed, "")
+            discovered.append({
+                "url": seed,
+                "source_page": seed,
+                "link_text": "",
+                "score": score,
+                "reasons": reasons,
+                "direct_seed_document": True,
+                "portal_fingerprint": fingerprint,
+                "portal_type": fingerprint.get("portal_type"),
+                "source_handler": fingerprint.get("handler"),
+                "acquisition_strategy": "direct_document_fast_path",
+                "bypass_source_cooldown": True,
+            })
+            strategy_counts["direct_document_fast_path"] = int(strategy_counts.get("direct_document_fast_path", 0)) + 1
+            direct_seed_count += 1
+        else:
+            seed_fetches.append(seed)
+
+    if seed_fetches:
+        with ThreadPoolExecutor(max_workers=min(PORTAL_FETCH_WORKERS, len(seed_fetches))) as executor:
+            futures = [executor.submit(inspect_seed, seed) for seed in seed_fetches]
+            for future in as_completed(futures):
+                try:
+                    rows, fetched = future.result()
+                    add_rows(rows)
+                    portal_fetch_count += int(fetched or 0)
+                    direct_seed_count += sum(1 for row in rows if row.get("direct_seed_document"))
+                except Exception as exc:
+                    discovered.append({
+                        "url": "",
+                        "source_page": "",
+                        "link_text": "",
+                        "score": 0.0,
+                        "reasons": ["crawl_exception", str(exc)[:120]],
+                        "crawl_status": "failed",
+                    })
+
+    # Validate eTenders candidates before download selection. This avoids broad
+    # V50.8 reconstruction probes from hammering invalid ASP.NET routes.
+    validated_discovered: List[Dict[str, Any]] = []
+    for entry in discovered:
+        url = _safe_str(entry.get("url"))
+        if "etenders.gov.za" not in _safe_lower(url):
+            validated_discovered.append(entry)
+            continue
+        validation = _validate_etenders_candidate(entry, item)
+        entry["url"] = validation.get("canonical_url") or url
+        entry["etenders_candidate_scoring"] = validation.get("scoring", {})
+        entry["etenders_candidate_validation"] = {
+            "accepted": bool(validation.get("accepted")),
+            "rejection_reasons": validation.get("rejection_reasons", []),
+        }
+        if not validation.get("accepted"):
+            candidate_rejections.append({
+                "url": entry.get("url"),
+                "strategy": entry.get("acquisition_strategy"),
+                "reasons": validation.get("rejection_reasons", []),
+                "scoring": validation.get("scoring", {}),
+            })
+            continue
+        entry["score"] = max(float(entry.get("score") or 0.0), float((validation.get("scoring") or {}).get("reconstruction_confidence") or 0.0))
+        entry["reasons"] = _unique_preserve_order((entry.get("reasons") or []) + (validation.get("reasons") or []))
+        validated_discovered.append(entry)
+
+    # Dedupe and rank
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    duplicate_count = 0
+    for entry in validated_discovered:
+        url = entry.get("url")
+        if not url or url in seen:
+            duplicate_count += 1
+            continue
+        seen.add(url)
+        deduped.append(entry)
+
+    deduped.sort(key=lambda x: float(x.get("score") or 0.0), reverse=True)
+
+    return {
+        "seed_urls": seeds,
+        "discovered_links": deduped,
+        "discovered_count": len(deduped),
+        "portal_fetch_count": portal_fetch_count,
+        "direct_seed_document_count": direct_seed_count,
+        "duplicate_candidate_count": duplicate_count,
+        "portal_fingerprints": fingerprints,
+        "strategy_candidate_counts": strategy_counts,
+        "candidate_rejection_count": len(candidate_rejections),
+        "candidate_rejections": candidate_rejections[:100],
+    }
+
+
+def _safe_filename_from_url(url: str, content_type: str = "", title: str = "") -> str:
+    parsed = urlparse(url)
+    path_name = Path(unquote(parsed.path or "")).name
+    path_name = re.sub(r"[^A-Za-z0-9._ -]+", "-", path_name).strip(" .-")
+
+    ext = Path(path_name).suffix.lower()
+    if not ext:
+        ext = _extension_from_content_type(content_type) or ".bin"
+
+    base = Path(path_name).stem if path_name else _slug(title or url)
+    base = re.sub(r"[^A-Za-z0-9._ -]+", "-", base).strip(" .-") or _slug(title or url)
+
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:12]
+    return f"{base[:80]}__{digest}{ext}"
+
+
+def _content_disposition_filename(value: str) -> str:
+    value = _safe_str(value)
+    if not value:
+        return ""
+    match = re.search(r"filename\*\s*=\s*[^']*''([^;]+)", value, flags=re.I)
+    if not match:
+        match = re.search(r'filename\s*=\s*"([^"]+)"', value, flags=re.I)
+    if not match:
+        match = re.search(r"filename\s*=\s*([^;]+)", value, flags=re.I)
+    if not match:
+        return ""
+    return re.sub(r"[^A-Za-z0-9._ -]+", "-", unquote(match.group(1))).strip(" .-")
+
+
+def _extension_from_bytes(first_bytes: bytes) -> str:
+    if first_bytes.startswith(b"%PDF"):
+        return ".pdf"
+    if first_bytes.startswith(b"PK"):
+        return ".zip"
+    if first_bytes.startswith(b"\xd0\xcf\x11\xe0"):
+        return ".doc"
+    return ""
+
+
+def _looks_like_verified_download_response(content_type: str, content_disposition: str, first_bytes: bytes) -> bool:
+    ctype = _safe_lower(content_type)
+    cdisp = _safe_lower(content_disposition)
+    return bool(
+        first_bytes.startswith(b"%PDF")
+        or first_bytes.startswith(b"PK")
+        or first_bytes.startswith(b"\xd0\xcf\x11\xe0")
+        or "attachment" in cdisp
+        or "filename" in cdisp
+        or (
+            any(
+                hint in ctype
+                for hint in [
+                    "application/pdf",
+                    "application/zip",
+                    "application/msword",
+                    "application/vnd.openxmlformats",
+                    "application/vnd.ms-excel",
+                    "application/octet-stream",
+                ]
+            )
+            and "text/html" not in ctype
+            and "application/json" not in ctype
+        )
+    )
+
+
+def _etenders_session() -> Any:
+    session = requests.Session()
+    try:
+        session.get(
+            "https://www.etenders.gov.za/Home/opportunities",
+            headers=_browser_headers(),
+            timeout=10,
+            allow_redirects=True,
+        )
+    except Exception:
+        pass
+    return session
+
+
+def _download_etenders_candidate(
+    candidate: Dict[str, Any],
+    title: str,
+    timeout_seconds: int,
+    retry_backoff_seconds: float,
+    max_retries: int,
+) -> Dict[str, Any]:
+    url = _normalise_url(candidate.get("url"))
+    source = _source_key(url)
+    fingerprint = candidate.get("portal_fingerprint") if isinstance(candidate.get("portal_fingerprint"), dict) else _portal_fingerprint(url)
+    strategy = _safe_str(candidate.get("acquisition_strategy") or "etenders_session_get")
+    referer = _safe_str(candidate.get("source_page") or "https://www.etenders.gov.za/Home/opportunities")
+    started = time.monotonic()
+    session = _etenders_session()
+    total_attempts = max(1, int(max_retries) + 1)
+    last_result: Dict[str, Any] = {}
+
+    for attempt in range(1, total_attempts + 1):
+        try:
+            response = session.get(
+                url,
+                headers=_browser_headers(
+                    accept="application/pdf,application/zip,application/octet-stream,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*",
+                    referer=referer,
+                    ajax=True,
+                ),
+                timeout=max(5, int(timeout_seconds)),
+                allow_redirects=True,
+                stream=True,
+            )
+            chunks: List[bytes] = []
+            first = b""
+            total = 0
+            for chunk in response.iter_content(chunk_size=8192):
+                if not chunk:
+                    continue
+                if not first:
+                    first = chunk[:512]
+                chunks.append(chunk)
+                total += len(chunk)
+                if total > MAX_FILE_SIZE_BYTES:
+                    break
+
+            content_type = response.headers.get("content-type", "")
+            content_disposition = response.headers.get("content-disposition", "")
+            elapsed = round(time.monotonic() - started, 4)
+            debug = _response_debug_details(response, first or b"".join(chunks[:1])[:1200])
+            verified = (
+                200 <= int(response.status_code) < 400
+                and total <= MAX_FILE_SIZE_BYTES
+                and _looks_like_verified_download_response(content_type, content_disposition, first)
+            )
+
+            if verified:
+                disposition_name = _content_disposition_filename(content_disposition)
+                byte_ext = _extension_from_bytes(first)
+                filename = disposition_name or _safe_filename_from_url(str(response.url or url), content_type, title)
+                if byte_ext and Path(filename).suffix.lower() != byte_ext:
+                    filename = f"{Path(filename).stem}{byte_ext}"
+                path = DOWNLOAD_DIR / _slug(title)
+                path.mkdir(parents=True, exist_ok=True)
+                file_path = path / filename
+                file_path.write_bytes(b"".join(chunks))
+                result = {
+                    "status": "downloaded",
+                    "url": url,
+                    "source": source,
+                    "final_url": str(response.url),
+                    "path": str(file_path),
+                    "filename": filename,
+                    "extension": file_path.suffix.lower(),
+                    "content_type": content_type,
+                    "content_disposition": content_disposition,
+                    "status_code": int(response.status_code),
+                    "size_bytes": total,
+                    "score": float(candidate.get("score") or 0.0),
+                    "reasons": candidate.get("reasons") if isinstance(candidate.get("reasons"), list) else [],
+                    "link_text": _safe_str(candidate.get("link_text")),
+                    "source_page": referer,
+                    "retry_count": attempt - 1,
+                    "download_time_seconds": elapsed,
+                    "cache_hit": False,
+                    "adaptive_retry_reason": "etenders_session_aware_get",
+                    "portal_type": fingerprint.get("portal_type"),
+                    "source_handler": "etenders",
+                    "acquisition_strategy": strategy,
+                    "acquisition_confidence": float(candidate.get("score") or 0.0),
+                    "attachment_probability": float(candidate.get("score") or 0.0),
+                    "etenders_debug": debug,
+                }
+                if file_path.suffix.lower() == ".zip":
+                    result["zip_members"] = _inspect_zip_members(file_path)
+                _record_cache(url, result)
+                _update_source_health(source, True, elapsed, retry_count=attempt - 1)
+                _record_etenders_pattern(url, True, int(response.status_code))
+                return result
+
+            error = "file_too_large" if total > MAX_FILE_SIZE_BYTES else f"http_error:{int(response.status_code)}"
+            if 200 <= int(response.status_code) < 400:
+                error = f"not_verified_download:{content_type or 'unknown_content_type'}"
+            last_result = {
+                "status": "failed",
+                "url": url,
+                "source": source,
+                "status_code": int(response.status_code),
+                "content_type": content_type,
+                "content_disposition": content_disposition,
+                "error": error,
+                "retry_count": attempt - 1,
+                "download_time_seconds": elapsed,
+                "adaptive_retry_reason": "etenders_session_aware_get",
+                "portal_type": fingerprint.get("portal_type"),
+                "source_handler": "etenders",
+                "acquisition_strategy": strategy,
+                "acquisition_confidence": float(candidate.get("score") or 0.0),
+                "attachment_probability": float(candidate.get("score") or 0.0),
+                "etenders_debug": debug,
+                "timeout_isolated": int(response.status_code) in {408, 425, 429, 500, 502, 503, 504},
+            }
+            if attempt < total_attempts and int(response.status_code) in {408, 425, 429, 500, 502, 503, 504}:
+                time.sleep(max(0.0, float(retry_backoff_seconds)) * attempt)
+                continue
+            break
+        except Exception as exc:
+            elapsed = round(time.monotonic() - started, 4)
+            last_result = {
+                "status": "failed",
+                "url": url,
+                "source": source,
+                "error": str(exc),
+                "retry_count": attempt - 1,
+                "download_time_seconds": elapsed,
+                "adaptive_retry_reason": "etenders_session_aware_get",
+                "portal_type": fingerprint.get("portal_type"),
+                "source_handler": "etenders",
+                "acquisition_strategy": strategy,
+                "timeout_isolated": "timeout" in _safe_lower(exc),
+            }
+            if attempt < total_attempts:
+                time.sleep(max(0.0, float(retry_backoff_seconds)) * attempt)
+
+    elapsed = round(time.monotonic() - started, 4)
+    if not last_result:
+        last_result = {"status": "failed", "url": url, "source": source, "error": "etenders_download_failed"}
+    last_result.setdefault("download_time_seconds", elapsed)
+    _update_source_health(source, False, float(last_result.get("download_time_seconds") or elapsed), retry_count=int(last_result.get("retry_count") or 0))
+    _record_etenders_pattern(url, False, int(last_result.get("status_code") or 0))
+    _record_dead_letter(candidate, last_result, _safe_str(last_result.get("error") or "etenders_download_failed"))
+    return last_result
+
+
+def download_candidate_document(
+    candidate: Dict[str, Any],
+    title: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
+    max_retries: int = DEFAULT_DOWNLOAD_RETRIES,
+) -> Dict[str, Any]:
+    _ensure_dirs()
+
+    url = _safe_str(candidate.get("url"))
+    if not _is_http_url(url):
+        return {"status": "failed", "url": url, "error": "invalid_url"}
+
+    if requests is None:
+        return {"status": "failed", "url": url, "error": "requests_not_available"}
+
+    cached = _cache_hit(url)
+    if cached:
+        return cached
+
+    source = _source_key(url)
+    if _source_in_cooldown(source) and not bool(candidate.get("bypass_source_cooldown")):
+        result = {
+            "status": "failed",
+            "url": url,
+            "source": source,
+            "error": "source_in_cooldown",
+            "retry_count": 0,
+            "download_time_seconds": 0.0,
+            "timeout_isolated": True,
+        }
+        _record_dead_letter(candidate, result, "source_in_cooldown")
+        return result
+
+    retry_profile = _adaptive_retry_profile(source, retry_backoff_seconds, max_retries)
+    fingerprint = candidate.get("portal_fingerprint") if isinstance(candidate.get("portal_fingerprint"), dict) else _portal_fingerprint(url)
+    timeout_multiplier = _safe_str((fingerprint.get("retry_profile") or {}).get("timeout_multiplier"))
+    try:
+        timeout_seconds = int(max(timeout_seconds, timeout_seconds * float(timeout_multiplier or 1.0)))
+    except Exception:
+        pass
+    strategy = _safe_str(candidate.get("acquisition_strategy") or "generic_download")
+    retry_backoff_seconds = float(retry_profile.get("backoff_seconds") or retry_backoff_seconds)
+    max_retries = int(retry_profile.get("max_retries") if retry_profile.get("max_retries") is not None else max_retries)
+
+    if "etenders.gov.za" in _safe_lower(url):
+        return _download_etenders_candidate(candidate, title, timeout_seconds, retry_backoff_seconds, max_retries)
+
+    headers = {
+        "User-Agent": "LMCP-AutoQuote Document Acquisition/1.0",
+        "Accept": "application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,*/*;q=0.8",
+    }
+    started = time.monotonic()
+    last_error = ""
+    total_attempts = max(1, int(max_retries) + 1)
+
+    for attempt in range(1, total_attempts + 1):
+        try:
+            response = requests.get(url, timeout=timeout_seconds, headers=headers, allow_redirects=True, stream=True)
+            status_code = int(response.status_code)
+            content_type = response.headers.get("content-type", "")
+            content_length = int(response.headers.get("content-length") or 0)
+
+            if status_code >= 400:
+                last_error = "http_error"
+                if status_code in {408, 425, 429, 500, 502, 503, 504} and attempt < total_attempts:
+                    time.sleep(max(0.0, float(retry_backoff_seconds)) * attempt)
+                    continue
+                elapsed = round(time.monotonic() - started, 4)
+                _update_source_health(source, False, elapsed, retry_count=attempt - 1)
+                result = {
+                    "status": "failed",
+                    "url": url,
+                    "source": source,
+                    "status_code": status_code,
+                    "content_type": content_type,
+                    "error": last_error,
+                    "retry_count": attempt - 1,
+                    "download_time_seconds": elapsed,
+                    "adaptive_retry_reason": retry_profile.get("reason"),
+                    "portal_type": fingerprint.get("portal_type"),
+                    "source_handler": fingerprint.get("handler"),
+                    "acquisition_strategy": strategy,
+                    "acquisition_confidence": float(candidate.get("score") or 0.0),
+                    "attachment_probability": float(candidate.get("score") or 0.0),
+                    "timeout_isolated": status_code in {408, 425, 429, 500, 502, 503, 504},
+                }
+                _record_dead_letter(candidate, result, last_error)
+                return result
+
+            if content_length and content_length > MAX_FILE_SIZE_BYTES:
+                elapsed = round(time.monotonic() - started, 4)
+                _update_source_health(source, False, elapsed, retry_count=attempt - 1)
+                result = {
+                    "status": "failed",
+                    "url": url,
+                    "source": source,
+                    "status_code": status_code,
+                    "content_type": content_type,
+                    "size_bytes": content_length,
+                    "error": "file_too_large",
+                    "retry_count": attempt - 1,
+                    "download_time_seconds": elapsed,
+                    "adaptive_retry_reason": retry_profile.get("reason"),
+                    "portal_type": fingerprint.get("portal_type"),
+                    "source_handler": fingerprint.get("handler"),
+                    "acquisition_strategy": strategy,
+                    "acquisition_confidence": float(candidate.get("score") or 0.0),
+                    "attachment_probability": float(candidate.get("score") or 0.0),
+                }
+                _record_dead_letter(candidate, result, "file_too_large")
+                return result
+
+            content = response.content
+            if len(content) > MAX_FILE_SIZE_BYTES:
+                elapsed = round(time.monotonic() - started, 4)
+                _update_source_health(source, False, elapsed, retry_count=attempt - 1)
+                result = {
+                    "status": "failed",
+                    "url": url,
+                    "source": source,
+                    "status_code": status_code,
+                    "content_type": content_type,
+                    "size_bytes": len(content),
+                    "error": "file_too_large",
+                    "retry_count": attempt - 1,
+                    "download_time_seconds": elapsed,
+                    "adaptive_retry_reason": retry_profile.get("reason"),
+                    "portal_type": fingerprint.get("portal_type"),
+                    "source_handler": fingerprint.get("handler"),
+                    "acquisition_strategy": strategy,
+                    "acquisition_confidence": float(candidate.get("score") or 0.0),
+                    "attachment_probability": float(candidate.get("score") or 0.0),
+                }
+                _record_dead_letter(candidate, result, "file_too_large")
+                return result
+
+            ext = _extension_from_url(str(response.url or url)) or _extension_from_content_type(content_type)
+            if ext in REJECT_EXTENSIONS:
+                elapsed = round(time.monotonic() - started, 4)
+                _update_source_health(source, False, elapsed, retry_count=attempt - 1)
+                result = {
+                    "status": "rejected",
+                    "url": url,
+                    "source": source,
+                    "content_type": content_type,
+                    "extension": ext,
+                    "error": "rejected_asset_extension",
+                    "retry_count": attempt - 1,
+                    "download_time_seconds": elapsed,
+                    "adaptive_retry_reason": retry_profile.get("reason"),
+                    "portal_type": fingerprint.get("portal_type"),
+                    "source_handler": fingerprint.get("handler"),
+                    "acquisition_strategy": strategy,
+                    "acquisition_confidence": float(candidate.get("score") or 0.0),
+                    "attachment_probability": float(candidate.get("score") or 0.0),
+                }
+                _record_dead_letter(candidate, result, "rejected_asset_extension")
+                return result
+
+            filename = _safe_filename_from_url(str(response.url or url), content_type, title)
+            path = DOWNLOAD_DIR / _slug(title)
+            path.mkdir(parents=True, exist_ok=True)
+            file_path = path / filename
+            file_path.write_bytes(content)
+            elapsed = round(time.monotonic() - started, 4)
+
+            result = {
+                "status": "downloaded",
+                "url": url,
+                "source": source,
+                "final_url": str(response.url),
+                "path": str(file_path),
+                "filename": filename,
+                "extension": file_path.suffix.lower(),
+                "content_type": content_type,
+                "status_code": status_code,
+                "size_bytes": len(content),
+                "score": float(candidate.get("score") or 0.0),
+                "reasons": candidate.get("reasons") if isinstance(candidate.get("reasons"), list) else [],
+                "link_text": _safe_str(candidate.get("link_text")),
+                "source_page": _safe_str(candidate.get("source_page")),
+                "retry_count": attempt - 1,
+                "download_time_seconds": elapsed,
+                "cache_hit": False,
+                "adaptive_retry_reason": retry_profile.get("reason"),
+                "portal_type": fingerprint.get("portal_type"),
+                "source_handler": fingerprint.get("handler"),
+                "acquisition_strategy": strategy,
+                "acquisition_confidence": float(candidate.get("score") or 0.0),
+                "attachment_probability": float(candidate.get("score") or 0.0),
+            }
+
+            if file_path.suffix.lower() == ".zip":
+                result["zip_members"] = _inspect_zip_members(file_path)
+
+            _record_cache(url, result)
+            _update_source_health(source, True, elapsed, retry_count=attempt - 1)
+            return result
+
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt < total_attempts:
+                time.sleep(max(0.0, float(retry_backoff_seconds)) * attempt)
+                continue
+
+    elapsed = round(time.monotonic() - started, 4)
+    _update_source_health(source, False, elapsed, retry_count=max(0, total_attempts - 1))
+    result = {
+        "status": "failed",
+        "url": url,
+        "source": source,
+        "error": last_error or "download_failed",
+        "retry_count": max(0, total_attempts - 1),
+        "download_time_seconds": elapsed,
+        "adaptive_retry_reason": retry_profile.get("reason"),
+        "portal_type": fingerprint.get("portal_type"),
+        "source_handler": fingerprint.get("handler"),
+        "acquisition_strategy": strategy,
+        "acquisition_confidence": float(candidate.get("score") or 0.0),
+        "attachment_probability": float(candidate.get("score") or 0.0),
+        "timeout_isolated": "timeout" in _safe_lower(last_error),
+    }
+    _record_dead_letter(candidate, result, last_error or "download_failed")
+    return result
+
+
+def _inspect_zip_members(path: Path) -> List[Dict[str, Any]]:
+    members: List[Dict[str, Any]] = []
+    try:
+        with zipfile.ZipFile(path, "r") as z:
+            for info in z.infolist()[:100]:
+                name = info.filename
+                ext = Path(name).suffix.lower()
+                if ext in REJECT_EXTENSIONS:
+                    continue
+                score, reasons = _document_score(name, name)
+                members.append({
+                    "filename": name,
+                    "extension": ext,
+                    "size_bytes": info.file_size,
+                    "score": score,
+                    "reasons": reasons,
+                })
+    except Exception:
+        return []
+    return members
+
+
+def _categorise_download(download: Dict[str, Any]) -> Dict[str, bool]:
+    blob = " ".join([
+        _safe_lower(download.get("filename")),
+        _safe_lower(download.get("url")),
+        _safe_lower(download.get("link_text")),
+        " ".join(_safe_lower(r) for r in (download.get("reasons") or [])),
+    ])
+
+    zip_members = download.get("zip_members") if isinstance(download.get("zip_members"), list) else []
+    for member in zip_members:
+        blob += " " + _safe_lower(member.get("filename"))
+        blob += " " + " ".join(_safe_lower(r) for r in (member.get("reasons") or []))
+
+    return {
+        "boq_candidate": any(term in blob for term in BOQ_TERMS),
+        "pricing_schedule": any(term in blob for term in PRICING_TERMS),
+        "sbd": any(term in blob for term in SBD_TERMS),
+        "specification": any(term in blob for term in SPEC_TERMS),
+    }
+
+
+def _filter_by_category(downloads: List[Dict[str, Any]], category: str) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for d in downloads:
+        if d.get("status") != "downloaded":
+            continue
+        cats = _categorise_download(d)
+        if cats.get(category):
+            out.append(d)
+    out.sort(key=lambda x: float(x.get("score") or 0.0), reverse=True)
+    return out
+
+
+
+
+def _normalise_match_text(value: Any) -> str:
+    text = _safe_lower(value)
+    text = re.sub(r"&amp;?", "&", text)
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _extract_reference_patterns_from_text(text: str) -> List[str]:
+    text = _safe_str(text)
+    refs: List[str] = []
+
+    patterns = [
+        r"\bFIN[-\s_/]*SCM[-\s_/]*(?:TEN|RFQ|BID|EOI)[-\s_/]*\d{3,6}\b",
+        r"\bSCM/[A-Z0-9]{2,10}/\d{2,4}\b",
+        r"\b[A-Z]-[A-Z]{2}\s*\d{1,4}\s*[-/]\s*20\d{2}\b",
+        r"\bT\d{1,3}/\d{1,3}/\d{2,4}\b",
+        r"\bRFQ[-\s_/]*[A-Z0-9][A-Z0-9\-_/]{3,30}\b",
+        r"\bRFP[-\s_/]*[A-Z0-9][A-Z0-9\-_/]{3,30}\b",
+        r"\bBID\s*(?:NO|NUMBER)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/ ]{3,40})",
+        r"\bTENDER\s*(?:NO|NUMBER)?\s*[:#-]?\s*([A-Z0-9][A-Z0-9\-_/ ]{3,40})",
+    ]
+
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, flags=re.I):
+            if match.groups():
+                ref = match.group(1)
+            else:
+                ref = match.group(0)
+            ref = re.sub(r"\s+", " ", _safe_str(ref)).strip(" .,:;")
+            if len(ref) >= 4:
+                refs.append(ref)
+
+    return _unique_preserve_order(refs)
+
+
+def _reference_variants(ref: str) -> List[str]:
+    ref = _safe_str(ref)
+    if not ref:
+        return []
+
+    variants = [ref]
+    compact = re.sub(r"[^A-Za-z0-9]+", "", ref)
+    dashed = re.sub(r"[^A-Za-z0-9]+", "-", ref).strip("-")
+    spaced = re.sub(r"[^A-Za-z0-9]+", " ", ref).strip()
+
+    for value in (compact, dashed, spaced):
+        if value and value not in variants:
+            variants.append(value)
+
+    return variants
+
+
+def _extract_item_match_profile(item: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(item, dict):
+        item = {}
+
+    title = _safe_str(item.get("title"))
+    buyer_rfq_number = _safe_str(item.get("buyer_rfq_number"))
+    rfq_number = _safe_str(item.get("rfq_number"))
+    reference_number = _safe_str(item.get("reference_number"))
+    description = _safe_str(item.get("description"))
+    raw_text = _safe_str(item.get("raw_text"))
+
+    item_text = " ".join([title, buyer_rfq_number, rfq_number, reference_number, description, raw_text])
+    refs = _extract_reference_patterns_from_text(item_text)
+
+    # Add explicit fields as possible refs when they look reference-like.
+    for value in (buyer_rfq_number, rfq_number, reference_number):
+        if value and len(value) <= 80 and re.search(r"\d", value):
+            if any(x in value.upper() for x in ("FIN", "SCM", "TEN", "RFQ", "RFP", "BID", "T")):
+                refs.append(value)
+
+    refs = _unique_preserve_order(refs)
+
+    words = [
+        w for w in _normalise_match_text(item_text).split()
+        if len(w) >= 4 and w not in {
+            "supply", "delivery", "tender", "rfq", "rfp", "request", "proposal",
+            "quotation", "period", "years", "year", "appointment", "bid",
+            "description", "necsa", "south", "african"
+        }
+    ]
+
+    # Strong tokens are useful when RFQ reference is not present in title.
+    strong_tokens = _unique_preserve_order(words)[:20]
+
+    return {
+        "title": title,
+        "item_text": item_text,
+        "normalised_item_text": _normalise_match_text(item_text),
+        "references": refs,
+        "reference_variants": _unique_preserve_order(
+            [variant for ref in refs for variant in _reference_variants(ref)]
+        ),
+        "strong_tokens": strong_tokens,
+    }
+
+
+def _candidate_match_blob(candidate: Dict[str, Any]) -> str:
+    if not isinstance(candidate, dict):
+        return ""
+    return " ".join([
+        _safe_str(candidate.get("url")),
+        _safe_str(candidate.get("link_text")),
+        _safe_str(candidate.get("source_page")),
+        " ".join(_safe_str(r) for r in (candidate.get("reasons") or [])),
+    ])
+
+
+def _score_package_match(candidate: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
+    blob = _candidate_match_blob(candidate)
+    norm_blob = _normalise_match_text(blob)
+
+    score = float(candidate.get("score") or 0.0) * 0.35
+    reasons: List[str] = []
+
+    refs = profile.get("references") if isinstance(profile.get("references"), list) else []
+    ref_variants = profile.get("reference_variants") if isinstance(profile.get("reference_variants"), list) else []
+
+    matched_refs: List[str] = []
+    for ref in refs:
+        for variant in _reference_variants(ref):
+            if not variant:
+                continue
+            if _normalise_match_text(variant) in norm_blob or variant.lower() in blob.lower():
+                matched_refs.append(ref)
+                score += 0.55
+                reasons.append(f"matched_reference:{ref}")
+                break
+
+    # Penalize candidate packages that clearly point to a different tender reference.
+    candidate_refs = _extract_reference_patterns_from_text(blob)
+    normalised_item_refs = {_normalise_match_text(v) for v in ref_variants}
+    mismatched_refs = []
+    for cref in candidate_refs:
+        cref_norm_variants = {_normalise_match_text(v) for v in _reference_variants(cref)}
+        if normalised_item_refs and not (cref_norm_variants & normalised_item_refs):
+            mismatched_refs.append(cref)
+
+    if mismatched_refs and not matched_refs:
+        score -= 0.45
+        reasons.append("different_reference:" + ",".join(mismatched_refs[:3]))
+
+    title_norm = _normalise_match_text(profile.get("title"))
+    if title_norm:
+        title_words = [w for w in title_norm.split() if len(w) >= 4]
+        if title_words:
+            overlap = sum(1 for w in title_words if w in norm_blob)
+            ratio = overlap / max(len(title_words), 1)
+            if ratio >= 0.35:
+                score += min(0.25, ratio * 0.25)
+                reasons.append(f"title_token_overlap:{round(ratio, 2)}")
+
+    strong_tokens = profile.get("strong_tokens") if isinstance(profile.get("strong_tokens"), list) else []
+    if strong_tokens:
+        overlap = sum(1 for w in strong_tokens if w in norm_blob)
+        if overlap:
+            score += min(0.20, overlap * 0.04)
+            reasons.append(f"strong_token_overlap:{overlap}")
+
+    ext = _extension_from_url(_safe_str(candidate.get("url")))
+    if ext == ".zip":
+        score += 0.08
+        reasons.append("package_zip")
+    elif ext in {".pdf", ".docx", ".xlsx", ".xls"}:
+        score += 0.04
+        reasons.append(f"document_type:{ext}")
+
+    if any(term in norm_blob for term in ["boq", "pricing", "schedule", "specification", "sbd", "main"]):
+        score += 0.05
+        reasons.append("procurement_doc_keyword")
+
+    score = round(max(0.0, min(score, 1.0)), 4)
+    return {
+        "package_match_score": score,
+        "package_match_reasons": _unique_preserve_order(reasons),
+        "candidate_references": candidate_refs,
+        "mismatched_references": mismatched_refs,
+    }
+
+
+def match_rfq_package_candidates(item: Dict[str, Any], candidates: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Rank document/package candidates against the current RFQ so listing pages with
+    many ZIPs do not cause unrelated tender packs to be downloaded.
+    """
+    profile = _extract_item_match_profile(item)
+
+    scored: List[Dict[str, Any]] = []
+    for candidate in candidates or []:
+        if not isinstance(candidate, dict):
+            continue
+        enriched = dict(candidate)
+        match = _score_package_match(enriched, profile)
+        enriched.update(match)
+        scored.append(enriched)
+
+    scored.sort(key=lambda x: float(x.get("package_match_score") or 0.0), reverse=True)
+
+    best = scored[0] if scored else None
+    confidence = float(best.get("package_match_score") or 0.0) if best else 0.0
+    reasons = best.get("package_match_reasons") if isinstance(best, dict) else []
+
+    if best and confidence >= 0.45:
+        selected = [best]
+        selection_mode = "best_match"
+    else:
+        # Fallback to top 3 by package match score/original score when no strong
+        # package reference exists. This preserves discovery but avoids downloading
+        # every unrelated package on the listing page.
+        selected = scored[:3]
+        selection_mode = "top_3_fallback"
+
+    return {
+        "profile": profile,
+        "matched_package_files": scored,
+        "best_package_file": best,
+        "package_match_confidence": round(confidence, 4),
+        "package_match_reasons": reasons or [],
+        "selected_candidates": selected,
+        "selection_mode": selection_mode,
+    }
+
+
+def acquire_rfq_documents(
+    item: Dict[str, Any],
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    max_concurrent_downloads: int = DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+    retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
+) -> Dict[str, Any]:
+    """
+    Main entry point for REAL BUYER DOCUMENT ACQUISITION ENGINE.
+
+    It crawls only URLs already present on the RFQ item, discovers downloadable
+    tender documents, downloads prioritized candidates, and classifies the files
+    for downstream document intelligence and BOQ extraction.
+    """
+    _ensure_dirs()
+    started = time.monotonic()
+    max_concurrent_downloads = max(1, min(int(max_concurrent_downloads or DEFAULT_MAX_CONCURRENT_DOWNLOADS), 16))
+    retry_backoff_seconds = max(0.0, float(retry_backoff_seconds if retry_backoff_seconds is not None else DEFAULT_RETRY_BACKOFF_SECONDS))
+
+    if not isinstance(item, dict):
+        item = {}
+
+    title = _safe_str(item.get("title") or item.get("buyer_rfq_number") or "rfq")
+
+    crawl = crawl_rfq_document_links(item, timeout_seconds=timeout_seconds)
+    candidates = crawl.get("discovered_links") if isinstance(crawl.get("discovered_links"), list) else []
+
+    candidate_pool = [
+        c for c in candidates
+        if float(c.get("score") or 0.0) >= 0.12
+    ][:MAX_DOWNLOADS_PER_RFQ]
+
+    package_match = match_rfq_package_candidates(item, candidate_pool)
+    prioritized_candidates = package_match.get("selected_candidates") if isinstance(package_match.get("selected_candidates"), list) else []
+    direct_fast_path = [
+        c for c in candidate_pool
+        if c.get("direct_seed_document")
+    ][:DIRECT_LINK_FAST_PATH_LIMIT]
+    merged_candidates: List[Dict[str, Any]] = []
+    seen_candidate_urls = set()
+    for candidate in direct_fast_path + prioritized_candidates:
+        url = _safe_str(candidate.get("url"))
+        if not url or url in seen_candidate_urls:
+            continue
+        seen_candidate_urls.add(url)
+        merged_candidates.append(candidate)
+    prioritized_candidates = merged_candidates
+    prioritized_candidates = sorted(
+        prioritized_candidates,
+        key=lambda row: (
+            _source_in_cooldown(_source_key(_safe_str(row.get("url")))),
+            -float(row.get("package_match_score") or row.get("score") or 0.0),
+        ),
+    )
+    preflight_results: List[Dict[str, Any]] = []
+    preflight_rejections: List[Dict[str, Any]] = []
+    preflighted_candidates: List[Dict[str, Any]] = []
+    for candidate in prioritized_candidates:
+        url = _safe_str(candidate.get("url"))
+        if "etenders.gov.za" not in _safe_lower(url):
+            preflighted_candidates.append(candidate)
+            continue
+        preflight = _preflight_etenders_candidate(candidate, timeout_seconds=min(timeout_seconds, PREFLIGHT_TIMEOUT_SECONDS))
+        candidate["etenders_preflight"] = preflight
+        preflight_results.append(preflight)
+        # HEAD can be unsupported or misleading on ASP.NET actions; reject only
+        # decisive invalid states and let ambiguous cases go to the session GET.
+        decisive_reject = preflight.get("reason") in {
+            "preflight_404",
+            "preflight_bad_redirect",
+            "preflight_file_too_large",
+            "preflight_too_small",
+            "preflight_repeated_404_skipped",
+        }
+        if decisive_reject:
+            preflight_rejections.append({
+                "url": url,
+                "reason": preflight.get("reason"),
+                "status_code": preflight.get("status_code"),
+                "strategy": candidate.get("acquisition_strategy"),
+                "scoring": candidate.get("etenders_candidate_scoring", {}),
+            })
+            _record_etenders_pattern(url, False, int(preflight.get("status_code") or 0))
+            continue
+        preflighted_candidates.append(candidate)
+    prioritized_candidates = preflighted_candidates
+
+    downloaded_files: List[Dict[str, Any]] = []
+    if prioritized_candidates:
+        with ThreadPoolExecutor(max_workers=min(max_concurrent_downloads, len(prioritized_candidates))) as executor:
+            futures = [
+                executor.submit(
+                    download_candidate_document,
+                    candidate,
+                    title,
+                    timeout_seconds,
+                    retry_backoff_seconds,
+                    DEFAULT_DOWNLOAD_RETRIES,
+                )
+                for candidate in prioritized_candidates
+            ]
+            for future in as_completed(futures):
+                try:
+                    downloaded_files.append(future.result())
+                except Exception as exc:
+                    downloaded_files.append({"status": "failed", "error": str(exc), "retry_count": 0})
+
+    successful_downloads = [d for d in downloaded_files if d.get("status") == "downloaded"]
+
+    prioritized_documents = sorted(
+        successful_downloads,
+        key=lambda x: float(x.get("score") or 0.0),
+        reverse=True,
+    )
+
+    boq_candidate_files = _filter_by_category(successful_downloads, "boq_candidate")
+    pricing_schedule_files = _filter_by_category(successful_downloads, "pricing_schedule")
+    sbd_files = _filter_by_category(successful_downloads, "sbd")
+    specification_files = _filter_by_category(successful_downloads, "specification")
+
+    confidence = 0.0
+    if successful_downloads:
+        confidence += 0.35
+    if boq_candidate_files:
+        confidence += 0.25
+    if pricing_schedule_files:
+        confidence += 0.20
+    if specification_files:
+        confidence += 0.10
+    if sbd_files:
+        confidence += 0.05
+    if len(successful_downloads) >= 2:
+        confidence += 0.05
+
+    confidence = round(min(confidence, 1.0), 4)
+
+    elapsed = round(time.monotonic() - started, 4)
+    retry_count = sum(int(d.get("retry_count") or 0) for d in downloaded_files if isinstance(d, dict))
+    cache_hits = sum(1 for d in downloaded_files if isinstance(d, dict) and d.get("cache_hit"))
+    portal_fingerprints = crawl.get("portal_fingerprints") if isinstance(crawl.get("portal_fingerprints"), list) else []
+    selected_urls = [_safe_str(candidate.get("url")) for candidate in prioritized_candidates if isinstance(candidate, dict)]
+    strategy_counts: Dict[str, int] = {}
+    portal_candidate_counts: Dict[str, int] = {}
+    handler_candidate_counts: Dict[str, int] = {}
+    confidence_values: List[float] = []
+    attachment_probability_values: List[float] = []
+    for candidate in prioritized_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        strategy = _safe_str(candidate.get("acquisition_strategy") or "generic_download")
+        portal_type = _safe_str(candidate.get("portal_type") or "unknown")
+        handler = _safe_str(candidate.get("source_handler") or "generic")
+        score = float(candidate.get("package_match_score") or candidate.get("score") or 0.0)
+        strategy_counts[strategy] = int(strategy_counts.get(strategy, 0)) + 1
+        portal_candidate_counts[portal_type] = int(portal_candidate_counts.get(portal_type, 0)) + 1
+        handler_candidate_counts[handler] = int(handler_candidate_counts.get(handler, 0)) + 1
+        confidence_values.append(score)
+        attachment_probability_values.append(max(float(candidate.get("score") or 0.0), score))
+    acquisition_confidence = round(sum(confidence_values) / max(len(confidence_values), 1), 4) if confidence_values else 0.0
+    attachment_probability = round(sum(attachment_probability_values) / max(len(attachment_probability_values), 1), 4) if attachment_probability_values else 0.0
+    result: Dict[str, Any] = {
+        "status": "ok" if successful_downloads else "no_documents_downloaded",
+        "engine_version": ENGINE_VERSION,
+        "acquired_at": _now_iso(),
+        "title": title,
+        "buyer_name": _safe_str(item.get("buyer_name")),
+        "buyer_rfq_number": _safe_str(item.get("buyer_rfq_number")),
+        "confidence": confidence,
+        "seed_urls": crawl.get("seed_urls", []),
+        "discovered_count": crawl.get("discovered_count", 0),
+        "portal_fetch_count": crawl.get("portal_fetch_count", 0),
+        "fast_path_direct_link_count": len(direct_fast_path),
+        "candidate_duplicate_count": crawl.get("duplicate_candidate_count", 0),
+        "candidate_rejection_count": int(crawl.get("candidate_rejection_count") or 0) + len(preflight_rejections),
+        "candidate_rejections": (crawl.get("candidate_rejections") if isinstance(crawl.get("candidate_rejections"), list) else []) + preflight_rejections[:100],
+        "etenders_preflight_results": preflight_results,
+        "etenders_preflight_rejection_count": len(preflight_rejections),
+        "candidate_pool_count": len(candidate_pool),
+        "matched_package_files": package_match.get("matched_package_files", []),
+        "best_package_file": package_match.get("best_package_file"),
+        "package_match_confidence": package_match.get("package_match_confidence", 0.0),
+        "package_match_reasons": package_match.get("package_match_reasons", []),
+        "package_selection_mode": package_match.get("selection_mode", ""),
+        "selected_candidates": prioritized_candidates,
+        "selected_candidate_count": len(prioritized_candidates),
+        "portal_fingerprints": portal_fingerprints,
+        "portal_fingerprint_summary": _summarise_portal_fingerprints(portal_fingerprints),
+        "strategy_candidate_counts": crawl.get("strategy_candidate_counts", {}),
+        "selected_strategy_counts": strategy_counts,
+        "selected_portal_candidate_counts": portal_candidate_counts,
+        "selected_handler_candidate_counts": handler_candidate_counts,
+        "portal_reliability": _source_stability_score(selected_urls),
+        "acquisition_confidence": acquisition_confidence,
+        "attachment_probability": attachment_probability,
+        "source_stability_score": _source_stability_score(selected_urls),
+        "download_attempt_count": len(downloaded_files),
+        "downloaded_count": len(successful_downloads),
+        "download_retry_count": retry_count,
+        "cache_hit_count": cache_hits,
+        "elapsed_seconds": elapsed,
+        "max_concurrent_downloads": max_concurrent_downloads,
+        "source_timeout_seconds": timeout_seconds,
+        "retry_backoff_seconds": retry_backoff_seconds,
+        "downloaded_files": downloaded_files,
+        "prioritized_documents": prioritized_documents,
+        "boq_candidate_files": boq_candidate_files,
+        "pricing_schedule_files": pricing_schedule_files,
+        "sbd_files": sbd_files,
+        "specification_files": specification_files,
+    }
+    result["acquisition_metrics"] = _update_acquisition_metrics(result, elapsed, max_concurrent_downloads)
+
+    report_path = REPORT_DIR / f"{_slug(title)}__document_acquisition_report.json"
+    report_path.write_text(json.dumps(result, indent=2, default=str))
+    result["report_path"] = str(report_path)
+
+    return result
+
+
+def acquire_documents_for_rfq(
+    item: Dict[str, Any],
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    max_concurrent_downloads: int = DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+    retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS,
+) -> Dict[str, Any]:
+    """
+    Alias for API compatibility.
+    """
+    return acquire_rfq_documents(
+        item,
+        timeout_seconds=timeout_seconds,
+        max_concurrent_downloads=max_concurrent_downloads,
+        retry_backoff_seconds=retry_backoff_seconds,
+    )
+
+
+def get_acquisition_metrics() -> Dict[str, Any]:
+    metrics = _read_json_file(METRICS_FILE, {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+    metrics.setdefault("status", "not_run")
+    metrics.setdefault("average_document_download_time", 0.0)
+    metrics.setdefault("acquisition_success_rate", 0.0)
+    metrics.setdefault("acquisition_retry_rate", 0.0)
+    metrics.setdefault("concurrent_download_count", DEFAULT_MAX_CONCURRENT_DOWNLOADS)
+    metrics.setdefault("source_failure_rate", 0.0)
+    metrics.setdefault("download_throughput_per_minute", 0.0)
+    metrics.setdefault("document_resolution_rate", 0.0)
+    metrics.setdefault("document_resolution_rates", {"last_run": 0.0, "cumulative": 0.0})
+    metrics.setdefault("direct_link_fast_path_total", 0)
+    metrics.setdefault("cache_hit_total", 0)
+    metrics.setdefault("duplicate_candidate_total", 0)
+    metrics.setdefault("dead_letter_count", _dead_letter_summary().get("dead_letter_count", 0))
+    metrics.setdefault("slowest_sources", [])
+    metrics.setdefault("retry_heavy_sources", [])
+    metrics.setdefault("highest_failure_sources", [])
+    metrics.setdefault("slowest_portals", _portal_latency_rows()[:5])
+    metrics.setdefault("portal_latency_tracking", _portal_latency_rows()[:20])
+    metrics.setdefault("document_failure_analytics", _dead_letter_summary())
+    metrics.setdefault("source_reliability_scoring", _source_reliability_rows()[:20])
+    metrics.setdefault("portal_fingerprint_breakdown", [])
+    metrics.setdefault("top_failing_portal_types", [])
+    metrics.setdefault("acquisition_strategy_leaderboard", [])
+    metrics.setdefault("strategy_performance", {})
+    metrics.setdefault("portal_type_performance", {})
+    metrics.setdefault("attachment_discovery_rate", 0.0)
+    metrics.setdefault("attachment_discovery_count", 0)
+    metrics.setdefault("recursive_extraction_success_count", 0)
+    metrics.setdefault("recursive_extraction_success_rate", 0.0)
+    metrics.setdefault("acquisition_failure_taxonomy", {})
+    metrics.setdefault("live_attachment_discovery_feed", [])
+    metrics.setdefault("etenders_attempts", 0)
+    metrics.setdefault("etenders_token_successes", 0)
+    metrics.setdefault("etenders_token_success_rate", 0.0)
+    metrics.setdefault("etenders_http_error_count", 0)
+    metrics.setdefault("etenders_candidate_links_found", 0)
+    metrics.setdefault("etenders_reconstruction_success_count", 0)
+    metrics.setdefault("candidate_rejection_total", 0)
+    metrics.setdefault("candidate_seen_total", 0)
+    metrics.setdefault("candidate_rejection_rate", 0.0)
+    metrics.setdefault("invalid_candidate_rate", 0.0)
+    metrics.setdefault("etenders_invalid_candidate_total", 0)
+    metrics.setdefault("etenders_preflight_total", 0)
+    metrics.setdefault("etenders_preflight_success", 0)
+    metrics.setdefault("preflight_success_rate", 0.0)
+    metrics.setdefault("preflight_time_total_seconds", 0.0)
+    metrics.setdefault("average_preflight_time", 0.0)
+    metrics.setdefault("token_cache_lookups", 0)
+    metrics.setdefault("token_cache_hits", 0)
+    metrics.setdefault("token_cache_hit_rate", 0.0)
+    metrics.setdefault("repeated_404_skipped", 0)
+    metrics.setdefault("dead_letters_replayed", 0)
+    metrics.setdefault("dead_letters_recovered", 0)
+    metrics.setdefault("candidate_precision_score", 0.0)
+    metrics.setdefault("candidate_rejection_reasons", {})
+    metrics.setdefault("top_invalid_url_patterns", {})
+    metrics.setdefault("successful_candidate_patterns", [])
+    metrics.setdefault("reconstruction_confidence_distribution", {})
+    metrics.setdefault("source_precision_score", 0.0)
+    metrics.setdefault("reconstruction_accuracy_trend", [])
+    metrics.setdefault("404_rate", 0.0)
+    return metrics
+
+
+def replay_dead_letters(
+    limit: int = 25,
+    timeout_seconds: int = FAILED_CANDIDATE_TIMEOUT_SECONDS,
+    max_concurrent_downloads: int = 4,
+    retry_backoff_seconds: float = 0.25,
+) -> Dict[str, Any]:
+    _ensure_dirs()
+    started = time.monotonic()
+    items = _load_dead_letters()
+    newest_unique: List[Dict[str, Any]] = []
+    seen = set()
+    for item in reversed(items):
+        if not isinstance(item, dict):
+            continue
+        url = _canonical_url(item.get("url"))
+        if not _is_http_url(url) or url in seen:
+            continue
+        seen.add(url)
+        newest_unique.append({**item, "url": url})
+        if len(newest_unique) >= max(1, int(limit)):
+            break
+
+    replayed = 0
+    recovered = 0
+    repeated_404_skipped = 0
+    still_failed = 0
+    results: List[Dict[str, Any]] = []
+    replay_preflights: List[Dict[str, Any]] = []
+    recovered_urls = set()
+
+    def _replay(item: Dict[str, Any]) -> Dict[str, Any]:
+        url = _canonical_url(item.get("url"))
+        if any(token in url for token in ["<", ">", "\n", "\r", "\t"]) or len(url) > 500:
+            return {
+                "status": "skipped",
+                "url": url,
+                "source": _source_key(url),
+                "error": "malformed_dead_letter_url",
+                "reason": "malformed_dead_letter_url",
+            }
+        candidate = {
+            "url": url,
+            "source_page": item.get("source_page") or "https://www.etenders.gov.za/Home/opportunities",
+            "link_text": item.get("link_text") or "dead-letter replay",
+            "score": 0.45,
+            "acquisition_strategy": "dead_letter_replay",
+            "bypass_source_cooldown": True,
+            "suppress_dead_letter": True,
+        }
+        if "etenders.gov.za" in _safe_lower(url):
+            if _should_skip_repeated_404(url):
+                return {
+                    "status": "skipped",
+                    "url": url,
+                    "source": _source_key(url),
+                    "error": "repeated_404_signature",
+                    "reason": "repeated_404_signature",
+                }
+            preflight = _preflight_etenders_candidate(candidate, timeout_seconds=min(timeout_seconds, PREFLIGHT_TIMEOUT_SECONDS))
+            candidate["etenders_preflight"] = preflight
+            replay_preflights.append(preflight)
+            if preflight.get("reason") in {"preflight_404", "preflight_bad_redirect", "preflight_file_too_large", "preflight_too_small", "preflight_repeated_404_skipped"}:
+                _record_etenders_pattern(url, False, int(preflight.get("status_code") or 0))
+                return {
+                    "status": "skipped",
+                    "url": url,
+                    "source": _source_key(url),
+                    "error": preflight.get("reason"),
+                    "reason": preflight.get("reason"),
+                    "preflight": preflight,
+                }
+        return download_candidate_document(
+            candidate,
+            title=item.get("link_text") or item.get("source") or "dead letter replay",
+            timeout_seconds=max(1, min(int(timeout_seconds), FAILED_CANDIDATE_TIMEOUT_SECONDS)),
+            retry_backoff_seconds=retry_backoff_seconds,
+            max_retries=0,
+        )
+
+    if newest_unique:
+        with ThreadPoolExecutor(max_workers=min(max(1, int(max_concurrent_downloads)), len(newest_unique))) as executor:
+            future_map = {executor.submit(_replay, item): item for item in newest_unique}
+            for future in as_completed(future_map):
+                replayed += 1
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    result = {"status": "failed", "error": str(exc), "url": future_map[future].get("url")}
+                if result.get("status") == "downloaded":
+                    recovered += 1
+                    recovered_urls.add(_canonical_url(result.get("url")))
+                elif result.get("reason") == "repeated_404_signature" or result.get("error") == "repeated_404_signature":
+                    repeated_404_skipped += 1
+                else:
+                    still_failed += 1
+                results.append(result)
+
+    remaining = [item for item in items if _canonical_url(item.get("url")) not in recovered_urls]
+    _write_dead_letters(_dedupe_dead_letters(remaining))
+
+    _update_replay_metrics(replayed, recovered, repeated_404_skipped, replay_preflights)
+    metrics = get_acquisition_metrics()
+    return {
+        "status": "ok",
+        "mode": "dead_letter_replay_no_submission",
+        "replayed_count": replayed,
+        "recovered_count": recovered,
+        "still_failed_count": still_failed,
+        "repeated_404_skipped": repeated_404_skipped,
+        "remaining_dead_letter_count": _dead_letter_summary().get("dead_letter_count", 0),
+        "elapsed_seconds": round(time.monotonic() - started, 4),
+        "results": results[:100],
+        "metrics": {
+            "dead_letters_replayed": int(metrics.get("dead_letters_replayed") or 0),
+            "dead_letters_recovered": int(metrics.get("dead_letters_recovered") or 0),
+            "repeated_404_skipped": int(metrics.get("repeated_404_skipped") or 0),
+            "token_cache_hit_rate": float(metrics.get("token_cache_hit_rate") or 0.0),
+            "average_preflight_time": float(metrics.get("average_preflight_time") or 0.0),
+        },
+        "safety": {
+            "no_email_send": True,
+            "no_portal_upload": True,
+            "no_final_submit": True,
+            "captcha_bypass": False,
+        },
+    }
+
+
+def debug_etenders_acquisition(url: str, timeout_seconds: int = 15) -> Dict[str, Any]:
+    _ensure_dirs()
+    url = _normalise_url(url)
+    if not _is_http_url(url) or "etenders.gov.za" not in _safe_lower(url):
+        return {
+            "status": "error",
+            "error": "url_must_be_etenders_http_url",
+            "url": url,
+            "safe_to_process": False,
+        }
+
+    item = {
+        "title": "eTenders acquisition debug",
+        "source_url": url,
+        "detail_url": url,
+        "document_url": url if _looks_like_downloadable_document(url, "") else "",
+    }
+    crawl = crawl_rfq_document_links(item, timeout_seconds=max(3, int(timeout_seconds or 15)))
+    candidates = crawl.get("discovered_links") if isinstance(crawl.get("discovered_links"), list) else []
+    if not candidates and _looks_like_downloadable_document(url, ""):
+        fingerprint = _portal_fingerprint(url)
+        candidates = [
+            _candidate_with_strategy(
+                url,
+                url,
+                "debug supplied URL",
+                "debug_etenders_supplied_url",
+                fingerprint,
+                score_boost=0.2,
+                bypass_cooldown=True,
+            )
+        ]
+
+    chosen = candidates[0] if candidates else {}
+    attempt = {}
+    if chosen:
+        attempt = download_candidate_document(
+            chosen,
+            "eTenders acquisition debug",
+            timeout_seconds=max(3, int(timeout_seconds or 15)),
+            retry_backoff_seconds=0.5,
+            max_retries=1,
+        )
+
+    fingerprint = (
+        chosen.get("portal_fingerprint")
+        if isinstance(chosen.get("portal_fingerprint"), dict)
+        else _portal_fingerprint(url)
+    )
+    return {
+        "status": "ok",
+        "mode": "debug_only_no_submission",
+        "url": url,
+        "portal_fingerprint": fingerprint,
+        "candidate_document_urls": [
+            {
+                "url": candidate.get("url"),
+                "score": candidate.get("score"),
+                "strategy": candidate.get("acquisition_strategy"),
+                "portal_type": candidate.get("portal_type"),
+                "source_handler": candidate.get("source_handler"),
+                "reasons": candidate.get("reasons") if isinstance(candidate.get("reasons"), list) else [],
+            }
+            for candidate in candidates[:50]
+            if isinstance(candidate, dict) and candidate.get("url")
+        ],
+        "candidate_count": len(candidates),
+        "chosen_url": chosen.get("url") if isinstance(chosen, dict) else "",
+        "status_code": int(attempt.get("status_code") or 0) if isinstance(attempt, dict) else 0,
+        "final_url": attempt.get("final_url") if isinstance(attempt, dict) else "",
+        "content_type": attempt.get("content_type") if isinstance(attempt, dict) else "",
+        "failure_reason": attempt.get("error") if isinstance(attempt, dict) and attempt.get("status") != "downloaded" else "",
+        "extraction_strategy_used": chosen.get("acquisition_strategy") if isinstance(chosen, dict) else "",
+        "download_status": attempt.get("status") if isinstance(attempt, dict) else "not_attempted",
+        "etenders_debug": attempt.get("etenders_debug") if isinstance(attempt, dict) and isinstance(attempt.get("etenders_debug"), dict) else {},
+        "crawl_summary": {
+            "seed_urls": crawl.get("seed_urls", []),
+            "discovered_count": crawl.get("discovered_count", 0),
+            "portal_fetch_count": crawl.get("portal_fetch_count", 0),
+            "strategy_candidate_counts": crawl.get("strategy_candidate_counts", {}),
+            "portal_fingerprints": crawl.get("portal_fingerprints", []),
+        },
+        "safety": {
+            "debug_only": True,
+            "no_email_send": True,
+            "no_portal_upload": True,
+            "no_final_submit": True,
+            "captcha_bypass": False,
+        },
+    }
+
+
+def get_status() -> Dict[str, Any]:
+    return {
+        "status": "ok",
+        "engine_version": ENGINE_VERSION,
+        "runtime_dir": str(RUNTIME_DIR),
+        "download_dir": str(DOWNLOAD_DIR),
+        "report_dir": str(REPORT_DIR),
+        "capabilities": [
+            "crawl_rfq_seed_urls",
+            "discover_pdf_zip_docx_xlsx_csv_links",
+            "reject_navigation_assets_logos_media",
+            "prioritize_boq_pricing_schedule_annexure_sbd_specification",
+            "download_prioritized_documents",
+            "concurrent_document_downloads",
+            "download_retry_backoff",
+            "download_cache_index",
+            "failed_source_cooldown",
+            "parallel_portal_fetch",
+            "direct_document_fast_path",
+            "adaptive_retry_intervals",
+            "dead_letter_bad_urls",
+            "portal_latency_tracking",
+            "source_reliability_scoring",
+            "portal_fingerprinting",
+            "etenders_source_handler",
+            "municipal_portal_handler",
+            "necsa_source_handler",
+            "sharepoint_procurement_handler",
+            "html_attachment_extraction",
+            "pdf_link_discovery",
+            "recursive_attachment_scanning",
+            "button_download_pattern_detection",
+            "js_rendered_fallback_discovery",
+            "head_get_adaptive_validation",
+            "redirect_aware_resolution",
+            "download_token_reconstruction",
+            "acquisition_strategy_success_telemetry",
+            "portal_type_performance_telemetry",
+            "attachment_discovery_feed",
+            "inspect_zip_members",
+            "classify_boq_candidate_files",
+            "classify_pricing_schedule_files",
+            "classify_sbd_files",
+            "classify_specification_files",
+            "rfq_package_matching",
+            "reference_pattern_matching",
+            "confidence_scoring",
+            "write_json_report",
+        ],
+        "metrics": get_acquisition_metrics(),
+        "configuration": {
+            "max_concurrent_downloads": DEFAULT_MAX_CONCURRENT_DOWNLOADS,
+            "source_timeout_seconds": DEFAULT_TIMEOUT_SECONDS,
+            "retry_backoff_seconds": DEFAULT_RETRY_BACKOFF_SECONDS,
+            "download_retries": DEFAULT_DOWNLOAD_RETRIES,
+            "source_cooldown_seconds": SOURCE_COOLDOWN_SECONDS,
+            "portal_fetch_workers": PORTAL_FETCH_WORKERS,
+            "direct_link_fast_path_limit": DIRECT_LINK_FAST_PATH_LIMIT,
+            "max_recursive_attachment_depth": MAX_RECURSIVE_ATTACHMENT_DEPTH,
+        },
+    }

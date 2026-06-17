@@ -11,7 +11,6 @@ warnings.filterwarnings(
 warnings.filterwarnings(
     "ignore",
     message=r"urllib3 v2 only supports OpenSSL 1\.1\.1\+",
-    category=Warning,
 )
 warnings.filterwarnings(
     "ignore",

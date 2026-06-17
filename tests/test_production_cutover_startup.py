@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("LMCP_PROJECT_ROOT", "/Users/cash/Documents")
+os.environ.setdefault("LMCP_RUNTIME_DIR", "/Users/cash/Documents/runtime")
+os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DIR", "/Users/cash/Documents/runtime/manual_production")
+os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DB_PATH", "/Users/cash/Documents/runtime/manual_production/lmcp_operations.db")
+
 from app.config import get_settings
 from app.core.runtime_config import get_runtime_config
 from app.core.runtime_paths import get_runtime_paths

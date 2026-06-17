@@ -15,6 +15,7 @@ from app.services.rfq_boq_extraction_engine import extract_rfq_boq
 from app.services.quote_review_service import classify_tender
 from app.services.rfq_document_intelligence import analyse_rfq_document_intelligence
 from app.services.submission_pack_assembler_service import build_submission_pack
+from app.services import submission_review_service
 from app.services.tender_form_priority_engine import TenderFormPriorityEngine
 from app.services.system_control_service import get_system_control_state
 
@@ -69,6 +70,89 @@ _send_submission_email = _resolve_first_available(
         "route_submission_email",
     ],
 )
+
+
+def _human_approval_gate_required(payload: Dict[str, Any]) -> bool:
+    return any(
+        [
+            _clean(payload.get("tender_id")),
+            _clean(payload.get("buyer_rfq_number")),
+            _clean(payload.get("rfq_reference")),
+            _clean(payload.get("quote_number")),
+            _clean(payload.get("tender_root")),
+            _clean(payload.get("quote_folder")),
+            _clean(payload.get("quote_pack_dir")),
+            _clean(payload.get("submission_pack_dir")),
+            isinstance(payload.get("submission_pack"), dict),
+            isinstance(payload.get("quote_pack"), dict),
+        ]
+    )
+
+
+def _resolve_human_approval_context(payload: Dict[str, Any]) -> Dict[str, str]:
+    submission_pack = payload.get("submission_pack") if isinstance(payload.get("submission_pack"), dict) else {}
+    quote_pack = payload.get("quote_pack") if isinstance(payload.get("quote_pack"), dict) else {}
+    return {
+        "tender_id": _first_non_empty(
+            payload.get("tender_id"),
+            payload.get("buyer_rfq_number"),
+            payload.get("rfq_reference"),
+            payload.get("quote_number"),
+        ),
+        "tender_root": _first_non_empty(
+            payload.get("tender_root"),
+            payload.get("quote_folder"),
+            payload.get("quote_pack_dir"),
+            payload.get("submission_pack_dir"),
+        ),
+        "pricing_file": _first_non_empty(
+            payload.get("pricing_file"),
+            submission_pack.get("pricing_file"),
+            quote_pack.get("pricing_file"),
+        ),
+    }
+
+
+def _enforce_human_approval_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if not _human_approval_gate_required(payload):
+        return {}
+
+    context = _resolve_human_approval_context(payload)
+    review = {}
+    if context["tender_id"] and context["tender_root"]:
+        try:
+            review = submission_review_service.find_latest_submission_review(
+                context["tender_id"],
+                context["tender_root"],
+            )
+        except Exception:
+            review = {}
+
+    review_ready = bool(review) and _clean(review.get("status")).lower() == "review_ready" and bool(review.get("submission_review_ready"))
+    if review_ready:
+        return {
+            "human_approval_required": True,
+            "human_approval_granted": True,
+            "submission_review_status": "review_ready",
+            "submission_review_ready": True,
+            "review_blockers": [],
+        }
+
+    blockers = list(review.get("review_blockers") or [])
+    if not blockers:
+        blockers = ["manual approval record missing"]
+    return {
+        "success": False,
+        "status": "manual_action_required",
+        "message": "Human approval required before portal/email submission.",
+        "error": "Human approval required before portal/email submission.",
+        "human_approval_required": True,
+        "human_approval_granted": False,
+        "submission_review_status": _clean(review.get("status")) or "missing",
+        "submission_review_ready": False,
+        "review_blockers": blockers,
+        "review_record": review,
+    }
 
 PORTAL_AUTOMATION_ENABLED = str(os.getenv("PORTAL_AUTOMATION_ENABLED", "false")).strip().lower() == "true"
 PORTAL_HEADLESS = str(os.getenv("PORTAL_HEADLESS", "true")).strip().lower() == "true"
@@ -1122,6 +1206,21 @@ def submit_tender_to_portal(payload: Dict[str, Any]) -> Dict[str, Any]:
     if duplicate_guard_result:
         _log_submission_history_if_available(payload, duplicate_guard_result)
         return duplicate_guard_result
+
+    approval_gate = _enforce_human_approval_gate(payload)
+    if approval_gate and approval_gate.get("status") == "manual_action_required":
+        approval_gate = _manual_action_response(
+            payload,
+            approval_gate.get("message") or "Human approval required before portal/email submission.",
+            human_approval_required=True,
+            human_approval_granted=False,
+            submission_review_status=approval_gate.get("submission_review_status", "missing"),
+            submission_review_ready=False,
+            review_blockers=approval_gate.get("review_blockers", []),
+            review_record=approval_gate.get("review_record", {}),
+        )
+        _log_submission_history_if_available(payload, approval_gate)
+        return approval_gate
     portal_url = _resolve_portal_url(payload)
     final_pdf_path = _clean(payload.get("final_pdf_path") or payload.get("pdf_path"))
     attachments = _collect_attachment_paths(payload)

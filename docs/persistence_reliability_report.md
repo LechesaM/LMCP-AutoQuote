@@ -1,7 +1,8 @@
 # Persistence Reliability Report
 
 ## Current Readiness
-- SQLite fallback remains available.
+- Local runs default to SQLite for bootstrap and recovery.
+- Locked production remains PostgreSQL-backed when configured.
 - PostgreSQL config is readiness-only and can warn in production if unset.
 - Redis-ready queue configuration is available alongside local fallback.
 
@@ -15,6 +16,6 @@
 - Destructive migration is intentionally not automated.
 
 ## Recommended Next Steps
-- Validate PostgreSQL and Redis in staging.
+- Validate locked-production PostgreSQL and Redis in staging.
 - Run supervised-live backup and restore checks.
 - Keep manual confirmation required for all destructive maintenance actions.

@@ -8,6 +8,7 @@ This package now exposes:
 - manual_harvest
 - run_harvest_only
 - run_harvest_pipeline
+- run_scheduled_tender_harvest_task
 
 It also keeps the submission scheduler tasks importable.
 """
@@ -69,6 +70,7 @@ if _legacy_tasks is not None:
     manual_harvest = getattr(_legacy_tasks, "manual_harvest")
     run_harvest_only = getattr(_legacy_tasks, "run_harvest_only")
     run_harvest_pipeline = getattr(_legacy_tasks, "run_harvest_pipeline")
+    run_scheduled_tender_harvest_task = getattr(_legacy_tasks, "run_scheduled_tender_harvest_task")
 else:
     def manual_harvest(*args: Any, **kwargs: Any) -> Dict[str, Any]:
         return _placeholder("manual_harvest")
@@ -82,6 +84,10 @@ else:
         return _placeholder("run_harvest_pipeline")
 
 
+    def run_scheduled_tender_harvest_task(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+        return _placeholder("run_scheduled_tender_harvest_task")
+
+
 try:
     from app.tasks.submission_scheduler_tasks import *  # noqa: F401,F403
 except Exception:
@@ -93,5 +99,5 @@ __all__ = [
     "manual_harvest",
     "run_harvest_only",
     "run_harvest_pipeline",
+    "run_scheduled_tender_harvest_task",
 ]
-

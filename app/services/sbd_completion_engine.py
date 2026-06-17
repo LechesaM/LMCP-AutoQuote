@@ -38,6 +38,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
 def _load_dict(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {}
@@ -59,6 +70,7 @@ def _load_list(path: Path) -> List[Dict[str, Any]]:
 
 
 def _save(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, default=str))
 
 
@@ -87,22 +99,28 @@ def evaluate_sbd_completion(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 async def record_sbd_completion(payload: Dict[str, Any]) -> Dict[str, Any]:
     result = evaluate_sbd_completion(payload)
+    runtime_dir = str(payload.get("runtime_dir") or "").strip() or None
 
-    status = _load_dict(SBD_STATUS_FILE)
+    status_file = _resolve_runtime_path(SBD_STATUS_FILE, runtime_dir)
+    history_file = _resolve_runtime_path(SBD_HISTORY_FILE, runtime_dir)
+
+    status = _load_dict(status_file)
     key = result["buyer_rfq_number"] or f"UNKNOWN-{datetime.now().timestamp()}"
     status[key] = result
-    _save(SBD_STATUS_FILE, status)
+    _save(status_file, status)
 
-    history = _load_list(SBD_HISTORY_FILE)
+    history = _load_list(history_file)
     history.append(result)
-    _save(SBD_HISTORY_FILE, history[-1000:])
+    _save(history_file, history[-1000:])
 
     return result
 
 
-def get_sbd_completion_summary(limit: int = 50) -> Dict[str, Any]:
-    status = _load_dict(SBD_STATUS_FILE)
-    history = _load_list(SBD_HISTORY_FILE)
+def get_sbd_completion_summary(limit: int = 50, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    status_file = _resolve_runtime_path(SBD_STATUS_FILE, runtime_dir)
+    history_file = _resolve_runtime_path(SBD_HISTORY_FILE, runtime_dir)
+    status = _load_dict(status_file)
+    history = _load_list(history_file)
 
     ready = [x for x in status.values() if x.get("sbd_ready")]
     incomplete = [x for x in status.values() if not x.get("sbd_ready")]
@@ -119,6 +137,11 @@ def get_sbd_completion_summary(limit: int = 50) -> Dict[str, Any]:
         "incomplete_items": incomplete[-limit:],
         "recent_history": list(reversed(history[-limit:])),
         "updated_at": _now_iso(),
+        "files": {
+            "status": str(status_file),
+            "history": str(history_file),
+            "runtime_dir": str(_resolve_runtime_path(SBD_DIR, runtime_dir)),
+        },
     }
 
 

@@ -35,13 +35,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-try:
-    import fitz  # PyMuPDF
-except Exception as exc:  # pragma: no cover
-    fitz = None
-    FITZ_IMPORT_ERROR = exc
-else:
-    FITZ_IMPORT_ERROR = None
+fitz = None
+FITZ_IMPORT_ERROR = None
+
+
+def _get_fitz():
+    global fitz, FITZ_IMPORT_ERROR
+    if fitz is not None or FITZ_IMPORT_ERROR is not None:
+        return fitz
+    try:
+        import fitz as fitz_module  # PyMuPDF
+    except Exception as exc:  # pragma: no cover
+        FITZ_IMPORT_ERROR = exc
+        return None
+    fitz = fitz_module
+    return fitz
 
 try:
     from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
@@ -66,6 +74,12 @@ try:
 except Exception:  # pragma: no cover
     make_signature_instruction = None
     render_signature_asset = None
+
+try:
+    from app.services.handwriting_line_ink_v5 import resolve_line_asset_v5, resolve_line_asset_v7
+except Exception:  # pragma: no cover
+    resolve_line_asset_v5 = None
+    resolve_line_asset_v7 = None
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -291,6 +305,7 @@ class RealInkReferenceRenderer:
         identity_engine: V13RealInkIdentity,
         reference_image_path: Optional[Path] = None,
         default_ink_color: Tuple[int, int, int, int] = (24, 47, 132, 245),
+        line_ink_job_id: Optional[str] = None,
     ) -> None:
         if Image is None:
             raise RuntimeError(f"Pillow is not available: {PIL_IMPORT_ERROR}")
@@ -298,6 +313,7 @@ class RealInkReferenceRenderer:
         self.identity_engine = identity_engine
         self.identity = identity_engine.identity
         self.default_ink_color = default_ink_color
+        self.line_ink_job_id = str(line_ink_job_id or "").strip() or None
         self.reference_image_path = reference_image_path or self._find_reference_image()
         self.line_assets = self._load_reference_lines()
 
@@ -413,6 +429,32 @@ class RealInkReferenceRenderer:
         b = min(img.size[1], b + pad)
         return img.crop((l, t, r, b))
 
+    def _load_line_ink_asset(self, text: str) -> Optional[Image.Image]:
+        if not self.line_ink_job_id:
+            return None
+
+        asset_path = None
+        if resolve_line_asset_v5 is not None:
+            try:
+                asset_path = resolve_line_asset_v5(job_id=self.line_ink_job_id, text=text)
+            except Exception:
+                asset_path = None
+
+        if not asset_path and resolve_line_asset_v7 is not None:
+            try:
+                asset_path = resolve_line_asset_v7(job_id=self.line_ink_job_id)
+            except Exception:
+                asset_path = None
+
+        if not asset_path:
+            return None
+
+        try:
+            with Image.open(asset_path) as img:
+                return self._trim_alpha(img.convert("RGBA"), pad=4)
+        except Exception:
+            return None
+
     def _ink_to_alpha(self, img: Image.Image) -> Image.Image:
         """
         Convert photographed/scanned ink to transparent alpha.
@@ -429,6 +471,10 @@ class RealInkReferenceRenderer:
         return out
 
     def _select_line_asset(self, text: str) -> Optional[Image.Image]:
+        line_ink_asset = self._load_line_ink_asset(text)
+        if line_ink_asset is not None:
+            return line_ink_asset
+
         if not self.line_assets:
             return None
 
@@ -550,15 +596,16 @@ class RealInkReferenceRenderer:
 
 
 def _create_blank_pdf(output_pdf: Path, page_size: str = "A4") -> Path:
-    if fitz is None:
+    fitz_module = _get_fitz()
+    if fitz_module is None:
         raise RuntimeError(f"PyMuPDF is not available: {FITZ_IMPORT_ERROR}")
 
     sizes = {
-        "A4": fitz.paper_rect("a4"),
-        "LETTER": fitz.paper_rect("letter"),
+        "A4": fitz_module.paper_rect("a4"),
+        "LETTER": fitz_module.paper_rect("letter"),
     }
-    rect = sizes.get(str(page_size or "A4").upper(), fitz.paper_rect("a4"))
-    doc = fitz.open()
+    rect = sizes.get(str(page_size or "A4").upper(), fitz_module.paper_rect("a4"))
+    doc = fitz_module.open()
     doc.new_page(width=rect.width, height=rect.height)
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(output_pdf))
@@ -567,7 +614,10 @@ def _create_blank_pdf(output_pdf: Path, page_size: str = "A4") -> Path:
 
 
 def _render_pdf_page_to_image(page: Any, zoom: float = 2.0) -> Image.Image:
-    matrix = fitz.Matrix(zoom, zoom)
+    fitz_module = _get_fitz()
+    if fitz_module is None:
+        raise RuntimeError(f"PyMuPDF is not available: {FITZ_IMPORT_ERROR}")
+    matrix = fitz_module.Matrix(zoom, zoom)
     pix = page.get_pixmap(matrix=matrix, alpha=False)
     return Image.frombytes("RGB", [pix.width, pix.height], pix.samples).convert("RGBA")
 
@@ -579,17 +629,20 @@ def _overlay_pdf_with_handwriting(
     identity_engine: V13RealInkIdentity,
     ink_color: Tuple[int, int, int, int],
     reference_image_path: Optional[Path] = None,
+    line_ink_job_id: Optional[str] = None,
     debug: bool = False,
     payload: Optional[Dict[str, Any]] = None,
 ) -> Tuple[int, Optional[Path]]:
-    if fitz is None:
+    fitz_module = _get_fitz()
+    if fitz_module is None:
         raise RuntimeError(f"PyMuPDF is not available: {FITZ_IMPORT_ERROR}")
 
-    doc = fitz.open(str(input_pdf))
+    doc = fitz_module.open(str(input_pdf))
     renderer = RealInkReferenceRenderer(
         identity_engine=identity_engine,
         reference_image_path=reference_image_path,
         default_ink_color=ink_color,
+        line_ink_job_id=line_ink_job_id,
     )
 
     grouped: Dict[int, List[Tuple[int, HandwritingField]]] = {}
@@ -777,6 +830,7 @@ def complete_handwriting_form(payload: Dict[str, Any]) -> Dict[str, Any]:
             identity_engine=identity_engine,
             ink_color=ink,
             reference_image_path=reference_path,
+            line_ink_job_id=job_id,
             debug=debug,
             payload=payload,
         )
@@ -894,4 +948,3 @@ def example_payload() -> Dict[str, Any]:
 
 if __name__ == "__main__":
     print(json.dumps(complete_handwriting_form(example_payload()), indent=2))
-

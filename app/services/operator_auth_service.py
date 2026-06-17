@@ -27,10 +27,6 @@ OPERATOR_ACTION_ALLOWED_ROLES = {
     "submission_proof_export": ("submitter", "admin"),
     "compliance_archive_create": ("admin",),
     "compliance_archive_zip_export": ("admin",),
-    "dashboard_archive_workflow": ("reviewer", "admin"),
-    "dashboard_refuse_workflow": ("reviewer", "admin"),
-    "dashboard_operator_note": ("preparer", "reviewer", "submitter", "admin"),
-    "dashboard_acknowledge_warning": ("preparer", "reviewer", "submitter", "admin"),
 }
 OPERATOR_ACTION_LABELS = {
     "submission_proof_save": "save manual submission proof",
@@ -85,6 +81,14 @@ def _safe_text(value: Any, max_length: int = 160) -> str:
 
 def _normalize_role(value: Any) -> str:
     return _safe_text(value, 40).lower()
+
+
+def _derive_display_name(operator_id: str) -> str:
+    candidate = _safe_text(operator_id, 160)
+    if "@" in candidate:
+        candidate = candidate.split("@", 1)[0]
+    candidate = candidate.replace(".", " ").replace("_", " ").replace("-", " ").strip()
+    return candidate.title() if candidate else "Local Admin"
 
 
 def _db_conn() -> sqlite3.Connection:
@@ -348,6 +352,45 @@ def login_operator(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         conn = _db_conn()
         try:
             _delete_expired_sessions(conn)
+            operator_count_row = conn.execute("SELECT COUNT(*) AS count FROM operators").fetchone()
+            operator_count = int(operator_count_row["count"] or 0) if operator_count_row else 0
+            if operator_count == 0:
+                created_at = _now()
+                expires_at = created_at + timedelta(seconds=OPERATOR_SESSION_TIMEOUT_SECONDS)
+                token = secrets.token_urlsafe(32)
+                token_hash = _session_token_hash(token)
+                display_name = _derive_display_name(_safe_text(data.get("display_name"), 160) or operator_id)
+                password_hash = _hash_password(password)
+                conn.execute(
+                    """
+                    INSERT INTO operators (operator_id, display_name, role, password_hash, is_active, created_at, last_login_at)
+                    VALUES (?, ?, 'admin', ?, 1, ?, ?)
+                    """,
+                    (operator_id, display_name, password_hash, created_at.isoformat(), created_at.isoformat()),
+                )
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO sessions (session_token_hash, operator_id, created_at, expires_at, last_seen_at, revoked_at)
+                    VALUES (?, ?, ?, ?, ?, NULL)
+                    """,
+                    (token_hash, operator_id, created_at.isoformat(), expires_at.isoformat(), created_at.isoformat()),
+                )
+                conn.commit()
+                operator = OperatorContext(
+                    operator_id=operator_id,
+                    display_name=display_name,
+                    role="admin",
+                    authenticated=True,
+                    auth_source="session",
+                    session_token=token,
+                    session_expires_at=expires_at.isoformat(),
+                )
+                return {
+                    **_session_payload(operator),
+                    "session_token": token,
+                    "message": "Bootstrap admin created locally.",
+                    "session_timeout_seconds": OPERATOR_SESSION_TIMEOUT_SECONDS,
+                }
             row = conn.execute(
                 """
                 SELECT operator_id, display_name, role, password_hash, is_active, created_at, last_login_at

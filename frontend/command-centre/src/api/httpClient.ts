@@ -1,56 +1,36 @@
-import axios from "axios";
-import { AUTH_STORAGE_KEY } from "../auth/authConstants";
-import { notifySessionExpired } from "../auth/sessionLifecycle";
+export const API_BASE_URL = "";
 
-const baseURL = import.meta.env.VITE_LMCP_API_BASE_URL || "";
+export async function getJson(path: string, init: RequestInit = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(init.headers || {}),
+    },
+  });
 
-export const httpClient = axios.create({
-  baseURL,
-  timeout: 15000,
-  headers: {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-  },
-});
-
-httpClient.interceptors.request.use((config) => {
-  try {
-    const token = typeof window !== "undefined" ? window.localStorage.getItem(AUTH_STORAGE_KEY) : "";
-    const authToken = token ? JSON.parse(token)?.state?.token : "";
-    if (authToken) {
-      config.headers = config.headers || {};
-      config.headers.Authorization = `Bearer ${authToken}`;
-    }
-  } catch (error) {
-    // ignore auth header hydration issues
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
   }
-  return config;
-});
 
-httpClient.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    const status = error?.response?.status;
-    if (status === 401) {
-      notifySessionExpired({
-        reason: error?.response?.data?.detail || error?.response?.data?.message || "Your session expired or is no longer valid.",
-        source: "api",
-      });
-    }
-    return Promise.reject(error);
-  },
-);
-
-export function hasConfiguredApiBaseUrl() {
-  return Boolean(baseURL);
+  return response.json();
 }
 
-export async function requestJson(path, config = {}) {
-  const response = await httpClient.request({
-    url: path,
-    method: config.method || "get",
-    params: config.params,
-    data: config.data,
+export async function postJson(path: string, body: unknown, init: RequestInit = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      ...(init.headers || {}),
+    },
+    body: JSON.stringify(body),
   });
-  return response.data;
+
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+
+  return response.json();
 }

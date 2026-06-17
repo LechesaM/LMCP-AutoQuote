@@ -47,18 +47,12 @@ class RuntimeConfig:
     project_root: Path
     environment: str
     mode: ProductionMode
-    pilot_mode: str
-    pilot_enabled: bool
-    pilot_supervised_live: bool
     paths: RuntimePaths
     debug: bool
     log_level: str
     enable_legacy_routers: bool
     allow_degraded_startup: bool
     runtime_safety_enabled: bool
-    observability_enabled: bool
-    deployment_hardening_enabled: bool
-    strict_production_startup: bool
     manual_production_enforced: bool
     final_submission_manual_only: bool
     log_max_bytes: int = 5 * 1024 * 1024
@@ -68,14 +62,8 @@ class RuntimeConfig:
     def configure_environment(self) -> None:
         os.environ.setdefault("LMCP_PROJECT_ROOT", str(self.project_root))
         os.environ.setdefault("LMCP_RUNTIME_DIR", str(self.paths.runtime_root))
-        os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DIR", str(self.paths.manual_production_dir))
-        os.environ.setdefault("LMCP_MANUAL_PRODUCTION_DB_PATH", str(self.paths.manual_production_db_path))
         os.environ.setdefault("LMCP_ENV", self.environment)
         os.environ.setdefault("LMCP_PRODUCTION_MODE", self.mode.value)
-        os.environ.setdefault("LMCP_PILOT_MODE", self.pilot_mode)
-        os.environ.setdefault("LMCP_OBSERVABILITY_ENABLED", "1" if self.observability_enabled else "0")
-        os.environ.setdefault("LMCP_DEPLOYMENT_HARDENING_ENABLED", "1" if self.deployment_hardening_enabled else "0")
-        os.environ.setdefault("STRICT_PRODUCTION_STARTUP", "1" if self.strict_production_startup else "0")
 
     def ensure_directories(self) -> None:
         self.paths.ensure_directories()
@@ -123,25 +111,16 @@ def get_runtime_config() -> RuntimeConfig:
     paths = get_runtime_paths()
     environment = env("LMCP_ENV", env("ENVIRONMENT", "development")).lower()
     mode = ProductionMode.parse(env("LMCP_PRODUCTION_MODE", ""))
-    pilot_mode = env("LMCP_PILOT_MODE", "disabled").lower()
-    if pilot_mode not in {"disabled", "dry_run", "supervised_live"}:
-        pilot_mode = "disabled"
     config = RuntimeConfig(
         project_root=project_root,
         environment=environment,
         mode=mode,
-        pilot_mode=pilot_mode,
-        pilot_enabled=pilot_mode != "disabled",
-        pilot_supervised_live=pilot_mode == "supervised_live",
         paths=paths,
         debug=env_bool("LMCP_DEBUG", False),
         log_level=env("LMCP_LOG_LEVEL", env("LOG_LEVEL", "INFO")).upper(),
         enable_legacy_routers=env_bool("LMCP_ENABLE_LEGACY_ROUTERS", False),
         allow_degraded_startup=env_bool("LMCP_ALLOW_DEGRADED_STARTUP", False),
         runtime_safety_enabled=env_bool("LMCP_RUNTIME_SAFETY_ENABLED", True),
-        observability_enabled=env_bool("LMCP_OBSERVABILITY_ENABLED", True),
-        deployment_hardening_enabled=env_bool("LMCP_DEPLOYMENT_HARDENING_ENABLED", True),
-        strict_production_startup=env_bool("STRICT_PRODUCTION_STARTUP", False),
         manual_production_enforced=mode.manual_production_enforced,
         final_submission_manual_only=True,
     )

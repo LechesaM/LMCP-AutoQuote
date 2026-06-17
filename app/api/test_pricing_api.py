@@ -33,6 +33,3 @@ def test_pricing():
     }
 
     return PricingScheduleService.complete_buyer_pricing_schedule(rfq)
-
-
-test_pricing.__test__ = False

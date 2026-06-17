@@ -11,36 +11,18 @@ class ProductionMode(str, Enum):
     LOCKED_PRODUCTION = "locked_production"
 
     @classmethod
-    def default(cls) -> "ProductionMode":
-        return cls.MANUAL_PRODUCTION
-
-    @classmethod
-    def parse(cls, value: str | None) -> "ProductionMode":
-        raw = str(value or "").strip().lower()
-        if not raw:
-            return cls.default()
-        try:
-            return cls(raw)
-        except ValueError:
-            return cls.default()
+    def parse(cls, value: str) -> "ProductionMode":
+        text = str(value or "").strip().lower()
+        mapping = {
+            "development": cls.DEVELOPMENT,
+            "staging": cls.STAGING,
+            "manual_production": cls.MANUAL_PRODUCTION,
+            "semi_autonomous": cls.SEMI_AUTONOMOUS,
+            "locked_production": cls.LOCKED_PRODUCTION,
+        }
+        return mapping.get(text, cls.MANUAL_PRODUCTION)
 
     @property
     def manual_production_enforced(self) -> bool:
-        return self in {
-            self.STAGING,
-            self.MANUAL_PRODUCTION,
-            self.SEMI_AUTONOMOUS,
-            self.LOCKED_PRODUCTION,
-        }
+        return self in {self.MANUAL_PRODUCTION, self.LOCKED_PRODUCTION}
 
-    @property
-    def legacy_routers_allowed_by_default(self) -> bool:
-        return False
-
-    @property
-    def is_locked(self) -> bool:
-        return self is self.LOCKED_PRODUCTION
-
-    @property
-    def allows_background_automation(self) -> bool:
-        return self in {self.DEVELOPMENT, self.SEMI_AUTONOMOUS}

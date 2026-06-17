@@ -5,9 +5,11 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "runtime"))
+from app.core.runtime_paths import get_runtime_paths
+
+RUNTIME_DIR = get_runtime_paths().runtime_root
 PRODUCTION_LOCK_DIR = RUNTIME_DIR / "production_lock"
 PRODUCTION_LOCK_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -17,6 +19,17 @@ POLICY_FILE = PRODUCTION_LOCK_DIR / "production_policy.json"
 
 MIN_PROFIT_REQUIRED = float(os.getenv("LMCP_MIN_PROFIT_REQUIRED", "30000"))
 MIN_MARGIN_PERCENT = float(os.getenv("LMCP_MIN_MARGIN_PERCENT", "25"))
+
+
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
 
 EXCLUDED_CATEGORY_KEYWORDS = [
     "medical", "pharmaceutical", "medicine", "clinic", "hospital consumable",
@@ -173,7 +186,7 @@ def _extract_profit_margin(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _load_policy() -> Dict[str, Any]:
+def _load_policy(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     default = {
         "enabled": True,
         "mode": "production_locked",
@@ -187,35 +200,40 @@ def _load_policy() -> Dict[str, Any]:
         "excluded_category_keywords": EXCLUDED_CATEGORY_KEYWORDS,
         "updated_at": _now(),
     }
-    existing = _read_json(POLICY_FILE, None)
+    policy_file = _resolve_runtime_path(POLICY_FILE, runtime_dir)
+    existing = _read_json(policy_file, None)
     if not isinstance(existing, dict):
-        _write_json(POLICY_FILE, default)
+        _write_json(policy_file, default)
         return default
     return {**default, **existing}
 
 
-def save_production_policy(policy: Dict[str, Any]) -> Dict[str, Any]:
-    current = _load_policy()
+def save_production_policy(policy: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    current = _load_policy(runtime_dir=runtime_dir)
     updated = {**current, **(policy if isinstance(policy, dict) else {})}
     updated["updated_at"] = _now()
-    _write_json(POLICY_FILE, updated)
-    return {"status": "ok", "policy": updated}
+    policy_file = _resolve_runtime_path(POLICY_FILE, runtime_dir)
+    _write_json(policy_file, updated)
+    return {"status": "ok", "policy": updated, "policy_file": str(policy_file)}
 
 
-def get_production_policy() -> Dict[str, Any]:
-    return {"status": "ok", "policy": _load_policy(), "policy_file": str(POLICY_FILE), "updated_at": _now()}
+def get_production_policy(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    policy_file = _resolve_runtime_path(POLICY_FILE, runtime_dir)
+    return {"status": "ok", "policy": _load_policy(runtime_dir=runtime_dir), "policy_file": str(policy_file), "updated_at": _now()}
 
 
-def evaluate_production_lock(payload: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_production_lock(payload: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     payload = payload if isinstance(payload, dict) else {}
-    policy = _load_policy()
+    policy = _load_policy(runtime_dir=runtime_dir)
     reasons: List[Dict[str, Any]] = []
     warnings: List[Dict[str, Any]] = []
 
     if not policy.get("enabled", True):
         decision = {"status": "allowed", "allowed": True, "production_locked": False, "message": "Production lock is disabled by policy.", "policy": policy, "checked_at": _now()}
-        _write_json(LAST_DECISION_FILE, decision)
-        _append_json(DECISION_HISTORY_FILE, decision)
+        last_file = _resolve_runtime_path(LAST_DECISION_FILE, runtime_dir)
+        history_file = _resolve_runtime_path(DECISION_HISTORY_FILE, runtime_dir)
+        _write_json(last_file, decision)
+        _append_json(history_file, decision)
         return decision
 
     is_test, test_hits = _is_test_or_demo(payload)
@@ -260,23 +278,28 @@ def evaluate_production_lock(payload: Dict[str, Any]) -> Dict[str, Any]:
         "payload_keys": sorted(list(payload.keys())),
         "checked_at": _now(),
     }
-    _write_json(LAST_DECISION_FILE, decision)
-    _append_json(DECISION_HISTORY_FILE, decision)
+    last_file = _resolve_runtime_path(LAST_DECISION_FILE, runtime_dir)
+    history_file = _resolve_runtime_path(DECISION_HISTORY_FILE, runtime_dir)
+    _write_json(last_file, decision)
+    _append_json(history_file, decision)
     return decision
 
 
-def assert_production_submission_allowed(payload: Dict[str, Any]) -> Dict[str, Any]:
-    decision = evaluate_production_lock(payload)
+def assert_production_submission_allowed(payload: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    decision = evaluate_production_lock(payload, runtime_dir=runtime_dir)
     if decision.get("allowed"):
         return decision
     return {**decision, "status": "blocked", "allowed": False, "submitted": False, "portal_auto_submitted": False, "submission_status": "blocked_by_production_lock"}
 
 
-def get_production_lock_status(limit: int = 50) -> Dict[str, Any]:
-    history = _read_json(DECISION_HISTORY_FILE, [])
+def get_production_lock_status(limit: int = 50, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    history_file = _resolve_runtime_path(DECISION_HISTORY_FILE, runtime_dir)
+    last_file = _resolve_runtime_path(LAST_DECISION_FILE, runtime_dir)
+    policy_file = _resolve_runtime_path(POLICY_FILE, runtime_dir)
+    history = _read_json(history_file, [])
     if not isinstance(history, list):
         history = []
-    last = _read_json(LAST_DECISION_FILE, {})
+    last = _read_json(last_file, {})
     blocked_total = len([d for d in history if isinstance(d, dict) and not d.get("allowed")])
     allowed_total = len([d for d in history if isinstance(d, dict) and d.get("allowed")])
     return {
@@ -285,7 +308,7 @@ def get_production_lock_status(limit: int = 50) -> Dict[str, Any]:
         "summary": {"history_total": len(history), "allowed_total": allowed_total, "blocked_total": blocked_total, "minimum_profit_required": MIN_PROFIT_REQUIRED, "minimum_margin_percent": MIN_MARGIN_PERCENT},
         "last_decision": last,
         "recent_decisions": history[-limit:],
-        "policy": _load_policy(),
-        "files": {"policy": str(POLICY_FILE), "last_decision": str(LAST_DECISION_FILE), "history": str(DECISION_HISTORY_FILE)},
+        "policy": _load_policy(runtime_dir=runtime_dir),
+        "files": {"policy": str(policy_file), "last_decision": str(last_file), "history": str(history_file)},
         "updated_at": _now(),
     }

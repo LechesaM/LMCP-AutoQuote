@@ -1,14 +1,5 @@
-import { axiosAdapter } from "./axiosAdapter";
-import { normalizeHarvestHealth } from "./normalize";
-import useSourceHealthStore from "../store/sourceHealthStore";
+import { getJson } from "./httpClient";
 
-export async function fetchSourceHealthData() {
-  const remote = await axiosAdapter("/telemetry/source-health");
-  if (remote) {
-    return normalizeHarvestHealth(remote, useSourceHealthStore.getState());
-  }
-  return normalizeHarvestHealth({
-    status: "runtime_fallback",
-    sources: useSourceHealthStore.getState().sources,
-  }, useSourceHealthStore.getState());
+export async function fetchSourceHealth() {
+  return getJson("/telemetry/source-health");
 }

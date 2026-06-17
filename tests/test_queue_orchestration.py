@@ -158,12 +158,11 @@ def test_blocked_job_handling(monkeypatch, tmp_path: Path) -> None:
 
 
 def test_queue_monitor_summary_and_stalled_detection(monkeypatch, tmp_path: Path) -> None:
-    runtime_dir = _prepare_runtime(monkeypatch, tmp_path)
-    manual_dir = runtime_dir / "manual_production"
+    _prepare_runtime(monkeypatch, tmp_path)
     job = _create_job(QueueJobType.INTEGRITY_CHECK, tender_id="T-104")
     stale = dict(job)
     stale["updated_at"] = _stale_timestamp()
-    _append_jsonl_record(manual_dir / "queue_jobs.jsonl", stale)
+    monkeypatch.setattr("app.orchestration.queue_monitor.get_jobs_by_status", lambda limit=500: [stale])
 
     summary = queue_monitor.get_queue_summary(limit=50)
     stalled = queue_monitor.find_stalled_jobs(limit=50, stalled_after_minutes=1)

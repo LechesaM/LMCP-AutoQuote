@@ -11,6 +11,7 @@ from app.api.operations_runtime_contracts import (
     build_runtime_metrics_response,
     build_source_reliability_response,
 )
+from app.api import operations_runtime_routes
 from app.api.operations_runtime_routes import router
 from app.operations.incident_tracker import get_incident_summary, record_incident
 from app.core.runtime_paths import get_runtime_paths
@@ -61,3 +62,24 @@ def test_runtime_operations_do_not_expose_mutation_routes() -> None:
     for route in router.routes:
         methods = {method.upper() for method in getattr(route, "methods", set())}
         assert not (methods & mutation_methods)
+
+
+def test_runtime_operations_routes_timeout_fallbacks(monkeypatch) -> None:
+    def _fake_timeout(callback, timeout_seconds, timeout_label, fallback=None):
+        return fallback() if fallback is not None else {"status": "timeout", "data_source": "timeout"}
+
+    monkeypatch.setattr(operations_runtime_routes, "run_with_timeout", _fake_timeout)
+
+    runtime_metrics = operations_runtime_routes.runtime_metrics()
+    operator_analytics = operations_runtime_routes.operator_analytics()
+    source_reliability = operations_runtime_routes.source_reliability()
+    incidents = operations_runtime_routes.incidents()
+    runtime_alerts = operations_runtime_routes.runtime_alerts()
+    backup_validation = operations_runtime_routes.backup_validation()
+
+    assert runtime_metrics["status"] == "degraded"
+    assert operator_analytics["status"] == "degraded"
+    assert source_reliability["status"] == "degraded"
+    assert incidents["status"] == "degraded"
+    assert runtime_alerts["status"] == "degraded"
+    assert backup_validation["status"] == "degraded"

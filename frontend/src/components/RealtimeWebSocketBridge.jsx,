@@ -1,0 +1,11 @@
+import useRealtimeWebSocket from "../hooks/useRealtimeWebSocket";
+
+export default function RealtimeWebSocketBridge() {
+  useRealtimeWebSocket();
+
+  return (
+    <div className="mt-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-sm text-cyan-200">
+      🔴 Real-time WebSocket connected (Step 9 Active)
+    </div>
+  );
+}

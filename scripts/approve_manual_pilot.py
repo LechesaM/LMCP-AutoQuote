@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -47,13 +48,18 @@ def approve_manual_pilot(
     tender_id: str,
     pricing_file: str,
     confirm_approval: bool,
+    operator_name: str = "",
     instructions_text: Optional[str] = None,
+    workspace_root: Optional[str] = None,
+    workspace_pilot_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     result = run_manual_pilot(
         tender_root=tender_root,
         tender_id=tender_id,
         instructions_text=instructions_text,
         pricing_file=pricing_file,
+        workspace_root=workspace_root,
+        workspace_pilot_id=workspace_pilot_id,
     )
     gate = manual_approval_service.evaluate_manual_approval_gate(result)
     if not confirm_approval:
@@ -65,6 +71,7 @@ def approve_manual_pilot(
                 tender_id=tender_id,
                 tender_root=tender_root,
                 pricing_file=pricing_file,
+                operator_name=operator_name,
                 confirm_approval=False,
             ),
             "gate": gate,
@@ -80,6 +87,7 @@ def approve_manual_pilot(
                 tender_id=tender_id,
                 tender_root=tender_root,
                 pricing_file=pricing_file,
+                operator_name=operator_name,
                 confirm_approval=True,
             ),
             "gate": gate,
@@ -91,6 +99,7 @@ def approve_manual_pilot(
         tender_id=tender_id,
         tender_root=tender_root,
         pricing_file=pricing_file,
+        operator_name=operator_name,
         confirm_approval=True,
     )
     manual_approval_service.append_manual_approval(approval_record)
@@ -109,13 +118,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--tender-root", required=True, help="Folder containing the RFQ/tender pack.")
     parser.add_argument("--pricing-file", required=True, help="Manual pricing JSON used for the approval-ready pack.")
     parser.add_argument("--confirm-approval", action="store_true", help="Required confirmation gate.")
+    parser.add_argument(
+        "--operator-name",
+        default="",
+        help="Operator name to record in the approval log. Defaults to LMCP_OPERATOR_NAME or Supervisor.",
+    )
+    parser.add_argument("--pilot-workspace-root", default=None, help="Optional pilot workspace root for live run logs.")
+    parser.add_argument("--pilot-workspace-id", default=None, help="Optional pilot workspace folder name such as PILOT-001.")
     args = parser.parse_args(argv)
 
+    operator_name = args.operator_name.strip() or os.getenv("LMCP_OPERATOR_NAME", "").strip() or "Supervisor"
     outcome = approve_manual_pilot(
         tender_root=args.tender_root,
         tender_id=args.tender_id,
         pricing_file=args.pricing_file,
         confirm_approval=args.confirm_approval,
+        operator_name=operator_name,
+        workspace_root=args.pilot_workspace_root,
+        workspace_pilot_id=args.pilot_workspace_id,
     )
     _print_result(outcome["result"], outcome["approval_record"])
 

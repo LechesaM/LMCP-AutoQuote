@@ -1,0 +1,30 @@
+{
+  "tender_id": "RFQ_006",
+  "rfq_number": "6000080537",
+  "buyer_rfq_number": "6000080537",
+  "reference_number": "6000080537",
+  "title": "Electrical Components",
+  "buyer_name": "Johannesburg Water",
+  "province": "Gauteng",
+  "category": "supplies_electrical_equipment",
+  "closing_date": "2026-06-19T12:00:00+00:00",
+  "source": "etenders",
+  "source_url": "https://www.etenders.gov.za/Home/Opportunities?opportunity=6000080537",
+  "detail_url": "https://www.etenders.gov.za/Home/Opportunities?opportunity=6000080537",
+  "document_url": "https://www.etenders.gov.za/Home/Download?opportunity=6000080537&document=Electrical%20Components.pdf",
+  "submission_instructions": "Portal submission",
+  "extracted_text": "Electrical components procurement opportunity for Johannesburg Water.",
+  "estimated_contract_value": 0.0,
+  "estimated_profit": 0.0,
+  "gross_margin_ratio": 0.0,
+  "technical_validation_required": false,
+  "compliance_documents": [],
+  "line_items": [
+    {
+      "description": "Electrical components",
+      "quantity": 1,
+      "unit": "lot",
+      "notes": "Visible opportunity metadata only"
+    }
+  ]
+}

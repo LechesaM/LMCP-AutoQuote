@@ -1,0 +1,183 @@
+{
+  "pilot_wave_id": "supervised-live-wave-002",
+  "status": "rfq_005_authorized_pending_readiness",
+  "approval_basis": {
+    "prior_wave": "supervised-live-wave-001",
+    "prior_wave_formal_outcome": "PASS WITH OBSERVATIONS",
+    "approval_rationale": "Learning may continue under the same governed manual controls while quote-comparison enrichment is remediated separately."
+  },
+  "wave_002_status_note": "Wave 002 operationally complete and formally evaluated as PASS WITH OBSERVATIONS; remediation passed and RFQ_005 is authorized under the same supervised-live controls.",
+  "scope_limit": {
+    "max_live_rfqs": 2,
+    "minimum_live_rfqs": 1,
+    "single_rfq_preferred": true,
+    "tier_25_frozen": true,
+    "track_a": "WAIT",
+    "track_b": "MONITOR",
+    "regression_run_2": "untouched"
+  },
+  "governance_constraints": {
+    "human_approval_required": true,
+    "manual_submission_required": true,
+    "auto_submission_authorized": false,
+    "operator_attended_submission_only": true,
+    "proof_capture_required": true,
+    "retry_tracking_required": true,
+    "rollback_tracking_required": true
+  },
+  "candidate_selection_gate": {
+    "required": true,
+    "status": "selected",
+    "selection_rule": "Choose either a single RFQ or at most two RFQs with the cleanest governed supply profile and no unresolved critical evidence gaps."
+  },
+  "selected_candidates": [
+    {
+      "tender_id": "RFQ_004",
+      "title": "SAFCOL Damsakke complete with pump",
+      "buyer_name": "South African Forestry Company SOC Ltd (SAFCOL)",
+      "province": "Mpumalanga",
+      "category": "equipment_supply",
+      "selection_status": "selected_for_wave_002_initial_scope",
+      "wave_002_recommendation": "GO_UNDER_MANUAL_CONTROLS",
+      "rationale": [
+        "Supervised supply case remains the cleanest admissible next candidate after Wave 001.",
+        "Submission path supports portal with email fallback instead of courier/hand-delivery-only handling.",
+        "Technical validation is not required in the fixture evidence.",
+        "Wave 002 is intended to continue governed learning under the same manual restrictions rather than widen autonomy."
+      ],
+      "submission_channel": "portal with email fallback",
+      "human_approval_required": true,
+      "manual_submission_required": true,
+      "proof_capture_required": true
+    }
+  ],
+  "preflight_gate": {
+    "status": "ready_for_wave_002_execution",
+    "evidence_readiness": {
+      "status": "confirmed",
+      "submission_package_generated": true,
+      "pricing_package_generated": true,
+      "compliance_package_generated": true,
+      "unresolved_warnings": [],
+      "unresolved_errors": [],
+      "note": "RFQ_004 dry-run output is approval-ready with no warnings or errors. The package is normalized under runtime/manual_production/submission_packages/RFQ_004, and the compliance package is generated as a governed operator-review checklist artifact."
+    },
+    "operator_assignment": {
+      "status": "recorded",
+      "operator_owner": "supervisor",
+      "backup_operator": "operator",
+      "submission_channel": "portal with email fallback",
+      "escalation_contact": "procurement@safcol.co.za"
+    },
+    "governance_check": {
+      "status": "confirmed",
+      "wave_001_outcome_recorded": "PASS WITH OBSERVATIONS",
+      "tier_25": "frozen",
+      "track_a": "WAIT",
+      "track_b": "MONITOR",
+      "regression_run_2": "untouched"
+    }
+  },
+  "formal_review_gate": {
+    "required_before_considering": [
+      "Tier 25 activation",
+      "RFQ_005 activation",
+      "multiple live RFQs",
+      "any Track A or Track B change"
+    ],
+    "required": true,
+    "current_outcome": "PASS WITH OBSERVATIONS",
+    "recorded_decision": {
+      "outcome": "PASS WITH OBSERVATIONS",
+      "recorded_at": "2026-06-07",
+      "summary": "The supervised workflow executed without reported process defects, governance remained intact, and proof capture was corrected cleanly. Quote comparison enrichment remains the only standing observation."
+    },
+    "observations": [
+      "Quote comparison enrichment remains incomplete relative to supplier quote sources and should be improved before wider rollout."
+    ]
+  },
+  "deferred_candidates": [
+    {
+      "tender_id": "RFQ_005",
+      "title": "Thulamela building materials",
+      "buyer_name": "Thulamela Local Municipality",
+      "category": "building_materials",
+      "selection_status": "deferred_from_wave_002_initial_scope",
+      "reason": "Courier/hand-delivery submission path remains more operator-heavy than necessary for the next controlled learning step."
+    }
+  ],
+  "expansion_boundaries": {
+    "rfq_005_allowed": true,
+    "multiple_live_rfqs_allowed": false,
+    "multiple_live_rfqs_limit": 1,
+    "tier_25_activation_allowed": false
+  },
+  "linked_remediation_items": [
+    {
+      "item_id": "REM-QUOTE-COMPARISON-ENRICHMENT-001",
+      "title": "Quote comparison enrichment remediation",
+      "status": "reviewed_pass",
+      "location": "/Users/cash/Documents/docs/quote_comparison_enrichment_remediation_item.md"
+    }
+  ],
+  "required_pre_execution_checks": [
+    "Confirm RFQ_004 remains the selected initial Wave 002 candidate unless a new formal selection note supersedes it.",
+    "Confirm submission package, pricing package, and compliance package are generated for RFQ_004 before execution.",
+    "Confirm there are no unresolved warnings or unresolved errors before execution.",
+    "Record operator_owner, backup_operator, submission_channel, and escalation_contact before execution.",
+    "Confirm Wave 002 candidates are documented explicitly before execution.",
+    "Confirm human approval is recorded for each selected RFQ before submission activity.",
+    "Confirm manual submission remains operator-attended for every selected RFQ.",
+    "Confirm Tier 25 remains frozen.",
+    "Confirm Track A remains WAIT and Track B remains MONITOR."
+  ],
+  "next_decision_gate": {
+    "before_any_further_expansion": [
+      "Review Wave 002 evidence.",
+      "Evaluate remediation progress on quote-comparison enrichment.",
+      "Make a separate decision for RFQ_005, any additional live RFQs, or Tier 25 activation."
+    ]
+  },
+  "post_wave_002_expansion_decision": {
+    "status": "recorded",
+    "recorded_at": "2026-06-07",
+    "decision": "Authorize RFQ_005 only.",
+    "rationale": [
+      "Wave 002 repeated the governed supervised-live process successfully.",
+      "Quote comparison enrichment has now passed formal remediation review.",
+      "RFQ_005 increases operational complexity without materially expanding autonomy or concurrency.",
+      "Tier 25 activation and multi-RFQ expansion remain beyond the evidence demonstrated so far."
+    ],
+    "authorized_now": [
+      "RFQ_005 under the same supervised-live controls used for Wave 001 and Wave 002"
+    ],
+    "not_authorized_now": [
+      "Tier 25 activation",
+      "multiple live RFQs beyond a single controlled RFQ_005 run",
+      "Track A changes",
+      "Track B changes",
+      "Regression Run #2 changes"
+    ],
+    "next_required_actions": [
+      "Prepare RFQ_005 readiness under the same supervised-live sequence used in Wave 001 and Wave 002.",
+      "Run dry-run readiness validation.",
+      "Prepare human review, approval, manual submission, proof capture, postmortem review, and formal outcome recording for RFQ_005."
+    ]
+  },
+  "wave_002_success_criteria": [
+    "The supervised workflow executes without process defects.",
+    "Human review remains effective.",
+    "Approval chain remains intact.",
+    "Proof capture remains intact.",
+    "No new material governance issues appear.",
+    "Quote-comparison remediation remains the only known observation."
+  ],
+  "not_allowed_yet": [
+    "Do not unfreeze Tier 25 automatically.",
+    "Do not allow unattended submissions.",
+    "Do not expand to multiple live RFQs automatically.",
+    "Do not modify Track A.",
+    "Do not modify Track B.",
+    "Do not modify Regression Run #2."
+  }
+}

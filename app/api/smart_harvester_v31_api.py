@@ -49,9 +49,16 @@ def multi_portal_discovery(payload: Dict[str, Any] = Body(default_factory=dict))
         include_bad_sources=bool(payload.get("include_bad_sources", False)),
         dry_run=bool(payload.get("dry_run", True)),
         source_pack_mode=payload.get("source_pack_mode") or payload.get("pack_mode"),
+        focus_productive_sources=bool(payload.get("focus_productive_sources", False)),
+        repair_source_pack=bool(payload.get("repair_source_pack", False)),
         buyer_intelligence=bool(payload.get("buyer_intelligence", True)),
         opportunity_forecasting=bool(payload.get("opportunity_forecasting", True)),
         forecast_watchlist=bool(payload.get("forecast_watchlist", payload.get("action_watchlist", True))),
+        source_filter=payload.get("source_filter"),
+        source_names=payload.get("source_names") if isinstance(payload.get("source_names"), list) else None,
+        page_load_timeout_seconds=payload.get("page_load_timeout_seconds"),
+        candidate_extraction_timeout_seconds=payload.get("candidate_extraction_timeout_seconds"),
+        document_link_timeout_seconds=payload.get("document_link_timeout_seconds"),
     )
 
 

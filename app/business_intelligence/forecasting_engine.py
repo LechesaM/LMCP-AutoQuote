@@ -1,32 +1,31 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Sequence
+from typing import Any, Dict, Iterable, List
 
-from ._shared import now_iso, safe_float
-from .trend_models import build_trend_models
+from ._shared import utc_now_iso
 
 
-def forecast_series(series: Dict[str, Sequence[float]] | None = None, *, horizon: int = 3, window: int = 3) -> Dict[str, Any]:
-    series = series or {}
-    trends = build_trend_models(series, window=window)
-    projections = {}
-    for name, model in trends["series"].items():
-        baseline = safe_float(model.get("forecast_next", 0.0))
-        values = [safe_float(value) for value in model.get("values", [])]
-        slope = 0.0
-        if len(values) >= 2:
-            slope = (values[-1] - values[0]) / max(1, len(values) - 1)
-        projections[name] = [round(baseline + slope * step, 2) for step in range(1, max(1, int(horizon)) + 1)]
+def _series_values(payload: Dict[str, Any]) -> List[float]:
+    for key in ("queue_depth", "values", "series", "history"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            try:
+                return [float(item) for item in value]
+            except Exception:
+                continue
+    return [0.0]
+
+
+def build_forecasting_engine(payload: Dict[str, Any], horizon: int = 3) -> Dict[str, Any]:
+    values = _series_values(payload or {})
+    horizon = max(1, min(int(horizon or 3), 12))
+    trend = sum(values[-3:]) / min(len(values), 3) if values else 0.0
+    projections = [round(trend + index, 2) for index in range(1, horizon + 1)]
     return {
         "status": "ok",
-        "generated_at": now_iso(),
-        "data_source": "runtime" if series else "fallback",
-        "trends": trends,
-        "projections": projections,
+        "generated_at": utc_now_iso(),
         "advisory_only": True,
+        "trends": values[-horizon:],
+        "projections": projections,
     }
-
-
-def build_forecasting_engine(series: Dict[str, Sequence[float]] | None = None, *, horizon: int = 3, window: int = 3) -> Dict[str, Any]:
-    return forecast_series(series=series, horizon=horizon, window=window)
 

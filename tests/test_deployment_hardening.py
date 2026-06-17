@@ -29,6 +29,7 @@ def _prepare_runtime(monkeypatch, tmp_path: Path) -> RuntimePaths:
     (runtime_dir / "submission_history").mkdir(parents=True, exist_ok=True)
     (runtime_dir / "locks").mkdir(parents=True, exist_ok=True)
     (runtime_dir / "backups").mkdir(parents=True, exist_ok=True)
+    (runtime_dir / "health").mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setenv("LMCP_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("LMCP_RUNTIME_DIR", str(runtime_dir))

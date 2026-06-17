@@ -8,11 +8,22 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from app.services.websocket_broker import publish_dashboard_event
 
-RUNTIME_DIR = Path("runtime")
-DECISION_DIR = RUNTIME_DIR / "decision_intelligence"
-DECISION_DIR.mkdir(parents=True, exist_ok=True)
+DEFAULT_RUNTIME_DIR = Path("runtime")
 
-DECISION_HISTORY_FILE = DECISION_DIR / "decision_history.json"
+
+def _runtime_dir(runtime_dir: Optional[str] = None) -> Path:
+    return Path(runtime_dir) if runtime_dir else DEFAULT_RUNTIME_DIR
+
+
+def _decision_dir(runtime_dir: Optional[str] = None) -> Path:
+    return _runtime_dir(runtime_dir) / "decision_intelligence"
+
+
+def _decision_history_file(runtime_dir: Optional[str] = None) -> Path:
+    return _decision_dir(runtime_dir) / "decision_history.json"
+
+
+_decision_dir().mkdir(parents=True, exist_ok=True)
 
 BLOCKED_KEYWORDS = {
     "medical": [
@@ -165,26 +176,32 @@ def score_opportunity(opportunity: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def load_history() -> List[Dict[str, Any]]:
-    if not DECISION_HISTORY_FILE.exists():
+def load_history(runtime_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+    history_file = _decision_history_file(runtime_dir)
+    if not history_file.exists():
         return []
     try:
-        data = json.loads(DECISION_HISTORY_FILE.read_text())
+        data = json.loads(history_file.read_text())
         return data if isinstance(data, list) else []
     except Exception:
         return []
 
 
-def save_history(items: List[Dict[str, Any]]) -> None:
-    DECISION_HISTORY_FILE.write_text(json.dumps(items[-500:], indent=2, default=str))
+def save_history(items: List[Dict[str, Any]], runtime_dir: Optional[str] = None) -> None:
+    history_file = _decision_history_file(runtime_dir)
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+    history_file.write_text(json.dumps(items[-500:], indent=2, default=str))
 
 
-async def score_and_publish(opportunity: Dict[str, Any]) -> Dict[str, Any]:
+async def score_and_publish(
+    opportunity: Dict[str, Any],
+    runtime_dir: Optional[str] = None,
+) -> Dict[str, Any]:
     scored = score_opportunity(opportunity)
 
-    history = load_history()
+    history = load_history(runtime_dir=runtime_dir)
     history.append(scored)
-    save_history(history)
+    save_history(history, runtime_dir=runtime_dir)
 
     event_type = "decision_scored"
     if scored["decision"] == "auto_approve":
@@ -203,15 +220,18 @@ async def score_and_publish(opportunity: Dict[str, Any]) -> Dict[str, Any]:
     return scored
 
 
-async def score_many_and_publish(opportunities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+async def score_many_and_publish(
+    opportunities: List[Dict[str, Any]],
+    runtime_dir: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     results = []
     for opportunity in opportunities:
-        results.append(await score_and_publish(opportunity))
+        results.append(await score_and_publish(opportunity, runtime_dir=runtime_dir))
     return results
 
 
-def get_decision_summary(limit: int = 20) -> Dict[str, Any]:
-    history = load_history()
+def get_decision_summary(limit: int = 20, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    history = load_history(runtime_dir=runtime_dir)
     recent = list(reversed(history[-limit:]))
 
     total = len(history)
@@ -240,6 +260,6 @@ def get_decision_summary(limit: int = 20) -> Dict[str, Any]:
         "top_opportunities": top,
         "recent_rejections": recent_rejections,
         "recent_decisions": recent,
-        "history_file": str(DECISION_HISTORY_FILE),
+        "history_file": str(_decision_history_file(runtime_dir)),
         "updated_at": _now_iso(),
     }

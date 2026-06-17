@@ -8,17 +8,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from app.core.runtime_paths import get_runtime_paths
 from app.services.submission_retry_service import retry_failed_submissions
 
 logger = logging.getLogger(__name__)
 
-_RUNTIME_DIR = Path("runtime")
+_RUNTIME_DIR = get_runtime_paths().runtime_root
 _SCHEDULER_DIR = _RUNTIME_DIR / "submission_scheduler"
 _LAST_RUN_FILE = _SCHEDULER_DIR / "last_run.json"
 
 DEFAULT_LOOP_LIMIT = int(str(os.getenv("AUTONOMOUS_SUBMISSION_LOOP_LIMIT", "10")).strip() or "10")
 AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED = (
-    str(os.getenv("AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED", "true")).strip().lower() == "true"
+    str(os.getenv("AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED", "false")).strip().lower() == "true"
 )
 AUTONOMOUS_PENDING_STAGE_ENABLED = (
     str(os.getenv("AUTONOMOUS_PENDING_STAGE_ENABLED", "true")).strip().lower() == "true"
@@ -44,8 +45,25 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ensure_scheduler_dir() -> None:
-    _SCHEDULER_DIR.mkdir(parents=True, exist_ok=True)
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(_RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
+def _scheduler_dir(runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return _SCHEDULER_DIR
+    return _resolve_runtime_path(_SCHEDULER_DIR, runtime_dir)
+
+
+def _ensure_scheduler_dir(runtime_dir: Optional[str] = None) -> None:
+    _scheduler_dir(runtime_dir).mkdir(parents=True, exist_ok=True)
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -59,30 +77,32 @@ def _safe_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _write_last_run(payload: Dict[str, Any]) -> None:
+def _write_last_run(payload: Dict[str, Any], runtime_dir: Optional[str] = None) -> None:
     try:
-        _ensure_scheduler_dir()
-        _LAST_RUN_FILE.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        last_run_file = _resolve_runtime_path(_LAST_RUN_FILE, runtime_dir)
+        _ensure_scheduler_dir(runtime_dir)
+        last_run_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception as exc:
         logger.warning("Failed to write submission scheduler last-run file: %s", exc)
 
 
-def get_last_autonomous_submission_loop_run() -> Dict[str, Any]:
+def get_last_autonomous_submission_loop_run(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    last_run_file = _resolve_runtime_path(_LAST_RUN_FILE, runtime_dir)
     try:
-        if not _LAST_RUN_FILE.exists():
+        if not last_run_file.exists():
             return {
                 "status": "not_found",
                 "checked_at": _utc_now_iso(),
-                "last_run_file": str(_LAST_RUN_FILE),
+                "last_run_file": str(last_run_file),
                 "message": "No autonomous submission loop run has been recorded yet.",
             }
 
-        raw = _LAST_RUN_FILE.read_text(encoding="utf-8").strip()
+        raw = last_run_file.read_text(encoding="utf-8").strip()
         if not raw:
             return {
                 "status": "not_found",
                 "checked_at": _utc_now_iso(),
-                "last_run_file": str(_LAST_RUN_FILE),
+                "last_run_file": str(last_run_file),
                 "message": "Autonomous submission loop last-run file is empty.",
             }
 
@@ -91,7 +111,7 @@ def get_last_autonomous_submission_loop_run() -> Dict[str, Any]:
             return {
                 "status": "invalid",
                 "checked_at": _utc_now_iso(),
-                "last_run_file": str(_LAST_RUN_FILE),
+                "last_run_file": str(last_run_file),
                 "message": "Autonomous submission loop last-run file does not contain an object.",
             }
 
@@ -100,19 +120,20 @@ def get_last_autonomous_submission_loop_run() -> Dict[str, Any]:
         return {
             "status": "error",
             "checked_at": _utc_now_iso(),
-            "last_run_file": str(_LAST_RUN_FILE),
+            "last_run_file": str(last_run_file),
             "message": f"Failed to read autonomous submission loop last-run file: {exc}",
         }
 
 
-def get_autonomous_submission_loop_health() -> Dict[str, Any]:
+def get_autonomous_submission_loop_health(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    last_run_file = _resolve_runtime_path(_LAST_RUN_FILE, runtime_dir)
     return {
         "status": "ok",
         "checked_at": _utc_now_iso(),
         "autonomous_submission_scheduler_enabled": AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED,
         "autonomous_pending_stage_enabled": AUTONOMOUS_PENDING_STAGE_ENABLED,
         "default_loop_limit": DEFAULT_LOOP_LIMIT,
-        "last_run_file": str(_LAST_RUN_FILE),
+        "last_run_file": str(last_run_file),
         "candidate_pending_stage_hooks": CANDIDATE_PENDING_STAGE_HOOKS,
     }
 
@@ -228,7 +249,7 @@ def run_pending_submission_stage(limit: int) -> Dict[str, Any]:
     }
 
 
-def run_autonomous_submission_loop(limit: int | None = None) -> Dict[str, Any]:
+def run_autonomous_submission_loop(limit: int | None = None, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     safe_limit = max(1, _safe_int(limit, DEFAULT_LOOP_LIMIT))
 
     if not AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED:
@@ -252,9 +273,9 @@ def run_autonomous_submission_loop(limit: int | None = None) -> Dict[str, Any]:
                 "items": [],
             },
             "total_processed": 0,
-            "last_run_file": str(_LAST_RUN_FILE),
+            "last_run_file": str(_resolve_runtime_path(_LAST_RUN_FILE, runtime_dir)),
         }
-        _write_last_run(payload)
+        _write_last_run(payload, runtime_dir=runtime_dir)
         return payload
 
     logger.info("Running autonomous submission loop | limit=%s", safe_limit)
@@ -276,7 +297,5 @@ def run_autonomous_submission_loop(limit: int | None = None) -> Dict[str, Any]:
         "total_processed": total_processed,
         "last_run_file": str(_LAST_RUN_FILE),
     }
-    _write_last_run(payload)
+    _write_last_run(payload, runtime_dir=runtime_dir)
     return payload
-
-

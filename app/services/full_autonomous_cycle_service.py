@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
-from app.core.runtime_paths import get_runtime_paths
 from app.services.decision_intelligence_service import score_opportunity
 from app.services.pipeline_enforcement_service import (
     enforce_before_quote,
@@ -17,8 +17,7 @@ from app.services.operator_action_service import force_quote
 
 logger = logging.getLogger(__name__)
 
-LEGACY_SERVICE = True
-RUNTIME_DIR = get_runtime_paths().runtime_root
+RUNTIME_DIR = Path("runtime")
 CYCLE_DIR = RUNTIME_DIR / "autonomous_cycle"
 CYCLE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -28,6 +27,9 @@ SUBMISSION_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 CYCLE_HISTORY_FILE = CYCLE_DIR / "cycle_history.json"
 LAST_CYCLE_FILE = CYCLE_DIR / "last_cycle.json"
 SUBMISSION_HISTORY_FILE = SUBMISSION_HISTORY_DIR / "submission_history.json"
+FULL_AUTONOMOUS_CYCLE_ENABLED = (
+    str(os.getenv("FULL_AUTONOMOUS_CYCLE_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}
+)
 
 
 def _now() -> str:
@@ -340,7 +342,19 @@ def traceback_text(exc: BaseException) -> str:
         return str(exc)
 
 
+def _full_cycle_disabled_response(action: str) -> Dict[str, Any]:
+    return {
+        "status": "disabled",
+        "action": action,
+        "message": "Full autonomous cycle execution is disabled by default.",
+        "execution_enabled": FULL_AUTONOMOUS_CYCLE_ENABLED,
+    }
+
+
 async def run_full_autonomous_cycle(limit: int = 5, dry_run: bool = False):
+    if not FULL_AUTONOMOUS_CYCLE_ENABLED:
+        return _full_cycle_disabled_response("run" if not dry_run else "dry-run")
+
     cycle = {
         "started_at": _now(),
         "harvested": 0,
@@ -487,6 +501,7 @@ def get_full_cycle_status(limit: int = 20):
 
     return {
         "status": "ok",
+        "execution_enabled": FULL_AUTONOMOUS_CYCLE_ENABLED,
         "last_cycle": last,
         "history": history[-max(1, int(limit or 20)):],
         "history_file": str(CYCLE_HISTORY_FILE),

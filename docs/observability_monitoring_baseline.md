@@ -83,7 +83,7 @@ If DB access is unavailable:
 
 ## Future PostgreSQL Migration Guidance
 
-The current durability layer is SQLite-first and local-safe.
+The current durability layer is SQLite-first and local-safe for local bootstrap and recovery.
 
 When migration is needed:
 

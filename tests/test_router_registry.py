@@ -101,5 +101,5 @@ def test_no_active_production_router_has_obvious_duplicate_purpose() -> None:
 def test_supplier_quote_routes_are_split_between_status_and_actions() -> None:
     production_names = set(_names(PRODUCTION_ROUTER_SPECS))
 
-    assert "supplier_quotes_status_router" in production_names
     assert "supplier_quotes_router" in production_names
+    assert "supplier_quotes_status_router" not in production_names

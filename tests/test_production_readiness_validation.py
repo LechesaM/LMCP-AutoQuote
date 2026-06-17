@@ -18,6 +18,7 @@ def test_readiness_artifacts_exist_and_scorecard_is_conditional_go() -> None:
         "docs/production_cutover/daily_operational_rituals.md",
         "docs/production_cutover/supervised_live_rollout_profile.md",
         "docs/operator_onboarding_checklist.md",
+        "docs/controlled_operation_checklist.md",
         "docs/governance_integrity_report.md",
         "docs/no_autonomous_execution_certification.md",
         "docs/deployment_validation_report.md",
@@ -52,6 +53,7 @@ def test_validation_docs_cover_launch_sequence_and_governance_preservation() -> 
     validation = _read("docs/production_readiness_validation.md").lower()
     runbook = _read("docs/internal_launch_runbook.md").lower()
     checklist = _read("docs/supervised_live_launch_checklist.md").lower()
+    controlled = _read("docs/controlled_operation_checklist.md").lower()
     rituals = _read("docs/production_cutover/daily_operational_rituals.md").lower()
     operator_protocol = _read("docs/production_cutover/operator_launch_protocol.md").lower()
     onboarding = _read("docs/operator_onboarding_checklist.md").lower()
@@ -87,6 +89,16 @@ def test_validation_docs_cover_launch_sequence_and_governance_preservation() -> 
     ]:
         assert phrase in checklist
         assert phrase in onboarding
+
+    for phrase in [
+        "controlled operation",
+        "pilot readiness score",
+        "at least one successful pilot run",
+        "approval signoff",
+        "proof signoff",
+        "ready",
+    ]:
+        assert phrase in controlled
 
     for phrase in [
         "proof capture is mandatory",

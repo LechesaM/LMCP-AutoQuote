@@ -25,7 +25,25 @@ DEFAULT_ENABLE_SUBMIT = os.getenv("LMCP_SAFE_SCHEDULER_ENABLE_SUBMIT", "false").
 DEFAULT_ENABLE_QUOTE_ENGINE = os.getenv("LMCP_SAFE_SCHEDULER_ENABLE_QUOTE_ENGINE", "true").lower() in {"1", "true", "yes", "on"}
 
 _scheduler_task: Optional[asyncio.Task] = None
-_scheduler_lock = asyncio.Lock()
+_scheduler_lock: Optional[asyncio.Lock] = None
+
+
+def _get_scheduler_lock() -> asyncio.Lock:
+    global _scheduler_lock
+    if _scheduler_lock is None:
+        _scheduler_lock = asyncio.Lock()
+    return _scheduler_lock
+
+
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
 
 
 def _now() -> str:
@@ -46,12 +64,13 @@ def _write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
-def _append_history(item: Dict[str, Any]) -> None:
-    history = _read_json(HISTORY_FILE, [])
+def _append_history(item: Dict[str, Any], runtime_dir: Optional[str] = None) -> None:
+    history_file = _resolve_runtime_path(HISTORY_FILE, runtime_dir)
+    history = _read_json(history_file, [])
     if not isinstance(history, list):
         history = []
     history.append(item)
-    _write_json(HISTORY_FILE, history[-500:])
+    _write_json(history_file, history[-500:])
 
 
 def _default_state() -> Dict[str, Any]:
@@ -72,19 +91,20 @@ def _default_state() -> Dict[str, Any]:
     }
 
 
-def get_scheduler_state() -> Dict[str, Any]:
-    state = _read_json(STATE_FILE, None)
+def get_scheduler_state(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    state_file = _resolve_runtime_path(STATE_FILE, runtime_dir)
+    state = _read_json(state_file, None)
     if not isinstance(state, dict):
         state = _default_state()
-        _write_json(STATE_FILE, state)
+        _write_json(state_file, state)
     if "enable_quote_engine" not in state:
         state["enable_quote_engine"] = DEFAULT_ENABLE_QUOTE_ENGINE
-        _write_json(STATE_FILE, state)
+        _write_json(state_file, state)
     return state
 
 
-def update_scheduler_state(updates: Dict[str, Any]) -> Dict[str, Any]:
-    state = get_scheduler_state()
+def update_scheduler_state(updates: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    state = get_scheduler_state(runtime_dir=runtime_dir)
     allowed = {
         "enabled",
         "mode",
@@ -99,7 +119,7 @@ def update_scheduler_state(updates: Dict[str, Any]) -> Dict[str, Any]:
         if key in allowed:
             state[key] = value
     state["updated_at"] = _now()
-    _write_json(STATE_FILE, state)
+    _write_json(_resolve_runtime_path(STATE_FILE, runtime_dir), state)
     return state
 
 
@@ -506,7 +526,7 @@ async def _run_quote_engine(tender: Dict[str, Any]) -> Dict[str, Any]:
 
 
 
-def _apply_real_profit_fallback(tender: Dict[str, Any]) -> Dict[str, Any]:
+def _apply_real_profit_fallback(tender: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     try:
         current_profit = _extract_numeric(tender.get("estimated_profit"))
         current_margin = _extract_numeric(tender.get("estimated_margin_percent") or tender.get("estimated_margin_pct"))
@@ -520,7 +540,7 @@ def _apply_real_profit_fallback(tender: Dict[str, Any]) -> Dict[str, Any]:
                 "tender": tender,
             }
 
-        real_profit = enrich_with_real_profit_pricing(tender)
+        real_profit = enrich_with_real_profit_pricing(tender, runtime_dir=runtime_dir)
         enriched = real_profit.get("payload") or tender
 
         return {
@@ -568,9 +588,10 @@ async def run_safe_autonomous_cycle(
     enable_submit: Optional[bool] = None,
     enable_quote_engine: Optional[bool] = None,
     reason: str = "manual",
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    async with _scheduler_lock:
-        state = get_scheduler_state()
+    async with _get_scheduler_lock():
+        state = get_scheduler_state(runtime_dir=runtime_dir)
         max_total = int(max_total if max_total is not None else state.get("max_total", DEFAULT_MAX_TOTAL))
         max_submissions = int(max_submissions if max_submissions is not None else state.get("max_submissions", DEFAULT_MAX_SUBMISSIONS))
         enable_submit = bool(enable_submit if enable_submit is not None else state.get("enable_submit", DEFAULT_ENABLE_SUBMIT))
@@ -649,7 +670,7 @@ async def run_safe_autonomous_cycle(
                 else:
                     item["quote_engine"] = {"status": "disabled", "priced": False}
 
-                real_profit_fallback = _apply_real_profit_fallback(tender)
+                real_profit_fallback = _apply_real_profit_fallback(tender, runtime_dir=runtime_dir)
                 item["real_profit_fallback"] = {k: v for k, v in real_profit_fallback.items() if k != "tender"}
                 tender = real_profit_fallback.get("tender") or tender
 
@@ -697,62 +718,66 @@ async def run_safe_autonomous_cycle(
             run["message"] = "Safe autonomous quote cycle failed."
             run["error"] = str(exc)
 
-        _write_json(LAST_RUN_FILE, run)
-        _append_history(run)
+        last_run_file = _resolve_runtime_path(LAST_RUN_FILE, runtime_dir)
+        _write_json(last_run_file, run)
+        _append_history(run, runtime_dir=runtime_dir)
 
-        state = get_scheduler_state()
+        state = get_scheduler_state(runtime_dir=runtime_dir)
         state["last_status"] = run["status"]
         state["last_finished_at"] = run["finished_at"]
         state["last_message"] = run.get("message")
         state["updated_at"] = _now()
-        _write_json(STATE_FILE, state)
+        _write_json(_resolve_runtime_path(STATE_FILE, runtime_dir), state)
 
         return run
 
 
-async def start_safe_scheduler_loop() -> None:
+async def start_safe_scheduler_loop(runtime_dir: Optional[str] = None) -> None:
     while True:
-        state = get_scheduler_state()
+        state = get_scheduler_state(runtime_dir=runtime_dir)
         interval = int(state.get("interval_seconds", DEFAULT_INTERVAL_SECONDS))
         if state.get("enabled") is True:
-            await run_safe_autonomous_cycle(reason="scheduled")
+            await run_safe_autonomous_cycle(reason="scheduled", runtime_dir=runtime_dir)
         await asyncio.sleep(max(interval, 300))
 
 
-def start_background_scheduler() -> Dict[str, Any]:
+def start_background_scheduler(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     global _scheduler_task
     if _scheduler_task and not _scheduler_task.done():
         return {"status": "ok", "message": "Safe scheduler loop already running."}
     try:
         loop = asyncio.get_running_loop()
-        _scheduler_task = loop.create_task(start_safe_scheduler_loop())
+        _scheduler_task = loop.create_task(start_safe_scheduler_loop(runtime_dir=runtime_dir))
         return {"status": "ok", "message": "Safe scheduler loop started."}
     except RuntimeError:
         return {"status": "error", "message": "No running event loop available."}
 
 
-def get_safe_scheduler_status(limit: int = 20) -> Dict[str, Any]:
-    history = _read_json(HISTORY_FILE, [])
+def get_safe_scheduler_status(limit: int = 20, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    history_file = _resolve_runtime_path(HISTORY_FILE, runtime_dir)
+    state_file = _resolve_runtime_path(STATE_FILE, runtime_dir)
+    last_run_file = _resolve_runtime_path(LAST_RUN_FILE, runtime_dir)
+    history = _read_json(history_file, [])
     if not isinstance(history, list):
         history = []
     return {
         "status": "ok",
         "service_version": "LMCP_SAFE_AUTONOMOUS_SCHEDULER_V2_QUOTE_ENGINE",
-        "state": get_scheduler_state(),
-        "last_run": _read_json(LAST_RUN_FILE, {}),
+        "state": get_scheduler_state(runtime_dir=runtime_dir),
+        "last_run": _read_json(last_run_file, {}),
         "recent_runs": history[-limit:],
         "background_loop_running": bool(_scheduler_task and not _scheduler_task.done()),
-        "files": {"state": str(STATE_FILE), "history": str(HISTORY_FILE), "last_run": str(LAST_RUN_FILE)},
+        "files": {"state": str(state_file), "history": str(history_file), "last_run": str(last_run_file)},
         "updated_at": _now(),
     }
 
 
-async def enable_safe_scheduler() -> Dict[str, Any]:
-    state = update_scheduler_state({"enabled": True})
-    loop_result = start_background_scheduler()
+async def enable_safe_scheduler(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    state = update_scheduler_state({"enabled": True}, runtime_dir=runtime_dir)
+    loop_result = start_background_scheduler(runtime_dir=runtime_dir)
     return {"status": "ok", "state": state, "loop": loop_result}
 
 
-def disable_safe_scheduler() -> Dict[str, Any]:
-    state = update_scheduler_state({"enabled": False})
+def disable_safe_scheduler(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    state = update_scheduler_state({"enabled": False}, runtime_dir=runtime_dir)
     return {"status": "ok", "state": state, "message": "Safe scheduler disabled."}

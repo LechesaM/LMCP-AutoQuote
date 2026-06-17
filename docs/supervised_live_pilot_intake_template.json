@@ -1,0 +1,38 @@
+{
+  "pilot_wave_id": "supervised-live-wave-001",
+  "status": "draft",
+  "scope_limit": {
+    "max_live_rfqs": 3,
+    "tier_25_frozen": true,
+    "track_a": "WAIT",
+    "track_b": "MONITOR"
+  },
+  "gate_prerequisite": {
+    "tier_10_qualifying_active_weeks_required": 4,
+    "tier_10_qualifying_active_weeks_observed": 4,
+    "gate_status": "eligible_for_supervised_live"
+  },
+  "rfqs": [
+    {
+      "tender_id": "",
+      "tender_root": "",
+      "pricing_file": "",
+      "operator_owner": "",
+      "backup_operator": "",
+      "portal_or_channel": "",
+      "admission_reason": "",
+      "exclusion_risks": [],
+      "operator_approval_required": true,
+      "manual_submission_only": true,
+      "proof_capture_required": true
+    }
+  ],
+  "stop_rules": [
+    "critical_failure",
+    "governance_bypass",
+    "missing_approval_evidence",
+    "missing_proof_capture",
+    "rollback_due_to_incorrect_live_action"
+  ],
+  "review_required_before_expansion": true
+}

@@ -7,8 +7,6 @@ from pathlib import Path
 import pytest
 
 from app.api.router_registry import iter_router_specs
-from app.core.runtime_config import get_runtime_config
-from app.core.runtime_paths import get_runtime_paths
 from app.harvest.controlled_harvester import ControlledHarvester
 from app.harvest.deduplication import annotate_possible_duplicates, find_possible_duplicates
 from app.harvest.filtering import evaluate_prequalification
@@ -134,8 +132,6 @@ def test_health_logging_records_failure(tmp_path: Path, monkeypatch: pytest.Monk
     monkeypatch.setenv("LMCP_RUNTIME_DIR", str(runtime_dir))
     monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DIR", str(manual_dir))
     monkeypatch.setenv("LMCP_MANUAL_PRODUCTION_DB_PATH", str(manual_dir / "lmcp_operations.db"))
-    get_runtime_paths.cache_clear()
-    get_runtime_config.cache_clear()
     record_failure("src-1", parser_failure=True)
     health = get_source_health("src-1")
     assert health.failure_count == 1

@@ -7,8 +7,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Dict, Optional
 
-STATE_DIR = Path("runtime/system_state")
-STATE_FILE = STATE_DIR / "system_state.json"
+DEFAULT_RUNTIME_DIR = Path("runtime")
 
 # RLock prevents deadlock when a write path needs to read/normalize state
 # within the same thread before persisting.
@@ -29,8 +28,16 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ensure_runtime_dir() -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
+def _state_dir(runtime_dir: Optional[str] = None) -> Path:
+    return Path(runtime_dir) / "system_state" if runtime_dir else DEFAULT_RUNTIME_DIR / "system_state"
+
+
+def _state_file(runtime_dir: Optional[str] = None) -> Path:
+    return _state_dir(runtime_dir) / "system_state.json"
+
+
+def _ensure_runtime_dir(runtime_dir: Optional[str] = None) -> None:
+    _state_dir(runtime_dir).mkdir(parents=True, exist_ok=True)
 
 
 def _normalize_state(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -48,35 +55,37 @@ def _normalize_state(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return state
 
 
-def _write_state_unlocked(state: Dict[str, Any]) -> Dict[str, Any]:
-    _ensure_runtime_dir()
+def _write_state_unlocked(state: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    state_file = _state_file(runtime_dir)
+    _ensure_runtime_dir(runtime_dir)
     normalized = _normalize_state(state)
-    STATE_FILE.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
+    state_file.write_text(json.dumps(normalized, indent=2), encoding="utf-8")
     return normalized
 
 
-def _read_state_unlocked() -> Dict[str, Any]:
-    if not STATE_FILE.exists():
-        return _write_state_unlocked(DEFAULT_STATE)
+def _read_state_unlocked(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    state_file = _state_file(runtime_dir)
+    if not state_file.exists():
+        return _write_state_unlocked(DEFAULT_STATE, runtime_dir=runtime_dir)
 
     try:
-        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        data = json.loads(state_file.read_text(encoding="utf-8"))
         normalized = _normalize_state(data)
         if normalized != data:
-            return _write_state_unlocked(normalized)
+            return _write_state_unlocked(normalized, runtime_dir=runtime_dir)
         return normalized
     except Exception:
-        return _write_state_unlocked(DEFAULT_STATE)
+        return _write_state_unlocked(DEFAULT_STATE, runtime_dir=runtime_dir)
 
 
-def initialize_system_state() -> Dict[str, Any]:
+def initialize_system_state(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     with _STATE_LOCK:
-        return _read_state_unlocked()
+        return _read_state_unlocked(runtime_dir=runtime_dir)
 
 
-def get_system_state() -> Dict[str, Any]:
+def get_system_state(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     with _STATE_LOCK:
-        return _read_state_unlocked()
+        return _read_state_unlocked(runtime_dir=runtime_dir)
 
 
 def save_system_state(
@@ -87,9 +96,10 @@ def save_system_state(
     emergency_stop: Optional[bool] = None,
     reason: Optional[str] = None,
     last_changed_by: str = "api",
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     with _STATE_LOCK:
-        current = _read_state_unlocked()
+        current = _read_state_unlocked(runtime_dir=runtime_dir)
 
         if system_on is not None:
             current["system_on"] = bool(system_on)
@@ -105,76 +115,84 @@ def save_system_state(
         current["last_changed_by"] = str(last_changed_by or "api")
         current["updated_at"] = _utc_now_iso()
 
-        return _write_state_unlocked(current)
+        return _write_state_unlocked(current, runtime_dir=runtime_dir)
 
 
-def set_system_on(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def set_system_on(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         system_on=True,
         emergency_stop=False,
         reason=reason or "system turned on",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def set_system_off(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def set_system_off(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         system_on=False,
         reason=reason or "system turned off",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def pause_harvest(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def pause_harvest(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         harvest_paused=True,
         reason=reason or "harvest paused",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def resume_harvest(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def resume_harvest(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         harvest_paused=False,
         reason=reason or "harvest resumed",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def pause_submissions(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def pause_submissions(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         submission_paused=True,
         reason=reason or "submissions paused",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def resume_submissions(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def resume_submissions(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         submission_paused=False,
         reason=reason or "submissions resumed",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def set_emergency_stop(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def set_emergency_stop(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         emergency_stop=True,
         system_on=False,
         reason=reason or "emergency stop activated",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def clear_emergency_stop(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def clear_emergency_stop(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         emergency_stop=False,
         reason=reason or "emergency stop cleared",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def resume_all(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]:
+def resume_all(reason: str = "", last_changed_by: str = "api", runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     return save_system_state(
         system_on=True,
         harvest_paused=False,
@@ -182,16 +200,17 @@ def resume_all(reason: str = "", last_changed_by: str = "api") -> Dict[str, Any]
         emergency_stop=False,
         reason=reason or "all services resumed",
         last_changed_by=last_changed_by,
+        runtime_dir=runtime_dir,
     )
 
 
-def is_system_enabled() -> bool:
-    state = get_system_state()
+def is_system_enabled(runtime_dir: Optional[str] = None) -> bool:
+    state = get_system_state(runtime_dir=runtime_dir)
     return bool(state.get("system_on")) and not bool(state.get("emergency_stop"))
 
 
-def can_run_harvest() -> bool:
-    state = get_system_state()
+def can_run_harvest(runtime_dir: Optional[str] = None) -> bool:
+    state = get_system_state(runtime_dir=runtime_dir)
     return (
         bool(state.get("system_on"))
         and not bool(state.get("emergency_stop"))
@@ -199,8 +218,8 @@ def can_run_harvest() -> bool:
     )
 
 
-def can_run_submissions() -> bool:
-    state = get_system_state()
+def can_run_submissions(runtime_dir: Optional[str] = None) -> bool:
+    state = get_system_state(runtime_dir=runtime_dir)
     return (
         bool(state.get("system_on"))
         and not bool(state.get("emergency_stop"))
@@ -208,8 +227,8 @@ def can_run_submissions() -> bool:
     )
 
 
-def get_block_reason(scope: str = "system") -> Optional[str]:
-    state = get_system_state()
+def get_block_reason(scope: str = "system", runtime_dir: Optional[str] = None) -> Optional[str]:
+    state = get_system_state(runtime_dir=runtime_dir)
 
     if state.get("emergency_stop"):
         return "emergency_stop"
@@ -227,5 +246,4 @@ def get_block_reason(scope: str = "system") -> Optional[str]:
 
 
 initialize_system_state()
-
 

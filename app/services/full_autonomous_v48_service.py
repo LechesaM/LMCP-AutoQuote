@@ -1,20 +1,21 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import json
 import traceback
 
-from app.core.runtime_paths import get_runtime_paths
-
-LEGACY_SERVICE = True
 SERVICE_VERSION = "V48_FULL_AUTONOMOUS_ORCHESTRATOR"
-DEFAULT_OUTPUT_DIR = get_runtime_paths().runtime_root / "full_autonomous_v48"
-DEFAULT_STATE_PATH = get_runtime_paths().runtime_root / "system_control" / "v48_autonomous_state.json"
-DEFAULT_HISTORY_PATH = get_runtime_paths().runtime_root / "submission_history" / "v48_autonomous_runs.json"
+DEFAULT_OUTPUT_DIR = Path("runtime/full_autonomous_v48")
+DEFAULT_STATE_PATH = Path("runtime/system_control/v48_autonomous_state.json")
+DEFAULT_HISTORY_PATH = Path("runtime/submission_history/v48_autonomous_runs.json")
 DEFAULT_CDP_URL = "http://host.docker.internal:9222"
+V48_AUTONOMOUS_EXECUTION_ENABLED = (
+    str(os.getenv("V48_AUTONOMOUS_EXECUTION_ENABLED", "false")).strip().lower() in {"1", "true", "yes", "on"}
+)
 
 DEFAULT_POLICY = {
     "enabled": False,
@@ -111,6 +112,17 @@ def _append_history(record: Dict[str, Any]) -> None:
     _write_json(path, data)
 
 
+def _v48_disabled_response(action: str, policy: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    return {
+        "status": "disabled",
+        "action": action,
+        "service_version": SERVICE_VERSION,
+        "message": "V48 autonomous execution is disabled by default.",
+        "execution_enabled": V48_AUTONOMOUS_EXECUTION_ENABLED,
+        "policy": policy or _load_policy(),
+    }
+
+
 def set_v48_autonomous_policy(
     enabled: Optional[bool] = None,
     mode: Optional[str] = None,
@@ -137,6 +149,16 @@ def set_v48_autonomous_policy(
     if margin_percent is not None:
         policy["margin_percent"] = float(margin_percent)
 
+    if not V48_AUTONOMOUS_EXECUTION_ENABLED:
+        return {
+            "status": "disabled",
+            "service_version": SERVICE_VERSION,
+            "message": "V48 autonomous policy updates are disabled by default.",
+            "execution_enabled": V48_AUTONOMOUS_EXECUTION_ENABLED,
+            "policy": _load_policy(),
+            "proposed_policy": policy,
+        }
+
     # Safety rule: final submit is only possible in controlled mode with explicit opt-in.
     if policy.get("mode") not in {"controlled", "production"}:
         policy["allow_portal_final_submit"] = False
@@ -151,6 +173,7 @@ def get_v48_status() -> Dict[str, Any]:
         "status": "ok",
         "service_version": SERVICE_VERSION,
         "service": "V48 Full Autonomous Orchestrator",
+        "execution_enabled": V48_AUTONOMOUS_EXECUTION_ENABLED,
         "description": "Runs the LMCP chain from PDF/RFQ into pricing, quote pack, submission pack, email/portal preparation, portal upload, guarded final submit, verification, and audit register.",
         "policy": policy,
         "state_path": str(_state_path()),
@@ -268,6 +291,9 @@ def run_v48_from_pdf(
     output_dir: Optional[str] = None,
     override_policy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    if not V48_AUTONOMOUS_EXECUTION_ENABLED:
+        return _v48_disabled_response("run-from-pdf")
+
     started_at = _now_iso()
     policy = {**_load_policy(), **(override_policy or {})}
     workspace = _make_workspace(buyer_rfq_number, output_dir)
@@ -355,6 +381,9 @@ def run_v48_from_v45_workspace(
     output_dir: Optional[str] = None,
     override_policy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    if not V48_AUTONOMOUS_EXECUTION_ENABLED:
+        return _v48_disabled_response("run-from-v45-workspace")
+
     started_at = _now_iso()
     policy = {**_load_policy(), **(override_policy or {})}
     workspace = _make_workspace(buyer_rfq_number, output_dir)

@@ -17,6 +17,17 @@ ASSISTED_QUEUE_FILE = SMART_UPLOAD_DIR / "assisted_upload_queue.json"
 LAST_UPLOAD_FILE = SMART_UPLOAD_DIR / "last_upload.json"
 
 
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -108,16 +119,19 @@ def _normalise_attachments(payload: Dict[str, Any]) -> List[str]:
     return output
 
 
-def _resolve_path(path_value: str) -> Optional[str]:
+def _resolve_path(path_value: str, runtime_dir: Optional[str] = None) -> Optional[str]:
     if not path_value:
         return None
 
+    runtime_root = Path(runtime_dir).expanduser().resolve() if runtime_dir else None
     candidates = [
         Path(path_value),
         Path("/app") / path_value,
         Path.cwd() / path_value,
         Path("/Users/Shared/LMCP-AutoQuote-Server") / path_value,
     ]
+    if runtime_root is not None:
+        candidates.insert(1, runtime_root / path_value)
 
     for candidate in candidates:
         try:
@@ -129,13 +143,13 @@ def _resolve_path(path_value: str) -> Optional[str]:
     return None
 
 
-def _validate_attachments(attachments: List[str]) -> Dict[str, Any]:
+def _validate_attachments(attachments: List[str], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     checked: List[Dict[str, Any]] = []
     missing: List[str] = []
     resolved: List[str] = []
 
     for attachment in attachments:
-        resolved_path = _resolve_path(attachment)
+        resolved_path = _resolve_path(attachment, runtime_dir=runtime_dir)
         exists = bool(resolved_path)
         row = {
             "path": attachment,
@@ -257,8 +271,9 @@ async def run_smart_upload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     payload = deepcopy(payload if isinstance(payload, dict) else {})
 
+    runtime_dir = _safe_str(payload.get("runtime_dir"))
     attachments = _normalise_attachments(payload)
-    validation = _validate_attachments(attachments)
+    validation = _validate_attachments(attachments, runtime_dir=runtime_dir or None)
 
     bridge_payload = {
         **payload,
@@ -310,15 +325,20 @@ async def run_smart_upload(payload: Dict[str, Any]) -> Dict[str, Any]:
                 "uploaded_at": _now(),
             }
 
-            _write_json(LAST_UPLOAD_FILE, result)
-            _append_json(UPLOAD_HISTORY_FILE, result)
+            last_upload_file = _resolve_runtime_path(LAST_UPLOAD_FILE, runtime_dir or None)
+            history_file = _resolve_runtime_path(UPLOAD_HISTORY_FILE, runtime_dir or None)
+            _write_json(last_upload_file, result)
+            _append_json(history_file, result)
             return result
 
     result = _assisted_upload_payload(payload, attempts, validation)
 
-    _write_json(LAST_UPLOAD_FILE, result)
-    _append_json(ASSISTED_QUEUE_FILE, result)
-    _append_json(UPLOAD_HISTORY_FILE, result)
+    last_upload_file = _resolve_runtime_path(LAST_UPLOAD_FILE, runtime_dir or None)
+    assisted_queue_file = _resolve_runtime_path(ASSISTED_QUEUE_FILE, runtime_dir or None)
+    history_file = _resolve_runtime_path(UPLOAD_HISTORY_FILE, runtime_dir or None)
+    _write_json(last_upload_file, result)
+    _append_json(assisted_queue_file, result)
+    _append_json(history_file, result)
     return result
 
 
@@ -330,10 +350,13 @@ async def upload_documents(payload: Dict[str, Any]) -> Dict[str, Any]:
     return await run_smart_upload(payload)
 
 
-def get_smart_upload_status(limit: int = 50) -> Dict[str, Any]:
-    history = _read_json(UPLOAD_HISTORY_FILE, [])
-    assisted = _read_json(ASSISTED_QUEUE_FILE, [])
-    last = _read_json(LAST_UPLOAD_FILE, {})
+def get_smart_upload_status(limit: int = 50, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    history_file = _resolve_runtime_path(UPLOAD_HISTORY_FILE, runtime_dir)
+    assisted_queue_file = _resolve_runtime_path(ASSISTED_QUEUE_FILE, runtime_dir)
+    last_upload_file = _resolve_runtime_path(LAST_UPLOAD_FILE, runtime_dir)
+    history = _read_json(history_file, [])
+    assisted = _read_json(assisted_queue_file, [])
+    last = _read_json(last_upload_file, {})
 
     if not isinstance(history, list):
         history = []
@@ -354,10 +377,10 @@ def get_smart_upload_status(limit: int = 50) -> Dict[str, Any]:
         "recent_history": history[-limit:],
         "recent_assisted": assisted[-limit:],
         "files": {
-            "history": str(UPLOAD_HISTORY_FILE),
-            "assisted_queue": str(ASSISTED_QUEUE_FILE),
-            "last_upload": str(LAST_UPLOAD_FILE),
-            "runtime_dir": str(SMART_UPLOAD_DIR),
+            "history": str(history_file),
+            "assisted_queue": str(assisted_queue_file),
+            "last_upload": str(last_upload_file),
+            "runtime_dir": str(_resolve_runtime_path(SMART_UPLOAD_DIR, runtime_dir)),
         },
         "updated_at": _now(),
     }
@@ -372,6 +395,7 @@ async def attach_and_smart_upload(
     capture_screenshots=True,
     stop_before_submit=True,
     payload=None,
+    runtime_dir: Optional[str] = None,
 ):
     if payload is None:
         payload = {}
@@ -400,10 +424,11 @@ async def attach_and_smart_upload(
         "fill_visible_fields": fill_visible_fields,
         "capture_screenshots": capture_screenshots,
         "stop_before_submit": stop_before_submit,
+        "runtime_dir": runtime_dir,
     })
 
     return await run_smart_upload(payload)
 
 
-def get_v47_4_status(limit: int = 50):
-    return get_smart_upload_status(limit=limit)
+def get_v47_4_status(limit: int = 50, runtime_dir: Optional[str] = None):
+    return get_smart_upload_status(limit=limit, runtime_dir=runtime_dir)

@@ -1,352 +1,182 @@
 from __future__ import annotations
 
-import asyncio
 import json
+import os
+from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from threading import Lock
 from typing import Any, Dict, List, Optional
 
+from app.domain.workflow import WorkflowStage
 from app.core.runtime_paths import get_runtime_paths
-from app.domain.workflow import WorkflowEvent, WorkflowStage, WorkflowState
-from app.monitoring.metrics_service import increment_metric
-from app.persistence import jsonl_compat
-from app.persistence.repositories import WorkflowRepository
+
 
 RUNTIME_DIR = get_runtime_paths().runtime_root
-MANUAL_PRODUCTION_DIR = get_runtime_paths().manual_production_dir
-MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
-WORKFLOW_EVENT_LOG_FILE = get_runtime_paths().manual_production_file("workflow_events.jsonl")
-WORKFLOW_STATE_LOG_FILE = get_runtime_paths().manual_production_file("workflow_state.jsonl")
+MANUAL_PRODUCTION_DIR = Path(os.getenv("LMCP_MANUAL_PRODUCTION_DIR", str(RUNTIME_DIR / "manual_production")))
+WORKFLOW_EVENT_LOG_FILE = MANUAL_PRODUCTION_DIR / "workflow_events.jsonl"
+WORKFLOW_STATE_LOG_FILE = MANUAL_PRODUCTION_DIR / "workflow_state.jsonl"
 
-_LOCK = Lock()
-
-_ACTIVE_STAGES = {
-    WorkflowStage.DISCOVERED,
-    WorkflowStage.EXTRACTED,
-    WorkflowStage.EVALUATED,
-    WorkflowStage.PRICED,
-    WorkflowStage.QUOTE_GENERATED,
-    WorkflowStage.APPROVAL_REQUIRED,
-    WorkflowStage.APPROVED,
-    WorkflowStage.REVIEW_READY,
-    WorkflowStage.PROOF_RECORDED,
-}
-
-_ALLOWED_TRANSITIONS = {
-    WorkflowStage.DISCOVERED: {WorkflowStage.EXTRACTED, WorkflowStage.REFUSED},
-    WorkflowStage.EXTRACTED: {WorkflowStage.EVALUATED, WorkflowStage.REFUSED},
-    WorkflowStage.EVALUATED: {WorkflowStage.PRICED, WorkflowStage.REFUSED},
-    WorkflowStage.PRICED: {WorkflowStage.QUOTE_GENERATED, WorkflowStage.REFUSED},
-    WorkflowStage.QUOTE_GENERATED: {WorkflowStage.APPROVAL_REQUIRED, WorkflowStage.REFUSED},
-    WorkflowStage.APPROVAL_REQUIRED: {WorkflowStage.APPROVED, WorkflowStage.REFUSED},
-    WorkflowStage.APPROVED: {WorkflowStage.REVIEW_READY, WorkflowStage.REFUSED},
-    WorkflowStage.REVIEW_READY: {WorkflowStage.PROOF_RECORDED, WorkflowStage.REFUSED},
-    WorkflowStage.PROOF_RECORDED: {WorkflowStage.ARCHIVED, WorkflowStage.REFUSED},
-    WorkflowStage.REFUSED: {WorkflowStage.ARCHIVED},
-    WorkflowStage.ARCHIVED: set(),
-}
+_STATE_BY_FILE: Dict[str, Dict[str, "WorkflowState"]] = {}
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _clean(value: Any) -> str:
-    return str(value or "").strip()
+def _emit_audit_event(**_: Any) -> None:
+    return None
 
 
-def _coerce_stage(value: Any) -> WorkflowStage:
-    if isinstance(value, WorkflowStage):
-        return value
-    return WorkflowStage(_clean(value))
+@dataclass
+class WorkflowState:
+    tender_id: str
+    stage: WorkflowStage
+    actor: str = ""
+    reason: str = ""
+    details: Dict[str, Any] = None  # type: ignore[assignment]
+    updated_at: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        data["stage"] = self.stage.value
+        data["details"] = self.details or {}
+        if not data.get("updated_at"):
+            data["updated_at"] = _now_iso()
+        return data
 
 
-def _safe_details(value: Any) -> Dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
+def _state_bucket() -> Dict[str, WorkflowState]:
+    key = str(WORKFLOW_STATE_LOG_FILE)
+    bucket = _STATE_BY_FILE.get(key)
+    if bucket is None:
+        bucket = {}
+        _STATE_BY_FILE[key] = bucket
+    return bucket
 
 
-def _normalize_state_payload(record: Dict[str, Any]) -> Dict[str, Any]:
-    if not record:
-        return {}
-    return {
-        "tender_id": _clean(record.get("tender_id")),
-        "stage": _coerce_stage(record.get("stage") or record.get("workflow_stage") or record.get("to_stage") or WorkflowStage.DISCOVERED).value,
-        "updated_at": record.get("updated_at") or record.get("created_at") or _now_iso(),
-        "details": _safe_details(record.get("details") or record.get("payload") or {}),
-    }
+def _append_jsonl(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
 
 
-def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    records: List[Dict[str, Any]] = []
-    if not path.exists():
-        return records
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            payload = json.loads(line)
-            if isinstance(payload, dict):
-                records.append(payload)
-    except Exception:
-        return []
-    return records
+def _write_state_event(payload: Dict[str, Any]) -> None:
+    _append_jsonl(WORKFLOW_STATE_LOG_FILE, payload)
 
 
-def _append_jsonl(path: Path, item: Dict[str, Any]) -> Dict[str, Any]:
-    MANUAL_PRODUCTION_DIR.mkdir(parents=True, exist_ok=True)
-    line = json.dumps(item, ensure_ascii=False, default=str)
-    with _LOCK:
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(line + "\n")
-    return item
+def _write_workflow_event(payload: Dict[str, Any]) -> None:
+    _append_jsonl(WORKFLOW_EVENT_LOG_FILE, payload)
 
 
-def _latest_state_record(tender_id: str) -> Dict[str, Any]:
-    for record in reversed(_read_jsonl(WORKFLOW_STATE_LOG_FILE)):
-        if _clean(record.get("tender_id")) == _clean(tender_id):
-            return record
-    return {}
-
-
-def _persist_transition(
-    *,
+def _record(
     tender_id: str,
-    from_stage: WorkflowStage,
-    to_stage: WorkflowStage,
+    stage: WorkflowStage,
     actor: str,
     reason: str,
-    details: Dict[str, Any],
+    details: Optional[Dict[str, Any]] = None,
+    previous_stage: Optional[WorkflowStage] = None,
 ) -> WorkflowState:
-    transitioned_at = _now_iso()
-    event = WorkflowEvent.validate_payload(
-        {
-            "tender_id": _clean(tender_id),
-            "from_stage": from_stage,
-            "to_stage": to_stage,
-            "actor": _clean(actor),
-            "reason": _clean(reason),
-            "details": _safe_details(details),
-            "transitioned_at": transitioned_at,
-        }
-    ).to_jsonable_dict()
-    state_details = _safe_details(details)
-    state_details.update(
-        {
-            "actor": _clean(actor),
-            "reason": _clean(reason),
-            "from_stage": from_stage.value,
-            "to_stage": to_stage.value,
-            "transitioned_at": transitioned_at,
-        }
+    state = WorkflowState(
+        tender_id=tender_id,
+        stage=stage,
+        actor=actor,
+        reason=reason,
+        details=dict(details or {}),
+        updated_at=_now_iso(),
     )
-    state = WorkflowState.validate_payload(
-        {
-            "tender_id": _clean(tender_id),
-            "stage": to_stage,
-            "updated_at": transitioned_at,
-            "details": state_details,
-        }
-    ).to_jsonable_dict()
-
-    _append_jsonl(WORKFLOW_EVENT_LOG_FILE, event)
-    _append_jsonl(WORKFLOW_STATE_LOG_FILE, state)
-    jsonl_compat.persist_workflow_transition(event)
-    jsonl_compat.persist_workflow_state(state)
-    _emit_audit_event(tender_id=_clean(tender_id), from_stage=from_stage, to_stage=to_stage, actor=_clean(actor), reason=_clean(reason), details=state_details)
-    _increment_transition_metrics(from_stage=from_stage, to_stage=to_stage)
-    return WorkflowState.validate_payload(state)
-
-
-def _increment_transition_metrics(*, from_stage: WorkflowStage, to_stage: WorkflowStage) -> None:
-    if from_stage == WorkflowStage.DISCOVERED:
-        increment_metric("rfqs_discovered")
-    if to_stage == WorkflowStage.EVALUATED:
-        increment_metric("rfqs_evaluated")
-    if to_stage == WorkflowStage.REFUSED:
-        increment_metric("rfqs_refused")
-    if to_stage == WorkflowStage.QUOTE_GENERATED:
-        increment_metric("quote_packs_generated")
-    if to_stage == WorkflowStage.APPROVED:
-        increment_metric("approvals_recorded")
-    if to_stage == WorkflowStage.REVIEW_READY:
-        increment_metric("reviews_recorded")
-    if to_stage == WorkflowStage.PROOF_RECORDED:
-        increment_metric("proofs_recorded")
-    if to_stage == WorkflowStage.ARCHIVED:
-        increment_metric("archived_workflows")
-
-
-def _emit_audit_event(
-    *,
-    tender_id: str,
-    from_stage: WorkflowStage,
-    to_stage: WorkflowStage,
-    actor: str,
-    reason: str,
-    details: Dict[str, Any],
-) -> None:
+    _state_bucket()[tender_id] = state
+    payload = state.to_dict()
+    _write_state_event(payload)
+    workflow_event_payload = {
+        "tender_id": tender_id,
+        "stage": stage.value,
+        "from_stage": (previous_stage.value if previous_stage else ""),
+        "to_stage": stage.value,
+        "actor": actor,
+        "reason": reason,
+        "details": details or {},
+        "created_at": payload["updated_at"],
+    }
+    _write_workflow_event(workflow_event_payload)
     try:
-        from app.services.audit_trail_service import record_audit_event
+        from app.persistence import db as persistence_db
+        from app.persistence.repositories import record_persistence_write_failure, record_persistence_write_success
 
-        async def _record() -> None:
-            await record_audit_event(
-                event_type="workflow_transition",
-                source="workflow-state-engine",
-                severity="info",
-                title=f"Workflow transition {from_stage.value} -> {to_stage.value}",
-                message=reason,
-                buyer_rfq_number=tender_id,
-                payload={
-                    "tender_id": tender_id,
-                    "from_stage": from_stage.value,
-                    "to_stage": to_stage.value,
-                    "actor": actor,
-                    "reason": reason,
-                    "details": details,
-                },
-            )
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            asyncio.run(_record())
-            return
-        loop.create_task(_record())
+        persistence_db.insert_json_record("workflow_state_records", payload)
+        persistence_db.insert_json_record("workflow_event_records", workflow_event_payload)
+        record_persistence_write_success()
     except Exception:
+        try:
+            from app.persistence.repositories import record_persistence_write_failure
+            record_persistence_write_failure()
+        except Exception:
+            pass
+    _emit_audit_event(event_type="workflow_transition", payload=payload)
+    return state
+
+
+_ALLOWED_TRANSITIONS: Dict[WorkflowStage, List[WorkflowStage]] = {
+    WorkflowStage.DISCOVERED: [WorkflowStage.EXTRACTED],
+    WorkflowStage.EXTRACTED: [WorkflowStage.EVALUATED],
+    WorkflowStage.EVALUATED: [WorkflowStage.PRICED],
+    WorkflowStage.PRICED: [WorkflowStage.QUOTE_GENERATED],
+    WorkflowStage.QUOTE_GENERATED: [WorkflowStage.APPROVAL_REQUIRED],
+    WorkflowStage.APPROVAL_REQUIRED: [WorkflowStage.APPROVED, WorkflowStage.REFUSED],
+    WorkflowStage.APPROVED: [WorkflowStage.REVIEW_READY, WorkflowStage.REFUSED],
+    WorkflowStage.REVIEW_READY: [WorkflowStage.PROOF_RECORDED, WorkflowStage.ARCHIVED],
+    WorkflowStage.PROOF_RECORDED: [WorkflowStage.ARCHIVED],
+}
+
+
+def assert_can_transition(current: WorkflowStage, target: WorkflowStage) -> None:
+    if target in {WorkflowStage.REFUSED, WorkflowStage.ARCHIVED}:
         return
-
-
-def assert_can_transition(from_stage: Any, to_stage: Any) -> None:
-    source = _coerce_stage(from_stage)
-    target = _coerce_stage(to_stage)
-    if source == target:
-        increment_metric("workflow_failures")
-        raise ValueError(f"Transition {source.value} -> {target.value} is not allowed")
-    allowed_targets = _ALLOWED_TRANSITIONS.get(source, set())
-    if target not in allowed_targets:
-        increment_metric("workflow_failures")
-        raise ValueError(f"Transition {source.value} -> {target.value} is not allowed")
-
-
-def get_current_state(tender_id: str) -> WorkflowState:
-    latest = WorkflowRepository(jsonl_path=WORKFLOW_STATE_LOG_FILE).fetch_latest_state(tender_id)
-    if not latest:
-        latest = _latest_state_record(tender_id)
-    if latest:
-        return WorkflowState.validate_payload(_normalize_state_payload(latest))
-    return WorkflowState.validate_payload(
-        {
-            "tender_id": _clean(tender_id),
-            "stage": WorkflowStage.DISCOVERED,
-            "updated_at": _now_iso(),
-            "details": {},
-        }
-    )
+    allowed = _ALLOWED_TRANSITIONS.get(current, [])
+    if target not in allowed:
+        raise ValueError(f"Transition from {current.value} to {target.value} is not allowed.")
 
 
 def record_transition(
     tender_id: str,
-    from_stage: Any,
-    to_stage: Any,
+    current_stage: WorkflowStage,
+    next_stage: WorkflowStage,
     actor: str,
     reason: str,
     details: Optional[Dict[str, Any]] = None,
 ) -> WorkflowState:
-    source = _coerce_stage(from_stage)
-    target = _coerce_stage(to_stage)
-    assert_can_transition(source, target)
-
-    latest = _latest_state_record(tender_id)
-    if latest:
-        current_stage = _coerce_stage(latest.get("stage"))
-        if current_stage != source:
-            increment_metric("workflow_failures")
-            raise ValueError(
-                f"Current workflow stage for tender {tender_id} is {current_stage.value}, not {source.value}"
-            )
-    elif source != WorkflowStage.DISCOVERED:
-        increment_metric("workflow_failures")
-        raise ValueError(f"Cannot transition tender {tender_id} from {source.value} without a current state")
-
-    return _persist_transition(
-        tender_id=tender_id,
-        from_stage=source,
-        to_stage=target,
-        actor=actor,
-        reason=reason,
-        details=_safe_details(details),
-    )
+    current = get_current_state(tender_id).stage
+    if current != current_stage:
+        # keep the check permissive for fresh records when callers pass DISCOVERED as the starting point
+        if current != WorkflowStage.DISCOVERED or current_stage != WorkflowStage.DISCOVERED:
+            raise ValueError(f"Current stage for {tender_id} is {current.value}; expected {current_stage.value}.")
+    assert_can_transition(current_stage, next_stage)
+    return _record(tender_id, next_stage, actor, reason, details, previous_stage=current_stage)
 
 
-def refuse_workflow(
-    tender_id: str,
-    actor: str,
-    reason: str,
-    details: Optional[Dict[str, Any]] = None,
-) -> WorkflowState:
-    current = get_current_state(tender_id)
-    if current.stage not in _ACTIVE_STAGES:
-        increment_metric("workflow_failures")
-        raise ValueError(f"Cannot refuse workflow for tender {tender_id} from {current.stage.value}")
-    return record_transition(
-        tender_id=tender_id,
-        from_stage=current.stage,
-        to_stage=WorkflowStage.REFUSED,
-        actor=actor,
-        reason=reason,
-        details=details,
-    )
+def refuse_workflow(tender_id: str, actor: str, reason: str, details: Optional[Dict[str, Any]] = None) -> WorkflowState:
+    current = get_current_state(tender_id).stage
+    return _record(tender_id, WorkflowStage.REFUSED, actor, reason, details, previous_stage=current)
 
 
-def archive_workflow(
-    tender_id: str,
-    actor: str,
-    reason: str,
-    details: Optional[Dict[str, Any]] = None,
-) -> WorkflowState:
-    current = get_current_state(tender_id)
-    return record_transition(
-        tender_id=tender_id,
-        from_stage=current.stage,
-        to_stage=WorkflowStage.ARCHIVED,
-        actor=actor,
-        reason=reason,
-        details=details,
-    )
+def archive_workflow(tender_id: str, actor: str, reason: str, details: Optional[Dict[str, Any]] = None) -> WorkflowState:
+    current = get_current_state(tender_id).stage
+    if current not in {WorkflowStage.REFUSED, WorkflowStage.PROOF_RECORDED, WorkflowStage.REVIEW_READY}:
+        raise ValueError(f"Workflow {tender_id} cannot be archived from stage {current.value}.")
+    return _record(tender_id, WorkflowStage.ARCHIVED, actor, reason, details, previous_stage=current)
 
 
-def list_recent_states(limit: int = 100) -> Dict[str, Any]:
-    repo = WorkflowRepository(jsonl_path=WORKFLOW_STATE_LOG_FILE)
-    records = repo.fetch_recent(limit=limit)
-    if records:
-        recent = records[: max(1, int(limit or 100))]
-    else:
-        recent = list(reversed(_read_jsonl(WORKFLOW_STATE_LOG_FILE)[-max(1, int(limit or 100)) :]))
-    return {
-        "status": "ok",
-        "items": recent,
-        "total": len(records),
-        "log_file": str(WORKFLOW_STATE_LOG_FILE),
-        "event_log_file": str(WORKFLOW_EVENT_LOG_FILE),
-        "updated_at": _now_iso(),
-    }
+def get_current_state(tender_id: str) -> WorkflowState:
+    return _state_bucket().get(tender_id) or WorkflowState(tender_id=tender_id, stage=WorkflowStage.DISCOVERED, actor="", reason="", details={}, updated_at="")
 
 
-def get_transition_history(tender_id: str, limit: int = 100) -> Dict[str, Any]:
-    repo = WorkflowRepository(jsonl_path=WORKFLOW_STATE_LOG_FILE)
-    history = repo.fetch_history(tender_id, limit=limit)
-    if not history:
-        history = [
-            record
-            for record in _read_jsonl(WORKFLOW_STATE_LOG_FILE)
-            if _clean(record.get("tender_id")) == _clean(tender_id)
-        ][-max(1, int(limit or 100)) :]
-    return {
-        "status": "ok",
-        "tender_id": _clean(tender_id),
-        "count": len(history),
-        "items": history,
-        "updated_at": _now_iso(),
-    }
+def get_transition_history(tender_id: str) -> Dict[str, Any]:
+    items: List[Dict[str, Any]] = []
+    if WORKFLOW_STATE_LOG_FILE.exists():
+        for line in WORKFLOW_STATE_LOG_FILE.read_text(encoding="utf-8").splitlines():
+            try:
+                payload = json.loads(line)
+            except Exception:
+                continue
+            if str(payload.get("tender_id") or "") == tender_id:
+                items.append(payload)
+    return {"status": "ok", "tender_id": tender_id, "items": items}

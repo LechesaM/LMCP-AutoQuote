@@ -18,6 +18,17 @@ UPLOAD_ASSISTED_FILE = PORTAL_UPLOAD_DIR / "assisted_upload_required.json"
 LATEST_QUOTE_DISCOVERY_FILE = PORTAL_UPLOAD_DIR / "latest_quote_discovery.json"
 
 
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -72,7 +83,7 @@ def _quote_number(payload: Dict[str, Any]) -> str:
     return _safe_str(payload.get("quote_number") or payload.get("lmcp_quote_number") or f"LMCP-{buyer_rfq}")
 
 
-def _path_exists(path_value: str) -> bool:
+def _path_exists(path_value: str, runtime_dir: Optional[str] = None) -> bool:
     if not path_value:
         return False
 
@@ -83,11 +94,13 @@ def _path_exists(path_value: str) -> bool:
         Path.cwd() / path_value,
         Path("/Users/Shared/LMCP-AutoQuote-Server") / path_value,
     ]
+    if runtime_dir:
+        candidates.insert(1, Path(runtime_dir).expanduser().resolve() / path_value)
 
     return any(candidate.exists() for candidate in candidates)
 
 
-def _resolve_path(path_value: str) -> Optional[str]:
+def _resolve_path(path_value: str, runtime_dir: Optional[str] = None) -> Optional[str]:
     if not path_value:
         return None
 
@@ -97,6 +110,8 @@ def _resolve_path(path_value: str) -> Optional[str]:
         Path.cwd() / path_value,
         Path("/Users/Shared/LMCP-AutoQuote-Server") / path_value,
     ]
+    if runtime_dir:
+        candidates.insert(1, Path(runtime_dir).expanduser().resolve() / path_value)
 
     for candidate in candidates:
         try:
@@ -108,7 +123,7 @@ def _resolve_path(path_value: str) -> Optional[str]:
     return None
 
 
-def _find_latest_generated_quote_pdf(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _find_latest_generated_quote_pdf(payload: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     """
     Finds the newest generated LMCP quote PDF.
 
@@ -121,7 +136,7 @@ def _find_latest_generated_quote_pdf(payload: Dict[str, Any]) -> Dict[str, Any]:
     quote_number = _quote_number(payload)
 
     search_roots = [
-        MONTHLY_QUOTES_DIR,
+        _resolve_runtime_path(PORTAL_UPLOAD_DIR.parent / "monthly_quotes", runtime_dir),
         Path("/app/monthly_quotes"),
         Path("/Users/Shared/LMCP-AutoQuote-Server/monthly_quotes"),
     ]
@@ -194,7 +209,7 @@ def _find_latest_generated_quote_pdf(payload: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _normalise_attachments(payload: Dict[str, Any]) -> List[str]:
+def _normalise_attachments(payload: Dict[str, Any], runtime_dir: Optional[str] = None) -> List[str]:
     values: List[Any] = []
 
     for key in ["attachments", "submission_attachments", "supporting_documents", "documents"]:
@@ -227,19 +242,19 @@ def _normalise_attachments(payload: Dict[str, Any]) -> List[str]:
         output.append(path)
 
     if not output:
-        latest = _find_latest_generated_quote_pdf(payload)
+        latest = _find_latest_generated_quote_pdf(payload, runtime_dir=runtime_dir)
         if latest.get("status") == "ok" and latest.get("selected_pdf"):
             output.append(latest["selected_pdf"])
 
     return output
 
 
-def _validate_attachments(attachments: List[str]) -> Dict[str, Any]:
+def _validate_attachments(attachments: List[str], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     checked = []
     missing = []
 
     for attachment in attachments:
-        resolved = _resolve_path(attachment)
+        resolved = _resolve_path(attachment, runtime_dir=runtime_dir)
         exists = bool(resolved)
         row = {"path": attachment, "exists": exists, "resolved_path": resolved}
         checked.append(row)
@@ -321,9 +336,10 @@ async def upload_submission_documents(payload: Dict[str, Any]) -> Dict[str, Any]
     under monthly_quotes/ and sends that to the browser upload engine.
     """
     payload = deepcopy(payload if isinstance(payload, dict) else {})
+    runtime_dir = _safe_str(payload.get("runtime_dir")) or None
 
-    attachments = _normalise_attachments(payload)
-    validation = _validate_attachments(attachments)
+    attachments = _normalise_attachments(payload, runtime_dir=runtime_dir)
+    validation = _validate_attachments(attachments, runtime_dir=runtime_dir)
 
     buyer_rfq = _buyer_rfq_number(payload)
     quote_number = _quote_number(payload)
@@ -377,7 +393,8 @@ async def upload_submission_documents(payload: Dict[str, Any]) -> Dict[str, Any]
                 "attempts": attempts,
                 "uploaded_at": _now(),
             }
-            _append_json(UPLOAD_HISTORY_FILE, result)
+            history_file = _resolve_runtime_path(UPLOAD_HISTORY_FILE, runtime_dir)
+            _append_json(history_file, result)
             return result
 
     result = {
@@ -390,14 +407,16 @@ async def upload_submission_documents(payload: Dict[str, Any]) -> Dict[str, Any]
         "portal_domain": portal_domain,
         "attachments": attachments,
         "attachment_validation": validation,
-        "latest_quote_discovery": _read_json(LATEST_QUOTE_DISCOVERY_FILE, {}),
+        "latest_quote_discovery": _read_json(_resolve_runtime_path(LATEST_QUOTE_DISCOVERY_FILE, runtime_dir), {}),
         "reason": "No existing V47/V48 browser upload bridge returned a confirmed upload success.",
         "attempts": attempts,
         "created_at": _now(),
     }
 
-    _append_json(UPLOAD_ASSISTED_FILE, result)
-    _append_json(UPLOAD_HISTORY_FILE, result)
+    assisted_file = _resolve_runtime_path(UPLOAD_ASSISTED_FILE, runtime_dir)
+    history_file = _resolve_runtime_path(UPLOAD_HISTORY_FILE, runtime_dir)
+    _append_json(assisted_file, result)
+    _append_json(history_file, result)
     return result
 
 
@@ -409,13 +428,16 @@ async def upload_documents_to_portal(payload: Dict[str, Any]) -> Dict[str, Any]:
     return await upload_submission_documents(payload)
 
 
-def find_latest_generated_quote(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    return _find_latest_generated_quote_pdf(payload or {})
+def find_latest_generated_quote(payload: Optional[Dict[str, Any]] = None, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    return _find_latest_generated_quote_pdf(payload or {}, runtime_dir=runtime_dir)
 
 
-def get_portal_upload_status(limit: int = 50) -> Dict[str, Any]:
-    history = _read_json(UPLOAD_HISTORY_FILE, [])
-    assisted = _read_json(UPLOAD_ASSISTED_FILE, [])
+def get_portal_upload_status(limit: int = 50, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    history_file = _resolve_runtime_path(UPLOAD_HISTORY_FILE, runtime_dir)
+    assisted_file = _resolve_runtime_path(UPLOAD_ASSISTED_FILE, runtime_dir)
+    latest_file = _resolve_runtime_path(LATEST_QUOTE_DISCOVERY_FILE, runtime_dir)
+    history = _read_json(history_file, [])
+    assisted = _read_json(assisted_file, [])
 
     if not isinstance(history, list):
         history = []
@@ -431,14 +453,14 @@ def get_portal_upload_status(limit: int = 50) -> Dict[str, Any]:
             "uploaded_total": uploaded_count,
             "assisted_required_total": len(assisted),
         },
-        "latest_quote_discovery": _read_json(LATEST_QUOTE_DISCOVERY_FILE, {}),
+        "latest_quote_discovery": _read_json(latest_file, {}),
         "recent_history": history[-limit:],
         "recent_assisted": assisted[-limit:],
         "files": {
-            "history": str(UPLOAD_HISTORY_FILE),
-            "assisted": str(UPLOAD_ASSISTED_FILE),
-            "latest_quote_discovery": str(LATEST_QUOTE_DISCOVERY_FILE),
-            "runtime_dir": str(PORTAL_UPLOAD_DIR),
+            "history": str(history_file),
+            "assisted": str(assisted_file),
+            "latest_quote_discovery": str(latest_file),
+            "runtime_dir": str(_resolve_runtime_path(PORTAL_UPLOAD_DIR, runtime_dir)),
         },
         "updated_at": _now(),
     }

@@ -9,6 +9,8 @@ import re
 import shutil
 import zipfile
 
+from app.services.rfq_document_intelligence import _detect_document_roles, _extract_local_text
+
 
 ENGINE_VERSION = "RFQ_ZIP_CONTENT_EXTRACTION_ENGINE_V1"
 
@@ -44,19 +46,39 @@ MAIN_TERMS = [
 BOQ_TERMS = [
     "boq",
     "bill of quantities",
+    "bills of quantities",
     "pricing schedule",
     "price schedule",
+    "schedule of rates",
     "schedule of prices",
     "quotation schedule",
     "pricing",
+    "pricing data",
+    "section c2",
+    "scope and pricing",
+    "financial offer",
+    "form of offer",
+    "rates",
+    "quantities",
 ]
 
 PRICING_TERMS = [
     "pricing schedule",
     "price schedule",
+    "schedule of rates",
     "schedule of prices",
     "quotation schedule",
     "pricing",
+    "pricing data",
+    "sbd 3.1",
+    "sbd 3.2",
+    "section c2",
+    "scope and pricing",
+    "financial offer",
+    "form of offer",
+    "activity schedule",
+    "rates",
+    "amount",
 ]
 
 SBD_TERMS = [
@@ -83,6 +105,10 @@ RETURNABLE_TERMS = [
     "returnable documents",
     "mandatory documents",
     "compulsory documents",
+    "tax compliance",
+    "csd",
+    "b-bbee",
+    "bbbee",
 ]
 
 TERMS_TERMS = [
@@ -310,11 +336,87 @@ def _score_file(path: Path) -> Dict[str, Any]:
     }
 
 
+def _inventory_types(record: Dict[str, Any]) -> List[str]:
+    types: List[str] = []
+    ext = _safe_str(record.get("extension")).lower().lstrip(".")
+    if ext:
+        types.append(ext)
+    for category in record.get("categories") or []:
+        if category.endswith("_files"):
+            types.append(category[:-6])
+        else:
+            types.append(category)
+    return list(dict.fromkeys(types))
+
+
+def _augment_record_with_content(record: Dict[str, Any]) -> Dict[str, Any]:
+    path = Path(_safe_str(record.get("path")))
+    if not path.exists() or not path.is_file():
+        record.setdefault("content_status", "missing")
+        return record
+
+    text_result = _extract_local_text(path, path.suffix.lower())
+    text = _safe_str(text_result.get("text"))
+    tables = text_result.get("tables") if isinstance(text_result.get("tables"), list) else []
+    content_roles = _detect_document_roles(text, tables, filename=path.name)
+
+    categories = list(dict.fromkeys(list(record.get("categories") or []) + _role_categories(content_roles)))
+    reasons = list(
+        dict.fromkeys(
+            list(record.get("reasons") or [])
+            + [content_roles.get("pricing_schedule_reason"), content_roles.get("boq_reason"), content_roles.get("returnables_reason")]
+        )
+    )
+    reasons = [reason for reason in reasons if _safe_str(reason)]
+
+    boosted_score = max(
+        float(record.get("score") or 0.0),
+        float(content_roles.get("pricing_schedule_confidence") or 0.0),
+        float(content_roles.get("boq_confidence") or 0.0),
+        float(content_roles.get("commercial_returnable_confidence") or 0.0),
+    )
+
+    record.update(
+        {
+            "score": round(min(boosted_score, 1.0), 4),
+            "categories": categories,
+            "reasons": reasons,
+            "content_status": _safe_str(text_result.get("status") or "unknown"),
+            "document_role": _safe_str(content_roles.get("document_role")),
+            "pricing_schedule_detected": bool(content_roles.get("pricing_schedule_detected")),
+            "pricing_schedule_confidence": float(content_roles.get("pricing_schedule_confidence") or 0.0),
+            "pricing_schedule_reason": _safe_str(content_roles.get("pricing_schedule_reason")),
+            "boq_detected": bool(content_roles.get("boq_detected")),
+            "boq_confidence": float(content_roles.get("boq_confidence") or 0.0),
+            "boq_reason": _safe_str(content_roles.get("boq_reason")),
+            "returnables_detected": bool(content_roles.get("returnables_detected")),
+            "commercial_returnable_confidence": float(content_roles.get("commercial_returnable_confidence") or 0.0),
+            "returnables_reason": _safe_str(content_roles.get("returnables_reason")),
+            "table_count": len(tables),
+            "text_excerpt": text[:1200],
+            "detected_document_types": _inventory_types({**record, "categories": categories}),
+        }
+    )
+    return record
+
+
+def _role_categories(content_roles: Dict[str, Any]) -> List[str]:
+    categories: List[str] = []
+    if bool(content_roles.get("boq_detected")):
+        categories.append("boq_candidate_files")
+    if bool(content_roles.get("pricing_schedule_detected")):
+        categories.append("pricing_schedule_files")
+    if bool(content_roles.get("returnables_detected")):
+        categories.append("returnable_files")
+    if _safe_str(content_roles.get("document_role")) == "sbd_form":
+        categories.append("sbd_files")
+    return categories
+
+
 def _file_record(path: Path, source_zip: Path, original_member: str) -> Dict[str, Any]:
     stat = path.stat()
     scoring = _score_file(path)
-
-    return {
+    record = {
         "path": str(path),
         "filename": path.name,
         "extension": path.suffix.lower(),
@@ -325,6 +427,7 @@ def _file_record(path: Path, source_zip: Path, original_member: str) -> Dict[str
         "categories": scoring["categories"],
         "reasons": scoring["reasons"],
     }
+    return _augment_record_with_content(record)
 
 
 def _classify_files(extracted_files: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
@@ -356,6 +459,65 @@ def _classify_files(extracted_files: List[Dict[str, Any]]) -> Dict[str, List[Dic
         groups[key].sort(key=lambda x: float(x.get("score") or 0.0), reverse=True)
 
     return groups
+
+
+def _summarize_inventory(zip_files: List[Dict[str, Any]], extracted_files: List[Dict[str, Any]], classified: Dict[str, List[Dict[str, Any]]]) -> Dict[str, Any]:
+    paths = []
+    for record in extracted_files:
+        path = _safe_str(record.get("path"))
+        if path:
+            paths.append(path)
+
+    detected_document_types: List[str] = []
+    for record in extracted_files:
+        detected_document_types.extend(record.get("detected_document_types") or _inventory_types(record))
+    for category, rows in classified.items():
+        if rows and category.endswith("_files"):
+            detected_document_types.append(category[:-6])
+
+    lowered_paths = [p.lower() for p in paths]
+    return {
+        "artifact_count": len(paths),
+        "pdf_count": sum(1 for p in lowered_paths if p.endswith(".pdf")),
+        "docx_count": sum(1 for p in lowered_paths if p.endswith(".docx")),
+        "xlsx_count": sum(1 for p in lowered_paths if p.endswith((".xlsx", ".xls", ".xlsm", ".xltx", ".xltm"))),
+        "zip_count": len(zip_files),
+        "csv_count": sum(1 for p in lowered_paths if p.endswith(".csv")),
+        "extracted_file_count": len(extracted_files),
+        "detected_document_types": sorted(dict.fromkeys(t for t in detected_document_types if _safe_str(t))),
+        "document_inventory_paths_limited": list(dict.fromkeys(paths))[:25],
+    }
+
+
+def _best_reason(records: List[Dict[str, Any]], confidence_key: str, reason_key: str) -> str:
+    ordered = sorted(records, key=lambda row: float(row.get(confidence_key) or 0.0), reverse=True)
+    for row in ordered:
+        reason = _safe_str(row.get(reason_key))
+        if reason:
+            return reason
+    return ""
+
+
+def _aggregate_detection(extracted_files: List[Dict[str, Any]]) -> Dict[str, Any]:
+    pricing_confidence = round(max((float(row.get("pricing_schedule_confidence") or 0.0) for row in extracted_files), default=0.0), 4)
+    boq_confidence = round(max((float(row.get("boq_confidence") or 0.0) for row in extracted_files), default=0.0), 4)
+    returnables_confidence = round(max((float(row.get("commercial_returnable_confidence") or 0.0) for row in extracted_files), default=0.0), 4)
+
+    pricing_detected = pricing_confidence >= 0.55 or any(bool(row.get("pricing_schedule_detected")) for row in extracted_files)
+    boq_detected = boq_confidence >= 0.55 or any(bool(row.get("boq_detected")) for row in extracted_files)
+    returnables_detected = returnables_confidence >= 0.45 or any(bool(row.get("returnables_detected")) for row in extracted_files)
+
+    return {
+        "pricing_schedule_detected": pricing_detected,
+        "pricing_schedule_detection_confidence": pricing_confidence,
+        "pricing_schedule_detection_reason": _best_reason(extracted_files, "pricing_schedule_confidence", "pricing_schedule_reason"),
+        "boq_detected": boq_detected,
+        "boq_detection_confidence": boq_confidence,
+        "boq_detection_reason": _best_reason(extracted_files, "boq_confidence", "boq_reason"),
+        "returnables_detected": returnables_detected,
+        "returnables_detection_confidence": returnables_confidence,
+        "returnables_detection_reason": _best_reason(extracted_files, "commercial_returnable_confidence", "returnables_reason"),
+    }
 
 
 def _extract_single_zip(zip_entry: Dict[str, Any], run_dir: Path) -> Dict[str, Any]:
@@ -465,6 +627,11 @@ def extract_zip_contents(acquisition_result: Dict[str, Any]) -> Dict[str, Any]:
     spec_files = classified["specification_files"]
 
     main_document_path = main_documents[0]["path"] if main_documents else ""
+    if not main_document_path:
+        for record in sorted(extracted_files, key=lambda row: float(row.get("score") or 0.0), reverse=True):
+            if _safe_str(record.get("extension")) in {".docx", ".doc", ".pdf"}:
+                main_document_path = _safe_str(record.get("path"))
+                break
     sbd_document_paths = [x["path"] for x in sbd_files]
     boq_candidate_paths = [x["path"] for x in boq_files]
     pricing_schedule_paths = [x["path"] for x in pricing_files]
@@ -485,6 +652,8 @@ def extract_zip_contents(acquisition_result: Dict[str, Any]) -> Dict[str, Any]:
         confidence += 0.05
 
     confidence = round(min(confidence, 1.0), 4)
+    inventory = _summarize_inventory(zip_files, extracted_files, classified)
+    detection = _aggregate_detection(extracted_files)
 
     result: Dict[str, Any] = {
         "status": "ok" if extracted_files else "no_zip_contents_extracted",
@@ -504,6 +673,8 @@ def extract_zip_contents(acquisition_result: Dict[str, Any]) -> Dict[str, Any]:
         "pricing_schedule_paths": pricing_schedule_paths,
         "specification_paths": specification_paths,
         "confidence": confidence,
+        **inventory,
+        **detection,
     }
 
     report_path = REPORT_DIR / f"{run_slug}__zip_content_extraction_report.json"

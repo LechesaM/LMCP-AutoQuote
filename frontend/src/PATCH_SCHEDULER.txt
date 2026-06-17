@@ -1,0 +1,21 @@
+Patch safe_autonomous_scheduler_service.py:
+
+1. Add this helper near _run_quote_engine or after imports:
+
+from app.services.real_profit_pricing_service import enrich_with_real_profit_pricing
+
+2. Inside _run_quote_engine, after the existing quote attempts fail OR before returning no_quote_engine, call:
+
+real_profit = enrich_with_real_profit_pricing(tender)
+if real_profit.get("priced"):
+    enriched = real_profit.get("payload") or tender
+    return {
+        "status": "ok",
+        "method": "app.services.real_profit_pricing_service.enrich_with_real_profit_pricing",
+        "priced": True,
+        "estimated_profit": enriched.get("estimated_profit"),
+        "estimated_margin_percent": enriched.get("estimated_margin_percent"),
+        "tender": enriched,
+    }
+
+3. Or replace the current fallback return with the block above plus the old return if not priced.

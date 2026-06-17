@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import string
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -109,20 +110,42 @@ def _is_download_response(resp: requests.Response) -> bool:
     return head.startswith(b"%PDF") or head.startswith(b"PK")
 
 
+def _redirect_location(resp: requests.Response) -> str:
+    history = getattr(resp, "history", None) or []
+    for prior in reversed(history):
+        location = (getattr(prior, "headers", {}) or {}).get("location") or (getattr(prior, "headers", {}) or {}).get("Location")
+        if location:
+            return str(location)
+    return str((resp.headers.get("location") or resp.headers.get("Location") or "")).strip()
+
+
+def _first_bytes(resp: requests.Response, limit: int = 16) -> Tuple[str, str]:
+    data = bytes(resp.content or b"")[:limit]
+    hex_value = data.hex()
+    text_value = "".join(chr(b) if chr(b) in string.printable and chr(b) not in "\r\n\t\x0b\x0c" else "." for b in data)
+    return hex_value, text_value
+
+
 def _resp_summary(resp: requests.Response, url: str, method: str = "GET") -> Dict[str, Any]:
     try:
         preview = resp.text[:800]
     except Exception:
         preview = ""
+    first_bytes_hex, first_bytes_text = _first_bytes(resp)
     return {
         "method": method,
         "url": url,
+        "final_url": getattr(resp, "url", url),
         "ok": resp.ok,
         "status_code": resp.status_code,
         "content_type": resp.headers.get("content-type", ""),
         "content_disposition": resp.headers.get("content-disposition", ""),
-        "content_length_header": resp.headers.get("content-length", ""),
+        "content_length": resp.headers.get("content-length", ""),
         "size": len(resp.content or b""),
+        "redirect_location": _redirect_location(resp),
+        "first_bytes_hex": first_bytes_hex,
+        "first_bytes_text": first_bytes_text,
+        "history_status_codes": [getattr(item, "status_code", None) for item in (getattr(resp, "history", None) or [])],
         "text_preview": preview,
     }
 
@@ -318,6 +341,19 @@ def build_replay_candidates(tender_id: str, support_guid: str, rows: List[Dict[s
     tid = quote(str(tender_id))
     guid = quote(str(support_guid or ""))
 
+    if support_guid:
+        support_routes = [
+            "DownloadSupportDocument",
+            "DownloadSpec",
+        ]
+        for route in support_routes:
+            add("GET", f"/Home/{route}?supportDocumentID={guid}", source="support_document_exact_guid")
+            add("GET", f"/Home/{route}?documentId={guid}", source="support_document_exact_guid")
+            add("GET", f"/home/{route}?supportDocumentID={guid}", source="support_document_exact_guid")
+            add("GET", f"/home/{route}?documentId={guid}", source="support_document_exact_guid")
+            add("POST", f"/Home/{route}", {"supportDocumentID": support_guid}, source="support_document_exact_guid")
+            add("POST", f"/Home/{route}", {"documentId": support_guid}, source="support_document_exact_guid")
+
     route_names = [
         "DownloadSpec",
         "DownloadDocument",
@@ -417,6 +453,42 @@ def build_replay_candidates(tender_id: str, support_guid: str, rows: List[Dict[s
     return deduped[:1500]
 
 
+def build_support_document_replay_candidates(tender_id: str, support_document_id: str) -> List[Dict[str, Any]]:
+    support_document_id = _clean(support_document_id)
+    if not support_document_id:
+        return []
+
+    candidates: List[Dict[str, Any]] = []
+    seen = set()
+    routes = [
+        ("/Home/DownloadSupportDocument", "supportDocumentID"),
+        ("/Home/DownloadSupportDocument", "documentId"),
+        ("/Home/DownloadSpec", "supportDocumentID"),
+        ("/Home/DownloadSpec", "documentId"),
+        ("/home/DownloadSupportDocument", "supportDocumentID"),
+        ("/home/DownloadSupportDocument", "documentId"),
+        ("/home/DownloadSpec", "supportDocumentID"),
+        ("/home/DownloadSpec", "documentId"),
+    ]
+
+    for route, param in routes:
+        url = f"{BASE}{route}?{param}={quote(support_document_id)}"
+        if url in seen:
+            continue
+        seen.add(url)
+        candidates.append(
+            {
+                "method": "GET",
+                "url": url,
+                "data": None,
+                "source": "support_document_replay",
+                "note": f"{route}?{param}={support_document_id}",
+            }
+        )
+
+    return candidates
+
+
 def execute_candidate(candidate: Dict[str, Any], output_dir: Path, tender_id: str, save: bool) -> Dict[str, Any]:
     method = candidate.get("method", "GET").upper()
     url = candidate.get("url")
@@ -457,6 +529,8 @@ def execute_candidate(candidate: Dict[str, Any], output_dir: Path, tender_id: st
                 "saved_path": str(path),
                 "saved": save,
                 "saved_size": path.stat().st_size if path.exists() else 0,
+                "artifact_role": "buyer_pack",
+                "buyer_pack_path": str(path),
             }
         return item
 
@@ -536,6 +610,13 @@ def replay_one(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     payload = payload or {}
     tender_id = _clean(payload.get("tender_id") or "UNKNOWN")
     output_dir = Path(_clean(payload.get("output_dir") or DEFAULT_OUTPUT_DIR))
+    support_document_id = _clean(
+        payload.get("supportDocumentID")
+        or payload.get("support_document_id")
+        or payload.get("document_guid")
+        or payload.get("guid")
+        or ""
+    )
     candidate = {
         "method": _clean(payload.get("method") or "GET").upper(),
         "url": _clean(payload.get("url") or ""),
@@ -543,10 +624,23 @@ def replay_one(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "source": "manual_replay",
     }
 
+    if not candidate["url"] and support_document_id:
+        for prioritized in build_support_document_replay_candidates(tender_id, support_document_id):
+            item = execute_candidate(prioritized, output_dir, tender_id, save=True)
+            if item.get("is_download_response"):
+                return {
+                    "status": "ok",
+                    "service_version": SERVICE_VERSION,
+                    "result": item,
+                    "safe_to_process": True,
+                    "buyer_pack_path": (item.get("download") or {}).get("buyer_pack_path", ""),
+                    "support_document_id": support_document_id,
+                }
+
     if not candidate["url"]:
         document_id = payload.get("document_id")
         if document_id is None:
-            return {"status": "error", "service_version": SERVICE_VERSION, "message": "Provide url or document_id.", "safe_to_process": False}
+            return {"status": "error", "service_version": SERVICE_VERSION, "message": "Provide url, supportDocumentID, or document_id.", "safe_to_process": False}
         candidate["url"] = f"{BASE}/Home/DownloadSpec?documentId={int(document_id)}&source=sharepoint"
 
     item = execute_candidate(candidate, output_dir, tender_id, save=True)
@@ -555,6 +649,7 @@ def replay_one(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "service_version": SERVICE_VERSION,
         "result": item,
         "safe_to_process": bool(item.get("is_download_response")),
+        "buyer_pack_path": (item.get("download") or {}).get("buyer_pack_path", ""),
     }
 
 

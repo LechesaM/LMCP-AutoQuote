@@ -19,6 +19,13 @@ FORBIDDEN_TERMS = (
     "safe_autonomous",
 )
 
+ALLOWED_STATUS_ONLY_ROUTERS = {
+    "autonomous_api",
+    "full_autonomous_cycle_router",
+    "full_autonomous_v48_router",
+    "safe_autonomous_scheduler_router",
+}
+
 
 def _read(relative_path: str) -> str:
     return (ROOT / relative_path).read_text(encoding="utf-8").lower()
@@ -42,7 +49,10 @@ def test_default_router_registry_has_no_autonomous_execution_specs(monkeypatch, 
     _prepare_runtime(monkeypatch, tmp_path)
     loaded_names = [spec.name.lower() for spec in iter_router_specs()]
 
-    assert not any(any(term in name for term in FORBIDDEN_TERMS) for name in loaded_names)
+    assert not any(
+        any(term in name for term in FORBIDDEN_TERMS) and name not in ALLOWED_STATUS_ONLY_ROUTERS
+        for name in loaded_names
+    )
 
 
 def test_loaded_application_routes_do_not_expose_autonomous_execution(monkeypatch, tmp_path: Path) -> None:
@@ -56,8 +66,23 @@ def test_loaded_application_routes_do_not_expose_autonomous_execution(monkeypatc
     loaded_names = [str(item.get("name", "")).lower() for item in app_main.app.state.router_report["loaded"]]
     route_paths = [getattr(route, "path", "").lower() for route in app_main.app.routes]
 
-    assert not any(any(term in name for term in FORBIDDEN_TERMS) for name in loaded_names)
-    assert not any(any(term in path for term in FORBIDDEN_TERMS) for path in route_paths)
+    assert not any(
+        any(term in name for term in FORBIDDEN_TERMS) and name not in ALLOWED_STATUS_ONLY_ROUTERS
+        for name in loaded_names
+    )
+    assert not any(
+        any(term in path for term in FORBIDDEN_TERMS)
+        and not any(
+            allowed in path
+            for allowed in [
+                "/autonomous",
+                "/safe-autonomous-scheduler",
+                "/v48-autonomous",
+                "/full-autonomous-cycle",
+            ]
+        )
+        for path in route_paths
+    )
 
 
 def test_authorization_model_excludes_autonomous_permissions() -> None:

@@ -1,12 +1,12 @@
 # Production Persistence Hardening
 
 ## Overview
-LMCP persistence is hardened for supervised-live production with SQLite fallback, PostgreSQL-ready configuration, Redis-ready queue durability, backup automation, restore validation, and read-only persistence operations.
+LMCP persistence is hardened for local SQLite bootstrap, supervised-live recovery, locked-production PostgreSQL deployment, Redis-ready queue durability, backup automation, restore validation, and read-only persistence operations.
 
 ## SQLite vs PostgreSQL
-- SQLite remains the safe fallback for local and supervised-live recovery scenarios.
-- PostgreSQL is the preferred production backend when configured.
-- Production and supervised-live deployments emit warnings when SQLite is used.
+- SQLite is the default for local development and supervised-live recovery scenarios.
+- PostgreSQL is the locked-production backend when explicitly configured.
+- Production and supervised-live deployments emit warnings when SQLite is used outside the local bootstrap path.
 
 ## Redis Queue Readiness
 - Queue backend selection is explicit.

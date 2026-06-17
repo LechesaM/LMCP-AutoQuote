@@ -17,13 +17,22 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from app.core.runtime_paths import get_runtime_paths
 
-LEGACY_SERVICE = True
-RUNTIME_DIR = get_runtime_paths().runtime_root
+RUNTIME_DIR = Path("runtime")
 SUBMISSION_HISTORY_FILE = RUNTIME_DIR / "submission_history" / "submission_history.json"
 PROOF_DIR = RUNTIME_DIR / "submission_proofs"
 PROOF_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_runtime_path(default_path: Path, runtime_dir: Optional[str] = None) -> Path:
+    if not runtime_dir:
+        return default_path
+    runtime_root = Path(runtime_dir).expanduser().resolve()
+    try:
+        relative = default_path.relative_to(RUNTIME_DIR)
+    except Exception:
+        return default_path
+    return runtime_root / relative
 
 
 def _now() -> str:
@@ -110,8 +119,9 @@ def _record_key(record: Dict[str, Any]) -> str:
     )
 
 
-def load_submission_history() -> List[Dict[str, Any]]:
-    return _normalise_records(_read_json(SUBMISSION_HISTORY_FILE, default=[]))
+def load_submission_history(runtime_dir: Optional[str] = None) -> List[Dict[str, Any]]:
+    history_file = _resolve_runtime_path(SUBMISSION_HISTORY_FILE, runtime_dir)
+    return _normalise_records(_read_json(history_file, default=[]))
 
 
 def find_submission_record(
@@ -119,12 +129,13 @@ def find_submission_record(
     buyer_rfq_number: str = "",
     quote_number: str = "",
     submitted_at: str = "",
+    runtime_dir: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     buyer_rfq_number = _safe_str(buyer_rfq_number).lower()
     quote_number = _safe_str(quote_number).lower()
     submitted_at = _safe_str(submitted_at)
 
-    records = load_submission_history()
+    records = load_submission_history(runtime_dir=runtime_dir)
 
     for record in records:
         if quote_number and _safe_str(record.get("quote_number")).lower() == quote_number:
@@ -317,7 +328,7 @@ def _build_pdf(record: Dict[str, Any], pdf_path: Path) -> None:
     doc.build(story)
 
 
-def generate_proof_for_record(record: Dict[str, Any]) -> Dict[str, Any]:
+def generate_proof_for_record(record: Dict[str, Any], runtime_dir: Optional[str] = None) -> Dict[str, Any]:
     buyer_rfq_raw = _safe_str(record.get("buyer_rfq_number"), "UNKNOWN-RFQ")
     quote_raw = _safe_str(record.get("quote_number"), "UNKNOWN-QUOTE")
 
@@ -333,7 +344,8 @@ def generate_proof_for_record(record: Dict[str, Any]) -> Dict[str, Any]:
 
     submitted_at = _safe_filename(submitted_at_clean, "NO-DATE")
 
-    proof_folder = PROOF_DIR / buyer_rfq
+    proof_root = _resolve_runtime_path(PROOF_DIR, runtime_dir)
+    proof_folder = proof_root / buyer_rfq
     proof_folder.mkdir(parents=True, exist_ok=True)
 
     timestamp = _now().replace(":", "-").replace(".", "-")[:19]
@@ -359,17 +371,17 @@ def generate_proof_for_record(record: Dict[str, Any]) -> Dict[str, Any]:
     return metadata
 
 
-def generate_latest_proof() -> Dict[str, Any]:
-    records = load_submission_history()
+def generate_latest_proof(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    records = load_submission_history(runtime_dir=runtime_dir)
     if not records:
         return {
             "status": "error",
             "message": "No submission history records found.",
-            "history_file": str(SUBMISSION_HISTORY_FILE),
+            "history_file": str(_resolve_runtime_path(SUBMISSION_HISTORY_FILE, runtime_dir)),
         }
 
     records = sorted(records, key=lambda x: _safe_str(x.get("submitted_at")), reverse=True)
-    return generate_proof_for_record(records[0])
+    return generate_proof_for_record(records[0], runtime_dir=runtime_dir)
 
 
 def generate_proof(
@@ -378,6 +390,7 @@ def generate_proof(
     quote_number: str = "",
     submitted_at: str = "",
     submission_record_json: str = "",
+    runtime_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
 
     # V2 direct-record mode
@@ -390,7 +403,7 @@ def generate_proof(
 
             if p.exists():
                 record = json.loads(p.read_text())
-                return generate_proof_for_record(record)
+                return generate_proof_for_record(record, runtime_dir=runtime_dir)
 
         except Exception as exc:
             return {
@@ -405,6 +418,7 @@ def generate_proof(
         buyer_rfq_number=buyer_rfq_number,
         quote_number=quote_number,
         submitted_at=submitted_at,
+        runtime_dir=runtime_dir,
     )
 
     if not record:
@@ -416,18 +430,18 @@ def generate_proof(
             "submitted_at": submitted_at,
         }
 
-    return generate_proof_for_record(record)
+    return generate_proof_for_record(record, runtime_dir=runtime_dir)
 
 
-def generate_all_proofs(limit: int = 100) -> Dict[str, Any]:
-    records = load_submission_history()
+def generate_all_proofs(limit: int = 100, runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    records = load_submission_history(runtime_dir=runtime_dir)
     records = sorted(records, key=lambda x: _safe_str(x.get("submitted_at")), reverse=True)
     records = records[: max(1, int(limit or 100))]
 
     results = []
     for record in records:
         try:
-            results.append(generate_proof_for_record(record))
+            results.append(generate_proof_for_record(record, runtime_dir=runtime_dir))
         except Exception as exc:
             results.append(
                 {
@@ -442,17 +456,19 @@ def generate_all_proofs(limit: int = 100) -> Dict[str, Any]:
         "status": "ok",
         "count": len(results),
         "proofs": results,
-        "proof_dir": str(PROOF_DIR),
+        "proof_dir": str(_resolve_runtime_path(PROOF_DIR, runtime_dir)),
     }
 
 
-def get_proof_status() -> Dict[str, Any]:
-    proofs = sorted(PROOF_DIR.rglob("*proof_of_submission.pdf")) if PROOF_DIR.exists() else []
+def get_proof_status(runtime_dir: Optional[str] = None) -> Dict[str, Any]:
+    proof_dir = _resolve_runtime_path(PROOF_DIR, runtime_dir)
+    history_file = _resolve_runtime_path(SUBMISSION_HISTORY_FILE, runtime_dir)
+    proofs = sorted(proof_dir.rglob("*proof_of_submission.pdf")) if proof_dir.exists() else []
     return {
         "status": "ok",
-        "proof_dir": str(PROOF_DIR),
+        "proof_dir": str(proof_dir),
         "proof_count": len(proofs),
         "latest": str(proofs[-1]) if proofs else None,
-        "history_file": str(SUBMISSION_HISTORY_FILE),
-        "history_available": SUBMISSION_HISTORY_FILE.exists(),
+        "history_file": str(history_file),
+        "history_available": history_file.exists(),
     }

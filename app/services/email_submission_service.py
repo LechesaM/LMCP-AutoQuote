@@ -9,6 +9,8 @@ from email.message import EmailMessage
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from app.services import submission_review_service
+
 try:
     from app.services.submission_history_service import log_submission_event
 except Exception:
@@ -118,6 +120,99 @@ class EmailSubmissionService:
     @classmethod
     def _bool_env(cls, name: str, default: str = "false") -> bool:
         return cls._bool_from_value(cls._get_env(name, default), default=cls._bool_from_value(default))
+
+    @classmethod
+    def _resolve_human_approval_context(cls, payload: Dict[str, Any]) -> Dict[str, str]:
+        payload = payload or {}
+        tender_id = cls._first_non_empty(
+            payload.get("tender_id"),
+            payload.get("buyer_rfq_number"),
+            payload.get("rfq_reference"),
+            payload.get("quote_number"),
+        )
+        tender_root = cls._first_non_empty(
+            payload.get("tender_root"),
+            payload.get("quote_folder"),
+            payload.get("quote_pack_dir"),
+            payload.get("submission_pack_dir"),
+        )
+        pricing_file = cls._first_non_empty(
+            payload.get("pricing_file"),
+            cls._safe_dict(payload.get("submission_pack")).get("pricing_file"),
+            cls._safe_dict(payload.get("quote_pack")).get("pricing_file"),
+        )
+        return {
+            "tender_id": tender_id,
+            "tender_root": tender_root,
+            "pricing_file": pricing_file,
+        }
+
+    @classmethod
+    def _human_approval_gate_required(cls, payload: Dict[str, Any]) -> bool:
+        payload = payload or {}
+        return any(
+            [
+                cls._safe_str(payload.get("tender_id")),
+                cls._safe_str(payload.get("buyer_rfq_number")),
+                cls._safe_str(payload.get("rfq_reference")),
+                cls._safe_str(payload.get("quote_number")),
+                cls._safe_str(payload.get("tender_root")),
+                cls._safe_str(payload.get("quote_folder")),
+                cls._safe_str(payload.get("quote_pack_dir")),
+                cls._safe_str(payload.get("submission_pack_dir")),
+                bool(cls._safe_dict(payload.get("submission_pack"))),
+                bool(cls._safe_dict(payload.get("quote_pack"))),
+            ]
+        )
+
+    @classmethod
+    def _enforce_human_approval_gate(cls, payload: Dict[str, Any], to_email: str, subject: str, buyer_rfq_number: str, quote_number: str, document_number: str) -> Dict[str, Any]:
+        if not cls._human_approval_gate_required(payload):
+            return {}
+
+        context = cls._resolve_human_approval_context(payload)
+        review = {}
+        if context["tender_id"] and context["tender_root"]:
+            try:
+                review = submission_review_service.find_latest_submission_review(
+                    context["tender_id"],
+                    context["tender_root"],
+                )
+            except Exception:
+                review = {}
+
+        review_ready = bool(review) and str(review.get("status") or "").strip().lower() == "review_ready" and bool(review.get("submission_review_ready"))
+        if review_ready:
+            return {
+                "human_approval_required": True,
+                "human_approval_granted": True,
+                "submission_review_status": "review_ready",
+                "submission_review_ready": True,
+                "review_blockers": [],
+            }
+
+        blockers = list(review.get("review_blockers") or [])
+        if not blockers:
+            blockers = ["manual approval record missing"]
+        gate_status = str(review.get("status") or "").strip().lower() or "missing"
+        return {
+            "success": False,
+            "submitted": False,
+            "status": "manual_action_required",
+            "error": "Human approval required before email submission.",
+            "message": "Email submission blocked until a review-ready approval record exists.",
+            "to_email": to_email,
+            "subject": subject,
+            "buyer_rfq_number": buyer_rfq_number,
+            "quote_number": quote_number,
+            "document_number": document_number,
+            "human_approval_required": True,
+            "human_approval_granted": False,
+            "submission_review_status": gate_status,
+            "submission_review_ready": False,
+            "review_blockers": blockers,
+            "review_record": review,
+        }
 
     @classmethod
     def is_enabled(cls) -> bool:
@@ -1281,6 +1376,28 @@ class EmailSubmissionService:
         buyer_rfq_number = cls._resolve_buyer_rfq_number(payload)
         quote_number = cls._resolve_quote_number(payload)
         document_number = cls._resolve_document_number(payload)
+        approval_gate_required = cls._human_approval_gate_required(payload)
+
+        approval_gate = cls._enforce_human_approval_gate(
+            payload,
+            to_email=to_email,
+            subject=subject,
+            buyer_rfq_number=buyer_rfq_number,
+            quote_number=quote_number,
+            document_number=document_number,
+        )
+        if approval_gate:
+            if approval_gate.get("status") == "manual_action_required":
+                cls._log_submission_history_if_available(
+                    payload=payload,
+                    send_result=approval_gate,
+                    attachment_paths=[],
+                    to_email=to_email,
+                    cc_email="",
+                    bcc_email="",
+                    subject=subject,
+                )
+                return approval_gate
 
         if not to_email:
             send_result = {
@@ -1392,6 +1509,11 @@ class EmailSubmissionService:
             "estimated_margin": financials["estimated_margin"],
             "production_mode": True,
             "pipeline_test_mode_ignored": True,
+            "human_approval_required": approval_gate_required,
+            "human_approval_granted": bool(approval_gate.get("human_approval_granted", False)) if approval_gate_required else False,
+            "submission_review_status": approval_gate.get("submission_review_status", "not_required") if approval_gate_required else "not_required",
+            "submission_review_ready": bool(approval_gate.get("submission_review_ready", False)) if approval_gate_required else False,
+            "review_blockers": approval_gate.get("review_blockers", []),
         }
 
         cls._log_submission_history_if_available(

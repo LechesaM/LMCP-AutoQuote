@@ -1,0 +1,44 @@
+frontend/src/App.jsx.phase7_backup:62:  { key: "quote-pack-engine", label: "Quote Pack Engine", icon: PackageCheck, workspace: "quote-pack-engine" },
+frontend/src/App.jsx.phase7_backup:97:  if (status.includes("pack") || status.includes("pdf") || status.includes("quote")) return "Quote Pack";
+frontend/src/App.jsx.phase7_backup:489:    opps.filter((x) => x.quote_ready || stageOf(x) === "Ready" || stageOf(x) === "Quote Pack").length;
+frontend/src/App.jsx.phase7_backup:522:      "Quote Pack":
+frontend/src/App.jsx.phase7_backup:536:    const base = { Harvested: 0, Ready: 0, "Quote Pack": 0, Submitted: 0, Blocked: 0 };
+frontend/src/INTEGRATION_GUIDE copy.md:9:- Open Quote Pack PDF button
+frontend/src/App.jsx.manual_review_cleanup_backup:62:  { key: "quote-pack-engine", label: "Quote Pack Engine", icon: PackageCheck, workspace: "quote-pack-engine" },
+frontend/src/App.jsx.manual_review_cleanup_backup:97:  if (status.includes("pack") || status.includes("pdf") || status.includes("quote")) return "Quote Pack";
+frontend/src/App.jsx.manual_review_cleanup_backup:489:    opps.filter((x) => x.quote_ready || stageOf(x) === "Ready" || stageOf(x) === "Quote Pack").length;
+frontend/src/App.jsx.manual_review_cleanup_backup:522:      "Quote Pack":
+frontend/src/App.jsx.manual_review_cleanup_backup:536:    const base = { Harvested: 0, Ready: 0, "Quote Pack": 0, Submitted: 0, Blocked: 0 };
+frontend/src/INTEGRATION_GUIDE copy 5.md:1:# Step 6A Quote Pack Wiring Fix
+frontend/src/components/DashboardWorkspace.jsx:52:  if (status.includes("pack") || status.includes("pdf") || status.includes("quote")) return "Quote Pack";
+frontend/src/components/DashboardWorkspace.jsx:146:        <div><span>Quote Packs Generated</span><b>{compact(data?.quote_packs_generated)}</b></div>
+frontend/src/components/DashboardWorkspace.jsx:449:    opps.filter((x) => x.quote_ready || stageOf(x) === "Ready" || stageOf(x) === "Quote Pack").length;
+frontend/src/components/DashboardWorkspace.jsx:470:      "Quote Pack": Number(queueByState.QUOTE_PACK_READY || 0),
+frontend/src/components/DashboardWorkspace.jsx:480:    const base = { Harvested: 0, Ready: 0, "Quote Pack": 0, Submitted: 0, Blocked: 0 };
+frontend/src/components/QuotePackEngineWorkspace.jsx:61:    generated_files: [{ name: "LMCP quote pack preview.pdf", type: "Quote Pack" }],
+frontend/src/components/QuotePackEngineWorkspace.jsx:595:          {item.type === "BOQ" || item.type === "Pricing Schedule" ? <FileSpreadsheet size={16} /> : item.type === "Quote Pack" || item.type === "Generated File" ? <FileArchive size={16} /> : <FileText size={16} />}
+frontend/src/components/QuotePackEngineWorkspace.jsx:1212:          <button type="button" onClick={() => onOperatorAction(pack.id, "Approved Quote Pack Prep")}><ThumbsUp size={15} />Approve Quote Pack Prep</button>
+frontend/src/components/QuotePackEngineWorkspace.jsx:1213:          <button type="button" onClick={() => onOperatorAction(pack.id, "Rejected Quote Pack")}><Ban size={15} />Reject Quote Pack</button>
+frontend/src/components/QuotePackEngineWorkspace.jsx:1214:          <button type="button" className="quote-local-generate-button" disabled={generationLoading || pack._demo} onClick={() => onGenerateLocalPack(pack)}><PackageCheck size={15} />Generate Local Quote Pack</button>
+frontend/src/components/QuotePackEngineWorkspace.jsx:1278:          <p className="eyebrow">Quote Pack Quality Review</p>
+frontend/src/components/QuotePackEngineWorkspace.jsx:1515:    setOperatorState((prev) => ({ ...prev, [pack.id]: "Local Quote Pack Generated" }));
+frontend/src/components/QuotePackEngineWorkspace.jsx:1537:          <p className="eyebrow">Quote Pack Engine</p>
+frontend/src/components/QuotePackEngineWorkspace.jsx:1538:          <h1>Quote Pack Engine Workspace</h1>
+frontend/src/components/QuotePackEngineWorkspace.jsx:1555:        <div className="quote-summary-card"><span>Quote Packs</span><b>{summary.total}</b></div>
+frontend/src/components/QuotePackEngineWorkspace.jsx:1694:              {compilationState.loading ? "Generating Local Pack" : "Generate Local Quote Pack"}
+frontend/src/components/SubmissionCentreWorkspace.jsx:1345:          <ScoreChip label="Quote Pack" score={submission.quote_pack_readiness_score} />
+frontend/src/components/RfqOperationsWorkspace.jsx:872:    { label: "Quote Pack", passed: Boolean(rfq?.quote_pack_path), detail: rfq?.quote_pack_path || "No quote pack generated yet." },
+frontend/src/components/RfqOperationsWorkspace.jsx:1194:              <div className="rfq-detail-card"><span>Quote Pack</span><b>{rfq.quote_pack_status || (rfq.quote_pack_generated ? "generated" : "not_attempted")}</b></div>
+frontend/src/components/RfqOperationsWorkspace.jsx:1197:              <div className="rfq-detail-card"><span>Quote Pack Path</span><b>{rfq.quote_pack_path ? "Stored" : "Not stored"}</b></div>
+frontend/src/components/RfqOperationsWorkspace.jsx:1211:                  <DocumentStatusChip label="Quote Pack" status={rfq.quote_pack_status} />
+frontend/src/components/RfqOperationsWorkspace.jsx:1272:                  <button type="button" disabled={lifecycleState.saving} onClick={() => advanceLifecycleState("QUOTE_PACK_READY")}>Mark Quote Pack Ready</button>
+frontend/src/components/RfqOperationsWorkspace.jsx:1459:        <div className="rfq-summary-card good"><span>Quote Pack</span><b>{summary.quotePack}</b></div>
+frontend/src/components/RfqOperationsWorkspace.jsx:1519:                <th>Quote Pack</th>
+frontend/src/components/submissionCentreConfig.js:68:    generated_quote_files: [{ name: "LMCP quote pack.pdf", type: "Quote Pack", status: "Ready" }],
+frontend/src/App.jsx:66:  { key: "quote-pack-engine", label: "Quote Pack Engine", icon: PackageCheck, workspace: "quote-pack-engine" },
+frontend/src/INTEGRATION_GUIDE copy 4.md:10:- View Quote Pack PDF
+frontend/src/App.jsx.before_review_queue_table:62:  { key: "quote-pack-engine", label: "Quote Pack Engine", icon: PackageCheck, workspace: "quote-pack-engine" },
+frontend/src/App.jsx.before_review_queue_table:97:  if (status.includes("pack") || status.includes("pdf") || status.includes("quote")) return "Quote Pack";
+frontend/src/App.jsx.before_review_queue_table:489:    opps.filter((x) => x.quote_ready || stageOf(x) === "Ready" || stageOf(x) === "Quote Pack").length;
+frontend/src/App.jsx.before_review_queue_table:522:      "Quote Pack":
+frontend/src/App.jsx.before_review_queue_table:536:    const base = { Harvested: 0, Ready: 0, "Quote Pack": 0, Submitted: 0, Blocked: 0 };

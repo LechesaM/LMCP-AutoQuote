@@ -1,0 +1,8 @@
+frontend/src/App.jsx.manual_review_cleanup_backup:694:          <div className="card-head"><h2>Approval Readiness</h2><span>Live ratios</span></div>
+frontend/src/components/DashboardWorkspace.jsx:256:          <p className="muted">Pack-local readiness summary without opening the Approval Centre.</p>
+frontend/src/components/DashboardWorkspace.jsx:623:          <div className="card-head"><h2>Approval Readiness</h2><span>Live ratios</span></div>
+frontend/src/components/QuotePackEngineWorkspace.jsx:1302:            {["Mark Reviewed Locally", "Needs Pricing Fix", "Needs Documents", "Ready for Operator Approval"].map((action) => (
+frontend/src/App.jsx:69:  { key: "submission-centre", label: "Approval Centre", icon: Send, workspace: "submission-centre" },
+frontend/src/App.jsx.before_review_queue_table:64:  { key: "submission-centre", label: "Approval Centre", icon: Send, workspace: "submission-centre" },
+frontend/src/App.jsx.before_review_queue_table:174:          <p className="muted">Pack-local readiness summary without opening the Approval Centre.</p>
+frontend/src/App.jsx.before_review_queue_table:694:          <div className="card-head"><h2>Approval Readiness</h2><span>Live ratios</span></div>

@@ -1,0 +1,1 @@
+frontend/src/INTEGRATION_GUIDE copy 2.md:15:- Generate Quote / Open Submission Pack / View Audit Trail UI buttons

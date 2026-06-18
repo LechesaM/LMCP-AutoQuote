@@ -17,7 +17,7 @@ import {
   ThumbsUp,
   X,
 } from "lucide-react";
-import { API_BASE } from "../services/api";
+import { API_BASE, buildOperatorHeaders } from "../services/api";
 
 const REQUEST_TIMEOUT_MS = 8000;
 const QUOTE_PACK_LATEST_ENDPOINT = "/quote-compilation/packs/latest";
@@ -462,7 +462,10 @@ async function fetchEndpoint(path) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${API_BASE}${path}`, { signal: controller.signal });
+    const response = await fetch(`${API_BASE}${path}`, {
+      credentials: "include",
+      signal: controller.signal,
+    });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
     return { path, ok: true, data: await response.json() };
   } catch (error) {
@@ -472,13 +475,17 @@ async function fetchEndpoint(path) {
   }
 }
 
-async function postEndpoint(path, payload) {
+async function postEndpoint(path, payload, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      credentials: options.credentials || "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
       body: JSON.stringify(payload || {}),
       signal: controller.signal,
     });
@@ -566,6 +573,55 @@ function getPackMissingItems(packDetail) {
       .filter(Boolean),
     (item) => item.toLowerCase(),
   );
+}
+
+function readOperatorAuditHeaders() {
+  if (typeof window === "undefined") return {};
+  try {
+    const storedRole = window.localStorage.getItem("lmcp_operator_role");
+    const storedName = window.localStorage.getItem("lmcp_operator_name");
+    return buildOperatorHeaders(storedRole, storedName);
+  } catch {
+    return {};
+  }
+}
+
+function getPackAuditContext(pack, packDetail = null) {
+  const metadata = packDetail?.metadata || {};
+  const manifest = packDetail?.manifest || {};
+  const packRfqReference = safeText(pack?.rfq_reference);
+  const detailRfqReference = safeText(metadata.rfq_reference || manifest.rfq_reference);
+  const detailMatchesPack = !packRfqReference || !detailRfqReference || packRfqReference === detailRfqReference;
+  return {
+    rfq_reference: packRfqReference || detailRfqReference,
+    quote_pack_id: safeText(
+      (detailMatchesPack ? packDetail?.pack_id || metadata.pack_id || manifest.pack_id : "") ||
+      pack?.pack_id,
+    ),
+    title: safeText(pack?.title || metadata.title || manifest.title),
+    buyer: safeText(pack?.buyer || metadata.buyer || manifest.buyer),
+  };
+}
+
+function buildOperatorAuditPayload(action, pack, packDetail = null, extra = {}) {
+  const context = getPackAuditContext(pack, packDetail);
+  return {
+    timestamp: new Date().toISOString(),
+    operator_action: action,
+    action,
+    rfq_reference: context.rfq_reference,
+    quote_pack_id: context.quote_pack_id,
+    workspace: "quote-pack-engine",
+    page: "QuotePackEngineWorkspace",
+    controlled_workflow_mode: "supervised",
+    safety_flags: {
+      no_submission: true,
+      no_upload: true,
+      no_email: true,
+      final_submit_locked: true,
+    },
+    ...extra,
+  };
 }
 
 function ScoreChip({ label, score }) {
@@ -1207,10 +1263,10 @@ function DetailDrawer({ pack, activeTab, setActiveTab, onClose, operatorState, o
         </div>
 
         <div className="quote-operator-actions">
-          <button type="button" onClick={() => onOperatorAction(pack.id, "Ready for Pricing")}><FileSpreadsheet size={15} />Mark Ready for Pricing</button>
-          <button type="button" onClick={() => onOperatorAction(pack.id, "Held for Missing Docs")}><PauseCircle size={15} />Hold for Missing Docs</button>
-          <button type="button" onClick={() => onOperatorAction(pack.id, "Approved Quote Pack Prep")}><ThumbsUp size={15} />Approve Quote Pack Prep</button>
-          <button type="button" onClick={() => onOperatorAction(pack.id, "Rejected Quote Pack")}><Ban size={15} />Reject Quote Pack</button>
+          <button type="button" onClick={() => onOperatorAction(pack.id, "Needs Pricing Fix")}><FileSpreadsheet size={15} />Needs Pricing Fix</button>
+          <button type="button" onClick={() => onOperatorAction(pack.id, "Needs Documents")}><PauseCircle size={15} />Needs Documents</button>
+          <button type="button" onClick={() => onOperatorAction(pack.id, "Approve Quote Pack Prep")}><ThumbsUp size={15} />Approve Quote Pack Prep</button>
+          <button type="button" onClick={() => onOperatorAction(pack.id, "Reject Quote Pack")}><Ban size={15} />Reject Quote Pack</button>
           <button type="button" className="quote-local-generate-button" disabled={generationLoading || pack._demo} onClick={() => onGenerateLocalPack(pack)}><PackageCheck size={15} />Generate Local Quote Pack</button>
         </div>
         {localDecision ? <div className="quote-local-state">Local operator state: {localDecision}</div> : null}
@@ -1478,7 +1534,23 @@ export default function QuotePackEngineWorkspace() {
     setActiveTab("Overview");
   }
 
-  function setLocalAction(id, action) {
+  async function recordOperatorAuditAction(action, pack, packDetail = null, extra = {}) {
+    const auditResponse = await postEndpoint(
+      "/operator-actions/audit",
+      buildOperatorAuditPayload(action, pack, packDetail, extra),
+      { headers: readOperatorAuditHeaders() },
+    );
+    if (!auditResponse.ok) {
+      console.warn("operator audit action failed", action, auditResponse.error);
+    }
+    return auditResponse;
+  }
+
+  async function setLocalAction(id, action) {
+    const pack = packs.find((item) => item.id === id) || null;
+    await recordOperatorAuditAction(action, pack, qualityPackDetail, {
+      actor_scope: "operator_action_panel",
+    });
     setOperatorState((prev) => ({ ...prev, [id]: action }));
   }
 
@@ -1512,10 +1584,22 @@ export default function QuotePackEngineWorkspace() {
     } else {
       setQualityState((prev) => ({ ...prev, loading: false }));
     }
+    await recordOperatorAuditAction("Generate Local Quote Pack", pack, latestDetail, {
+      actor_scope: "quote_pack_generation",
+      generation_status: safeText(response.data?.status, "ok"),
+    });
     setOperatorState((prev) => ({ ...prev, [pack.id]: "Local Quote Pack Generated" }));
   }
 
-  function setQualityReviewAction(packId, action) {
+  async function setQualityReviewAction(packId, action) {
+    const matchedPack = packs.find((item) => item.rfq_reference === getPackAuditContext(null, qualityPackDetail).rfq_reference) || null;
+    const detail =
+      safeText(qualityPackDetail?.pack_id) === safeText(packId)
+        ? qualityPackDetail
+        : { ...(qualityPackDetail || {}), pack_id: packId };
+    await recordOperatorAuditAction(action, matchedPack, detail, {
+      actor_scope: "quality_review_panel",
+    });
     setQualityReviewState((prev) => ({ ...prev, [packId]: action }));
   }
 

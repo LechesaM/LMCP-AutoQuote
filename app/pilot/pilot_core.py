@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -57,6 +58,10 @@ def _safe_dict(value: Any) -> Dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _pilot_wave_status_records() -> List[Dict[str, Any]]:
     records: List[Dict[str, Any]] = []
     for path in _pilot_wave_status_files():
@@ -65,6 +70,147 @@ def _pilot_wave_status_records() -> List[Dict[str, Any]]:
             payload["_source_path"] = str(path)
             records.append(payload)
     return records
+
+
+def _sprint7_runtime_roots() -> Dict[str, Path]:
+    runtime_root = get_runtime_paths().runtime_root
+    return {
+        "runtime_sprint7": runtime_root / "sprint_7",
+        "runtime_pilot_runs": runtime_root / "pilot_runs",
+        "execution_log": get_runtime_paths().project_root / "docs" / "operations_validation_pack" / "sprint_7_execution_log.md",
+    }
+
+
+def _read_markdown_field_values(path: Path) -> Dict[str, str]:
+    values: Dict[str, str] = {}
+    if not path.exists():
+        return values
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("|") or line.count("|") < 3:
+                continue
+            cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+            if len(cells) != 2:
+                continue
+            key, value = cells
+            if key and value and key not in values:
+                values[key] = value.strip("`").strip()
+    except Exception:
+        return values
+    return values
+
+
+def _read_json_records(path: Path) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    if not path.exists():
+        return records
+    try:
+        if path.is_file() and path.suffix.lower() == ".jsonl":
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    records.append(payload)
+        elif path.is_file() and path.suffix.lower() == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                records.append(payload)
+            elif isinstance(payload, list):
+                records.extend(item for item in payload if isinstance(item, dict))
+        elif path.is_dir():
+            for child in sorted(path.rglob("*")):
+                if child.is_file() and child.suffix.lower() in {".json", ".jsonl"}:
+                    records.extend(_read_json_records(child))
+    except Exception:
+        return []
+    return records
+
+
+def _sum_numeric_fields(records: List[Dict[str, Any]], keys: List[str]) -> Dict[str, int]:
+    totals = {key: 0 for key in keys}
+    for record in records:
+        for key in keys:
+            value = record.get(key)
+            if isinstance(value, bool):
+                totals[key] += int(value)
+            elif isinstance(value, (int, float)):
+                totals[key] += int(value)
+    return totals
+
+
+def build_current_sprint7_dashboard(limit: int = 50) -> Dict[str, Any]:
+    roots = _sprint7_runtime_roots()
+    sprint7_records = _read_json_records(roots["runtime_sprint7"])
+    pilot_run_records = _read_json_records(roots["runtime_pilot_runs"])
+    execution_log_fields = _read_markdown_field_values(roots["execution_log"])
+    all_records = sprint7_records + pilot_run_records
+
+    totals = _sum_numeric_fields(
+        all_records,
+        [
+            "rfqs_harvested",
+            "rfqs_qualified",
+            "rfqs_rejected",
+            "quote_packs_generated",
+            "submission_packs_generated",
+            "submission_packs_approved",
+            "approval_gate_bypass_count",
+            "submission_ready_without_approval_count",
+            "duplicate_audit_events",
+            "orphaned_audit_events",
+            "state_drift_count",
+        ],
+    )
+
+    if not all_records:
+        status = "INITIALIZED_EMPTY_WORKLOAD"
+    elif totals["rfqs_harvested"] == 0:
+        status = "INITIALIZED_EMPTY_WORKLOAD"
+    else:
+        status = "ACTIVE"
+
+    metrics = {
+        "rfqs_harvested": totals["rfqs_harvested"],
+        "rfqs_qualified": totals["rfqs_qualified"],
+        "rfqs_rejected": totals["rfqs_rejected"],
+        "quote_packs_generated": totals["quote_packs_generated"],
+        "submission_packs_generated": totals["submission_packs_generated"],
+        "submission_packs_approved": totals["submission_packs_approved"],
+        "approval_gate_bypass_count": totals["approval_gate_bypass_count"],
+        "submission_ready_without_approval_count": totals["submission_ready_without_approval_count"],
+        "duplicate_audit_events": totals["duplicate_audit_events"],
+        "orphaned_audit_events": totals["orphaned_audit_events"],
+        "state_drift_count": totals["state_drift_count"],
+    }
+
+    return {
+        "source": "current_sprint_7_live_state",
+        "timestamp": _now_iso(),
+        "status": status,
+        "portal_submission": "DISABLED",
+        "human_approval": "REQUIRED",
+        "audit": "AUTHORITATIVE",
+        "execution_log": {
+            "path": str(roots["execution_log"]),
+            "pilot_start_date": execution_log_fields.get("Pilot Start Date", ""),
+            "lmcp_version": execution_log_fields.get("LMCP Version", ""),
+            "portal_submission_status": execution_log_fields.get("Portal Submission Status", "DISABLED"),
+            "human_approval_status": execution_log_fields.get("Human Approval Status", "REQUIRED"),
+            "audit_status": execution_log_fields.get("Audit Status", "AUTHORITATIVE"),
+        },
+        "runtime_sources": {
+            "runtime_sprint_7": str(roots["runtime_sprint7"]),
+            "runtime_pilot_runs": str(roots["runtime_pilot_runs"]),
+        },
+        **metrics,
+        "current_sprint7_dashboard": metrics,
+        "notes": [
+            "This endpoint excludes historical pilot_wave_* wave records by design.",
+            "It reads only the Sprint 7 execution log and current Sprint 7 runtime sources.",
+        ],
+    }
 
 
 def get_pilot_mode() -> PilotMode:

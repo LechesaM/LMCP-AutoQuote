@@ -14,13 +14,21 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from collections import defaultdict
 from contextlib import asynccontextmanager
+import json
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+
+try:
+    from redis import Redis
+except Exception:  # pragma: no cover - optional runtime dependency
+    Redis = None
 
 from app.api.router_registry import RouterSpec, iter_router_specs
 from app.config import settings
@@ -148,6 +156,64 @@ def _is_database_connection_error(exc: Exception) -> bool:
             next_exc = current.__context__
         current = next_exc
     return False
+
+
+def _probe_database_connectivity() -> Dict[str, Any]:
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return {"configured": bool(settings.database_url), "connected": True, "status": "ok"}
+    except Exception as exc:
+        return {
+            "configured": bool(settings.database_url),
+            "connected": False,
+            "status": "error",
+            "error": exc.__class__.__name__,
+        }
+
+
+def _probe_broker_connectivity() -> Dict[str, Any]:
+    queue_backend = str(os.getenv("LMCP_QUEUE_BACKEND", "")).strip().lower()
+    redis_url = str(os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", settings.redis_url or ""))).strip()
+
+    if queue_backend in {"", "local"}:
+        return {
+            "configured": False,
+            "connected": False,
+            "status": "skipped",
+            "detail": "local queue backend configured",
+        }
+
+    if not redis_url:
+        return {
+            "configured": False,
+            "connected": False,
+            "status": "skipped",
+            "detail": "broker URL not configured",
+        }
+
+    if Redis is None:
+        return {
+            "configured": True,
+            "connected": False,
+            "status": "skipped",
+            "detail": "redis client not installed in current runtime",
+        }
+
+    try:
+        client = Redis.from_url(redis_url, socket_connect_timeout=1, socket_timeout=1)
+        try:
+            client.ping()
+        finally:
+            client.close()
+        return {"configured": True, "connected": True, "status": "ok"}
+    except Exception as exc:
+        return {
+            "configured": True,
+            "connected": False,
+            "status": "error",
+            "error": exc.__class__.__name__,
+        }
 
 
 @asynccontextmanager
@@ -282,8 +348,10 @@ def root() -> Dict[str, Any]:
 def health() -> Dict[str, Any]:
     return {
         "status": "healthy",
+        "alive": True,
         "service": settings.app_name,
         "environment": settings.environment,
+        "timestamp": _utc_now_iso(),
         "runtime_dir": str(settings.runtime_dir),
         "log_dir": str(settings.log_dir),
         "monthly_quotes_dir": str(settings.monthly_quotes_dir),
@@ -294,6 +362,17 @@ def health() -> Dict[str, Any]:
         "project_root": str(settings.project_root),
         "database_configured": bool(settings.database_url),
         **_base_status_payload(),
+    }
+
+
+@app.get("/status")
+def status() -> Dict[str, Any]:
+    return {
+        "api_status": "alive",
+        "database": _probe_database_connectivity(),
+        "broker": _probe_broker_connectivity(),
+        "environment": settings.environment,
+        "timestamp": _utc_now_iso(),
     }
 
 
@@ -317,6 +396,22 @@ def health_operational_report() -> Dict[str, Any]:
     }
 
 
+
+QUOTE_PACK_DASHBOARD_METRICS = Path(
+    "/Users/cash/Documents/runtime/manual_production/quote_pack_dashboard_metrics.json"
+)
+
+
+def _load_quote_pack_dashboard_metrics() -> Dict[str, Any]:
+    try:
+        if not QUOTE_PACK_DASHBOARD_METRICS.exists():
+            return {}
+        with open(QUOTE_PACK_DASHBOARD_METRICS, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 @app.get("/telemetry/dashboard")
 def telemetry_dashboard(limit: int = 100) -> Dict[str, Any]:
     return {
@@ -336,6 +431,7 @@ def telemetry_dashboard(limit: int = 100) -> Dict[str, Any]:
         "opportunity_breakdown": [],
         "top_high_profit_rfqs": [],
         "recent_alerts": [],
+        "quote_pack_dashboard": _load_quote_pack_dashboard_metrics(),
     }
 
 

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from typing import Any, Dict
 
 from app.core import workflow_state_engine
@@ -20,6 +23,26 @@ def build_controlled_pilot_dashboard(limit: int = 50) -> Dict[str, Any]:
     return pilot_core.build_controlled_pilot_dashboard(limit=limit)
 
 
+def build_current_sprint7_dashboard(limit: int = 50) -> Dict[str, Any]:
+    return pilot_core.build_current_sprint7_dashboard(limit=limit)
+
+
+
+QUOTE_PACK_DASHBOARD_METRICS = Path(
+    "/Users/cash/Documents/runtime/manual_production/quote_pack_dashboard_metrics.json"
+)
+
+
+def _load_quote_pack_dashboard_metrics() -> Dict[str, Any]:
+    try:
+        if not QUOTE_PACK_DASHBOARD_METRICS.exists():
+            return {}
+        with open(QUOTE_PACK_DASHBOARD_METRICS, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 def get_dashboard_summary(limit: int = 50) -> Dict[str, Any]:
     states = list(_states().values())
     queue_overview = workflow_queue_service.get_queue_overview(limit=limit)
@@ -27,6 +50,7 @@ def get_dashboard_summary(limit: int = 50) -> Dict[str, Any]:
     pilot_metrics = pilot_core.get_pilot_metrics()
     readiness_report = pilot_core.build_pilot_readiness_report(limit=limit)
     controlled_pilot_dashboard = build_controlled_pilot_dashboard(limit=limit)
+    quote_pack_dashboard_metrics = _load_quote_pack_dashboard_metrics()
     counts_by_stage: Dict[str, int] = {}
     quote_pack_payload: Dict[str, Any] = {}
     for state in states:
@@ -64,6 +88,7 @@ def get_dashboard_summary(limit: int = 50) -> Dict[str, Any]:
         "counts_by_stage": counts_by_stage,
         "queue_summary": queue_overview["summary"],
         "quality_summary": quality_summary,
+        "quote_pack_dashboard": quote_pack_dashboard_metrics,
         "operator_recommendations": operator_recommendations,
         "pilot_mode": pilot_mode,
         "pilot_metrics": pilot_metrics,

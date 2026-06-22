@@ -36,7 +36,7 @@ def test_latest_scheduled_harvest_prefers_newest_artifact_and_cycles_fallback(tm
             "status": "ok",
             "run_started_at": "2026-06-11T14:57:03.746884+00:00",
             "run_id": "scheduled_harvest_20260611T145703Z",
-            "source_count": 66,
+            "source_count": 1040,
             "selected_source_count": 10,
             "harvested_total": 5,
             "screened_out_total": 5,
@@ -55,7 +55,7 @@ def test_latest_scheduled_harvest_prefers_newest_artifact_and_cycles_fallback(tm
     result = get_latest_scheduled_harvest_summaries(runtime_dir=str(tmp_path))
 
     assert result["latest_any"]["run_id"] == "scheduled_harvest_20260611T145703Z"
-    assert result["latest_any"]["source_count"] == 66
+    assert result["latest_any"]["source_count"] == 1040
     assert result["latest_regular"]["run_id"] == "scheduled_harvest_20260611T145703Z"
     assert result["run_count"] == 2
 

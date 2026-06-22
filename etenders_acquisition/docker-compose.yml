@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+
+  postgres:
+    image: postgres:17
+    container_name: etenders-postgres
+
+    environment:
+      POSTGRES_DB: etenders
+      POSTGRES_USER: etenders
+      POSTGRES_PASSWORD: etenders
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+
+    container_name: pgadmin
+
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@etenders.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+
+    ports:
+      - "5050:80"
+
+volumes:
+  postgres-data:

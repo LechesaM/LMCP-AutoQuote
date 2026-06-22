@@ -1,19 +1,23 @@
 from __future__ import annotations
 
-from collections import defaultdict
-from typing import Any, Dict
+import importlib.util
+from pathlib import Path
+from types import ModuleType
 
 
-_METRICS: Dict[str, int] = defaultdict(int)
+def _load_impl() -> ModuleType:
+    module_path = Path(__file__).resolve().parents[2] / "lmcp-core" / "services" / "governance" / "metrics_service.py"
+    spec = importlib.util.spec_from_file_location("lmcp_governance_metrics_service", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load governance metrics service from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def reset_test_metrics() -> None:
-    _METRICS.clear()
+_IMPL = _load_impl()
+reset_test_metrics = _IMPL.reset_test_metrics
+increment_metric = _IMPL.increment_metric
+get_metrics_snapshot = _IMPL.get_metrics_snapshot
 
-
-def increment_metric(name: str, amount: int = 1) -> None:
-    _METRICS[name] = int(_METRICS.get(name, 0)) + int(amount)
-
-
-def get_metrics_snapshot() -> Dict[str, Any]:
-    return {"status": "ok", "metrics": dict(_METRICS)}
+__all__ = ["reset_test_metrics", "increment_metric", "get_metrics_snapshot"]

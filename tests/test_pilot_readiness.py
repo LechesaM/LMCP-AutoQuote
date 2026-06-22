@@ -15,6 +15,7 @@ from app.pilot import (
     PilotMode,
     assert_pilot_guardrails,
     build_controlled_pilot_dashboard,
+    build_current_sprint7_dashboard,
     build_pilot_readiness_report,
     calculate_readiness_score,
     calculate_success_rate,
@@ -249,6 +250,63 @@ def test_controlled_pilot_dashboard_reads_persisted_wave_records(monkeypatch, tm
     assert dashboard["pilot_success_rate"] == 100.0
     assert dashboard["go_no_go"] == "HOLD"
     assert dashboard["pilot_wave"] == "stage_2_pilot_dashboard"
+
+
+def test_current_sprint7_dashboard_ignores_historical_wave_records(monkeypatch, tmp_path: Path) -> None:
+    runtime_dir = _prepare_runtime(monkeypatch, tmp_path)
+    docs_root = tmp_path / "docs" / "operations_validation_pack"
+    docs_root.mkdir(parents=True, exist_ok=True)
+    (docs_root / "sprint_7_execution_log.md").write_text(
+        "\n".join(
+            [
+                "# Sprint 7 Execution Log",
+                "",
+                "| Pilot Start Date | 2026-06-19 |",
+                "| LMCP Version | 2.6.0-manual-production |",
+                "| Portal Submission Status | DISABLED |",
+                "| Human Approval Status | REQUIRED |",
+                "| Audit Status | AUTHORITATIVE |",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    historical_wave = runtime_dir / "manual_production" / "pilot_wave_001" / "WAVE1-01" / "submission_logs"
+    historical_wave.mkdir(parents=True, exist_ok=True)
+    (historical_wave / "pilot_status.json").write_text(
+        json.dumps(
+            {
+                "rfq_number": "RFQ-HIST-001",
+                "tender_id": "RFQ-HIST-001",
+                "status": "submitted",
+                "submission_ready": True,
+                "manual_submission_recorded": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dashboard = build_current_sprint7_dashboard(limit=50)
+
+    assert dashboard["source"] == "current_sprint_7_live_state"
+    assert dashboard["status"] == "INITIALIZED_EMPTY_WORKLOAD"
+    assert dashboard["portal_submission"] == "DISABLED"
+    assert dashboard["human_approval"] == "REQUIRED"
+    assert dashboard["audit"] == "AUTHORITATIVE"
+    assert dashboard["execution_log"]["pilot_start_date"] == "2026-06-19"
+    assert dashboard["execution_log"]["lmcp_version"] == "2.6.0-manual-production"
+    assert dashboard["rfqs_harvested"] == 0
+    assert dashboard["rfqs_qualified"] == 0
+    assert dashboard["rfqs_rejected"] == 0
+    assert dashboard["quote_packs_generated"] == 0
+    assert dashboard["submission_packs_generated"] == 0
+    assert dashboard["submission_packs_approved"] == 0
+    assert dashboard["approval_gate_bypass_count"] == 0
+    assert dashboard["submission_ready_without_approval_count"] == 0
+    assert dashboard["duplicate_audit_events"] == 0
+    assert dashboard["orphaned_audit_events"] == 0
+    assert dashboard["state_drift_count"] == 0
+    assert dashboard["current_sprint7_dashboard"]["rfqs_harvested"] == 0
 
 
 def test_operator_accountability_preserved(monkeypatch, tmp_path: Path) -> None:

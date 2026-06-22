@@ -622,11 +622,11 @@ def test_demo_live_rfq_seed_populates_live_store_and_quote_context(monkeypatch, 
     assert live_store["count"] == 1
 
     payload = contracts.get_operator_workflow_detail("REAL-PILOT-001")
-    assert payload["submission_readiness"]["readiness_state"] == "READY"
-    assert payload["submission_readiness"]["approval_ready"] is True
-    assert payload["submission_readiness"]["submission_ready"] is True
-    assert payload["submission_package"]["approval_ready"] is True
-    assert payload["submission_package"]["submission_ready"] is True
+    assert payload["submission_readiness"]["readiness_state"] == "MANUAL_ONLY"
+    assert payload["submission_readiness"]["approval_ready"] is False
+    assert payload["submission_readiness"]["submission_ready"] is False
+    assert payload["submission_package"]["approval_ready"] is False
+    assert payload["submission_package"]["submission_ready"] is False
     enrichment = payload["harvest_enrichment"]
     assert enrichment["matched"] is True
     assert enrichment["supplier_quotes_found"] is True
@@ -664,9 +664,95 @@ def test_demo_live_rfq_seed_refreshes_existing_store_entry(monkeypatch, tmp_path
     assert report["live_count"] == 1
 
     payload = contracts.get_operator_workflow_detail("REAL-PILOT-001")
-    assert payload["submission_readiness"]["readiness_state"] == "READY"
-    assert payload["submission_readiness"]["approval_ready"] is True
-    assert payload["submission_readiness"]["submission_ready"] is True
+    assert payload["submission_readiness"]["readiness_state"] == "MANUAL_ONLY"
+    assert payload["submission_readiness"]["approval_ready"] is False
+    assert payload["submission_readiness"]["submission_ready"] is False
+
+
+def test_live_rfq_lookup_matches_buyer_rfq_number(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("LMCP_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("SUPPLIER_QUOTES_SAVE_ROOT", str(tmp_path / "monthly_quotes"))
+    monkeypatch.setenv("MONTHLY_QUOTES_ROOT", str(tmp_path / "monthly_quotes"))
+
+    live_store_path = tmp_path / "runtime" / "live_rfqs.json"
+    monkeypatch.setattr(live_rfq_store, "LIVE_RFQ_STORE_PATH", live_store_path)
+
+    live_rfq_store.save_live_rfqs(
+        [
+            {
+                "buyer_rfq_number": "FIN-SCM-TEN-0236",
+                "title": "Bid for the appointment of professional engineering services firm for the provision of upgrade of the existing NovaTec-P (Tc-99m) Generator Production Area and HVAC System.",
+                "buyer_pack_downloaded": True,
+                "boq_detected": True,
+                "pricing_schedule_detected": True,
+                "returnables_detected": True,
+                "quote_pack_generated": True,
+                "buyer_pack_status": "downloaded",
+                "boq_status": "detected",
+                "pricing_schedule_status": "detected",
+                "returnables_status": "detected",
+                "quote_pack_status": "generated",
+                "quote_ready": False,
+                "submission_status": "pending",
+                "validation_status": "needs_review",
+            }
+        ]
+    )
+
+    payload = contracts.get_operator_workflow_detail("FIN-SCM-TEN-0236")
+
+    assert payload["data_source"] == "runtime"
+    assert payload["buyer_pack_downloaded"] is True
+    assert payload["boq_detected"] is True
+    assert payload["pricing_schedule_detected"] is True
+    assert payload["returnables_detected"] is True
+    assert payload["quote_pack_generated"] is True
+    assert payload["buyer_pack_status"] == "downloaded"
+    assert payload["boq_status"] == "detected"
+    assert payload["pricing_schedule_status"] == "detected"
+    assert payload["returnables_status"] == "detected"
+    assert payload["quote_pack_status"] == "generated"
+
+
+def test_professional_services_live_rfq_is_rejected_by_qualification_engine(monkeypatch, tmp_path: Path) -> None:
+    _prepare_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("LMCP_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("SUPPLIER_QUOTES_SAVE_ROOT", str(tmp_path / "monthly_quotes"))
+    monkeypatch.setenv("MONTHLY_QUOTES_ROOT", str(tmp_path / "monthly_quotes"))
+
+    live_store_path = tmp_path / "runtime" / "live_rfqs.json"
+    monkeypatch.setattr(live_rfq_store, "LIVE_RFQ_STORE_PATH", live_store_path)
+
+    live_rfq_store.save_live_rfqs(
+        [
+            {
+                "buyer_rfq_number": "FIN-SCM-TEN-0236",
+                "buyer_name": "NECSA",
+                "title": "Bid for the appointment of professional engineering services firm for the provision of upgrade of the existing NovaTec-P (Tc-99m) Generator Production Area and HVAC System.",
+                "buyer_pack_downloaded": True,
+                "boq_detected": True,
+                "pricing_schedule_detected": True,
+                "returnables_detected": True,
+                "quote_pack_generated": True,
+                "buyer_pack_status": "downloaded",
+                "boq_status": "detected",
+                "pricing_schedule_status": "detected",
+                "returnables_status": "detected",
+                "quote_pack_status": "generated",
+                "submission_method": "email",
+            }
+        ]
+    )
+
+    payload = contracts.get_operator_workflow_detail("FIN-SCM-TEN-0236")
+    qualification = payload["qualification_summary"]
+
+    assert qualification["is_supply_delivery"] is False
+    assert qualification["qualification_status"] == "rejected"
+    assert qualification["recommendation"] == "REJECT"
+    assert qualification["auto_quote_recommended"] is False
+    assert qualification["rejection_codes"] == ["not_supply_and_delivery", "engineering_services_scope", "professional_services_scope"]
 
 
 def test_review_ready_bundle_captures_operator_actions_and_exports(monkeypatch, tmp_path: Path) -> None:
@@ -708,8 +794,8 @@ def test_review_ready_bundle_captures_operator_actions_and_exports(monkeypatch, 
     assert Path(bundle["operatorActionsPath"]).exists()
 
     submission = payload["submission_package"]
-    assert submission["approvalReady"] is True
-    assert submission["submissionReady"] is True
+    assert submission["approvalReady"] is False
+    assert submission["submissionReady"] is False
     assert submission["created_at"]
     assert Path(submission["quotePackPdfPath"]).exists()
     assert Path(submission["quotePackJsonPath"]).exists()

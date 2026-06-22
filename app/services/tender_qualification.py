@@ -274,6 +274,9 @@ def qualify_opportunity(opportunity: Any) -> TenderQualificationResult:
         ["estimated_contract_value", "estimated_value", "contract_value"],
         None,
     )
+    if days_to_deadline is None and closing_at is not None:
+        delta_days = (closing_at - utcnow()).total_seconds() / 86400.0
+        days_to_deadline = round(delta_days, 2)
 
     full_text = " ".join(
         [
@@ -811,7 +814,7 @@ def _get_attr(obj: Any, field_name: str, default: Any = None) -> Any:
 def _get_first_attr(obj: Any, field_names: List[str], default: str = "") -> str:
     for field_name in field_names:
         try:
-            value = getattr(obj, field_name, None)
+            value = obj.get(field_name) if isinstance(obj, dict) else getattr(obj, field_name, None)
             if value is None:
                 continue
             s = str(value).strip()
@@ -825,7 +828,7 @@ def _get_first_attr(obj: Any, field_names: List[str], default: str = "") -> str:
 def _get_float_attr(obj: Any, field_names: List[str], default: Optional[float] = None) -> Optional[float]:
     for field_name in field_names:
         try:
-            value = getattr(obj, field_name, None)
+            value = obj.get(field_name) if isinstance(obj, dict) else getattr(obj, field_name, None)
             converted = _to_float(value)
             if converted is not None:
                 return converted
@@ -837,7 +840,7 @@ def _get_float_attr(obj: Any, field_names: List[str], default: Optional[float] =
 def _get_int_attr(obj: Any, field_names: List[str], default: int = 0) -> int:
     for field_name in field_names:
         try:
-            value = getattr(obj, field_name, None)
+            value = obj.get(field_name) if isinstance(obj, dict) else getattr(obj, field_name, None)
             if value is None:
                 continue
             return int(value)
@@ -849,7 +852,7 @@ def _get_int_attr(obj: Any, field_names: List[str], default: int = 0) -> int:
 def _get_bool_attr(obj: Any, field_names: List[str], default: bool = False) -> bool:
     for field_name in field_names:
         try:
-            value = getattr(obj, field_name, None)
+            value = obj.get(field_name) if isinstance(obj, dict) else getattr(obj, field_name, None)
             if isinstance(value, bool):
                 return value
             if isinstance(value, str):
@@ -867,7 +870,7 @@ def _get_bool_attr(obj: Any, field_names: List[str], default: bool = False) -> b
 def _get_first_datetime_attr(obj: Any, field_names: List[str]) -> Optional[datetime]:
     for field_name in field_names:
         try:
-            value = getattr(obj, field_name, None)
+            value = obj.get(field_name) if isinstance(obj, dict) else getattr(obj, field_name, None)
             dt = _parse_datetime_any(value)
             if dt is not None:
                 return dt

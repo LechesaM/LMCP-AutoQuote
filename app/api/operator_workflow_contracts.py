@@ -18,6 +18,7 @@ from app.services.live_rfq_store import summarize_rfq_document_intelligence as _
 from app.services.tender_harvester import get_acquisition_runtime_summary as _get_acquisition_runtime_summary
 from app.services.submission_execution_service import build_submission_execution_state, record_submission_execution
 from app.services.submission_package_service import build_submission_package, evaluate_submission_gate
+from app.services.submission_package_service import build_submission_pack_object, get_submission_pack_measurement_metrics
 from app.services.submission_quality_service import attach_supplier_quotes_to_result, build_review_ready_bundle, build_submission_quality_report
 from app.services.submission_receipt_verification_service import build_signed_receipt_verification_report
 
@@ -99,8 +100,25 @@ def _live_rfq_record(tender_id: str) -> Dict[str, Any]:
     except Exception:
         return {}
     items = live.get("items") if isinstance(live, dict) else []
+    candidates = {
+        _clean(tender_id),
+        _clean(tender_id).upper(),
+        _clean(tender_id).lower(),
+    }
     for item in items if isinstance(items, list) else []:
-        if _clean(item.get("rfq_id") or item.get("reference") or item.get("tender_id")) == _clean(tender_id):
+        item_candidates = {
+            _clean(item.get("rfq_id")),
+            _clean(item.get("reference")),
+            _clean(item.get("reference_number")),
+            _clean(item.get("buyer_rfq_number")),
+            _clean(item.get("tender_id")),
+            _clean(item.get("canonical_reference")),
+            _clean(item.get("canonical_short_id")),
+            _clean(item.get("quote_number")),
+        }
+        item_candidates |= {candidate.upper() for candidate in list(item_candidates)}
+        item_candidates |= {candidate.lower() for candidate in list(item_candidates)}
+        if candidates & item_candidates:
             return item
     return {}
 
@@ -319,14 +337,18 @@ def _submission_package_detail(detail: Dict[str, Any]) -> Dict[str, Any]:
     if package:
         review_entries = _safe_list(detail.get("review_ready_bundle", {}).get("source_quote_entries"))
         package_entries = _safe_list(package.get("source_quote_entries") or package.get("submission_pack_files"))
-        package.setdefault("approvalReady", bool(package.get("approval_ready")))
-        package.setdefault("submissionReady", bool(package.get("submission_ready")))
+        submission_pack = build_submission_pack_object({**detail, "submission_package": package})
+        package["approval_ready"] = bool(submission_pack.get("approval_ready"))
+        package["submission_ready"] = bool(submission_pack.get("submission_ready"))
+        package["approvalReady"] = bool(submission_pack.get("approval_ready"))
+        package["submissionReady"] = bool(submission_pack.get("submission_ready"))
         package.setdefault("created_at", package.get("created_at") or package.get("generated_at") or "")
         package.setdefault("submissionManifestPath", package.get("submission_package_manifest_path") or package.get("submissionManifestPath") or "")
         package.setdefault("submissionManifestPath", package.get("submissionManifestPath") or package.get("submission_package_manifest_path") or "")
         package.setdefault("submissionPackageManifestPath", package.get("submissionPackageManifestPath") or package.get("submission_package_manifest_path") or "")
         package.setdefault("downloadUrl", package.get("downloadUrl") or package.get("download_url") or "")
         package.setdefault("metadataUrl", package.get("metadataUrl") or package.get("metadata_url") or "")
+        package["submission_pack"] = submission_pack
         if review_entries:
             package["source_quote_entries"] = review_entries
             package["source_quote_file_count"] = len(review_entries)
@@ -343,7 +365,7 @@ def _submission_package_detail(detail: Dict[str, Any]) -> Dict[str, Any]:
         quote_pack_manifest = package_dir / f"{tender_id}__quote_pack_manifest.json"
         zip_path = package_dir / f"{tender_id}__submission_package.zip"
         created_at = _clean(payload.get("created_at") or payload.get("generated_at")) or _now_iso()
-        return {
+        package = {
             "tender_id": tender_id,
             "approval_ready": bool(payload.get("approval_ready", True)),
             "submission_ready": bool(payload.get("submission_ready", True)),
@@ -373,6 +395,13 @@ def _submission_package_detail(detail: Dict[str, Any]) -> Dict[str, Any]:
             "submission_pack_files": _safe_list(payload.get("submission_pack_files")),
             "review_ready_bundle": detail.get("review_ready_bundle") or {},
         }
+        submission_pack = build_submission_pack_object({**detail, "submission_package": package})
+        package["approval_ready"] = bool(submission_pack.get("approval_ready"))
+        package["submission_ready"] = bool(submission_pack.get("submission_ready"))
+        package["approvalReady"] = bool(submission_pack.get("approval_ready"))
+        package["submissionReady"] = bool(submission_pack.get("submission_ready"))
+        package["submission_pack"] = submission_pack
+        return package
     base = build_submission_package(
         {
             "tender_id": tender_id,
@@ -526,6 +555,7 @@ def get_operator_workflow_detail(tender_id: str) -> Dict[str, Any]:
     tender_id = _clean(tender_id)
     record = _seed_or_live_record(tender_id)
     live_record = _live_rfq_record(tender_id)
+    persisted_record = {**record, **live_record}
     operations_state = _operations_state({**record, **live_record})
     summary = {
         "title": _clean(record.get("title") or tender_id),
@@ -587,9 +617,9 @@ def get_operator_workflow_detail(tender_id: str) -> Dict[str, Any]:
             "tender_id": tender_id,
             "tender_root": str(bundle_dir),
             "review_ready": True,
-            "submission_ready": True,
+            "submission_ready": False,
             "reviewReady": True,
-            "submissionReady": True,
+            "submissionReady": False,
             "manifestPath": str(bundle_dir / "review_ready_quote_pack_manifest.json"),
             "quotePackPath": str(bundle_dir / "review_ready_quote_pack.json"),
             "auditExportPath": str(bundle_dir / "audit_export.json"),
@@ -607,6 +637,7 @@ def get_operator_workflow_detail(tender_id: str) -> Dict[str, Any]:
             }
         )
     detail["submission_package"] = _submission_package_detail(detail)
+    detail["submission_pack"] = _safe_dict(detail["submission_package"].get("submission_pack")) or build_submission_pack_object(detail)
     detail["harvest_enrichment"] = _harvest_enrichment(
         {
             "tender_id": tender_id,
@@ -620,14 +651,15 @@ def get_operator_workflow_detail(tender_id: str) -> Dict[str, Any]:
         }
     )
     detail["submission_readiness"] = evaluate_submission_gate(detail)
-    if data_source != "fallback" and not detail["submission_readiness"].get("allowed") and bool(detail["review_ready_bundle"].get("review_ready")):
-        detail["submission_readiness"].update({"status": "ok", "approval_ready": True, "submission_ready": True, "blocking_issues": [], "allowed": True})
     detail["submission_readiness"].update(
         {
             "readiness_state": "READY" if detail["submission_readiness"].get("allowed") else "MANUAL_ONLY",
             "approvalReady": bool(detail["submission_readiness"].get("approval_ready")),
             "submissionReady": bool(detail["submission_readiness"].get("submission_ready")),
             "blocking_issues": list(detail["submission_readiness"].get("blocking_issues") or []),
+            "submission_pack": detail["submission_pack"],
+            "readiness_score": detail["submission_pack"].get("readiness_score", 0),
+            "blocking_codes": list(detail["submission_pack"].get("blocking_codes") or []),
         }
     )
     detail["governed_submission"] = _governed_submission_detail(detail)
@@ -639,25 +671,50 @@ def get_operator_workflow_detail(tender_id: str) -> Dict[str, Any]:
     detail["submission_execution"].setdefault("receipt_signature", {"status": "ok", "signature": "signature"})
     detail["submission_execution"].setdefault("route_classification", {"status": "assisted_required"})
     detail["submission_execution"].setdefault("portal_adapter_details", {"buyer_contract": {"required_artifacts": []}})
+    def _persisted_bool(*keys: str) -> bool:
+        for key in keys:
+            value = persisted_record.get(key)
+            if isinstance(value, bool):
+                return value
+            if value is not None and _clean(value).lower() in {"true", "1", "yes", "y"}:
+                return True
+            if value is not None and _clean(value).lower() in {"false", "0", "no", "n"}:
+                return False
+        return False
+
     detail["quote_pack_readiness_score"] = int(operations_state.get("quote_pack_readiness_score") or 0)
     detail["acquisition_readiness_score"] = int(operations_state.get("acquisition_readiness_score") or operations_state.get("quote_pack_readiness_score") or 0)
-    detail["buyer_pack_status"] = operations_state.get("buyer_pack_status") or "not_attempted"
-    detail["boq_status"] = operations_state.get("boq_status") or "not_attempted"
-    detail["pricing_schedule_status"] = operations_state.get("pricing_schedule_status") or "not_attempted"
-    detail["returnables_status"] = operations_state.get("returnables_status") or "not_attempted"
-    detail["quote_pack_status"] = operations_state.get("quote_pack_status") or "not_attempted"
+    detail["buyer_pack_status"] = _clean(persisted_record.get("buyer_pack_status") or operations_state.get("buyer_pack_status") or ("downloaded" if _persisted_bool("buyer_pack_downloaded", "buyer_pack_verified") else "not_attempted"))
+    detail["boq_status"] = _clean(persisted_record.get("boq_status") or operations_state.get("boq_status") or ("detected" if _persisted_bool("boq_detected") else "not_attempted"))
+    detail["pricing_schedule_status"] = _clean(persisted_record.get("pricing_schedule_status") or operations_state.get("pricing_schedule_status") or ("detected" if _persisted_bool("pricing_schedule_detected") else "not_attempted"))
+    detail["returnables_status"] = _clean(persisted_record.get("returnables_status") or operations_state.get("returnables_status") or ("detected" if _persisted_bool("returnables_detected") else "not_attempted"))
     detail["rfq_discovered"] = bool(operations_state.get("rfq_discovered", True))
-    detail["buyer_pack_downloaded"] = bool(operations_state.get("buyer_pack_downloaded"))
-    detail["buyer_pack_download_failed"] = bool(operations_state.get("buyer_pack_download_failed"))
-    detail["buyer_pack_download_timestamp"] = _clean(operations_state.get("buyer_pack_download_timestamp"))
-    detail["buyer_pack_source"] = _clean(operations_state.get("buyer_pack_source"))
-    detail["download_failure_reason"] = _clean(operations_state.get("download_failure_reason"))
-    detail["boq_detected"] = bool(operations_state.get("boq_detected"))
-    detail["pricing_schedule_detected"] = bool(operations_state.get("pricing_schedule_detected"))
-    detail["returnables_detected"] = bool(operations_state.get("returnables_detected"))
+    detail["buyer_pack_downloaded"] = _persisted_bool("buyer_pack_downloaded", "buyer_pack_verified") or bool(operations_state.get("buyer_pack_downloaded"))
+    detail["buyer_pack_download_failed"] = bool(persisted_record.get("buyer_pack_download_failed") if persisted_record.get("buyer_pack_download_failed") is not None else operations_state.get("buyer_pack_download_failed"))
+    detail["buyer_pack_download_timestamp"] = _clean(persisted_record.get("buyer_pack_download_timestamp") or operations_state.get("buyer_pack_download_timestamp"))
+    detail["buyer_pack_source"] = _clean(persisted_record.get("buyer_pack_source") or operations_state.get("buyer_pack_source"))
+    detail["download_failure_reason"] = _clean(persisted_record.get("download_failure_reason") or operations_state.get("download_failure_reason"))
+    detail["boq_detected"] = _persisted_bool("boq_detected") or bool(operations_state.get("boq_detected"))
+    detail["pricing_schedule_detected"] = _persisted_bool("pricing_schedule_detected") or bool(operations_state.get("pricing_schedule_detected"))
+    detail["returnables_detected"] = _persisted_bool("returnables_detected") or bool(operations_state.get("returnables_detected"))
     detail["extraction_failure_reason"] = _clean(operations_state.get("extraction_failure_reason"))
     detail["eligibility_failure_reason"] = _clean(operations_state.get("eligibility_failure_reason") or ";".join(detail.get("recommendation_reasons") or []))
-    detail["quote_pack_generated"] = bool(operations_state.get("quote_pack_generated"))
+    detail["quote_pack_generated"] = (
+        _persisted_bool("quote_pack_generated", "quote_generated")
+        or (
+            detail["buyer_pack_downloaded"]
+            and detail["boq_detected"]
+            and detail["pricing_schedule_detected"]
+            and detail["returnables_detected"]
+        )
+        or bool(operations_state.get("quote_pack_generated"))
+    )
+    detail["quote_pack_status"] = _clean(
+        ("generated" if detail["quote_pack_generated"] else "")
+        or persisted_record.get("quote_pack_status")
+        or operations_state.get("quote_pack_status")
+        or "not_attempted"
+    )
     detail["acquisition_readiness_components"] = operations_state.get("acquisition_readiness_components") if isinstance(operations_state.get("acquisition_readiness_components"), dict) else {}
     return _trim_http_workflow_detail(detail)
 

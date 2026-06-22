@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 from app.services.rfq_recovery_service import RfqRecoveryService, classify_failure
 from app.services.rfq_state_store import PROJECT_ROOT, RfqStateStore, utc_now_iso
 from app.services.live_rfq_store import summarize_rfq_document_intelligence as _summarize_rfq_document_intelligence
+from app.services.validation_readiness_service import build_validation_readiness
 
 
 LIFECYCLE_STATES = [
@@ -3460,6 +3461,10 @@ class RfqLifecycleService:
                 item.setdefault("rfq_reference", rfq_id)
 
             enriched = self._enrich_lifecycle_item(item, self._live_store_index())
+            validation_readiness = build_validation_readiness(enriched)
+            item["validation_readiness"] = validation_readiness
+            item["validation_readiness_state"] = validation_readiness["readiness_state"]
+            item["validation_reason_codes"] = validation_readiness["reason_codes"]
             accepted, policy_reasons = self._policy_check(enriched)
             urls = _http_urls_from_payload(enriched)
             source_url = str(enriched.get("source_url") or "")
@@ -3485,6 +3490,10 @@ class RfqLifecycleService:
                 blocker_reasons.append("missing_source_or_detail_url")
             if not accepted:
                 blocker_reasons.extend(policy_reasons)
+            if validation_readiness["blocking_reason_codes"]:
+                blocker_reasons.extend(validation_readiness["blocking_reason_codes"])
+            if validation_readiness["readiness_state"] == "REVIEW_REQUIRED":
+                blocker_reasons.extend(validation_readiness["review_reason_codes"])
             if not closing_ok:
                 blocker_reasons.append(closing_value)
             if document_confidence_score < MIN_DOCUMENT_CONFIDENCE:

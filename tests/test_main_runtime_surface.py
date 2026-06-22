@@ -8,6 +8,7 @@ def test_main_exposes_frontend_runtime_surface() -> None:
 
     for path in [
         "/health",
+        "/status",
         "/operator-auth/login",
         "/operator-auth/session",
         "/operator-auth/status",

@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-from typing import Any
+import importlib.util
+from pathlib import Path
+from types import ModuleType
 
-from app.core.runtime_paths import RuntimePaths, get_runtime_paths
+
+def _load_impl() -> ModuleType:
+    module_path = Path(__file__).resolve().parents[2] / "lmcp-core" / "services" / "governance" / "runtime_diagnostics.py"
+    spec = importlib.util.spec_from_file_location("lmcp_governance_runtime_diagnostics", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load governance runtime diagnostics from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def get_runtime_diagnostics(*, paths: RuntimePaths | None = None) -> dict[str, Any]:
-    resolved = paths or get_runtime_paths()
-    missing = [name for name, path in {
-        "health_dir": resolved.health_dir,
-        "logs_dir": resolved.logs_dir,
-        "runtime_root": resolved.runtime_root,
-    }.items() if not path.exists()]
-    return {
-        "status": "degraded" if missing else "healthy",
-        "missing_directories": missing,
-        "runtime_root": str(resolved.runtime_root),
-    }
+_IMPL = _load_impl()
+get_runtime_diagnostics = _IMPL.get_runtime_diagnostics
+
+__all__ = ["get_runtime_diagnostics"]

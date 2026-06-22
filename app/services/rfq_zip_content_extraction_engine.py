@@ -303,6 +303,11 @@ def _score_file(path: Path) -> Dict[str, Any]:
         categories.append("returnable_files")
         reasons.append("returnable_signal")
 
+    if any(term in blob for term in ("annexure", "annexures", "appendix", "appendices")):
+        score += 0.20
+        categories.append("annexure_files")
+        reasons.append("annexure_signal")
+
     if any(term in blob for term in TERMS_TERMS):
         score += 0.25
         categories.append("terms_conditions_files")
@@ -392,6 +397,8 @@ def _augment_record_with_content(record: Dict[str, Any]) -> Dict[str, Any]:
             "returnables_detected": bool(content_roles.get("returnables_detected")),
             "commercial_returnable_confidence": float(content_roles.get("commercial_returnable_confidence") or 0.0),
             "returnables_reason": _safe_str(content_roles.get("returnables_reason")),
+            "annexure_detected": bool(content_roles.get("annexure_detected")),
+            "annexure_reason": _safe_str(content_roles.get("annexure_reason")),
             "table_count": len(tables),
             "text_excerpt": text[:1200],
             "detected_document_types": _inventory_types({**record, "categories": categories}),

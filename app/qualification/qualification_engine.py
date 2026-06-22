@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
+from app.services.validation_readiness_service import build_validation_readiness
+
 
 SUPPLIER_DOMAIN_MAP = {
     "household_products": "FMCG wholesalers",
@@ -11,6 +13,71 @@ SUPPLIER_DOMAIN_MAP = {
     "technical_fabrication": "fabrication specialists",
     "building_materials": "hardware/building suppliers",
 }
+
+POSITIVE_SUPPLY_CATEGORIES = {
+    "building_materials",
+    "consumables",
+    "equipment_supply",
+    "household_products",
+    "supply_and_delivery",
+    "technical_fabrication",
+}
+
+STRONG_SUPPLY_PATTERNS = (
+    "supply and delivery",
+    "supply & delivery",
+    "supply, delivery",
+    "supply of",
+    "delivery of",
+    "supply and install",
+    "supply, install",
+    "supply and distribute",
+)
+
+GOODS_KEYWORDS = (
+    "building materials",
+    "chemicals",
+    "cleaning",
+    "consumables",
+    "equipment",
+    "furniture",
+    "goods",
+    "hardware",
+    "household products",
+    "materials",
+    "office supplies",
+    "paper",
+    "ppe",
+    "products",
+    "stationery",
+    "tools",
+)
+
+EXCLUDED_SCOPE_KEYWORDS = (
+    "architectural services",
+    "consultancy services",
+    "consulting services",
+    "construction",
+    "civil works",
+    "engineering services",
+    "legal services",
+    "professional engineering services",
+    "professional services",
+    "project management services",
+    "road works",
+    "building works",
+)
+
+SERVICE_SCOPE_CODE_MAP = (
+    ("professional engineering services", "engineering_services_scope"),
+    ("engineering services", "engineering_services_scope"),
+    ("consultancy services", "consulting_services_scope"),
+    ("consulting services", "consulting_services_scope"),
+    ("legal services", "legal_services_scope"),
+    ("project management services", "project_management_services_scope"),
+    ("architectural services", "architectural_services_scope"),
+    ("professional services", "professional_services_scope"),
+)
 
 
 def _clean(value: Any) -> str:
@@ -62,6 +129,46 @@ def _supplier_domain(category: str) -> str:
     return SUPPLIER_DOMAIN_MAP.get(category, "general suppliers")
 
 
+def _dedupe_preserve_order(values: List[str]) -> List[str]:
+    seen = set()
+    out: List[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
+    return any(marker in text for marker in markers)
+
+
+def _detect_supply_delivery(text: str, category: str, service_scope_detected: bool) -> bool:
+    if category in POSITIVE_SUPPLY_CATEGORIES:
+        return True
+    if service_scope_detected:
+        return False
+    if _contains_any(text, STRONG_SUPPLY_PATTERNS):
+        return True
+
+    has_supply_or_delivery = "supply" in text or "delivery" in text or "deliver" in text
+    has_goods_signal = _contains_any(text, GOODS_KEYWORDS)
+    return has_supply_or_delivery and has_goods_signal
+
+
+def _service_scope_rejection_codes(text: str) -> List[str]:
+    codes: List[str] = []
+    matched_specific_service = False
+    for marker, code in SERVICE_SCOPE_CODE_MAP:
+        if marker in text:
+            codes.append(code)
+            matched_specific_service = True
+    if matched_specific_service:
+        codes.append("professional_services_scope")
+    return codes
+
+
 def _compliance_matrix(text: str) -> Dict[str, Any]:
     lower = _clean(text).lower()
     items = []
@@ -111,18 +218,11 @@ def _build_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     excluded_medical = any(marker in lower for marker in ["medical consumables", "medical supplies", "pharmaceutical", "medicine", "clinical", "surgical"])
     excluded_it = any(marker in lower for marker in ["it equipment", "ict equipment", "laptop", "printer", "server", "network equipment", "software", "software license"])
     excluded_fuel = any(marker in lower for marker in ["fuel", "diesel", "petrol", "lubricant", "lubricants"])
-    excluded_other = any(marker in lower for marker in ["construction", "civil works", "road works", "building works", "professional services", "consulting services"])
+    excluded_other = _contains_any(lower, EXCLUDED_SCOPE_KEYWORDS)
     excluded_by_business_rules = any([excluded_medical, excluded_it, excluded_fuel, excluded_other, excluded_catering])
     submission_method = _clean(payload.get("submission_method")).lower().replace(" ", "_") or _infer_submission_method(text)
     has_valid_submission_method = submission_method in {"email", "portal", "physical_delivery", "courier_hand_delivery"}
-    is_supply_delivery = any(marker in lower for marker in ["supply", "delivery", "goods", "materials", "consumables", "stationery", "ppe"]) or category in {
-        "household_products",
-        "equipment_supply",
-        "technical_fabrication",
-        "building_materials",
-        "consumables",
-        "supply_and_delivery",
-    }
+    is_supply_delivery = _detect_supply_delivery(lower, category, excluded_other)
     profit_value = _safe_float(payload.get("estimated_profit"), 0.0)
     margin_value = _safe_float(payload.get("gross_margin_ratio"), 0.0)
     profit_gate = profit_value >= 30000.0
@@ -150,6 +250,7 @@ def _build_result(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     reasons: List[str] = []
     rejection_reasons: List[str] = []
+    rejection_codes: List[str] = []
     review_reasons: List[str] = []
     risk_flags: List[str] = []
     if is_supply_delivery:
@@ -173,6 +274,8 @@ def _build_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     if excluded_catering:
         rejection_reasons.append("Catering tender excluded")
     if excluded_other:
+        rejection_codes.append("not_supply_and_delivery")
+        rejection_codes.extend(_service_scope_rejection_codes(lower))
         rejection_reasons.append("Non-supply or execution-based scope excluded")
     if briefing_compulsory:
         rejection_reasons.append("Compulsory briefing or site meeting detected")
@@ -181,7 +284,11 @@ def _build_result(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not has_valid_submission_method:
         rejection_reasons.append("No valid submission route identified")
     if not is_supply_delivery:
+        rejection_codes.append("not_supply_and_delivery")
+        rejection_codes.extend(_service_scope_rejection_codes(lower))
         rejection_reasons.append("Tender is not clearly supply and delivery")
+
+    validation_readiness = build_validation_readiness(payload)
     return {
         "qualification_status": qualification_status,
         "qualified": recommendation == "GO",
@@ -225,12 +332,27 @@ def _build_result(payload: Dict[str, Any]) -> Dict[str, Any]:
         "warnings": list(payload.get("warnings") or []),
         "reasons": reasons,
         "rejection_reasons": rejection_reasons,
+        "rejection_codes": _dedupe_preserve_order(rejection_codes),
         "review_reasons": review_reasons,
         "risk_flags": risk_flags,
         "exclusion_reason": "excluded_category" if excluded_by_business_rules else "",
         "commodity_class": category or "unknown",
         "province": _clean(payload.get("province")),
         "days_to_deadline": None,
+        "validation_readiness": validation_readiness,
+        "validation_readiness_state": validation_readiness["readiness_state"],
+        "validation_reason_codes": validation_readiness["reason_codes"],
+        "validation_blocker_reason_codes": validation_readiness["blocking_reason_codes"],
+        "validation_review_reason_codes": validation_readiness["review_reason_codes"],
+        "validation_subtype": validation_readiness["validation_subtype"],
+        "validation_subtypes": validation_readiness["validation_subtypes"],
+        "metadata_completeness_state": validation_readiness["metadata_completeness_state"],
+        "metadata_completeness_score": validation_readiness["metadata_completeness_score"],
+        "metadata_missing_fields": validation_readiness["metadata_missing_fields"],
+        "metadata_issue_codes": validation_readiness["metadata_issue_codes"],
+        "compliance_readiness_score": validation_readiness["compliance_readiness_score"],
+        "validation_confidence_score": validation_readiness["confidence_score"],
+        "next_operator_action": validation_readiness["next_operator_action"],
     }
 
 

@@ -79,7 +79,18 @@ def test_submission_quality_report_is_json_safe(monkeypatch) -> None:
 
     assert report["status"] == "healthy"
     assert report["summary"]["submission_ready"] is True
+    assert "validation_readiness" in report
+    assert report["summary"]["validation_readiness_state"] in {"READY", "REVIEW_REQUIRED", "NOT_READY"}
+    assert report["summary"]["document_completeness_state"] == "COMPLETE"
+    assert report["summary"]["pricing_schedule_completeness_state"] == "COMPLETE"
+    assert report["summary"]["returnables_completeness_state"] == "COMPLETE"
+    assert report["summary"]["submission_pack_completeness_state"] == "COMPLETE"
+    assert report["summary"]["mandatory_attachment_readiness_state"] == "READY"
+    assert report["summary"]["document_inventory_validation_state"] == "COMPLETE"
+    assert report["summary"]["document_quality_score"] == 100
     assert report["package_preview"]["submission_ready"] is True
+    assert report["package_preview"]["document_completeness_state"] == "COMPLETE"
+    assert report["package_preview"]["document_quality_score"] == 100
     assert report["supplier_verification_checks"]["supplier_quotes_found"] is True
     json.dumps(report, default=str)
 
@@ -231,7 +242,7 @@ def test_submission_quality_report_handles_below_margin_fixture(monkeypatch, tmp
             "quality_status": "degraded",
             "quality_notes": ["below margin"],
             "warnings": ["below margin"],
-            "missing_artifacts": ["pricing schedule"],
+            "missing_artifacts": ["pricing schedule", "supporting annexures"],
             "download_url": "/download",
             "metadata_url": "/metadata",
             "quote_pack_pdf_path": "/tmp/quote-pack.pdf",
@@ -246,5 +257,15 @@ def test_submission_quality_report_handles_below_margin_fixture(monkeypatch, tmp
     assert report["summary"]["recommendation"] == "REJECT"
     assert report["status"] in {"degraded", "failing"}
     assert report["package_preview"]["submission_ready"] is False
+    assert report["summary"]["document_completeness_state"] == "INCOMPLETE"
+    assert "missing_pricing_schedule" in report["summary"]["document_completeness_reason_codes"]
+    assert "missing_supporting_annexures" in report["summary"]["document_completeness_reason_codes"]
+    assert report["summary"]["annexure_detection_state"] == "MISSING"
+    assert report["summary"]["pricing_schedule_completeness_state"] == "INCOMPLETE"
+    assert report["summary"]["returnables_completeness_state"] == "INCOMPLETE"
+    assert report["summary"]["submission_pack_completeness_state"] == "INCOMPLETE"
+    assert report["summary"]["mandatory_attachment_readiness_state"] == "REVIEW_REQUIRED"
+    assert report["summary"]["document_inventory_validation_state"] == "INCOMPLETE"
+    assert report["summary"]["document_quality_score"] < 100
     assert report["supplier_verification_checks"]["supplier_quotes_found"] is False
     json.dumps(report, default=str)

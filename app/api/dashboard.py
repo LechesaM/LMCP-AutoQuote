@@ -23,6 +23,7 @@ from app.services.tender_harvester import (
     reset_source_health,
 )
 from app.services.weekly_operations_report_service import build_weekly_operations_report
+from app.dashboard.dashboard_service import build_current_sprint7_dashboard
 from app.pilot import pilot_core
 
 try:
@@ -305,6 +306,12 @@ def dashboard_pilot() -> Dict[str, Any]:
         "timestamp": _utc_now_iso(),
         "controlled_pilot_dashboard": pilot_core.build_controlled_pilot_dashboard(limit=50),
     }
+
+
+@router.get("/sprint7")
+@router.get("/controlled-pilot/current")
+def dashboard_sprint7_current() -> Dict[str, Any]:
+    return build_current_sprint7_dashboard(limit=50)
 
 
 @router.get("/recent-submissions")

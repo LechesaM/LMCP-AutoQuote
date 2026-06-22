@@ -8,6 +8,7 @@ from app.monitoring.metrics_service import get_metrics_snapshot
 from app.monitoring.reporting_service import build_operational_report
 from app.monitoring.workflow_monitor import get_workflow_summary
 from app.persistence.repositories import get_persistence_health
+from app.services.submission_package_service import get_submission_pack_measurement_metrics
 
 
 def _payload(name: str, data: Dict[str, Any], source: str = "runtime") -> Dict[str, Any]:
@@ -34,4 +35,15 @@ def build_qualification_telemetry_response() -> Dict[str, Any]:
 
 
 def build_operational_health_telemetry_response() -> Dict[str, Any]:
-    return _payload("operational", {"status": "healthy", "system_health": get_system_health(), "workflow_summary": get_workflow_summary(), "metrics": get_metrics_snapshot(), "persistence": get_persistence_health()}, "runtime")
+    return _payload(
+        "operational",
+        {
+            "status": "healthy",
+            "system_health": get_system_health(),
+            "workflow_summary": get_workflow_summary(),
+            "metrics": get_metrics_snapshot(),
+            "submission_pack_metrics": get_submission_pack_measurement_metrics(),
+            "persistence": get_persistence_health(),
+        },
+        "runtime",
+    )

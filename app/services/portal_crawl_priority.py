@@ -1,42 +1,23 @@
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
 
-from app.services.procurement_heatmap import get_next_best_portals
-
-
-def get_default_historical_stats() -> Dict[str, Dict[str, Any]]:
-    return {
-        "eTenders": {
-            "success_rate": 0.95,
-            "recent_opportunity_hits": 12,
-            "last_crawled_at": None,
-        },
-        "Tender Bulletin": {
-            "success_rate": 0.92,
-            "recent_opportunity_hits": 9,
-            "last_crawled_at": None,
-        },
-        "SANRAL": {
-            "success_rate": 0.90,
-            "recent_opportunity_hits": 6,
-            "last_crawled_at": None,
-        },
-    }
+import importlib.util
+from pathlib import Path
+from types import ModuleType
 
 
-def get_priority_portal_queue(limit: int = 20) -> List[Dict[str, Any]]:
-    historical_stats = get_default_historical_stats()
-    return get_next_best_portals(limit=limit, historical_stats=historical_stats)
+def _load_impl() -> ModuleType:
+    module_path = Path(__file__).resolve().parents[2] / "lmcp-core" / "services" / "acquisition" / "portal_crawl_priority.py"
+    spec = importlib.util.spec_from_file_location("lmcp_acquisition_portal_crawl_priority", module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load acquisition portal crawl priority from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def choose_portals_for_harvest(limit: int = 20) -> List[Dict[str, Any]]:
-    ranked = get_priority_portal_queue(limit=limit)
+_IMPL = _load_impl()
+get_default_historical_stats = _IMPL.get_default_historical_stats
+get_priority_portal_queue = _IMPL.get_priority_portal_queue
+choose_portals_for_harvest = _IMPL.choose_portals_for_harvest
 
-    chosen: List[Dict[str, Any]] = []
-    for portal in ranked:
-        action = portal.get("recommended_action")
-        category = portal.get("category")
-
-        if action in {"crawl_now", "crawl_soon"} and category in {"healthy", "slow"}:
-            chosen.append(portal)
-
-    return chosen
+__all__ = ["get_default_historical_stats", "get_priority_portal_queue", "choose_portals_for_harvest"]

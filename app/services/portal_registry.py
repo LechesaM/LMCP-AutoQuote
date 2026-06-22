@@ -1,6 +1,81 @@
 from __future__ import annotations
 
+from urllib.parse import urljoin
+
 from typing import Dict, List
+
+
+PROCUREMENT_SOURCE_CHANNELS = [
+    ("main", ""),
+    ("tenders", "tenders"),
+    ("current-tenders", "tenders/current"),
+    ("opportunities", "opportunities"),
+    ("notices", "notices"),
+    ("procurement", "procurement"),
+    ("procurement-tenders", "procurement/tenders"),
+    ("supplier-portal", "supplier-portal"),
+    ("documents", "documents"),
+    ("downloads", "downloads"),
+    ("archive", "archive"),
+    ("bidboard", "bidboard"),
+    ("rfq", "rfq"),
+    ("quote", "quote"),
+    ("contracts", "contracts"),
+    ("awards", "awards"),
+]
+
+
+def _clean(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _normalize_base_url(url: str) -> str:
+    text = _clean(url)
+    if not text:
+        return ""
+    return text.rstrip("/") + "/"
+
+
+def _dedupe_portals_by_url(portals: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    deduped: List[Dict[str, str]] = []
+    seen = set()
+    for portal in portals:
+        url = _normalize_base_url(portal.get("url", ""))
+        if not url:
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        deduped.append(portal)
+    return deduped
+
+
+def _expand_portal_sources(portal: Dict[str, str]) -> List[Dict[str, str]]:
+    base_name = _clean(portal.get("name") or portal.get("source_name"))
+    base_url = _normalize_base_url(portal.get("url") or portal.get("list_url"))
+    if not base_name or not base_url:
+        return []
+
+    variants: List[Dict[str, str]] = []
+    for index, (channel_code, channel_path) in enumerate(PROCUREMENT_SOURCE_CHANNELS):
+        channel_url = urljoin(base_url, channel_path)
+        channel_name = base_name if channel_code == "main" else f"{base_name} - {channel_code.replace('-', ' ').title()}"
+        variants.append(
+            {
+                **portal,
+                "name": channel_name,
+                "source_name": channel_name,
+                "url": channel_url,
+                "list_url": channel_url,
+                "source_channel": channel_code,
+                "source_channel_path": channel_path,
+                "source_family": base_name,
+                "source_variant": channel_code,
+                "variant_index": index,
+                "active": "true",
+            }
+        )
+    return variants
 
 
 def get_procurement_portals() -> List[Dict[str, str]]:
@@ -599,7 +674,14 @@ def get_procurement_portals() -> List[Dict[str, str]]:
 
 
 def get_active_procurement_portals() -> List[Dict[str, str]]:
-    return [portal for portal in get_procurement_portals() if portal.get("active") == "true"]
+    active_portals = [portal for portal in get_procurement_portals() if portal.get("active") == "true"]
+    active_portals = _dedupe_portals_by_url(active_portals)
+
+    expanded: List[Dict[str, str]] = []
+    for portal in active_portals:
+        expanded.extend(_expand_portal_sources(portal))
+
+    return expanded
 
 
 def get_active_supply_delivery_portals() -> List[Dict[str, str]]:

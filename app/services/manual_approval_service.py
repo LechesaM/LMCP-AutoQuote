@@ -116,20 +116,25 @@ def build_manual_approval_record(
     confirm_approval: bool = False,
 ) -> Dict[str, Any]:
     gate = evaluate_manual_approval_gate(result)
+    approved = bool(gate["approved"]) and bool(confirm_approval)
+    approved_at = _now_iso() if approved else ""
     return {
         "tender_id": _clean(tender_id or result.get("tender_id")),
         "tender_root": _clean(tender_root or result.get("tender_root")),
         "pricing_file": _clean(pricing_file),
         "operator_name": _clean(operator_name),
         "confirm_approval": bool(confirm_approval),
-        "manual_approval_recorded": bool(gate["approved"]) and bool(confirm_approval),
-        "approved_by_operator": bool(gate["approved"]) and bool(confirm_approval),
-        "submission_ready": bool(gate["approved"]) and bool(confirm_approval),
+        "manual_approval_recorded": approved,
+        "approved_by_operator": approved,
+        "approved_by": _clean(operator_name) if approved else "",
+        "approved_at": approved_at,
+        "approval_decision": "approved" if approved else ("refused" if bool(confirm_approval) else "pending"),
+        "submission_ready": approved,
         "final_submission_attempted": False,
         "quote_pack_quality_status": _clean(result.get("quote_pack_quality_status")),
         "approval_blocked": bool(result.get("approval_blocked", False)),
         "pricing_items_unmatched": int(result.get("pricing_items_unmatched", 0) or 0),
         "warnings": _safe_list(result.get("warnings")),
         "gate": gate,
-        "status": "recorded" if gate["approved"] and confirm_approval else "refused",
+        "status": "recorded" if approved else "refused",
     }

@@ -8,7 +8,7 @@ from app.tasks import celery
 from app.tasks import run_harvest_only as run_harvest_only_task
 from app.tasks import run_harvest_pipeline as run_harvest_pipeline_task
 from app.tasks import run_scheduled_tender_harvest_task
-from app.services.harvest_source_registry_service import get_curated_live_source_file
+from app.services.local_harvest_service import run_local_sprint7_harvest
 from app.scripts.run_source_by_source_live_smoke import run_source_by_source_live_smoke as run_source_by_source_live_smoke_helper
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
@@ -22,6 +22,45 @@ def trigger_run_harvest_only():
         "status": "queued",
         "task_name": "run_harvest_only",
         "task_id": task.id,
+    }
+
+
+@router.post("/run-harvest-local")
+def run_harvest_local(
+    max_total: int = 20,
+    max_per_source: int = 5,
+    max_sources_per_cycle: int = 10,
+    source_timeout_seconds: int = 8,
+    playwright_timeout_ms: int = 18000,
+    source_file: Optional[str] = None,
+    source_name: str = "NECSA",
+    include_bad_sources: bool = False,
+    headless: bool = True,
+    persist_to_live_store: bool = True,
+    minimum_margin_pct: float = 25.0,
+    minimum_profit: float = 30000.0,
+):
+    result = run_local_sprint7_harvest(
+        max_total=max_total,
+        max_per_source=max_per_source,
+        max_sources_per_cycle=max_sources_per_cycle,
+        source_file=source_file,
+        source_name=source_name,
+        include_bad_sources=include_bad_sources,
+        headless=headless,
+        persist_to_live_store=persist_to_live_store,
+        minimum_margin_pct=minimum_margin_pct,
+        minimum_profit=minimum_profit,
+        source_timeout_seconds=source_timeout_seconds,
+        playwright_timeout_ms=playwright_timeout_ms,
+    )
+    return {
+        "status": "ok" if result.get("status") == "ok" else "failed",
+        "task_name": "run_harvest_local",
+        "result": result,
+        "persist_to_live_store": persist_to_live_store,
+        "source_file": result.get("source_file") or source_file,
+        "source_name": source_name,
     }
 
 

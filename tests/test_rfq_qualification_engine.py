@@ -223,6 +223,179 @@ def test_final_recommendation_rules_are_enforced() -> None:
     assert reject["recommendation"] == "REJECT"
 
 
+def test_supply_delivery_matrix_enforces_goods_only_rule() -> None:
+    cases = [
+        {
+            "title": "Supply and delivery of stationery",
+            "category": "stationery",
+            "extracted_text": "Supply and delivery of stationery by email with pricing schedule.",
+            "expected_is_supply_delivery": True,
+            "expected_qualification_status": "qualified",
+            "expected_recommendation": "GO",
+            "expected_auto_quote_recommended": True,
+            "expected_rejection_codes": [],
+        },
+        {
+            "title": "Supply and delivery of PPE",
+            "category": "ppe",
+            "extracted_text": "Supply and delivery of PPE and safety wear by email.",
+            "expected_is_supply_delivery": True,
+            "expected_qualification_status": "qualified",
+            "expected_recommendation": "GO",
+            "expected_auto_quote_recommended": True,
+            "expected_rejection_codes": [],
+        },
+        {
+            "title": "Supply and delivery of furniture",
+            "category": "furniture",
+            "extracted_text": "Supply and delivery of office furniture by email.",
+            "expected_is_supply_delivery": True,
+            "expected_qualification_status": "qualified",
+            "expected_recommendation": "GO",
+            "expected_auto_quote_recommended": True,
+            "expected_rejection_codes": [],
+        },
+        {
+            "title": "Supply and delivery of building materials",
+            "category": "building materials",
+            "extracted_text": "Supply and delivery of building materials to site by email.",
+            "expected_is_supply_delivery": True,
+            "expected_qualification_status": "review_required",
+            "expected_recommendation": "MANUAL_REVIEW",
+            "expected_auto_quote_recommended": False,
+            "expected_rejection_codes": [],
+        },
+        {
+            "title": "Supply and delivery of cleaning chemicals",
+            "category": "cleaning chemicals",
+            "extracted_text": "Supply and delivery of cleaning chemicals and detergents by email.",
+            "expected_is_supply_delivery": True,
+            "expected_qualification_status": "qualified",
+            "expected_recommendation": "GO",
+            "expected_auto_quote_recommended": True,
+            "expected_rejection_codes": [],
+        },
+        {
+            "title": "Appointment of professional engineering services firm",
+            "category": "professional engineering services",
+            "extracted_text": "Appointment of professional engineering services firm for upgrade works. Submit by email.",
+            "expected_is_supply_delivery": False,
+            "expected_qualification_status": "rejected",
+            "expected_recommendation": "REJECT",
+            "expected_auto_quote_recommended": False,
+            "expected_rejection_codes": ["not_supply_and_delivery", "engineering_services_scope", "professional_services_scope"],
+        },
+        {
+            "title": "Consulting services for strategy support",
+            "category": "consulting services",
+            "extracted_text": "Consulting services for advisory support. Submit by email.",
+            "expected_is_supply_delivery": False,
+            "expected_qualification_status": "rejected",
+            "expected_recommendation": "REJECT",
+            "expected_auto_quote_recommended": False,
+            "expected_rejection_codes": ["not_supply_and_delivery", "consulting_services_scope", "professional_services_scope"],
+        },
+        {
+            "title": "Legal services panel appointment",
+            "category": "legal services",
+            "extracted_text": "Legal services appointment for litigation support. Submit by email.",
+            "expected_is_supply_delivery": False,
+            "expected_qualification_status": "rejected",
+            "expected_recommendation": "REJECT",
+            "expected_auto_quote_recommended": False,
+            "expected_rejection_codes": ["not_supply_and_delivery", "legal_services_scope", "professional_services_scope"],
+        },
+        {
+            "title": "Project management services for capital programme",
+            "category": "project management services",
+            "extracted_text": "Project management services for delivery oversight. Submit by email.",
+            "expected_is_supply_delivery": False,
+            "expected_qualification_status": "rejected",
+            "expected_recommendation": "REJECT",
+            "expected_auto_quote_recommended": False,
+            "expected_rejection_codes": ["not_supply_and_delivery", "project_management_services_scope", "professional_services_scope"],
+        },
+        {
+            "title": "Architectural services for office redesign",
+            "category": "architectural services",
+            "extracted_text": "Architectural services for concept design and drawings. Submit by email.",
+            "expected_is_supply_delivery": False,
+            "expected_qualification_status": "rejected",
+            "expected_recommendation": "REJECT",
+            "expected_auto_quote_recommended": False,
+            "expected_rejection_codes": ["not_supply_and_delivery", "architectural_services_scope", "professional_services_scope"],
+        },
+    ]
+
+    for index, case in enumerate(cases, start=1):
+        result = qualify_rfq(
+            {
+                "tender_id": f"R-MATRIX-{index}",
+                "title": case["title"],
+                "category": case["category"],
+                "extracted_text": case["extracted_text"],
+                "submission_method": "email",
+                "estimated_profit": 60000.0,
+                "gross_margin_ratio": 0.3,
+            }
+        )
+
+        assert result["is_supply_delivery"] is case["expected_is_supply_delivery"]
+        assert result["qualification_status"] == case["expected_qualification_status"]
+        assert result["recommendation"] == case["expected_recommendation"]
+        assert result["auto_quote_recommended"] is case["expected_auto_quote_recommended"]
+        assert result["rejection_codes"] == case["expected_rejection_codes"]
+
+
+def test_validation_readiness_reports_ready_for_complete_supply_delivery() -> None:
+    result = qualify_rfq(
+        {
+            "tender_id": "R-VALIDATION-READY",
+            "title": "Supply and delivery of office consumables",
+            "buyer_name": "Metro Procurement Unit",
+            "category": "office supplies",
+            "submission_method": "email",
+            "source_url": "https://example.org/tenders/R-VALIDATION-READY",
+            "detail_url": "https://example.org/tenders/R-VALIDATION-READY/detail",
+            "closing_date": "2030-01-01T12:00:00Z",
+            "estimated_profit": 50000.0,
+            "gross_margin_ratio": 0.3,
+            "document_confidence_score": 0.92,
+        }
+    )
+
+    validation = result["validation_readiness"]
+    assert validation["readiness_state"] == "READY"
+    assert validation["reason_codes"] == []
+    assert validation["compliance_readiness_score"] == 100
+    assert result["validation_readiness_state"] == "READY"
+    assert result["validation_subtype"] == "NONE"
+    assert result["metadata_completeness_state"] == "COMPLETE"
+
+
+def test_validation_readiness_flags_blockers_and_review_codes() -> None:
+    result = qualify_rfq(
+        {
+            "tender_id": "R-VALIDATION-BLOCKED",
+            "title": "Catering services for event",
+            "buyer_name": "City of Example",
+            "category": "catering",
+            "submission_method": "email",
+            "estimated_profit": 50000.0,
+            "gross_margin_ratio": 0.3,
+            "document_confidence_score": 0.62,
+        }
+    )
+
+    validation = result["validation_readiness"]
+    assert validation["readiness_state"] == "NOT_READY"
+    assert "missing_closing_date" in validation["blocking_reason_codes"]
+    assert "excluded_category" in validation["blocking_reason_codes"]
+    assert "missing_source_or_detail_url" in validation["review_reason_codes"]
+    assert validation["document_confidence_score"] >= 0.55
+    assert result["validation_subtype"] == "METADATA_COMPLETENESS"
+
+
 def test_no_autonomous_submission_action_appears() -> None:
     result = qualify_rfq(
         {

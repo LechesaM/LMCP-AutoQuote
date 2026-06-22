@@ -79,6 +79,10 @@ RETURNABLE_TERMS = [
     "returnable schedules",
     "mandatory returnables",
     "compulsory returnables",
+    "annexure",
+    "annexures",
+    "appendix",
+    "appendices",
     "sbd",
     "tax compliance",
     "central supplier database",
@@ -343,6 +347,7 @@ def _detect_document_roles(text: str, tables: List[List[List[str]]], filename: s
     pricing_terms = any(term in blob for term in PRICING_TERMS)
     boq_terms = any(term in blob for term in BOQ_TERMS)
     returnable_terms = any(term in blob for term in RETURNABLE_TERMS)
+    annexure_terms = any(term in blob for term in ("annexure", "annexures", "appendix", "appendices"))
     technical_terms = any(term in blob for term in TECHNICAL_TERMS)
     sbd_terms = "sbd" in blob or "standard bidding document" in blob or "declaration of interest" in blob
     pricing_columns = _table_has_pricing_headers(tables) or (
@@ -408,6 +413,9 @@ def _detect_document_roles(text: str, tables: List[List[List[str]]], filename: s
     if returnable_terms:
         returnable_confidence += 0.35
         returnable_reasons.append("returnable_terms")
+    if annexure_terms:
+        returnable_confidence += 0.20
+        returnable_reasons.append("annexure_terms")
     if "sbd 3.1" in blob or "sbd 3.2" in blob:
         pricing_schedule_confidence += 0.30
         returnable_confidence += 0.15
@@ -447,13 +455,16 @@ def _detect_document_roles(text: str, tables: List[List[List[str]]], filename: s
         "pricing_schedule_detected": pricing_schedule_confidence >= 0.55,
         "boq_detected": boq_confidence >= 0.55,
         "returnables_detected": returnable_confidence >= 0.45,
+        "annexure_detected": annexure_terms,
         "pricing_schedule_reason": ";".join(dict.fromkeys(pricing_reasons)) or ("pricing_terms" if pricing_terms else ""),
         "boq_reason": ";".join(dict.fromkeys(boq_reasons)) or ("boq_terms" if boq_terms else ""),
         "returnables_reason": ";".join(dict.fromkeys(returnable_reasons)) or ("returnable_terms" if returnable_terms else ""),
+        "annexure_reason": "annexure_terms" if annexure_terms else "",
         "signals": {
             "pricing_terms": pricing_terms,
             "boq_terms": boq_terms,
             "returnable_terms": returnable_terms,
+            "annexure_terms": annexure_terms,
             "technical_terms": technical_terms,
             "sbd_terms": sbd_terms,
             "pricing_columns": pricing_columns,
@@ -1123,6 +1134,12 @@ def analyse_rfq_documents(item: Dict[str, Any], timeout_seconds: int = DEFAULT_T
     pricing_schedule_files = [row for row in document_classifications if row.get("document_role") in {"pricing_schedule", "pricing_schedule_shell"}]
     boq_files = [row for row in document_classifications if row.get("document_role") in {"boq", "boq_shell"}]
     commercial_returnable_files = [row for row in document_classifications if row.get("document_role") in {"commercial_returnable", "sbd_form"}]
+    annexure_files = [
+        row
+        for row in document_classifications
+        if "annexure_files" in (row.get("categories") if isinstance(row.get("categories"), list) else [])
+        or "annexure" in _safe_str(row.get("annexure_reason")).lower()
+    ]
     technical_files = [row for row in document_classifications if row.get("document_role") == "technical_document"]
 
     intelligence["pricing_schedule_confidence"] = max(float(intelligence.get("pricing_schedule_confidence") or 0.0), pricing_schedule_confidence)
@@ -1132,11 +1149,15 @@ def analyse_rfq_documents(item: Dict[str, Any], timeout_seconds: int = DEFAULT_T
     intelligence["pricing_schedule_detected"] = bool(intelligence.get("pricing_schedule_detected") or intelligence["pricing_schedule_confidence"] >= 0.55 or pricing_schedule_files)
     intelligence["boq_detected"] = bool(intelligence.get("boq_detected") or intelligence["boq_confidence"] >= 0.55 or boq_files)
     intelligence["returnables_detected"] = bool(
-        intelligence.get("returnables_detected") or intelligence["commercial_returnables_confidence"] >= 0.45 or commercial_returnable_files
+        intelligence.get("returnables_detected") or intelligence["commercial_returnables_confidence"] >= 0.45 or commercial_returnable_files or annexure_files
     )
     intelligence["pricing_schedule_detection_confidence"] = intelligence["pricing_schedule_confidence"]
     intelligence["boq_detection_confidence"] = intelligence["boq_confidence"]
     intelligence["returnables_detection_confidence"] = intelligence["commercial_returnables_confidence"]
+    intelligence["annexure_detection_confidence"] = round(
+        max([float(row.get("commercial_returnable_confidence") or row.get("score") or 0.0) for row in annexure_files] or [0.0]),
+        4,
+    )
     intelligence["pricing_schedule_detection_reason"] = next(
         (_safe_str(row.get("pricing_schedule_reason")) for row in pricing_schedule_files if _safe_str(row.get("pricing_schedule_reason"))),
         _safe_str(intelligence.get("pricing_schedule_detection_reason")),
@@ -1149,10 +1170,15 @@ def analyse_rfq_documents(item: Dict[str, Any], timeout_seconds: int = DEFAULT_T
         (_safe_str(row.get("returnables_reason")) for row in commercial_returnable_files if _safe_str(row.get("returnables_reason"))),
         _safe_str(intelligence.get("returnables_detection_reason")),
     )
+    intelligence["annexure_detection_reason"] = next(
+        (_safe_str(row.get("annexure_reason")) for row in annexure_files if _safe_str(row.get("annexure_reason"))),
+        _safe_str(intelligence.get("annexure_detection_reason")),
+    )
     intelligence["document_classifications"] = document_classifications
     intelligence["pricing_schedule_files"] = pricing_schedule_files
     intelligence["boq_files"] = boq_files
     intelligence["commercial_returnable_files"] = commercial_returnable_files
+    intelligence["annexure_files"] = annexure_files
     intelligence["technical_files"] = technical_files
     inventory_paths = [_safe_str(row.get("path")) for row in document_classifications if _safe_str(row.get("path"))]
     intelligence["artifact_count"] = len(inventory_paths)
@@ -1178,6 +1204,10 @@ def analyse_rfq_documents(item: Dict[str, Any], timeout_seconds: int = DEFAULT_T
             if _safe_str(row.get("extension"))
         )
     )
+    if annexure_files:
+        intelligence["detected_document_types"] = sorted(
+            dict.fromkeys(list(intelligence["detected_document_types"]) + ["annexure"])
+        )
     intelligence["document_inventory_paths_limited"] = inventory_paths[:25]
     intelligence["scanned_pdf_likely"] = bool(downloads) and not bool(analysis_text.strip())
     intelligence["extraction_confidence"] = round(

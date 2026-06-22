@@ -74,15 +74,15 @@ def test_google_search_source_is_not_selected_for_cycle(tmp_path: Path) -> None:
     assert [row["name"] for row in selected] == ["Direct Portal"]
 
 
-def test_curated_live_source_marker_resolves_to_66_sources() -> None:
+def test_curated_live_source_marker_resolves_to_1040_sources() -> None:
     curated_marker = harvest_source_registry_service.get_curated_live_source_file()
 
     registry_loaded = harvest_source_registry_service.load_harvest_sources(curated_marker)
     tender_loaded = tender_harvester.load_harvest_sources(curated_marker)
 
     assert curated_marker == "curated/live/default"
-    assert len(registry_loaded) == 66
-    assert len(tender_loaded) == 66
+    assert len(registry_loaded) == 1040
+    assert len(tender_loaded) == 1040
 
 
 def test_sync_default_registry_file_writes_curated_source_payload(tmp_path: Path) -> None:
@@ -91,7 +91,7 @@ def test_sync_default_registry_file_writes_curated_source_payload(tmp_path: Path
     payload = harvest_source_registry_service.sync_default_registry_file(registry_path)
     written = json.loads(registry_path.read_text(encoding="utf-8"))
 
-    assert payload["source_count"] == 66
-    assert written["source_count"] == 66
-    assert len(written["sources"]) == 66
+    assert payload["source_count"] == 1040
+    assert written["source_count"] == 1040
+    assert len(written["sources"]) == 1040
     assert all("google.com/search" not in row["url"] for row in written["sources"])

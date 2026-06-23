@@ -88,6 +88,8 @@ type VisibilitySnapshot = {
   declarationHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
+  intakeLatest: Record<string, any> | null;
+  intakeHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -177,6 +179,8 @@ export default function Home() {
     declarationHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
+    intakeLatest: null,
+    intakeHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -234,6 +238,8 @@ export default function Home() {
       { key: "declarationHistory", path: "/rfq-lifecycle/declaration/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
+      { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
+      { key: "intakeHistory", path: "/rfq-lifecycle/intake/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -275,6 +281,8 @@ export default function Home() {
       declarationHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
+      intakeLatest: null,
+      intakeHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -364,6 +372,11 @@ export default function Home() {
       } else if (key === "operatorSessionsHistory") {
         const items = data.operator_session_history;
         next.operatorSessionsHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "intakeLatest") {
+        next.intakeLatest = data;
+      } else if (key === "intakeHistory") {
+        const items = data.intake_decision_history;
+        next.intakeHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -436,6 +449,9 @@ export default function Home() {
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
+  const intakeLatest = visibility.intakeLatest || {};
+  const intakeHistory = Array.isArray(visibility.intakeHistory) ? visibility.intakeHistory : [];
+  const intakeWarnings = Array.isArray(intakeLatest.warnings) ? intakeLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -447,6 +463,7 @@ export default function Home() {
     ...operationsSummaryWarnings,
     ...declarationWarnings,
     ...operatorSessionWarnings,
+    ...intakeWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -773,6 +790,167 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Supervised RFQ Intake Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only intake classification, pilot-scope enforcement, and operator assignment readiness for controlled pilot RFQs.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only intake" : "Read-only intake"}
+              tone="neutral"
+            />
+          </div>
+
+          {intakeWarnings.length ? (
+            <div className="space-y-3">
+              {intakeWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Supervised RFQ intake governance is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Intake Summary"
+              tone={getString(intakeLatest.intake_status, "watch") === "ok" ? "ok" : getString(intakeLatest.intake_status, "watch") === "watch" ? "neutral" : "error"}
+              summary={`${getNumber(intakeLatest.intake_eligibility_score, 0).toFixed(2)} intake score`}
+              items={[
+                ["Status", getString(intakeLatest.intake_status, "watch")],
+                ["Eligibility grade", getString(intakeLatest.intake_eligibility_grade, "watch")],
+                ["Governance decisions", String(Array.isArray(intakeLatest.governance_intake_decisions) ? intakeLatest.governance_intake_decisions.length : 0)],
+                ["Restricted warnings", String(Array.isArray(intakeLatest.restricted_category_warnings) ? intakeLatest.restricted_category_warnings.length : 0)],
+                ["Scope valid count", String(getNumber(intakeLatest.pilot_scope_enforcement?.pilot_scope_valid_count, 0))],
+                ["Scope invalid count", String(getNumber(intakeLatest.pilot_scope_enforcement?.pilot_scope_invalid_count, 0))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Supervision Capacity"
+              tone={getBooleanBadge(intakeLatest.supervision_capacity_indicators?.coverage_ok).tone}
+              summary={getBooleanBadge(intakeLatest.supervision_capacity_indicators?.coverage_ok).label}
+              items={[
+                ["Coverage OK", getBooleanBadge(intakeLatest.supervision_capacity_indicators?.coverage_ok).label],
+                ["Capacity warnings", String(getNumber(intakeLatest.supervision_capacity_indicators?.capacity_warning_count, 0))],
+                ["Operator ready", String(getNumber(intakeLatest.operator_assignment_readiness_summary?.ready_count, 0))],
+                ["Not ready", String(getNumber(intakeLatest.operator_assignment_readiness_summary?.not_ready_count, 0))],
+                ["Approval gate", String(getNumber(intakeLatest.operator_assignment_readiness_summary?.governance_approval_gate_count, 0))],
+                ["Approval block", String(getNumber(intakeLatest.operator_assignment_readiness_summary?.governance_approval_block_count, 0))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Gates"
+              tone={getString(intakeLatest.latest_intake?.intake_decision, "watch_intake") === "approve_intake" ? "ok" : getString(intakeLatest.latest_intake?.intake_decision, "watch_intake") === "watch_intake" ? "neutral" : "error"}
+              summary={getString(intakeLatest.latest_intake?.intake_decision, "watch_intake")}
+              items={[
+                ["Latest RFQ", getString(intakeLatest.latest_intake?.rfq_id, "n/a")],
+                ["Category", getString(intakeLatest.latest_intake?.rfq_category, "unknown")],
+                ["Pilot scope", getBooleanBadge(intakeLatest.latest_intake?.pilot_scope_enforced).label],
+                ["Restricted", getBooleanBadge(intakeLatest.latest_intake?.restricted_category).label],
+                ["Gating", getBooleanBadge(intakeLatest.latest_intake?.governance_approval_gating).label],
+                ["Assignment", getBooleanBadge(intakeLatest.latest_intake?.operator_assignment_readiness).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Restricted Category Warnings</h3>
+                <StatusBadge label={`${Array.isArray(intakeLatest.restricted_category_warnings) ? intakeLatest.restricted_category_warnings.length : 0} warning(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">Category</th>
+                      <th className="p-3 text-left">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(intakeLatest.governance_intake_decisions) && intakeLatest.governance_intake_decisions.length ? (
+                      intakeLatest.governance_intake_decisions.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.intake_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.intake_decision, "watch_intake")}
+                              tone={item.intake_decision === "approve_intake" ? "ok" : item.intake_decision === "watch_intake" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getString(item.rfq_category, "unknown")}</td>
+                          <td className="p-3 text-slate-400">{Array.isArray(item.intake_decision_reason) ? item.intake_decision_reason.join("; ") : "n/a"}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No supervised intake decisions are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Intake Decision History</h3>
+                <StatusBadge label={`${Array.isArray(intakeHistory) ? intakeHistory.length : 0} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {intakeHistory.length ? (
+                      intakeHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.intake_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.intake_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.intake_status, "watch")}
+                              tone={item.intake_status === "ok" ? "ok" : item.intake_status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3 text-right">{getNumber(item.intake_eligibility_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No intake decision history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 

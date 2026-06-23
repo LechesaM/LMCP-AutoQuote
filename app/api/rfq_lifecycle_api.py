@@ -17,6 +17,7 @@ from app.services.pilot_review_board_service import PilotReviewBoardService
 from app.services.pilot_evidence_pack_service import PilotEvidencePackService
 from app.services.pilot_operations_summary_service import PilotOperationsSummaryService
 from app.services.operational_stability_service import OperationalStabilityService
+from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -60,6 +61,10 @@ def declaration_service() -> PilotReadinessDeclarationService:
 
 def operator_session_service() -> PilotOperatorSessionService:
     return PilotOperatorSessionService()
+
+
+def intake_service() -> SupervisedRfqIntakeService:
+    return SupervisedRfqIntakeService()
 
 
 def review_board_service() -> PilotReviewBoardService:
@@ -510,3 +515,18 @@ def operator_sessions_latest() -> Dict[str, Any]:
 @router.get("/operator-sessions/history")
 def operator_sessions_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return operator_session_service().operator_session_history(limit=limit)
+
+
+@router.get("/intake")
+def intake(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return intake_service().list_intake(limit=limit)
+
+
+@router.get("/intake/latest")
+def intake_latest() -> Dict[str, Any]:
+    return intake_service().latest_intake()
+
+
+@router.get("/intake/history")
+def intake_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return intake_service().intake_history(limit=limit)

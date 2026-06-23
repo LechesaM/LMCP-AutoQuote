@@ -86,6 +86,16 @@ type VisibilitySnapshot = {
   operationsSummaryHistory: Array<Record<string, any>>;
   declarationLatest: Record<string, any> | null;
   declarationHistory: Array<Record<string, any>>;
+  finalLatest: Record<string, any> | null;
+  finalHistory: Array<Record<string, any>>;
+  operationalPilotLatest: Record<string, any> | null;
+  operationalPilotHistory: Array<Record<string, any>>;
+  operationalIntelligenceLatest: Record<string, any> | null;
+  operationalIntelligenceHistory: Array<Record<string, any>>;
+  executiveCommandLatest: Record<string, any> | null;
+  executiveCommandHistory: Array<Record<string, any>>;
+  productionOperationalizationLatest: Record<string, any> | null;
+  productionOperationalizationHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -98,6 +108,12 @@ type VisibilitySnapshot = {
   signatureHistory: Array<Record<string, any>>;
   complianceLatest: Record<string, any> | null;
   complianceHistory: Array<Record<string, any>>;
+  returnableLatest: Record<string, any> | null;
+  returnableHistory: Array<Record<string, any>>;
+  packagingLatest: Record<string, any> | null;
+  packagingHistory: Array<Record<string, any>>;
+  deadlineLatest: Record<string, any> | null;
+  deadlineHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -185,6 +201,16 @@ export default function Home() {
     operationsSummaryHistory: [],
     declarationLatest: null,
     declarationHistory: [],
+    finalLatest: null,
+    finalHistory: [],
+    operationalPilotLatest: null,
+    operationalPilotHistory: [],
+    operationalIntelligenceLatest: null,
+    operationalIntelligenceHistory: [],
+    executiveCommandLatest: null,
+    executiveCommandHistory: [],
+    productionOperationalizationLatest: null,
+    productionOperationalizationHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -197,6 +223,12 @@ export default function Home() {
     signatureHistory: [],
     complianceLatest: null,
     complianceHistory: [],
+    returnableLatest: null,
+    returnableHistory: [],
+    packagingLatest: null,
+    packagingHistory: [],
+    deadlineLatest: null,
+    deadlineHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -252,6 +284,16 @@ export default function Home() {
       { key: "operationsSummaryHistory", path: "/rfq-lifecycle/operations-summary/history?limit=8" },
       { key: "declarationLatest", path: "/rfq-lifecycle/declaration/latest" },
       { key: "declarationHistory", path: "/rfq-lifecycle/declaration/history?limit=8" },
+      { key: "finalLatest", path: "/rfq-lifecycle/final-readiness/latest" },
+      { key: "finalHistory", path: "/rfq-lifecycle/final-readiness/history?limit=8" },
+      { key: "operationalPilotLatest", path: "/rfq-lifecycle/operational-pilot/latest" },
+      { key: "operationalPilotHistory", path: "/rfq-lifecycle/operational-pilot/history?limit=8" },
+      { key: "operationalIntelligenceLatest", path: "/rfq-lifecycle/operational-intelligence/latest" },
+      { key: "operationalIntelligenceHistory", path: "/rfq-lifecycle/operational-intelligence/history?limit=8" },
+      { key: "executiveCommandLatest", path: "/rfq-lifecycle/executive-command/latest" },
+      { key: "executiveCommandHistory", path: "/rfq-lifecycle/executive-command/history?limit=8" },
+      { key: "productionOperationalizationLatest", path: "/rfq-lifecycle/production-governance/latest" },
+      { key: "productionOperationalizationHistory", path: "/rfq-lifecycle/production-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -264,6 +306,12 @@ export default function Home() {
       { key: "signatureHistory", path: "/rfq-lifecycle/signature-governance/history?limit=8" },
       { key: "complianceLatest", path: "/rfq-lifecycle/compliance-governance/latest" },
       { key: "complianceHistory", path: "/rfq-lifecycle/compliance-governance/history?limit=8" },
+      { key: "returnableLatest", path: "/rfq-lifecycle/returnable-governance/latest" },
+      { key: "returnableHistory", path: "/rfq-lifecycle/returnable-governance/history?limit=8" },
+      { key: "packagingLatest", path: "/rfq-lifecycle/packaging-governance/latest" },
+      { key: "packagingHistory", path: "/rfq-lifecycle/packaging-governance/history?limit=8" },
+      { key: "deadlineLatest", path: "/rfq-lifecycle/deadline-governance/latest" },
+      { key: "deadlineHistory", path: "/rfq-lifecycle/deadline-governance/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -303,6 +351,16 @@ export default function Home() {
       operationsSummaryHistory: [],
       declarationLatest: null,
       declarationHistory: [],
+      finalLatest: null,
+      finalHistory: [],
+      operationalPilotLatest: null,
+      operationalPilotHistory: [],
+      operationalIntelligenceLatest: null,
+      operationalIntelligenceHistory: [],
+      executiveCommandLatest: null,
+      executiveCommandHistory: [],
+      productionOperationalizationLatest: null,
+      productionOperationalizationHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -315,6 +373,12 @@ export default function Home() {
       signatureHistory: [],
       complianceLatest: null,
       complianceHistory: [],
+      returnableLatest: null,
+      returnableHistory: [],
+      packagingLatest: null,
+      packagingHistory: [],
+      deadlineLatest: null,
+      deadlineHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -399,6 +463,31 @@ export default function Home() {
       } else if (key === "declarationHistory") {
         const items = data.declaration_history;
         next.declarationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "finalLatest") {
+        next.finalLatest = data;
+      } else if (key === "finalHistory") {
+        const items = data.final_readiness_history;
+        next.finalHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "operationalPilotLatest") {
+        next.operationalPilotLatest = data;
+      } else if (key === "operationalPilotHistory") {
+        const items = data.execution_governance_history;
+        next.operationalPilotHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "operationalIntelligenceLatest") {
+        next.operationalIntelligenceLatest = data;
+      } else if (key === "operationalIntelligenceHistory") {
+        const items = data.operational_intelligence_history;
+        next.operationalIntelligenceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "executiveCommandLatest") {
+        next.executiveCommandLatest = data;
+      } else if (key === "executiveCommandHistory") {
+        const items = data.executive_intelligence_history;
+        next.executiveCommandHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "productionOperationalizationLatest") {
+        next.productionOperationalizationLatest = data;
+      } else if (key === "productionOperationalizationHistory") {
+        const items = data.production_governance_history;
+        next.productionOperationalizationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -429,6 +518,21 @@ export default function Home() {
       } else if (key === "complianceHistory") {
         const items = data.compliance_governance_decision_history;
         next.complianceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "returnableLatest") {
+        next.returnableLatest = data;
+      } else if (key === "returnableHistory") {
+        const items = data.returnable_governance_history;
+        next.returnableHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "packagingLatest") {
+        next.packagingLatest = data;
+      } else if (key === "packagingHistory") {
+        const items = data.packaging_governance_history;
+        next.packagingHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "deadlineLatest") {
+        next.deadlineLatest = data;
+      } else if (key === "deadlineHistory") {
+        const items = data.deadline_governance_history;
+        next.deadlineHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -498,6 +602,45 @@ export default function Home() {
   const declarationLatest = visibility.declarationLatest || {};
   const declarationHistory = Array.isArray(visibility.declarationHistory) ? visibility.declarationHistory : [];
   const declarationWarnings = Array.isArray(declarationLatest.warnings) ? declarationLatest.warnings : [];
+  const finalLatest = visibility.finalLatest || {};
+  const finalHistory = Array.isArray(visibility.finalHistory) ? visibility.finalHistory : [];
+  const finalWarnings = Array.isArray(finalLatest.warnings) ? finalLatest.warnings : [];
+  const operationalPilotLatest = visibility.operationalPilotLatest || {};
+  const operationalPilotHistory = Array.isArray(visibility.operationalPilotHistory) ? visibility.operationalPilotHistory : [];
+  const operationalPilotWarnings = Array.isArray(operationalPilotLatest.warnings) ? operationalPilotLatest.warnings : [];
+  const operationalIntelligenceLatest = visibility.operationalIntelligenceLatest || {};
+  const operationalIntelligenceHistory = Array.isArray(visibility.operationalIntelligenceHistory) ? visibility.operationalIntelligenceHistory : [];
+  const operationalIntelligenceWarnings = Array.isArray(operationalIntelligenceLatest.warnings) ? operationalIntelligenceLatest.warnings : [];
+  const executiveCommandLatest = visibility.executiveCommandLatest || {};
+  const executiveCommandHistory = Array.isArray(visibility.executiveCommandHistory) ? visibility.executiveCommandHistory : [];
+  const executiveCommandWarnings = Array.isArray(executiveCommandLatest.warnings) ? executiveCommandLatest.warnings : [];
+  const executiveCommandScore = getNumber(executiveCommandLatest.executive_governance_score, 0);
+  const executiveCommandStatus = getString(executiveCommandLatest.executive_governance_status, "watch");
+  const executiveCommandGrade = getString(executiveCommandLatest.executive_governance_grade, "blocked");
+  const executiveCommandForecast = executiveCommandLatest.latest_executive_intelligence || {};
+  const executiveCommandHistorySummary = executiveCommandLatest.executive_intelligence_history_summary || {};
+  const executiveRiskIndicators = executiveCommandLatest.institutional_risk_indicators || {};
+  const executiveSaturationIndicators = executiveCommandLatest.procurement_saturation_indicators || {};
+  const executiveReadinessIndicators = executiveCommandLatest.strategic_readiness_indicators || {};
+  const executiveForecastingIndicators = executiveCommandLatest.operational_forecasting_indicators || {};
+  const productionOperationalizationLatest = visibility.productionOperationalizationLatest || {};
+  const productionOperationalizationHistory = Array.isArray(visibility.productionOperationalizationHistory) ? visibility.productionOperationalizationHistory : [];
+  const productionOperationalizationWarnings = Array.isArray(productionOperationalizationLatest.warnings) ? productionOperationalizationLatest.warnings : [];
+  const productionReadinessScore = getNumber(productionOperationalizationLatest.production_readiness_score, 0);
+  const productionReadinessStatus = getString(productionOperationalizationLatest.production_readiness_status, "watch");
+  const productionReadinessGrade = getString(productionOperationalizationLatest.production_readiness_grade, "blocked");
+  const productionSegmentation = productionOperationalizationLatest.production_runtime_segmentation || {};
+  const productionAccess = productionOperationalizationLatest.operator_access_governance || {};
+  const productionObservability = productionOperationalizationLatest.production_observability_governance || {};
+  const productionBackup = productionOperationalizationLatest.backup_restore_governance || {};
+  const productionDisasterRecovery = productionOperationalizationLatest.disaster_recovery_governance || {};
+  const productionHighAvailability = productionOperationalizationLatest.high_availability_governance || {};
+  const productionAuditRetention = productionOperationalizationLatest.audit_retention_governance || {};
+  const productionDeployment = productionOperationalizationLatest.deployment_readiness_governance || {};
+  const productionRiskIndicators = productionOperationalizationLatest.deployment_risk_indicators || {};
+  const productionAccessRiskIndicators = productionOperationalizationLatest.operator_access_risk_indicators || {};
+  const productionHAIndicators = productionOperationalizationLatest.ha_readiness_indicators || {};
+  const productionRecoveryIndicators = productionOperationalizationLatest.recovery_readiness_indicators || {};
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
@@ -516,6 +659,16 @@ export default function Home() {
   const complianceLatest = visibility.complianceLatest || {};
   const complianceHistory = Array.isArray(visibility.complianceHistory) ? visibility.complianceHistory : [];
   const complianceWarnings = Array.isArray(complianceLatest.warnings) ? complianceLatest.warnings : [];
+  const returnableLatest = visibility.returnableLatest || {};
+  const returnableHistory = Array.isArray(visibility.returnableHistory) ? visibility.returnableHistory : [];
+  const returnableWarnings = Array.isArray(returnableLatest.warnings) ? returnableLatest.warnings : [];
+  const returnableMissingCount = Object.values(returnableLatest.latest_returnable_governance?.missing_annexure_indicators || {}).filter(Boolean).length;
+  const packagingLatest = visibility.packagingLatest || {};
+  const packagingHistory = Array.isArray(visibility.packagingHistory) ? visibility.packagingHistory : [];
+  const packagingWarnings = Array.isArray(packagingLatest.warnings) ? packagingLatest.warnings : [];
+  const deadlineLatest = visibility.deadlineLatest || {};
+  const deadlineHistory = Array.isArray(visibility.deadlineHistory) ? visibility.deadlineHistory : [];
+  const deadlineWarnings = Array.isArray(deadlineLatest.warnings) ? deadlineLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -526,12 +679,20 @@ export default function Home() {
     ...progressionWarnings,
     ...operationsSummaryWarnings,
     ...declarationWarnings,
+    ...finalWarnings,
+    ...operationalPilotWarnings,
+    ...operationalIntelligenceWarnings,
+    ...executiveCommandWarnings,
+    ...productionOperationalizationWarnings,
     ...operatorSessionWarnings,
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
     ...modalityWarnings,
     ...signatureWarnings,
     ...complianceWarnings,
+    ...returnableWarnings,
+    ...packagingWarnings,
+    ...deadlineWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -858,6 +1019,488 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Submission Deadline Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only oversight for cutoff tracking, upload windows, courier timing, portal timeout, escalation timing, and late-submission prevention.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only deadline governance" : "Read-only deadline governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {deadlineWarnings.length ? (
+            <div className="space-y-3">
+              {deadlineWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Submission deadlines are within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Deadline Governance"
+              tone={getString(deadlineLatest.deadline_governance_status, "watch") === "ok" ? "ok" : getString(deadlineLatest.deadline_governance_status, "watch") === "watch" ? "neutral" : "error"}
+              summary={`${getNumber(deadlineLatest.timing_readiness_score, 0).toFixed(2)} timing readiness`}
+              items={[
+                ["Status", getString(deadlineLatest.deadline_governance_status, "watch")],
+                ["Cutoff", getString(deadlineLatest.latest_deadline_governance?.submission_cutoff_tracking?.deadline, "n/a")],
+                ["Upload window", getBooleanBadge(deadlineLatest.latest_deadline_governance?.upload_window_governance?.upload_window_open).label],
+                ["Courier timing", getBooleanBadge(deadlineLatest.latest_deadline_governance?.courier_timing_governance?.courier_timing_warning ? false : true).label],
+                ["Portal timeout", getBooleanBadge(deadlineLatest.latest_deadline_governance?.portal_timeout_governance?.portal_timeout_warning ? false : true).label],
+                ["Escalation timing", getBooleanBadge(deadlineLatest.latest_deadline_governance?.escalation_timing_governance?.escalation_timing_warning ? false : true).label],
+                ["Late prevention", getBooleanBadge(deadlineLatest.latest_deadline_governance?.late_submission_prevention ? false : true).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Deadline Warnings"
+              tone={(deadlineLatest.latest_deadline_governance?.deadline_risk_warnings || []).length || Object.values(deadlineLatest.latest_deadline_governance?.overdue_submission_indicators || {}).some(Boolean) ? "error" : "ok"}
+              summary={`${(deadlineLatest.latest_deadline_governance?.deadline_risk_warnings || []).length} risk / ${Object.values(deadlineLatest.latest_deadline_governance?.overdue_submission_indicators || {}).filter(Boolean).length} overdue`}
+              items={[
+                ["Risk warnings", String((deadlineLatest.latest_deadline_governance?.deadline_risk_warnings || []).length)],
+                ["Overdue", String(Object.values(deadlineLatest.latest_deadline_governance?.overdue_submission_indicators || {}).filter(Boolean).length)],
+                ["Congestion", String(Object.values(deadlineLatest.latest_deadline_governance?.congestion_window_indicators || {}).filter(Boolean).length)],
+                ["Bundle ready", getBooleanBadge(deadlineLatest.latest_deadline_governance?.congestion_window_indicators?.submission_bundle_ready).label],
+                ["Upload ready", getBooleanBadge(deadlineLatest.latest_deadline_governance?.congestion_window_indicators?.upload_package_ready).label],
+                ["Physical ready", getBooleanBadge(deadlineLatest.latest_deadline_governance?.congestion_window_indicators?.physical_submission_ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Deadline Supervision"
+              tone={getBooleanBadge(deadlineLatest.latest_deadline_governance?.governance_approval_gating).tone}
+              summary={getBooleanBadge(deadlineLatest.latest_deadline_governance?.governance_approval_gating).label}
+              items={[
+                ["Supervision OK", getBooleanBadge(deadlineLatest.latest_deadline_governance?.governance_approval_gating).label],
+                ["Readiness status", getString(deadlineLatest.latest_deadline_governance?.readiness_declaration_status, "WATCH")],
+                ["Operator ready", String(getNumber(deadlineLatest.operator_assignment_readiness_summary?.ready_count, 0))],
+                ["Not ready", String(getNumber(deadlineLatest.operator_assignment_readiness_summary?.not_ready_count, 0))],
+                ["Approval gate", String(getNumber(deadlineLatest.operator_assignment_readiness_summary?.governance_approval_gate_count, 0))],
+                ["Decision", getString(deadlineLatest.latest_deadline_governance?.deadline_governance_decision, "watch_deadline_governance")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Deadline Decisions</h3>
+                <StatusBadge label={`${Array.isArray(deadlineLatest.deadline_governance_history) ? deadlineLatest.deadline_governance_history.length : 0} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">Cutoff</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(deadlineLatest.deadline_governance_history) && deadlineLatest.deadline_governance_history.length ? (
+                      deadlineLatest.deadline_governance_history.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.deadline_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.deadline_governance_decision, "watch_deadline_governance")}
+                              tone={item.deadline_governance_decision === "approve_deadline_governance" ? "ok" : item.deadline_governance_decision === "watch_deadline_governance" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getString(item.submission_cutoff_tracking?.deadline, "n/a")}</td>
+                          <td className="p-3 text-right">{getNumber(item.timing_readiness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No deadline governance decisions are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Deadline History</h3>
+                <StatusBadge label={`${Array.isArray(deadlineHistory) ? deadlineHistory.length : 0} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Warnings</th>
+                      <th className="p-3 text-right">Readiness</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deadlineHistory.length ? (
+                      deadlineHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.deadline_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.deadline_governance_status, "watch")}
+                              tone={item.deadline_governance_status === "ok" ? "ok" : item.deadline_governance_status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{String((item.deadline_risk_warnings || []).length)}</td>
+                          <td className="p-3 text-right">{getNumber(item.timing_readiness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No deadline history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Bid Packaging Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only oversight for submission bundle completeness, ZIP integrity, print packs, folder structure, naming, and upload readiness.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only packaging governance" : "Read-only packaging governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {packagingWarnings.length ? (
+            <div className="space-y-3">
+              {packagingWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Bid packaging is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Packaging Governance"
+              tone={getString(packagingLatest.packaging_governance_status, "watch") === "ok" ? "ok" : getString(packagingLatest.packaging_governance_status, "watch") === "watch" ? "neutral" : "error"}
+              summary={`${getNumber(packagingLatest.packaging_readiness_score, 0).toFixed(2)} readiness score`}
+              items={[
+                ["Status", getString(packagingLatest.packaging_governance_status, "watch")],
+                ["Bundle complete", getBooleanBadge(packagingLatest.latest_packaging_governance?.submission_bundle_completeness).label],
+                ["Attachment valid", getBooleanBadge(packagingLatest.latest_packaging_governance?.attachment_bundle_validation).label],
+                ["ZIP integrity", getBooleanBadge(packagingLatest.latest_packaging_governance?.zip_package_integrity).label],
+                ["Print pack", getBooleanBadge(packagingLatest.latest_packaging_governance?.print_pack_readiness).label],
+                ["Folder structure", getBooleanBadge(packagingLatest.latest_packaging_governance?.folder_structure_validation).label],
+                ["Naming convention", getBooleanBadge(packagingLatest.latest_packaging_governance?.naming_convention_governance).label],
+                ["Upload package", getBooleanBadge(packagingLatest.latest_packaging_governance?.upload_package_readiness).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Packaging Warnings"
+              tone={(packagingLatest.latest_packaging_governance?.incomplete_package_warnings || []).length || (packagingLatest.latest_packaging_governance?.missing_attachment_warnings || []).length || Object.values(packagingLatest.latest_packaging_governance?.malformed_bundle_indicators || {}).some(Boolean) ? "error" : "ok"}
+              summary={`${(packagingLatest.latest_packaging_governance?.incomplete_package_warnings || []).length} incomplete / ${(packagingLatest.latest_packaging_governance?.missing_attachment_warnings || []).length} missing`}
+              items={[
+                ["Incomplete warnings", String((packagingLatest.latest_packaging_governance?.incomplete_package_warnings || []).length)],
+                ["Missing attachments", String((packagingLatest.latest_packaging_governance?.missing_attachment_warnings || []).length)],
+                ["Malformed indicators", String(Object.values(packagingLatest.latest_packaging_governance?.malformed_bundle_indicators || {}).filter(Boolean).length)],
+                ["Bundle complete", getBooleanBadge(packagingLatest.latest_packaging_governance?.submission_bundle_completeness).label],
+                ["Attachment valid", getBooleanBadge(packagingLatest.latest_packaging_governance?.attachment_bundle_validation).label],
+                ["Upload ready", getBooleanBadge(packagingLatest.latest_packaging_governance?.upload_package_readiness).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Packaging Supervision"
+              tone={getBooleanBadge(packagingLatest.latest_packaging_governance?.governance_approval_gating).tone}
+              summary={getBooleanBadge(packagingLatest.latest_packaging_governance?.governance_approval_gating).label}
+              items={[
+                ["Supervision OK", getBooleanBadge(packagingLatest.latest_packaging_governance?.governance_approval_gating).label],
+                ["Readiness status", getString(packagingLatest.latest_packaging_governance?.readiness_declaration_status, "WATCH")],
+                ["Operator ready", String(getNumber(packagingLatest.operator_assignment_readiness_summary?.ready_count, 0))],
+                ["Not ready", String(getNumber(packagingLatest.operator_assignment_readiness_summary?.not_ready_count, 0))],
+                ["Approval gate", String(getNumber(packagingLatest.operator_assignment_readiness_summary?.governance_approval_gate_count, 0))],
+                ["Decision", getString(packagingLatest.latest_packaging_governance?.packaging_governance_decision, "watch_packaging_governance")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Packaging Decisions</h3>
+                <StatusBadge label={`${Array.isArray(packagingLatest.packaging_governance_history) ? packagingLatest.packaging_governance_history.length : 0} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">Bundle</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(packagingLatest.packaging_governance_history) && packagingLatest.packaging_governance_history.length ? (
+                      packagingLatest.packaging_governance_history.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.packaging_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.packaging_governance_decision, "watch_packaging_governance")}
+                              tone={item.packaging_governance_decision === "approve_packaging_governance" ? "ok" : item.packaging_governance_decision === "watch_packaging_governance" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getBooleanBadge(item.submission_bundle_completeness).label}</td>
+                          <td className="p-3 text-right">{getNumber(item.packaging_readiness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No packaging governance decisions are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Packaging History</h3>
+                <StatusBadge label={`${Array.isArray(packagingHistory) ? packagingHistory.length : 0} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Warnings</th>
+                      <th className="p-3 text-right">Readiness</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {packagingHistory.length ? (
+                      packagingHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.packaging_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.packaging_governance_status, "watch")}
+                              tone={item.packaging_governance_status === "ok" ? "ok" : item.packaging_governance_status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{String((item.incomplete_package_warnings || []).length)}</td>
+                          <td className="p-3 text-right">{getNumber(item.packaging_readiness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No packaging history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Returnable Schedule Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only oversight for annexures, mandatory returnables, pricing schedules, declarations, technical schedules, compulsory forms, and attachments.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only returnable governance" : "Read-only returnable governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {returnableWarnings.length ? (
+            <div className="space-y-3">
+              {returnableWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Returnable schedules are within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Returnable Governance"
+              tone={getString(returnableLatest.returnable_governance_status, "watch") === "ok" ? "ok" : getString(returnableLatest.returnable_governance_status, "watch") === "watch" ? "neutral" : "error"}
+              summary={`${getNumber(returnableLatest.bid_response_completeness_score, 0).toFixed(2)} completeness score`}
+              items={[
+                ["Status", getString(returnableLatest.returnable_governance_status, "watch")],
+                ["Annexure", getString(returnableLatest.latest_returnable_governance?.annexure_classification, "annexure_missing")],
+                ["Mandatory returnable", getBooleanBadge(returnableLatest.latest_returnable_governance?.mandatory_returnable_detection).label],
+                ["Pricing schedule", getBooleanBadge(returnableLatest.latest_returnable_governance?.pricing_schedule_completeness).label],
+                ["Declaration", getBooleanBadge(returnableLatest.latest_returnable_governance?.declaration_completeness).label],
+                ["Technical schedule", getBooleanBadge(returnableLatest.latest_returnable_governance?.technical_schedule_completeness).label],
+                ["Compulsory form", getBooleanBadge(returnableLatest.latest_returnable_governance?.compulsory_form_readiness).label],
+                ["Mandatory attachment", getBooleanBadge(returnableLatest.latest_returnable_governance?.mandatory_attachment_completeness).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Returnable Warnings"
+              tone={(returnableLatest.latest_returnable_governance?.incomplete_returnable_warnings || []).length || (returnableLatest.latest_returnable_governance?.unsigned_returnable_warnings || []).length || returnableMissingCount ? "error" : "ok"}
+              summary={`${(returnableLatest.latest_returnable_governance?.incomplete_returnable_warnings || []).length} incomplete / ${(returnableLatest.latest_returnable_governance?.unsigned_returnable_warnings || []).length} unsigned`}
+              items={[
+                ["Incomplete warnings", String((returnableLatest.latest_returnable_governance?.incomplete_returnable_warnings || []).length)],
+                ["Missing annexures", String(returnableMissingCount)],
+                ["Unsigned warnings", String((returnableLatest.latest_returnable_governance?.unsigned_returnable_warnings || []).length)],
+                ["Pricing complete", getBooleanBadge(returnableLatest.latest_returnable_governance?.pricing_schedule_completeness).label],
+                ["Declaration complete", getBooleanBadge(returnableLatest.latest_returnable_governance?.declaration_completeness).label],
+                ["Technical complete", getBooleanBadge(returnableLatest.latest_returnable_governance?.technical_schedule_completeness).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Returnable Supervision"
+              tone={getBooleanBadge(returnableLatest.latest_returnable_governance?.governance_approval_gating).tone}
+              summary={getBooleanBadge(returnableLatest.latest_returnable_governance?.governance_approval_gating).label}
+              items={[
+                ["Supervision OK", getBooleanBadge(returnableLatest.latest_returnable_governance?.governance_approval_gating).label],
+                ["Readiness status", getString(returnableLatest.latest_returnable_governance?.readiness_declaration_status, "WATCH")],
+                ["Operator ready", String(getNumber(returnableLatest.operator_assignment_readiness_summary?.ready_count, 0))],
+                ["Not ready", String(getNumber(returnableLatest.operator_assignment_readiness_summary?.not_ready_count, 0))],
+                ["Approval gate", String(getNumber(returnableLatest.operator_assignment_readiness_summary?.governance_approval_gate_count, 0))],
+                ["Decision", getString(returnableLatest.latest_returnable_governance?.returnable_governance_decision, "watch_returnable_governance")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Returnable Decisions</h3>
+                <StatusBadge label={`${Array.isArray(returnableLatest.returnable_governance_history) ? returnableLatest.returnable_governance_history.length : 0} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">Annexure</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(returnableLatest.returnable_governance_history) && returnableLatest.returnable_governance_history.length ? (
+                      returnableLatest.returnable_governance_history.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.returnable_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.returnable_governance_decision, "watch_returnable_governance")}
+                              tone={item.returnable_governance_decision === "approve_returnable_governance" ? "ok" : item.returnable_governance_decision === "watch_returnable_governance" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getString(item.annexure_classification, "annexure_missing")}</td>
+                          <td className="p-3 text-right">{getNumber(item.bid_response_completeness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No returnable governance decisions are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Returnable History</h3>
+                <StatusBadge label={`${Array.isArray(returnableHistory) ? returnableHistory.length : 0} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Incomplete</th>
+                      <th className="p-3 text-right">Readiness</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {returnableHistory.length ? (
+                      returnableHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.returnable_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.returnable_governance_status, "watch")}
+                              tone={item.returnable_governance_status === "ok" ? "ok" : item.returnable_governance_status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{String((item.incomplete_returnable_warnings || []).length)}</td>
+                          <td className="p-3 text-right">{getNumber(item.bid_response_completeness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No returnable history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -3094,6 +3737,676 @@ export default function Home() {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Final Submission Readiness Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only institutional authority for final submission readiness, escalation, and submission authorization.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only final readiness" : "Read-only final readiness"}
+              tone="neutral"
+            />
+          </div>
+
+          {finalWarnings.length ? (
+            <div className="space-y-3">
+              {finalWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Final submission readiness is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Final Readiness Status"
+              tone={getString(finalLatest.final_submission_readiness_status, "NOT_READY_TO_SUBMIT") === "READY_TO_SUBMIT" ? "ok" : getString(finalLatest.final_submission_readiness_status, "NOT_READY_TO_SUBMIT") === "NOT_READY_TO_SUBMIT" ? "error" : "neutral"}
+              summary={`${getString(finalLatest.final_submission_readiness_status, "NOT_READY_TO_SUBMIT")} • ${getNumber(finalLatest.final_submission_readiness_score, 0).toFixed(2)}`}
+              items={[
+                ["Status", getString(finalLatest.final_submission_readiness_status, "NOT_READY_TO_SUBMIT")],
+                ["Score", getNumber(finalLatest.final_submission_readiness_score, 0).toFixed(2)],
+                ["Grade", getString(finalLatest.final_submission_readiness_grade, "not_ready")],
+                ["Decision", getString(finalLatest.final_submission_readiness_decision, "defer_final_submission")],
+                ["History", String(finalHistory.length)],
+                ["Authority", getString(finalLatest.final_escalation_authority, "governance_review_board")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Final Verification"
+              tone={Object.values(finalLatest.unresolved_blocker_indicators || {}).some(Boolean) ? "error" : "ok"}
+              summary={`${Object.values(finalLatest.unresolved_blocker_indicators || {}).filter(Boolean).length} blocker(s)`}
+              items={[
+                ["Completeness", getBooleanBadge(finalLatest.final_completeness_verification?.final_completeness_ok).label],
+                ["Compliance", getBooleanBadge(finalLatest.final_compliance_verification?.final_compliance_ok).label],
+                ["Packaging", getBooleanBadge(finalLatest.final_packaging_verification?.final_packaging_ok).label],
+                ["Timing", getBooleanBadge(finalLatest.final_timing_verification?.final_timing_ok).label],
+                ["Supervision", getBooleanBadge(finalLatest.final_supervision_verification?.supervision_ok).label],
+                ["Modality", getBooleanBadge(finalLatest.final_modality_verification?.final_modality_ok).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Overrides & Escalation"
+              tone={Object.values(finalLatest.governance_override_indicators || {}).some(Boolean) ? "error" : "ok"}
+              summary={`${Object.values(finalLatest.governance_override_indicators || {}).filter(Boolean).length} override(s)`}
+              items={[
+                ["Final escalation", getString(finalLatest.final_escalation_authority, "governance_review_board")],
+                ["Readiness override", getBooleanBadge(finalLatest.governance_override_indicators?.readiness_override_required).label],
+                ["Compliance override", getBooleanBadge(finalLatest.governance_override_indicators?.compliance_override_required).label],
+                ["Packaging override", getBooleanBadge(finalLatest.governance_override_indicators?.packaging_override_required).label],
+                ["Timing override", getBooleanBadge(finalLatest.governance_override_indicators?.timing_override_required).label],
+                ["Supervision override", getBooleanBadge(finalLatest.governance_override_indicators?.supervision_override_required).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Final Readiness History</h3>
+                <StatusBadge label={`${finalHistory.length} readiness entry(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Readiness</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {finalHistory.length ? (
+                      finalHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.final_readiness_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.final_submission_readiness_status, "NOT_READY_TO_SUBMIT")}</td>
+                          <td className="p-3">{getString(item.final_submission_readiness_decision, "defer_final_submission")}</td>
+                          <td className="p-3 text-right">{getNumber(item.final_submission_readiness_score, 0).toFixed(2)}</td>
+                          <td className="p-3">{getString(item.final_escalation_authority, "governance_review_board")}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No final readiness history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Final Readiness Rationale</h3>
+                <StatusBadge label={getString(finalLatest.final_submission_readiness_status, "NOT_READY_TO_SUBMIT")} tone={getString(finalLatest.final_submission_readiness_status, "NOT_READY_TO_SUBMIT") === "READY_TO_SUBMIT" ? "ok" : getString(finalLatest.final_submission_readiness_status, "NOT_READY_TO_SUBMIT") === "NOT_READY_TO_SUBMIT" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-2">
+                {Array.isArray(finalLatest.final_readiness_rationale) ? finalLatest.final_readiness_rationale.map((line: string, index: number) => (
+                  <div key={`${line}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/30 p-3 text-sm text-slate-300">
+                    {line}
+                  </div>
+                )) : (
+                  <div className="rounded-lg border border-emerald-700 bg-emerald-950/40 p-3 text-sm text-emerald-100">
+                    No final readiness rationale has been recorded yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Operational Intelligence Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only intelligence scoring and trend analysis across supervised procurement operations.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only intelligence" : "Read-only intelligence"}
+              tone="neutral"
+            />
+          </div>
+
+          {operationalIntelligenceWarnings.length ? (
+            <div className="space-y-3">
+              {operationalIntelligenceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Operational intelligence remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Intelligence Score"
+              tone={getString(operationalIntelligenceLatest.operational_intelligence_status, "watch") === "ok" ? "ok" : getString(operationalIntelligenceLatest.operational_intelligence_status, "watch") === "blocked" ? "error" : "neutral"}
+              summary={`${getString(operationalIntelligenceLatest.operational_intelligence_grade, "blocked")} • ${getNumber(operationalIntelligenceLatest.operational_intelligence_score, 0).toFixed(2)}`}
+              items={[
+                ["Status", getString(operationalIntelligenceLatest.operational_intelligence_status, "watch")],
+                ["Score", getNumber(operationalIntelligenceLatest.operational_intelligence_score, 0).toFixed(2)],
+                ["Grade", getString(operationalIntelligenceLatest.operational_intelligence_grade, "blocked")],
+                ["History", String(operationalIntelligenceHistory.length)],
+                ["Analysis", getString(operationalIntelligenceLatest.latest_operational_intelligence?.analysis_id, "n/a")],
+                ["Decision", getString(operationalIntelligenceLatest.latest_operational_intelligence?.operational_intelligence_decision, "defer_supervised_pilot")],
+              ]}
+            />
+
+            <MetricPanel
+              title="RFQ Trends"
+              tone={getBooleanBadge(operationalIntelligenceLatest.rfq_trend_analysis?.total_rfqs > 0).tone}
+              summary={`${getNumber(operationalIntelligenceLatest.rfq_trend_analysis?.rfq_trend_score, 0).toFixed(2)} trend score`}
+              items={[
+                ["Total RFQs", String(getNumber(operationalIntelligenceLatest.rfq_trend_analysis?.total_rfqs, 0))],
+                ["Trend", getString(operationalIntelligenceLatest.rfq_trend_analysis?.queue_trend?.trend, "unknown")],
+                ["Stage count", String(Object.keys(operationalIntelligenceLatest.rfq_trend_analysis?.stage_counts || {}).length)],
+                ["Submitted", String(getNumber(operationalIntelligenceLatest.rfq_trend_analysis?.stage_counts?.SUBMITTED, 0))],
+                ["Submission ready", String(getNumber(operationalIntelligenceLatest.rfq_trend_analysis?.stage_counts?.SUBMISSION_READY, 0))],
+                ["Modality", getString(operationalIntelligenceLatest.submission_modality_utilization_analysis?.dominant_modality, "unsupported")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Health"
+              tone={Object.values(operationalIntelligenceLatest.governance_degradation_indicators || {}).some(Boolean) ? "error" : "ok"}
+              summary={`${Object.values(operationalIntelligenceLatest.governance_degradation_indicators || {}).filter(Boolean).length} degradation flag(s)`}
+              items={[
+                ["Bottleneck", getBooleanBadge(operationalIntelligenceLatest.governance_degradation_indicators?.bottleneck_warning ? false : true).label],
+                ["Compliance", getBooleanBadge(operationalIntelligenceLatest.governance_degradation_indicators?.compliance_warning ? false : true).label],
+                ["Anomaly", getBooleanBadge(operationalIntelligenceLatest.governance_degradation_indicators?.anomaly_warning ? false : true).label],
+                ["Supervision", getBooleanBadge(operationalIntelligenceLatest.governance_degradation_indicators?.supervision_warning ? false : true).label],
+                ["Throughput", getBooleanBadge(operationalIntelligenceLatest.governance_degradation_indicators?.throughput_warning ? false : true).label],
+                ["Final readiness", getBooleanBadge(operationalIntelligenceLatest.governance_degradation_indicators?.final_readiness_warning ? false : true).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Operational Intelligence History</h3>
+                <StatusBadge label={`${operationalIntelligenceHistory.length} analysis(es)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operationalIntelligenceHistory.length ? (
+                      operationalIntelligenceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.operational_intelligence_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.operational_intelligence_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No operational intelligence history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Intelligence Analysis</h3>
+                <StatusBadge label={getString(operationalIntelligenceLatest.operational_intelligence_status, "watch")} tone={getString(operationalIntelligenceLatest.operational_intelligence_status, "watch") === "ok" ? "ok" : getString(operationalIntelligenceLatest.operational_intelligence_status, "watch") === "blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Modality utilization: {getString(operationalIntelligenceLatest.submission_modality_utilization_analysis?.dominant_modality, "unsupported")}</div>
+                <div>Bottleneck: {getString(operationalIntelligenceLatest.operational_bottleneck_analysis?.bottleneck_status, "watch")}</div>
+                <div>Compliance drift: {getString(operationalIntelligenceLatest.compliance_drift_analysis?.compliance_drift_status, "watch")}</div>
+                <div>Anomaly severity: {getString(operationalIntelligenceLatest.governance_anomaly_analysis?.anomaly_severity, "low")}</div>
+                <div>Supervision load: {getString(operationalIntelligenceLatest.supervision_load_analysis?.supervision_load?.supervision_load_status, "watch")}</div>
+                <div>Throughput: {getString(operationalIntelligenceLatest.operational_throughput_analysis?.operational_throughput_status, "watch")}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Executive Procurement Command</h2>
+              <p className="text-sm text-slate-400">
+                Read-only executive forecasts and strategic analytics for supervised procurement operations.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only executive command" : "Read-only executive command"}
+              tone="neutral"
+            />
+          </div>
+
+          {executiveCommandWarnings.length ? (
+            <div className="space-y-3">
+              {executiveCommandWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Executive command forecasts remain within current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Executive Score"
+              tone={executiveCommandStatus === "ok" ? "ok" : executiveCommandStatus === "blocked" ? "error" : "neutral"}
+              summary={`${executiveCommandGrade} • ${executiveCommandScore.toFixed(2)}`}
+              items={[
+                ["Status", executiveCommandStatus],
+                ["Score", executiveCommandScore.toFixed(2)],
+                ["Grade", executiveCommandGrade],
+                ["History", String(executiveCommandHistory.length)],
+                ["Analysis", getString(executiveCommandForecast.analysis_id, "n/a")],
+                ["Decision", getString(executiveCommandForecast.executive_governance_decision, "defer_supervised_pilot")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Forecasts"
+              tone={executiveRiskIndicators.high_risk ? "error" : "ok"}
+              summary={`${getNumber(executiveCommandForecast.procurement_health_score, executiveCommandScore).toFixed(2)} health`}
+              items={[
+                ["Throughput", getNumber(executiveCommandForecast.procurement_throughput_forecast?.score, 0).toFixed(2)],
+                ["Risk", getNumber(executiveCommandForecast.operational_risk_forecast?.score, 0).toFixed(2)],
+                ["Governance", getNumber(executiveCommandForecast.governance_degradation_forecast?.score, 0).toFixed(2)],
+                ["Supervision", getNumber(executiveCommandForecast.supervision_capacity_forecast?.score, 0).toFixed(2)],
+                ["Trend", getString(executiveCommandForecast.procurement_trend_forecast?.trend, "stable")],
+                ["Escalation", getNumber(executiveCommandForecast.escalation_forecast?.score, 0).toFixed(2)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Risk Indicators"
+              tone={executiveRiskIndicators.high_risk ? "error" : "ok"}
+              summary={`${Object.values(executiveRiskIndicators || {}).filter(Boolean).length} risk flag(s)`}
+              items={[
+                ["High risk", getBooleanBadge(executiveRiskIndicators.high_risk).label],
+                ["Governance degradation", getBooleanBadge(executiveRiskIndicators.governance_degradation).label],
+                ["Supervision saturation", getBooleanBadge(executiveRiskIndicators.supervision_saturation).label],
+                ["Final readiness blocked", getBooleanBadge(executiveRiskIndicators.final_readiness_blocked).label],
+                ["Review backlog", getBooleanBadge(executiveSaturationIndicators.review_backlog).label],
+                ["Queue pressure", getBooleanBadge(executiveSaturationIndicators.queue_pressure).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Strategic Readiness"
+              tone={executiveReadinessIndicators.ready_for_controlled_pilot ? "ok" : "error"}
+              summary={`${getNumber(executiveCommandHistorySummary.latest_score, executiveCommandScore).toFixed(2)} history score`}
+              items={[
+                ["Ready for pilot", getBooleanBadge(executiveReadinessIndicators.ready_for_controlled_pilot).label],
+                ["Intelligence ready", getBooleanBadge(executiveReadinessIndicators.intelligence_ready).label],
+                ["Stability ready", getBooleanBadge(executiveReadinessIndicators.stability_ready).label],
+                ["Execution ready", getBooleanBadge(executiveReadinessIndicators.execution_ready).label],
+                ["Forecast trend", getString(executiveForecastingIndicators.trend, "stable")],
+                ["Forecast decision", getString(executiveForecastingIndicators.decision, "defer_supervised_pilot")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Executive Intelligence History</h3>
+                <StatusBadge label={`${executiveCommandHistory.length} forecast(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {executiveCommandHistory.length ? (
+                      executiveCommandHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.executive_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.executive_governance_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No executive intelligence history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Executive Forecast Indicators</h3>
+                <StatusBadge label={executiveCommandStatus} tone={executiveCommandStatus === "ok" ? "ok" : executiveCommandStatus === "blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Throughput forecast: {getString(executiveCommandForecast.procurement_throughput_forecast?.trend, "stable")}</div>
+                <div>Operational risk: {getString(executiveCommandForecast.operational_risk_forecast?.trend, "stable")}</div>
+                <div>Governance degradation: {getString(executiveCommandForecast.governance_degradation_forecast?.trend, "stable")}</div>
+                <div>Supervision capacity: {getString(executiveCommandForecast.supervision_capacity_forecast?.trend, "stable")}</div>
+                <div>Forecasting trend: {getString(executiveCommandForecast.procurement_trend_forecast?.trend, "stable")}</div>
+                <div>Escalation trend: {getString(executiveCommandForecast.escalation_forecast?.trend, "stable")}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Enterprise Production Operationalization</h2>
+              <p className="text-sm text-slate-400">
+                Read-only enterprise deployment readiness governance using staging evidence and executive forecasts.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only production governance" : "Read-only production governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {productionOperationalizationWarnings.length ? (
+            <div className="space-y-3">
+              {productionOperationalizationWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Production operationalization remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Production Readiness"
+              tone={productionReadinessStatus === "ok" ? "ok" : productionReadinessStatus === "blocked" ? "error" : "neutral"}
+              summary={`${productionReadinessGrade} • ${productionReadinessScore.toFixed(2)}`}
+              items={[
+                ["Status", productionReadinessStatus],
+                ["Score", productionReadinessScore.toFixed(2)],
+                ["Grade", productionReadinessGrade],
+                ["History", String(productionOperationalizationHistory.length)],
+                ["Analysis", getString(productionOperationalizationLatest.analysis_id, "n/a")],
+                ["Decision", getString(productionOperationalizationLatest.latest_production_governance?.production_governance_summary?.decision, "defer_enterprise_deployment")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Runtime Segmentation"
+              tone={getBooleanBadge(productionSegmentation?.tenant_workspace_isolation?.isolation_verified).tone}
+              summary={`${getNumber(productionSegmentation?.production_runtime_segmentation_score, 0).toFixed(2)} segmentation score`}
+              items={[
+                ["Tenant count", String(getNumber(productionSegmentation?.tenant_workspace_isolation?.tenant_count, 0))],
+                ["Workspace count", String(getNumber(productionSegmentation?.tenant_workspace_isolation?.workspace_count, 0))],
+                ["Pairs", String(getNumber(productionSegmentation?.tenant_workspace_isolation?.tenant_workspace_pair_count, 0))],
+                ["Isolation", getBooleanBadge(productionSegmentation?.tenant_workspace_isolation?.isolation_verified).label],
+                ["Status", getString(productionSegmentation?.production_runtime_segmentation_status, "watch")],
+                ["Grade", getString(productionSegmentation?.production_runtime_segmentation_grade, "blocked")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Access & Observability"
+              tone={productionAccessRiskIndicators.pending_approval_backlog || productionAccessRiskIndicators.operator_role_mismatch ? "error" : "ok"}
+              summary={`${getNumber(productionAccess?.operator_access_governance_score, 0).toFixed(2)} access score`}
+              items={[
+                ["Access status", getString(productionAccess?.operator_access_governance_status, "watch")],
+                ["Observability", getString(productionObservability?.production_observability_governance_status, "watch")],
+                ["Backup", getString(productionBackup?.backup_restore_governance_status, "watch")],
+                ["Recovery", getString(productionDisasterRecovery?.disaster_recovery_governance_status, "watch")],
+                ["HA", getString(productionHighAvailability?.high_availability_governance_status, "watch")],
+                ["Audit", getString(productionAuditRetention?.audit_retention_governance_status, "watch")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Deployment Readiness"
+              tone={productionRiskIndicators.deployment_risk ? "error" : "ok"}
+              summary={`${getNumber(productionDeployment?.deployment_readiness_governance_score, 0).toFixed(2)} deployment score`}
+              items={[
+                ["Deployment", getString(productionDeployment?.deployment_readiness_governance_status, "watch")],
+                ["Operator risk", getBooleanBadge(productionAccessRiskIndicators.pending_approval_backlog).label],
+                ["HA ready", getBooleanBadge(productionHAIndicators.queue_stable).label],
+                ["Recovery ready", getBooleanBadge(productionRecoveryIndicators.final_readiness_cleared).label],
+                ["Backup ready", getBooleanBadge(productionBackup?.backup_restore_governance_status === "ok").label],
+                ["Observability ready", getBooleanBadge(productionObservability?.production_observability_governance_status === "ok").label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Production Governance History</h3>
+                <StatusBadge label={`${productionOperationalizationHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productionOperationalizationHistory.length ? (
+                      productionOperationalizationHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.production_readiness_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.production_readiness_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No production governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Readiness Indicators</h3>
+                <StatusBadge label={productionReadinessStatus} tone={productionReadinessStatus === "ok" ? "ok" : productionReadinessStatus === "blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Operator access: {getString(productionAccess?.operator_access_governance_status, "watch")}</div>
+                <div>Observability: {getString(productionObservability?.production_observability_governance_status, "watch")}</div>
+                <div>Backup restore: {getString(productionBackup?.backup_restore_governance_status, "watch")}</div>
+                <div>Disaster recovery: {getString(productionDisasterRecovery?.disaster_recovery_governance_status, "watch")}</div>
+                <div>High availability: {getString(productionHighAvailability?.high_availability_governance_status, "watch")}</div>
+                <div>Audit retention: {getString(productionAuditRetention?.audit_retention_governance_status, "watch")}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Controlled Operational Pilot Execution</h2>
+              <p className="text-sm text-slate-400">
+                Read-only operational endurance, stability, cadence, and supervision tracking for supervised pilot execution.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only operational pilot" : "Read-only operational pilot"}
+              tone="neutral"
+            />
+          </div>
+
+          {operationalPilotWarnings.length ? (
+            <div className="space-y-3">
+              {operationalPilotWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Operational pilot execution remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Execution Status"
+              tone={getString(operationalPilotLatest.operational_pilot_execution_status, "watch") === "PASS" || getString(operationalPilotLatest.operational_pilot_execution_status, "watch") === "ok" ? "ok" : getString(operationalPilotLatest.operational_pilot_execution_status, "watch") === "FAIL" || getString(operationalPilotLatest.operational_pilot_execution_status, "watch") === "blocked" ? "error" : "neutral"}
+              summary={`${getString(operationalPilotLatest.operational_pilot_execution_grade, "not_ready")} • ${getNumber(operationalPilotLatest.operational_endurance_score, 0).toFixed(2)}`}
+              items={[
+                ["Status", getString(operationalPilotLatest.operational_pilot_execution_status, "watch")],
+                ["Endurance", getNumber(operationalPilotLatest.operational_endurance_score, 0).toFixed(2)],
+                ["Stability", getNumber(operationalPilotLatest.sustained_stability_score, 0).toFixed(2)],
+                ["Decision", getString(operationalPilotLatest.operational_pilot_execution_decision, "defer_supervised_pilot")],
+                ["History", String(operationalPilotHistory.length)],
+                ["Review interval", `${getNumber(operationalPilotLatest.operational_review_interval_hours, 0).toFixed(2)}h`],
+              ]}
+            />
+
+            <MetricPanel
+              title="Reliability Indicators"
+              tone={Object.values(operationalPilotLatest.supervised_execution_reliability_indicators || {}).some((value) => value === false) ? "error" : "ok"}
+              summary={`${Object.values(operationalPilotLatest.supervised_execution_reliability_indicators || {}).filter(Boolean).length} / ${Object.keys(operationalPilotLatest.supervised_execution_reliability_indicators || {}).length} passing`}
+              items={[
+                ["Governance checkpoint", getBooleanBadge(operationalPilotLatest.supervised_execution_reliability_indicators?.governance_checkpoint_verified).label],
+                ["Cadence enforced", getBooleanBadge(operationalPilotLatest.supervised_execution_reliability_indicators?.rehearsal_cadence_enforced).label],
+                ["Concurrency enforced", getBooleanBadge(operationalPilotLatest.supervised_execution_reliability_indicators?.concurrency_limit_enforced).label],
+                ["Operator ack", getBooleanBadge(operationalPilotLatest.supervised_execution_reliability_indicators?.operator_acknowledged).label],
+                ["Submission lock", getBooleanBadge(operationalPilotLatest.supervised_execution_reliability_indicators?.submission_lock_verified).label],
+                ["Dry-run", getBooleanBadge(operationalPilotLatest.supervised_execution_reliability_indicators?.dry_run_verified).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Degradation Indicators"
+              tone={Object.values(operationalPilotLatest.operational_degradation_indicators || {}).some(Boolean) ? "error" : "ok"}
+              summary={`${Object.values(operationalPilotLatest.operational_degradation_indicators || {}).filter(Boolean).length} degradation flag(s)`}
+              items={[
+                ["Queue", getBooleanBadge(operationalPilotLatest.operational_degradation_indicators?.queue_degradation ? false : true).label],
+                ["Worker", getBooleanBadge(operationalPilotLatest.operational_degradation_indicators?.worker_degradation ? false : true).label],
+                ["Telemetry", getBooleanBadge(operationalPilotLatest.operational_degradation_indicators?.telemetry_degradation ? false : true).label],
+                ["Retry", getBooleanBadge(operationalPilotLatest.operational_degradation_indicators?.retry_degradation ? false : true).label],
+                ["Rollback", getBooleanBadge(operationalPilotLatest.operational_degradation_indicators?.rollback_degradation ? false : true).label],
+                ["NO-GO", getBooleanBadge(operationalPilotLatest.operational_degradation_indicators?.no_go_degradation ? false : true).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Execution Governance History</h3>
+                <StatusBadge label={`${operationalPilotHistory.length} cycle(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Cycle</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-right">Endurance</th>
+                      <th className="p-3 text-right">Stability</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operationalPilotHistory.length ? (
+                      operationalPilotHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.cycle_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.cycle_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.operational_pilot_execution_decision, "defer_supervised_pilot")}</td>
+                          <td className="p-3 text-right">{getNumber(item.operational_endurance_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right">{getNumber(item.sustained_stability_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No operational pilot execution history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Execution Evidence Aggregation</h3>
+                <StatusBadge label={getString(operationalPilotLatest.operational_pilot_execution_decision, "defer_supervised_pilot")} tone={getString(operationalPilotLatest.operational_pilot_execution_status, "watch") === "PASS" || getString(operationalPilotLatest.operational_pilot_execution_status, "watch") === "ok" ? "ok" : getString(operationalPilotLatest.operational_pilot_execution_status, "watch") === "FAIL" || getString(operationalPilotLatest.operational_pilot_execution_status, "watch") === "blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Evidence pack: {getBooleanBadge(operationalPilotLatest.supervised_execution_evidence_aggregation?.evidence_pack_present).label}</div>
+                <div>Queue status: {getString(operationalPilotLatest.supervised_execution_evidence_aggregation?.queue_stability_evidence?.status, "n/a")}</div>
+                <div>Worker status: {getString(operationalPilotLatest.supervised_execution_evidence_aggregation?.worker_stability_evidence?.status, "n/a")}</div>
+                <div>Telemetry status: {getString(operationalPilotLatest.supervised_execution_evidence_aggregation?.telemetry_health_evidence?.status, "n/a")}</div>
+                <div>Submission lock: {getString(operationalPilotLatest.supervised_execution_evidence_aggregation?.submission_lock_verification?.status, "n/a")}</div>
+                <div>Dry-run: {getString(operationalPilotLatest.supervised_execution_evidence_aggregation?.dry_run_enforcement_verification?.status, "n/a")}</div>
               </div>
             </div>
           </div>

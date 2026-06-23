@@ -16,12 +16,20 @@ from app.services.recurring_pilot_cycle_service import RecurringPilotCycleServic
 from app.services.pilot_review_board_service import PilotReviewBoardService
 from app.services.pilot_evidence_pack_service import PilotEvidencePackService
 from app.services.pilot_operations_summary_service import PilotOperationsSummaryService
+from app.services.operational_pilot_execution_service import OperationalPilotExecutionService
 from app.services.operational_stability_service import OperationalStabilityService
+from app.services.operational_intelligence_service import OperationalIntelligenceService
+from app.services.executive_command_service import ExecutiveCommandService
+from app.services.production_operationalization_service import ProductionOperationalizationService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
 from app.services.signature_governance_service import SignatureGovernanceService
 from app.services.compliance_governance_service import ComplianceGovernanceService
+from app.services.returnable_governance_service import ReturnableGovernanceService
+from app.services.packaging_governance_service import PackagingGovernanceService
+from app.services.deadline_governance_service import DeadlineGovernanceService
+from app.services.final_readiness_governance_service import FinalReadinessGovernanceService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -87,6 +95,22 @@ def compliance_governance_service() -> ComplianceGovernanceService:
     return ComplianceGovernanceService()
 
 
+def returnable_governance_service() -> ReturnableGovernanceService:
+    return ReturnableGovernanceService()
+
+
+def packaging_governance_service() -> PackagingGovernanceService:
+    return PackagingGovernanceService()
+
+
+def deadline_governance_service() -> DeadlineGovernanceService:
+    return DeadlineGovernanceService()
+
+
+def final_readiness_service() -> FinalReadinessGovernanceService:
+    return FinalReadinessGovernanceService()
+
+
 def review_board_service() -> PilotReviewBoardService:
     return PilotReviewBoardService()
 
@@ -95,8 +119,24 @@ def stability_service() -> OperationalStabilityService:
     return OperationalStabilityService()
 
 
+def operational_intelligence_service() -> OperationalIntelligenceService:
+    return OperationalIntelligenceService()
+
+
+def executive_command_service() -> ExecutiveCommandService:
+    return ExecutiveCommandService()
+
+
+def production_operationalization_service() -> ProductionOperationalizationService:
+    return ProductionOperationalizationService()
+
+
 def operations_summary_service() -> PilotOperationsSummaryService:
     return PilotOperationsSummaryService()
+
+
+def operational_pilot_execution_service() -> OperationalPilotExecutionService:
+    return OperationalPilotExecutionService()
 
 
 @router.get("/status")
@@ -507,6 +547,66 @@ def operations_summary_history(limit: int = Query(default=20, ge=1, le=100)) -> 
     return operations_summary_service().operations_summary_history(limit=limit)
 
 
+@router.get("/operational-pilot")
+def operational_pilot_execution(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return operational_pilot_execution_service().list_operational_pilot_execution(limit=limit)
+
+
+@router.get("/operational-pilot/latest")
+def operational_pilot_execution_latest() -> Dict[str, Any]:
+    return operational_pilot_execution_service().latest_operational_pilot_execution()
+
+
+@router.get("/operational-pilot/history")
+def operational_pilot_execution_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return operational_pilot_execution_service().operational_pilot_execution_history(limit=limit)
+
+
+@router.get("/operational-intelligence")
+def operational_intelligence(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return operational_intelligence_service().list_operational_intelligence(limit=limit)
+
+
+@router.get("/operational-intelligence/latest")
+def operational_intelligence_latest() -> Dict[str, Any]:
+    return operational_intelligence_service().latest_operational_intelligence()
+
+
+@router.get("/operational-intelligence/history")
+def operational_intelligence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return operational_intelligence_service().operational_intelligence_history(limit=limit)
+
+
+@router.get("/executive-command")
+def executive_command(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return executive_command_service().list_executive_command(limit=limit)
+
+
+@router.get("/executive-command/latest")
+def executive_command_latest() -> Dict[str, Any]:
+    return executive_command_service().latest_executive_command()
+
+
+@router.get("/executive-command/history")
+def executive_command_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return executive_command_service().executive_command_history(limit=limit)
+
+
+@router.get("/production-governance")
+def production_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_operationalization_service().list_production_governance(limit=limit)
+
+
+@router.get("/production-governance/latest")
+def production_governance_latest() -> Dict[str, Any]:
+    return production_operationalization_service().latest_production_governance()
+
+
+@router.get("/production-governance/history")
+def production_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_operationalization_service().production_governance_history(limit=limit)
+
+
 @router.get("/declaration")
 def declaration(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return declaration_service().list_declarations(limit=limit)
@@ -610,3 +710,63 @@ def compliance_governance_latest() -> Dict[str, Any]:
 @router.get("/compliance-governance/history")
 def compliance_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return compliance_governance_service().compliance_governance_history(limit=limit)
+
+
+@router.get("/returnable-governance")
+def returnable_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return returnable_governance_service().list_returnable_governance(limit=limit)
+
+
+@router.get("/returnable-governance/latest")
+def returnable_governance_latest() -> Dict[str, Any]:
+    return returnable_governance_service().latest_returnable_governance()
+
+
+@router.get("/returnable-governance/history")
+def returnable_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return returnable_governance_service().returnable_governance_history(limit=limit)
+
+
+@router.get("/packaging-governance")
+def packaging_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return packaging_governance_service().list_packaging_governance(limit=limit)
+
+
+@router.get("/packaging-governance/latest")
+def packaging_governance_latest() -> Dict[str, Any]:
+    return packaging_governance_service().latest_packaging_governance()
+
+
+@router.get("/packaging-governance/history")
+def packaging_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return packaging_governance_service().packaging_governance_history(limit=limit)
+
+
+@router.get("/deadline-governance")
+def deadline_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return deadline_governance_service().list_deadline_governance(limit=limit)
+
+
+@router.get("/deadline-governance/latest")
+def deadline_governance_latest() -> Dict[str, Any]:
+    return deadline_governance_service().latest_deadline_governance()
+
+
+@router.get("/deadline-governance/history")
+def deadline_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return deadline_governance_service().deadline_governance_history(limit=limit)
+
+
+@router.get("/final-readiness")
+def final_readiness(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return final_readiness_service().list_final_readiness(limit=limit)
+
+
+@router.get("/final-readiness/latest")
+def final_readiness_latest() -> Dict[str, Any]:
+    return final_readiness_service().latest_final_readiness()
+
+
+@router.get("/final-readiness/history")
+def final_readiness_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return final_readiness_service().final_readiness_history(limit=limit)

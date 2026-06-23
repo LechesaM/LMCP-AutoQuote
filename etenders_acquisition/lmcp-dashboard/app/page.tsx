@@ -98,6 +98,8 @@ type VisibilitySnapshot = {
   productionOperationalizationHistory: Array<Record<string, any>>;
   releaseGovernanceLatest: Record<string, any> | null;
   releaseGovernanceHistory: Array<Record<string, any>>;
+  activationLatest: Record<string, any> | null;
+  activationHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -215,6 +217,8 @@ export default function Home() {
     productionOperationalizationHistory: [],
     releaseGovernanceLatest: null,
     releaseGovernanceHistory: [],
+    activationLatest: null,
+    activationHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -300,6 +304,8 @@ export default function Home() {
       { key: "productionOperationalizationHistory", path: "/rfq-lifecycle/production-governance/history?limit=8" },
       { key: "releaseGovernanceLatest", path: "/rfq-lifecycle/release-governance/latest" },
       { key: "releaseGovernanceHistory", path: "/rfq-lifecycle/release-governance/history?limit=8" },
+      { key: "activationLatest", path: "/rfq-lifecycle/activation-governance/latest" },
+      { key: "activationHistory", path: "/rfq-lifecycle/activation-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -369,6 +375,8 @@ export default function Home() {
       productionOperationalizationHistory: [],
       releaseGovernanceLatest: null,
       releaseGovernanceHistory: [],
+      activationLatest: null,
+      activationHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -501,6 +509,11 @@ export default function Home() {
       } else if (key === "releaseGovernanceHistory") {
         const items = data.release_governance_history;
         next.releaseGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "activationLatest") {
+        next.activationLatest = data;
+      } else if (key === "activationHistory") {
+        const items = data.activation_governance_history;
+        next.activationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -668,6 +681,25 @@ export default function Home() {
   const releaseAuthorityIndicators = releaseGovernanceLatest.release_authority_indicators || {};
   const releaseHistorySummary = releaseGovernanceLatest.release_governance_history_summary || {};
   const releaseSummaryComponents = releaseGovernanceLatest.summary_components || {};
+  const activationLatest = visibility.activationLatest || {};
+  const activationHistory = Array.isArray(visibility.activationHistory) ? visibility.activationHistory : [];
+  const activationWarnings = Array.isArray(activationLatest.warnings) ? activationLatest.warnings : [];
+  const activationStatus = getString(activationLatest.activation_governance_status, "watch");
+  const activationAuthority = getString(activationLatest.activation_governance_authority, "WATCH");
+  const activationScore = getNumber(activationLatest.activation_governance_score, 0);
+  const activationGrade = getString(activationLatest.activation_governance_grade, "blocked");
+  const activationLatestRollout = activationLatest.latest_rollout_validation || {};
+  const activationLatestRelease = activationLatest.latest_release_certification || {};
+  const activationHistorySummary = activationLatest.activation_governance_history_summary || {};
+  const activationTenant = activationLatest.tenant_activation_readiness || {};
+  const activationOperator = activationLatest.operator_certification_readiness || {};
+  const activationSupervision = activationLatest.supervision_assignment_readiness || {};
+  const activationSegmentation = activationLatest.staged_rollout_segmentation || {};
+  const activationThroughput = activationLatest.throughput_expansion_readiness || {};
+  const activationFreeze = activationLatest.rollout_freeze_indicators || {};
+  const activationEscalation = activationLatest.escalation_readiness || {};
+  const activationSaturation = activationLatest.operator_saturation_indicators || {};
+  const activationCoverage = activationLatest.supervision_coverage_indicators || {};
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
@@ -711,6 +743,7 @@ export default function Home() {
     ...operationalIntelligenceWarnings,
     ...executiveCommandWarnings,
     ...productionOperationalizationWarnings,
+    ...activationWarnings,
     ...operatorSessionWarnings,
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
@@ -1201,6 +1234,163 @@ export default function Home() {
                 <div>Override: {getBooleanBadge(Boolean(releaseGovernanceLatest.governance_override_authority)).label}</div>
                 <div>Escalation: {getBooleanBadge(Boolean(releaseGovernanceLatest.release_escalation_authority)).label}</div>
                 <div>Score trend: {getString(releaseHistorySummary.score_history?.trend, "stable")}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Activation Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only tenant, operator, supervision, and rollout expansion authority derived from supervised production rollout validation evidence.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only activation governance" : "Read-only activation governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {activationWarnings.length ? (
+            <div className="space-y-3">
+              {activationWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Activation evidence remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Activation Authority"
+              tone={activationAuthority === "GO" ? "ok" : activationAuthority === "NO_GO" ? "error" : "neutral"}
+              summary={`${activationAuthority} • ${activationScore.toFixed(2)}`}
+              items={[
+                ["Status", activationStatus],
+                ["Authority", activationAuthority],
+                ["Grade", activationGrade],
+                ["History", String(activationHistory.length)],
+                ["Analysis", getString(activationLatest.analysis_id, "n/a")],
+                ["Rollout", getBooleanBadge(Boolean(activationLatest.production_rollout_readiness)).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Readiness Breakdown"
+              tone={activationAuthority === "GO" ? "ok" : activationAuthority === "NO_GO" ? "error" : "neutral"}
+              summary={`${getNumber(activationLatestRollout.rollout_readiness_summary?.rollout_readiness_score, activationScore).toFixed(2)} rollout score`}
+              items={[
+                ["Tenant", getBooleanBadge(activationTenant.tenant_activation_ready).label],
+                ["Operator", getBooleanBadge(activationOperator.operator_certification_ready).label],
+                ["Supervision", getBooleanBadge(activationSupervision.supervision_assignment_ready).label],
+                ["Deployment health", getBooleanBadge(activationThroughput.deployment_health_ready).label],
+                ["Observability", getBooleanBadge(activationThroughput.production_observability_ready).label],
+                ["Release auth", getBooleanBadge(activationThroughput.release_authorization_valid).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Freeze & Escalation"
+              tone={activationFreeze.freeze_active ? "error" : "ok"}
+              summary={`${Object.values(activationFreeze || {}).filter(Boolean).length} freeze flag(s)`}
+              items={[
+                ["Freeze active", getBooleanBadge(activationFreeze.freeze_active).label],
+                ["Expansion freeze", getBooleanBadge(activationFreeze.throughput_expansion_freeze).label],
+                ["Rollout freeze", getBooleanBadge(activationFreeze.rollout_authorization_freeze).label],
+                ["Escalation ready", getBooleanBadge(activationEscalation.escalation_ready).label],
+                ["Release authority", getString(activationLatestRelease.release_authority, "WATCH")],
+                ["Rollout valid", getBooleanBadge(Boolean(activationLatestRollout.institutional_rollout_certification_evidence?.rollout_ready_for_supervised_deployment)).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Supervision Coverage"
+              tone={activationSaturation.operator_saturation_active ? "error" : "ok"}
+              summary={`${getNumber(activationCoverage.supervision_coverage_score, 0).toFixed(2)} coverage score`}
+              items={[
+                ["Coverage ready", getBooleanBadge(activationCoverage.active_supervision_coverage_ready).label],
+                ["Operator ready", getBooleanBadge(activationCoverage.operator_availability_ready).label],
+                ["Active sessions", String(getNumber(activationCoverage.coverage_active_sessions, 0))],
+                ["Assigned RFQs", String(Array.isArray(activationCoverage.coverage_assigned_rfqs) ? activationCoverage.coverage_assigned_rfqs.length : 0)],
+                ["Pending approvals", String(Array.isArray(activationCoverage.coverage_pending_approvals) ? activationCoverage.coverage_pending_approvals.length : 0)],
+                ["Saturation", getBooleanBadge(activationSaturation.operator_saturation_active).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Activation Governance History</h3>
+                <StatusBadge label={`${activationHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activationHistory.length ? (
+                      activationHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.activation_governance_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.activation_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.activation_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No activation governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Activation Readiness Indicators</h3>
+                <StatusBadge label={activationAuthority} tone={activationAuthority === "GO" ? "ok" : activationAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Tenant activation: {getBooleanBadge(activationTenant.tenant_activation_ready).label}</div>
+                <div>Operator certification: {getBooleanBadge(activationOperator.operator_certification_ready).label}</div>
+                <div>Supervision assignment: {getBooleanBadge(activationSupervision.supervision_assignment_ready).label}</div>
+                <div>Staged segmentation: {getBooleanBadge(activationSegmentation.staged_rollout_segmentation_ready).label}</div>
+                <div>Throughput expansion: {getBooleanBadge(activationThroughput.throughput_expansion_ready).label}</div>
+                <div>Escalation readiness: {getBooleanBadge(activationEscalation.escalation_ready).label}</div>
+                <div>Freeze active: {getBooleanBadge(activationFreeze.freeze_active).label}</div>
+                <div>Release authority: {getString(activationLatestRelease.release_authority, "WATCH")}</div>
+              </div>
+              <div className="mt-6 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Active sessions: {getNumber(activationCoverage.coverage_active_sessions, 0)}</div>
+                <div>Assigned RFQs: {String(Array.isArray(activationCoverage.coverage_assigned_rfqs) ? activationCoverage.coverage_assigned_rfqs.length : 0)}</div>
+                <div>Pending approvals: {String(Array.isArray(activationCoverage.coverage_pending_approvals) ? activationCoverage.coverage_pending_approvals.length : 0)}</div>
+                <div>Rollout valid: {getBooleanBadge(Boolean(activationLatestRollout.institutional_rollout_certification_evidence?.rollout_ready_for_supervised_deployment)).label}</div>
+                <div>Certification: {getString(activationLatestRelease.certification_status, "WATCH")}</div>
+                <div>Review board: {getString(activationEscalation.review_board_status, "watch")}</div>
+              </div>
+              <div className="mt-6 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Expansion trend: {getString(activationHistorySummary.score_history?.trend, "stable")}</div>
+                <div>Expansion score: {getNumber(activationHistorySummary.latest_score, activationScore).toFixed(2)}</div>
+                <div>Freeze flags: {String(Object.values(activationFreeze || {}).filter(Boolean).length)}</div>
+                <div>Saturation flags: {String(Object.values(activationSaturation || {}).filter(Boolean).length)}</div>
               </div>
             </div>
           </div>

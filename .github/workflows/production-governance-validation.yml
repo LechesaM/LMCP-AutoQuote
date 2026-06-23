@@ -1,0 +1,86 @@
+name: Production Governance Validation
+
+on:
+  push:
+    paths:
+      - ".env.production.example"
+      - "docker-compose.production.example.yml"
+      - "runtime/production/go_live_guards/submission_locks.json"
+      - "runtime/production/access_governance/README.md"
+      - "runtime/staging/production-deployment-validations/**"
+      - "runtime/staging/production-rollout-validations/**"
+      - "runtime/staging/release-certifications/**"
+      - "runtime/staging/release-governance-bundles/**"
+      - "scripts/validate_production_package.py"
+      - "scripts/validate_production_access_governance.py"
+      - "scripts/run_production_deployment_validation.py"
+      - "scripts/run_controlled_production_rollout_validation.py"
+      - "scripts/export_release_governance_bundle.py"
+      - "tests/test_production_package_validation.py"
+      - "tests/test_production_access_governance_validation.py"
+      - "tests/test_production_deployment_validation.py"
+      - "tests/test_controlled_production_rollout_validation.py"
+      - "tests/test_release_governance_bundle_export.py"
+      - ".github/workflows/production-governance-validation.yml"
+  pull_request:
+    paths:
+      - ".env.production.example"
+      - "docker-compose.production.example.yml"
+      - "runtime/production/go_live_guards/submission_locks.json"
+      - "runtime/production/access_governance/README.md"
+      - "runtime/staging/production-deployment-validations/**"
+      - "runtime/staging/production-rollout-validations/**"
+      - "runtime/staging/release-certifications/**"
+      - "runtime/staging/release-governance-bundles/**"
+      - "scripts/validate_production_package.py"
+      - "scripts/validate_production_access_governance.py"
+      - "scripts/run_production_deployment_validation.py"
+      - "scripts/run_controlled_production_rollout_validation.py"
+      - "scripts/export_release_governance_bundle.py"
+      - "tests/test_production_package_validation.py"
+      - "tests/test_production_access_governance_validation.py"
+      - "tests/test_production_deployment_validation.py"
+      - "tests/test_controlled_production_rollout_validation.py"
+      - "tests/test_release_governance_bundle_export.py"
+      - ".github/workflows/production-governance-validation.yml"
+  workflow_dispatch:
+
+jobs:
+  governance-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python test tooling
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Validate production package
+        run: python3 scripts/validate_production_package.py
+
+      - name: Validate production secrets and access governance
+        run: python3 scripts/validate_production_access_governance.py
+
+      - name: Validate production deployment readiness
+        run: python3 scripts/run_production_deployment_validation.py
+
+      - name: Validate controlled production rollout
+        run: python3 scripts/run_controlled_production_rollout_validation.py
+
+      - name: Export release governance bundle
+        run: python3 scripts/export_release_governance_bundle.py
+
+      - name: Run governance tests
+        run: pytest tests/test_production_package_validation.py tests/test_production_access_governance_validation.py tests/test_production_deployment_validation.py tests/test_controlled_production_rollout_validation.py tests/test_release_governance_bundle_export.py
+
+      - name: Validate production compose configuration
+        run: docker compose -f docker-compose.production.example.yml config
+
+      - name: Build frontend
+        working-directory: etenders_acquisition/lmcp-dashboard
+        run: npm ci && npm run build

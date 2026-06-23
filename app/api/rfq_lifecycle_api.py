@@ -9,6 +9,7 @@ from app.services.operational_rehearsal_service import OperationalRehearsalServi
 from app.services.pilot_cadence_service import PilotCadenceService
 from app.services.operational_exception_service import OperationalExceptionService
 from app.services.operational_remediation_service import OperationalRemediationService
+from app.services.pilot_progression_service import PilotProgressionService
 from app.services.recurring_pilot_cycle_service import RecurringPilotCycleService
 from app.services.pilot_review_board_service import PilotReviewBoardService
 from app.services.pilot_evidence_pack_service import PilotEvidencePackService
@@ -44,6 +45,10 @@ def exception_service() -> OperationalExceptionService:
 
 def remediation_service() -> OperationalRemediationService:
     return OperationalRemediationService()
+
+
+def progression_service() -> PilotProgressionService:
+    return PilotProgressionService()
 
 
 def review_board_service() -> PilotReviewBoardService:
@@ -430,3 +435,18 @@ def remediation_latest() -> Dict[str, Any]:
 @router.get("/remediation/history")
 def remediation_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return remediation_service().remediation_history(limit=limit)
+
+
+@router.get("/progression")
+def progression(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return progression_service().list_progression(limit=limit)
+
+
+@router.get("/progression/latest")
+def progression_latest() -> Dict[str, Any]:
+    return progression_service().latest_progression()
+
+
+@router.get("/progression/history")
+def progression_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return progression_service().progression_history(limit=limit)

@@ -80,6 +80,8 @@ type VisibilitySnapshot = {
   exceptionsHistory: Array<Record<string, any>>;
   remediationLatest: Record<string, any> | null;
   remediationHistory: Array<Record<string, any>>;
+  progressionLatest: Record<string, any> | null;
+  progressionHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -161,6 +163,8 @@ export default function Home() {
     exceptionsHistory: [],
     remediationLatest: null,
     remediationHistory: [],
+    progressionLatest: null,
+    progressionHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -210,6 +214,8 @@ export default function Home() {
       { key: "exceptionsHistory", path: "/rfq-lifecycle/exceptions/history?limit=8" },
       { key: "remediationLatest", path: "/rfq-lifecycle/remediation/latest" },
       { key: "remediationHistory", path: "/rfq-lifecycle/remediation/history?limit=8" },
+      { key: "progressionLatest", path: "/rfq-lifecycle/progression/latest" },
+      { key: "progressionHistory", path: "/rfq-lifecycle/progression/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -243,6 +249,8 @@ export default function Home() {
       exceptionsHistory: [],
       remediationLatest: null,
       remediationHistory: [],
+      progressionLatest: null,
+      progressionHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -312,6 +320,11 @@ export default function Home() {
       } else if (key === "remediationHistory") {
         const actions = data.remediation_actions;
         next.remediationHistory = Array.isArray(actions) ? actions.slice(0, 8) : [];
+      } else if (key === "progressionLatest") {
+        next.progressionLatest = data;
+      } else if (key === "progressionHistory") {
+        const decisions = data.progression_decision_history;
+        next.progressionHistory = Array.isArray(decisions) ? decisions.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -372,6 +385,9 @@ export default function Home() {
   const reviewBoardWarnings = Array.isArray(visibility.reviewBoardLatest?.warnings) ? visibility.reviewBoardLatest.warnings : [];
   const recurringCycleWarnings = Array.isArray(visibility.recurringCyclesLatest?.warnings) ? visibility.recurringCyclesLatest.warnings : [];
   const exceptionWarnings = Array.isArray(visibility.exceptionsLatest?.warnings) ? visibility.exceptionsLatest.warnings : [];
+  const progressionLatest = visibility.progressionLatest || {};
+  const progressionHistory = Array.isArray(visibility.progressionHistory) ? visibility.progressionHistory : [];
+  const progressionWarnings = Array.isArray(progressionLatest.warnings) ? progressionLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -379,6 +395,7 @@ export default function Home() {
     ...(Array.isArray(visibility.cadenceLatest?.warnings) ? visibility.cadenceLatest.warnings : []),
     ...recurringCycleWarnings,
     ...exceptionWarnings,
+    ...progressionWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -472,6 +489,15 @@ export default function Home() {
   const remediationHistorySummary = remediationLatest.remediation_governance_history || {};
   const remediationIndicators = remediationLatest.operational_risk_indicators || {};
   const remediationWarnings = Array.isArray(remediationLatest.warnings) ? remediationLatest.warnings : [];
+  const progressionStatus = getString(progressionLatest.progression_status, "watch");
+  const progressionDecision = getString(progressionLatest.progression_decision, "review_required");
+  const progressionScore = getNumber(progressionLatest.progression_score, 0);
+  const progressionGrade = getString(progressionLatest.progression_grade, "watch");
+  const progressionSummary = progressionLatest.pilot_progression_summary || {};
+  const progressionEligibility = progressionLatest.expansion_eligibility_indicators || {};
+  const progressionBlockers = progressionLatest.unresolved_blocker_summary || {};
+  const progressionRationale = progressionLatest.governance_rationale_summary || {};
+  const progressionDecisionHistory = Array.isArray(progressionLatest.progression_decision_history) ? progressionLatest.progression_decision_history : [];
   const latestStabilityCycle = stabilityLatest.latest_cycle || {};
   const latestStabilityExport = stabilityLatest.latest_governance_export || {};
 
@@ -1545,6 +1571,139 @@ export default function Home() {
                     )}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Pilot Progression Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only continuation, watch-status, closure, and scope-expansion governance for controlled pilot decisions.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only progression" : "Read-only progression"}
+              tone="neutral"
+            />
+          </div>
+
+          {progressionWarnings.length ? (
+            <div className="space-y-3">
+              {progressionWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Pilot progression governance is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Progression Status"
+              tone={progressionStatus === "ok" ? "ok" : progressionStatus === "watch" ? "neutral" : "error"}
+              summary={`${progressionDecision} • ${progressionScore.toFixed(2)}`}
+              items={[
+                ["Status", progressionStatus],
+                ["Decision", progressionDecision],
+                ["Score", progressionScore.toFixed(2)],
+                ["Grade", progressionGrade],
+                ["Latest review", getString(progressionLatest.latest_review_board_status, "n/a")],
+                ["History entries", String(progressionHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Eligibility Indicators"
+              tone={progressionEligibility.expansion_eligible ? "ok" : progressionEligibility.continuation_eligible ? "neutral" : "error"}
+              summary={`${progressionEligibility.expansion_eligible ? "expansion" : progressionEligibility.continuation_eligible ? "continuation" : "blocked"}`}
+              items={[
+                ["Continuation", getBooleanBadge(progressionEligibility.continuation_eligible).label],
+                ["Watch", getBooleanBadge(progressionEligibility.watch_eligible).label],
+                ["Closure", getBooleanBadge(progressionEligibility.closure_eligible).label],
+                ["Expansion", getBooleanBadge(progressionEligibility.expansion_eligible).label],
+                ["No-go clear", getBooleanBadge(progressionEligibility.no_go_clear).label],
+                ["Submission lock", getBooleanBadge(progressionEligibility.submission_lock_clear).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Unresolved Blockers"
+              tone={getNumber(progressionBlockers.blocking_remediation_count, 0) > 0 ? "error" : "ok"}
+              summary={`${getNumber(progressionBlockers.blocking_remediation_count, 0)} blocking / ${getNumber(progressionBlockers.open_remediation_count, 0)} open`}
+              items={[
+                ["Blocking remediation", String(getNumber(progressionBlockers.blocking_remediation_count, 0))],
+                ["Open remediation", String(getNumber(progressionBlockers.open_remediation_count, 0))],
+                ["Open exceptions", String(getNumber(progressionBlockers.open_exception_count, 0))],
+                ["Latest rationale", getString(progressionRationale.status, "PASS")],
+                ["Rationale entries", String(Array.isArray(progressionRationale.rationale) ? progressionRationale.rationale.length : 0)],
+                ["Decision history", String(progressionDecisionHistory.length)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Governance Decisions</h3>
+                <StatusBadge label={`${progressionHistory.length} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 space-y-3">
+                {progressionHistory.length ? progressionHistory.map((item: Record<string, any>) => (
+                  <div key={getString(item.progression_id, Math.random().toString())} className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{getString(item.progression_decision, "review_required")}</p>
+                        <p className="text-xs text-slate-500">{getString(item.review_id, "n/a")}</p>
+                      </div>
+                      <StatusBadge label={getString(item.progression_grade, "watch")} tone={item.progression_grade === "ready" ? "ok" : item.progression_grade === "watch" ? "neutral" : "error"} />
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-400 md:grid-cols-2">
+                      <div>Score: {getNumber(item.progression_score, 0).toFixed(2)}</div>
+                      <div>Continuation: {getBooleanBadge(item.pilot_continuation_review).label}</div>
+                      <div>Watch: {getBooleanBadge(item.watch_status_review).label}</div>
+                      <div>Expansion: {getBooleanBadge(item.scope_expansion_review).label}</div>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+                    No progression decisions are currently available in staging.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Governance Rationale</h3>
+                <StatusBadge label={getString(progressionRationale.status, "PASS")} tone={getString(progressionRationale.status, "PASS") === "PASS" ? "ok" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                  <div className="grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                    <div>Readiness: {getNumber(progressionRationale.latest_readiness_score, 0).toFixed(2)}</div>
+                    <div>Review board: {getString(progressionRationale.latest_review_board_status, "watch")}</div>
+                    <div>Remediation: {getString(progressionRationale.latest_remediation_status, "watch")}</div>
+                    <div>Exceptions: {getString(progressionRationale.latest_exception_status, "watch")}</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {Array.isArray(progressionRationale.rationale) ? progressionRationale.rationale.map((line: string, index: number) => (
+                    <div key={`${line}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/30 p-3 text-sm text-slate-300">
+                      {line}
+                    </div>
+                  )) : (
+                    <div className="rounded-lg border border-emerald-700 bg-emerald-950/40 p-3 text-sm text-emerald-100">
+                      No governance rationale has been recorded yet.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>

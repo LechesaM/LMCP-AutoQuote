@@ -23,6 +23,7 @@ from app.services.executive_command_service import ExecutiveCommandService
 from app.services.production_operationalization_service import ProductionOperationalizationService
 from app.services.production_release_governance_service import ProductionReleaseGovernanceService
 from app.services.activation_governance_service import ActivationGovernanceService
+from app.services.production_supervision_command_service import ProductionSupervisionCommandService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
@@ -139,6 +140,10 @@ def release_governance_service() -> ProductionReleaseGovernanceService:
 
 def activation_governance_service() -> ActivationGovernanceService:
     return ActivationGovernanceService()
+
+
+def supervision_command_service() -> ProductionSupervisionCommandService:
+    return ProductionSupervisionCommandService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -645,6 +650,21 @@ def activation_governance_latest() -> Dict[str, Any]:
 @router.get("/activation-governance/history")
 def activation_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return activation_governance_service().activation_governance_history(limit=limit)
+
+
+@router.get("/supervision-command")
+def supervision_command(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return supervision_command_service().list_supervision_command(limit=limit)
+
+
+@router.get("/supervision-command/latest")
+def supervision_command_latest() -> Dict[str, Any]:
+    return supervision_command_service().latest_supervision_command()
+
+
+@router.get("/supervision-command/history")
+def supervision_command_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return supervision_command_service().supervision_command_history(limit=limit)
 
 
 @router.get("/declaration")

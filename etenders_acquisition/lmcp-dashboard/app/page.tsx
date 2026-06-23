@@ -100,6 +100,8 @@ type VisibilitySnapshot = {
   releaseGovernanceHistory: Array<Record<string, any>>;
   activationLatest: Record<string, any> | null;
   activationHistory: Array<Record<string, any>>;
+  supervisionCommandLatest: Record<string, any> | null;
+  supervisionCommandHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -219,6 +221,8 @@ export default function Home() {
     releaseGovernanceHistory: [],
     activationLatest: null,
     activationHistory: [],
+    supervisionCommandLatest: null,
+    supervisionCommandHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -306,6 +310,8 @@ export default function Home() {
       { key: "releaseGovernanceHistory", path: "/rfq-lifecycle/release-governance/history?limit=8" },
       { key: "activationLatest", path: "/rfq-lifecycle/activation-governance/latest" },
       { key: "activationHistory", path: "/rfq-lifecycle/activation-governance/history?limit=8" },
+      { key: "supervisionCommandLatest", path: "/rfq-lifecycle/supervision-command/latest" },
+      { key: "supervisionCommandHistory", path: "/rfq-lifecycle/supervision-command/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -377,6 +383,8 @@ export default function Home() {
       releaseGovernanceHistory: [],
       activationLatest: null,
       activationHistory: [],
+      supervisionCommandLatest: null,
+      supervisionCommandHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -514,6 +522,11 @@ export default function Home() {
       } else if (key === "activationHistory") {
         const items = data.activation_governance_history;
         next.activationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "supervisionCommandLatest") {
+        next.supervisionCommandLatest = data;
+      } else if (key === "supervisionCommandHistory") {
+        const items = data.supervision_governance_history;
+        next.supervisionCommandHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -700,6 +713,23 @@ export default function Home() {
   const activationEscalation = activationLatest.escalation_readiness || {};
   const activationSaturation = activationLatest.operator_saturation_indicators || {};
   const activationCoverage = activationLatest.supervision_coverage_indicators || {};
+  const supervisionCommandLatest = visibility.supervisionCommandLatest || {};
+  const supervisionCommandHistory = Array.isArray(visibility.supervisionCommandHistory) ? visibility.supervisionCommandHistory : [];
+  const supervisionCommandWarnings = Array.isArray(supervisionCommandLatest.warnings) ? supervisionCommandLatest.warnings : [];
+  const supervisionCommandStatus = getString(supervisionCommandLatest.supervision_command_status, "watch");
+  const supervisionCommandAuthority = getString(supervisionCommandLatest.supervision_command_authority, "WATCH");
+  const supervisionCommandScore = getNumber(supervisionCommandLatest.supervision_command_score, 0);
+  const supervisionCommandGrade = getString(supervisionCommandLatest.supervision_command_grade, "blocked");
+  const supervisionCommandOperators = Array.isArray(supervisionCommandLatest.active_supervised_operators) ? supervisionCommandLatest.active_supervised_operators : [];
+  const supervisionCommandCoverage = supervisionCommandLatest.supervision_coverage || {};
+  const supervisionCommandRfqOversight = supervisionCommandLatest.active_rfq_oversight || {};
+  const supervisionCommandEscalation = supervisionCommandLatest.escalation_command_visibility || {};
+  const supervisionCommandSaturation = supervisionCommandLatest.supervision_saturation || {};
+  const supervisionCommandLapse = supervisionCommandLatest.supervision_lapse_indicators || {};
+  const supervisionCommandWorkload = supervisionCommandLatest.operational_workload_visibility || {};
+  const supervisionCommandSla = supervisionCommandLatest.supervision_sla_visibility || {};
+  const supervisionCommandFreeze = supervisionCommandLatest.operational_freeze_indicators || {};
+  const supervisionCommandHistorySummary = supervisionCommandLatest.supervision_governance_history_summary || {};
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
@@ -744,6 +774,7 @@ export default function Home() {
     ...executiveCommandWarnings,
     ...productionOperationalizationWarnings,
     ...activationWarnings,
+    ...supervisionCommandWarnings,
     ...operatorSessionWarnings,
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
@@ -1391,6 +1422,157 @@ export default function Home() {
                 <div>Expansion score: {getNumber(activationHistorySummary.latest_score, activationScore).toFixed(2)}</div>
                 <div>Freeze flags: {String(Object.values(activationFreeze || {}).filter(Boolean).length)}</div>
                 <div>Saturation flags: {String(Object.values(activationSaturation || {}).filter(Boolean).length)}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Production Supervision Command</h2>
+              <p className="text-sm text-slate-400">
+                Read-only operator coverage, RFQ oversight, escalation command visibility, and supervision SLA tracking derived from supervised production rollout evidence.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only supervision command" : "Read-only supervision command"}
+              tone="neutral"
+            />
+          </div>
+
+          {supervisionCommandWarnings.length ? (
+            <div className="space-y-3">
+              {supervisionCommandWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Supervision command evidence remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Supervision Authority"
+              tone={supervisionCommandAuthority === "GO" ? "ok" : supervisionCommandAuthority === "NO_GO" ? "error" : "neutral"}
+              summary={`${supervisionCommandAuthority} • ${supervisionCommandScore.toFixed(2)}`}
+              items={[
+                ["Status", supervisionCommandStatus],
+                ["Authority", supervisionCommandAuthority],
+                ["Grade", supervisionCommandGrade],
+                ["History", String(supervisionCommandHistory.length)],
+                ["Analysis", getString(supervisionCommandLatest.analysis_id, "n/a")],
+                ["Rollout", getBooleanBadge(Boolean(supervisionCommandLatest.production_rollout_readiness)).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Coverage & Workload"
+              tone={supervisionCommandCoverage.supervision_coverage_ready ? "ok" : "error"}
+              summary={`${getNumber(supervisionCommandCoverage.coverage_score, 0).toFixed(2)} coverage score`}
+              items={[
+                ["Coverage ready", getBooleanBadge(supervisionCommandCoverage.supervision_coverage_ready).label],
+                ["Active sessions", String(getNumber(supervisionCommandCoverage.coverage_active_sessions, 0))],
+                ["Assigned RFQs", String(Array.isArray(supervisionCommandCoverage.coverage_assigned_rfqs) ? supervisionCommandCoverage.coverage_assigned_rfqs.length : 0)],
+                ["Pending approvals", String(Array.isArray(supervisionCommandCoverage.coverage_pending_approvals) ? supervisionCommandCoverage.coverage_pending_approvals.length : 0)],
+                ["Workload", getString(supervisionCommandWorkload.workload_pressure, "low")],
+                ["SLA ready", getBooleanBadge(supervisionCommandSla.sla_ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Escalation & Freeze"
+              tone={supervisionCommandFreeze.freeze_active ? "error" : "ok"}
+              summary={`${Object.values(supervisionCommandFreeze || {}).filter(Boolean).length} freeze flag(s)`}
+              items={[
+                ["Freeze active", getBooleanBadge(supervisionCommandFreeze.freeze_active).label],
+                ["Operator lapse", getBooleanBadge(supervisionCommandLapse.operator_certification_lapse).label],
+                ["Coverage lapse", getBooleanBadge(supervisionCommandLapse.coverage_lapse).label],
+                ["Escalation ready", getBooleanBadge(supervisionCommandEscalation.escalation_ready).label],
+                ["Release authority", getString(supervisionCommandLatest.latest_release_certification?.release_authority, "WATCH")],
+                ["Rollout valid", getBooleanBadge(Boolean(supervisionCommandLatest.institutional_rollout_certification_evidence?.rollout_ready_for_supervised_deployment)).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Supervision Saturation"
+              tone={supervisionCommandSaturation.supervision_saturation_active ? "error" : "ok"}
+              summary={`${Object.values(supervisionCommandSaturation || {}).filter(Boolean).length} saturation flag(s)`}
+              items={[
+                ["Saturation active", getBooleanBadge(supervisionCommandSaturation.supervision_saturation_active).label],
+                ["Active sessions", String(getNumber(supervisionCommandCoverage.coverage_active_sessions, 0))],
+                ["Over threshold", getBooleanBadge(supervisionCommandSaturation.active_sessions_over_threshold).label],
+                ["Assigned RFQs", getBooleanBadge(supervisionCommandSaturation.assigned_rfqs_over_threshold).label],
+                ["Pending approvals", getBooleanBadge(supervisionCommandSaturation.pending_approvals_over_threshold).label],
+                ["Review board", getString(supervisionCommandEscalation.review_board_status, "watch")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Supervision Governance History</h3>
+                <StatusBadge label={`${supervisionCommandHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {supervisionCommandHistory.length ? (
+                      supervisionCommandHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.supervision_command_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.supervision_command_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.supervision_command_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No supervision command history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Supervision Indicators</h3>
+                <StatusBadge label={supervisionCommandAuthority} tone={supervisionCommandAuthority === "GO" ? "ok" : supervisionCommandAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Active supervised operators: {String(Array.isArray(supervisionCommandOperators) ? supervisionCommandOperators.length : 0)}</div>
+                <div>Coverage ready: {getBooleanBadge(supervisionCommandCoverage.supervision_coverage_ready).label}</div>
+                <div>RFQ oversight: {String(getNumber(supervisionCommandRfqOversight.assigned_rfq_count, 0))}</div>
+                <div>Escalation ready: {getBooleanBadge(supervisionCommandEscalation.escalation_ready).label}</div>
+                <div>Operating workload: {getString(supervisionCommandWorkload.workload_pressure, "low")}</div>
+                <div>SLA ready: {getBooleanBadge(supervisionCommandSla.sla_ready).label}</div>
+                <div>Freeze active: {getBooleanBadge(supervisionCommandFreeze.freeze_active).label}</div>
+                <div>Review board: {getString(supervisionCommandEscalation.review_board_status, "watch")}</div>
+              </div>
+              <div className="mt-6 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Operator lapse: {getBooleanBadge(supervisionCommandLapse.operator_certification_lapse).label}</div>
+                <div>Coverage lapse: {getBooleanBadge(supervisionCommandLapse.coverage_lapse).label}</div>
+                <div>Active sessions: {String(getNumber(supervisionCommandCoverage.coverage_active_sessions, 0))}</div>
+                <div>Assigned RFQs: {String(Array.isArray(supervisionCommandCoverage.coverage_assigned_rfqs) ? supervisionCommandCoverage.coverage_assigned_rfqs.length : 0)}</div>
+                <div>Pending approvals: {String(Array.isArray(supervisionCommandCoverage.coverage_pending_approvals) ? supervisionCommandCoverage.coverage_pending_approvals.length : 0)}</div>
+                <div>Score trend: {getString(supervisionCommandHistorySummary.score_history?.trend, "stable")}</div>
               </div>
             </div>
           </div>

@@ -1,0 +1,302 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.staging.example
+    environment: &staging-env
+      LMCP_ENV: staging
+      LMCP_PRODUCTION_MODE: staging
+      LMCP_DEPLOYMENT_PROFILE: supervised_live
+      STRICT_PRODUCTION_STARTUP: "0"
+      LMCP_ALLOW_DEGRADED_STARTUP: "true"
+      LMCP_ALLOW_FINAL_AUTOMATION: "false"
+      LMCP_ENABLE_LEGACY_ROUTERS: "0"
+      LMCP_OBSERVABILITY_ENABLED: "1"
+      LMCP_DB_BACKEND: postgres
+      LMCP_QUEUE_BACKEND: redis
+      LMCP_DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp_staging}:${POSTGRES_PASSWORD:-change-me-staging}@postgres:5432/${POSTGRES_DB:-lmcp_staging}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-lmcp_staging}:${POSTGRES_PASSWORD:-change-me-staging}@postgres:5432/${POSTGRES_DB:-lmcp_staging}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      LMCP_PROJECT_ROOT: /app
+      LMCP_RUNTIME_DIR: /app/runtime/staging
+      LMCP_MONTHLY_QUOTES_DIR: /app/runtime/staging/monthly_quotes
+      LMCP_LOG_DIR: /app/runtime/staging/logs
+      LMCP_HEALTH_DIR: /app/runtime/staging/health
+      LMCP_EXPORTS_DIR: /app/runtime/staging/exports
+      LMCP_TEMP_DIR: /app/runtime/staging/tmp
+      LMCP_BACKUPS_DIR: /app/runtime/staging/backups
+      LMCP_AUDIT_TRAIL_DIR: /app/runtime/staging/audit_trail
+      LMCP_SUBMISSION_HISTORY_DIR: /app/runtime/staging/submission_history
+      LMCP_LOCKS_DIR: /app/runtime/staging/locks
+      LMCP_SUBMISSION_PROOFS_DIR: /app/runtime/staging/submission_proofs
+      LMCP_PORTAL_SUBMISSION_DIR: /app/runtime/staging/portal_submission
+      LMCP_FINAL_SUBMISSION_DIR: /app/runtime/staging/final_submission_v47_5
+      LMCP_PROOF_CENTER_DIR: /app/runtime/staging/proof_center
+      LMCP_OPERATOR_AUTH_DIR: /app/runtime/staging/operator_auth
+      LMCP_OPERATOR_AUTH_DB_PATH: /app/runtime/staging/operator_auth/operator_auth.sqlite3
+      LMCP_HANDWRITING_RUNTIME_DIR: /app/runtime/staging/handwriting_simulation
+      LMCP_TENDER_FORM_RUNTIME_DIR: /app/runtime/staging/tender_form_intelligence
+      LMCP_CLICKABLE_NAVIGATION_RUNTIME_DIR: /app/runtime/staging/clickable_navigation_v40
+      PORTAL_ISOLATION_ENABLED: "true"
+      PORTAL_ISOLATION_STATE_FILE: /app/runtime/staging/portal_isolation_state.json
+      PORTAL_ISOLATION_FAILURE_THRESHOLD: "3"
+      PORTAL_ISOLATION_MINUTES: "60"
+    command:
+      [
+        "uvicorn",
+        "${LMCP_APP_ENTRYPOINT:-app.main:app}",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+      ]
+    ports:
+      - "${LMCP_BACKEND_HOST_PORT:-8012}:8000"
+    volumes:
+      - ./runtime/staging:/app/runtime/staging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.staging.example
+    environment:
+      <<: *staging-env
+    command:
+      [
+        "celery",
+        "-A",
+        "app.celery_app.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--hostname=lmcp-staging-worker@%h",
+      ]
+    volumes:
+      - ./runtime/staging:/app/runtime/staging
+    depends_on:
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  operations-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.staging.example
+    environment:
+      <<: *staging-env
+    command:
+      [
+        "celery",
+        "-A",
+        "app.celery_app.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--hostname=lmcp-staging-operations@%h",
+        "--queues=operations_queue",
+      ]
+    volumes:
+      - ./runtime/staging:/app/runtime/staging
+    depends_on:
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.staging.example
+    environment:
+      <<: *staging-env
+      DAILY_SUPERVISED_PRODUCTION_RITUAL_INTERVAL_HOURS: ${DAILY_SUPERVISED_PRODUCTION_RITUAL_INTERVAL_HOURS:-24}
+    command:
+      [
+        "celery",
+        "-A",
+        "app.celery_app.celery_app",
+        "beat",
+        "--loglevel=INFO",
+      ]
+    volumes:
+      - ./runtime/staging:/app/runtime/staging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/command-centre/Dockerfile
+      args:
+        NGINX_CONF: nginx/production.conf
+    env_file:
+      - .env.staging.example
+    environment:
+      LMCP_BACKEND_URL: http://backend:8000
+    ports:
+      - "${LMCP_FRONTEND_HOST_PORT:-4175}:80"
+    volumes:
+      - ./runtime/staging:/app/runtime/staging
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-alpine
+    env_file:
+      - .env.staging.example
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lmcp_staging}
+      POSTGRES_USER: ${POSTGRES_USER:-lmcp_staging}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-staging}
+    ports:
+      - "${LMCP_POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lmcp_staging} -d ${POSTGRES_DB:-lmcp_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    env_file:
+      - .env.staging.example
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${LMCP_REDIS_HOST_PORT:-6380}:6379"
+    volumes:
+      - redis_staging_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    env_file:
+      - .env.staging.example
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "${LMCP_PROMETHEUS_HOST_PORT:-9091}:9090"
+    volumes:
+      - ./docker/prometheus:/etc/prometheus:ro
+      - prometheus_staging_data:/prometheus
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    env_file:
+      - .env.staging.example
+    environment:
+      GF_SECURITY_ADMIN_USER: ${LMCP_GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${LMCP_GRAFANA_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${LMCP_GRAFANA_HOST_PORT:-3001}:3000"
+    volumes:
+      - grafana_staging_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      prometheus:
+        condition: service_started
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_staging_data:
+  redis_staging_data:
+  prometheus_staging_data:
+  grafana_staging_data:

@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Body, Query
 
 from app.services.rfq_lifecycle_service import RfqLifecycleService
+from app.services.operational_rehearsal_service import OperationalRehearsalService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -12,6 +13,10 @@ router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
 
 def service() -> RfqLifecycleService:
     return RfqLifecycleService()
+
+
+def rehearsal_service() -> OperationalRehearsalService:
+    return OperationalRehearsalService()
 
 
 @router.get("/status")
@@ -255,3 +260,28 @@ def upload_dry_run_status() -> Dict[str, Any]:
     from app.services.upload_dry_run_service import latest_upload_dry_run_status
 
     return latest_upload_dry_run_status()
+
+
+@router.get("/rehearsals/history")
+def rehearsal_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return rehearsal_service().list_rehearsals(limit=limit)
+
+
+@router.get("/rehearsals/latest")
+def rehearsal_latest() -> Dict[str, Any]:
+    return rehearsal_service().latest_rehearsal()
+
+
+@router.get("/rehearsals/readiness")
+def rehearsal_readiness() -> Dict[str, Any]:
+    return rehearsal_service().readiness_summary()
+
+
+@router.get("/rehearsals/readiness/history")
+def rehearsal_readiness_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return rehearsal_service().readiness_history(limit=limit)
+
+
+@router.get("/rehearsals/{run_id}")
+def rehearsal_run(run_id: str) -> Dict[str, Any]:
+    return rehearsal_service().get_rehearsal(run_id)

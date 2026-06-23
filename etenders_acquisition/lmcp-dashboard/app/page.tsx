@@ -63,6 +63,10 @@ type VisibilitySnapshot = {
   guardSummary: Record<string, any> | null;
   operationalHealth: Record<string, any> | null;
   reviewQueue: Record<string, any> | null;
+  rehearsalLatest: Record<string, any> | null;
+  rehearsalHistory: Array<Record<string, any>>;
+  readinessLatest: Record<string, any> | null;
+  readinessHistory: Array<Record<string, any>>;
   warnings: string[];
 };
 
@@ -125,6 +129,10 @@ export default function Home() {
     guardSummary: null,
     operationalHealth: null,
     reviewQueue: null,
+    rehearsalLatest: null,
+    rehearsalHistory: [],
+    readinessLatest: null,
+    readinessHistory: [],
     warnings: [],
   });
 
@@ -155,6 +163,10 @@ export default function Home() {
       { key: "guardSummary", path: "/go-live-guards/summary?limit=8" },
       { key: "operationalHealth", path: "/telemetry/operational-health" },
       { key: "reviewQueue", path: "/telemetry/review-queue" },
+      { key: "rehearsalLatest", path: "/rfq-lifecycle/rehearsals/latest" },
+      { key: "rehearsalHistory", path: "/rfq-lifecycle/rehearsals/history?limit=8" },
+      { key: "readinessLatest", path: "/rfq-lifecycle/rehearsals/readiness" },
+      { key: "readinessHistory", path: "/rfq-lifecycle/rehearsals/readiness/history?limit=8" },
     ] as const;
 
     const settled = await Promise.allSettled(
@@ -169,6 +181,10 @@ export default function Home() {
       guardSummary: null,
       operationalHealth: null,
       reviewQueue: null,
+      rehearsalLatest: null,
+      rehearsalHistory: [],
+      readinessLatest: null,
+      readinessHistory: [],
       warnings: [],
     };
 
@@ -194,6 +210,16 @@ export default function Home() {
         next.operationalHealth = data;
       } else if (key === "reviewQueue") {
         next.reviewQueue = data;
+      } else if (key === "rehearsalLatest") {
+        next.rehearsalLatest = data;
+      } else if (key === "rehearsalHistory") {
+        const runs = data.runs;
+        next.rehearsalHistory = Array.isArray(runs) ? runs.slice(0, 8) : [];
+      } else if (key === "readinessLatest") {
+        next.readinessLatest = data;
+      } else if (key === "readinessHistory") {
+        const runs = data.runs;
+        next.readinessHistory = Array.isArray(runs) ? runs.slice(0, 8) : [];
       }
     }
 
@@ -249,12 +275,39 @@ export default function Home() {
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
+    ...(Array.isArray(visibility.rehearsalLatest?.warning_banners) ? visibility.rehearsalLatest.warning_banners : []),
   ];
 
   const systemResilienceScore = getNumber(lifecycleTelemetry.system_resilience_score, 0);
   const dryRunLockStatus = getBooleanBadge(dryRunStatus.dry_run);
   const queueBacklogDetected = getBooleanBadge(queueBacklog.backlog_detected);
   const backendStatusTone = backendReachable ? "ok" : "error";
+  const rehearsalLatest = visibility.rehearsalLatest || {};
+  const rehearsalRun = rehearsalLatest.run || {};
+  const rehearsalTimeline = Array.isArray(rehearsalLatest.timeline) ? rehearsalLatest.timeline : [];
+  const rehearsalHistory = Array.isArray(visibility.rehearsalHistory) ? visibility.rehearsalHistory : [];
+  const rehearsalHealth = rehearsalLatest.operational_health || {};
+  const rehearsalArtifacts = rehearsalLatest.artifact_summary || {};
+  const rehearsalDrills = rehearsalLatest.drill_outcomes || {};
+  const readinessLatest = visibility.readinessLatest || {};
+  const readinessMetrics = readinessLatest.metrics || {};
+  const readinessTrend = readinessLatest.trend_summary || {};
+  const readinessCadence = readinessLatest.cadence || {};
+  const readinessThresholds = readinessLatest.thresholds || {};
+  const readinessIndicators = readinessLatest.warning_threshold_indicators || {};
+  const readinessHistory = Array.isArray(visibility.readinessHistory) ? visibility.readinessHistory : [];
+
+  const readinessWarnings = [
+    ...(readinessIndicators.score_below_threshold ? ["Readiness score below threshold"] : []),
+    ...(readinessIndicators.success_rate_below_threshold ? ["Rehearsal success rate below threshold"] : []),
+    ...(readinessIndicators.retry_recovery_below_threshold ? ["Retry recovery below threshold"] : []),
+    ...(readinessIndicators.rollback_below_threshold ? ["Rollback success below threshold"] : []),
+    ...(readinessIndicators.queue_stability_below_threshold ? ["Queue stability below threshold"] : []),
+    ...(readinessIndicators.worker_stability_below_threshold ? ["Worker stability below threshold"] : []),
+    ...(readinessIndicators.telemetry_health_below_threshold ? ["Telemetry health below threshold"] : []),
+    ...(readinessIndicators.dlq_escalation_above_threshold ? ["DLQ escalation frequency above threshold"] : []),
+    ...(readinessIndicators.operator_intervention_above_threshold ? ["Operator intervention frequency above threshold"] : []),
+  ];
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-slate-100">
@@ -451,6 +504,272 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Operational Readiness</h2>
+              <p className="text-sm text-slate-400">
+                Read-only readiness score, thresholds, and trend history derived from staging rehearsals.
+              </p>
+            </div>
+            <StatusBadge label={APP_ENV === "staging" ? "Staging-only readiness" : "Read-only readiness"} tone="neutral" />
+          </div>
+
+          {readinessWarnings.length ? (
+            <div className="space-y-3">
+              {readinessWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Readiness Score"
+              tone={getNumber(readinessLatest.readiness_score, 0) >= 85 ? "ok" : getNumber(readinessLatest.readiness_score, 0) >= 70 ? "neutral" : "error"}
+              summary={`${getString(readinessLatest.readiness_grade, "not_ready")} • ${getNumber(readinessLatest.readiness_score, 0).toFixed(2)}`}
+              items={[
+                ["Score", getNumber(readinessLatest.readiness_score, 0).toFixed(2)],
+                ["Grade", getString(readinessLatest.readiness_grade, "not_ready")],
+                ["Latest run", getString(readinessLatest.latest_run_id, "n/a")],
+                ["Success rate", `${getNumber(readinessMetrics.rehearsal_success_rate, 0).toFixed(2)}%`],
+                ["Telemetry health", `${getNumber(readinessMetrics.telemetry_health, 0).toFixed(2)}%`],
+                ["Threshold", `${getNumber(readinessThresholds.readiness_score, 70).toFixed(2)}`],
+              ]}
+            />
+
+            <MetricPanel
+              title="Readiness Trend"
+              tone={getString(readinessTrend.trend, "unknown") === "improving" ? "ok" : getString(readinessTrend.trend, "unknown") === "declining" ? "error" : "neutral"}
+              summary={`${getString(readinessTrend.trend, "unknown")} • Δ ${getNumber(readinessTrend.delta, 0).toFixed(2)}`}
+              items={[
+                ["Average score", `${getNumber(readinessTrend.average_score, 0).toFixed(2)}`],
+                ["Latest score", `${getNumber(readinessTrend.latest_score, 0).toFixed(2)}`],
+                ["Previous score", `${getNumber(readinessTrend.previous_score, 0).toFixed(2)}`],
+                ["History points", String(getNumber(readinessTrend.points, readinessHistory.length))],
+                ["With timestamps", String(getNumber(readinessTrend.points_with_timestamp, readinessHistory.length))],
+                ["Cadence", `${getNumber(readinessCadence.runs_last_7_days, 0)} run(s) / 7 days`],
+              ]}
+            />
+
+            <MetricPanel
+              title="Stability Indicators"
+              tone={readinessWarnings.length ? "error" : "ok"}
+              summary={`${readinessHistory.length} historical run(s)`}
+              items={[
+                ["Retry recovery", `${getNumber(readinessMetrics.retry_recovery_success, 0).toFixed(2)}%`],
+                ["Rollback success", `${getNumber(readinessMetrics.rollback_success, 0).toFixed(2)}%`],
+                ["Queue stability", `${getNumber(readinessMetrics.queue_stability, 0).toFixed(2)}%`],
+                ["Worker stability", `${getNumber(readinessMetrics.worker_stability, 0).toFixed(2)}%`],
+                ["DLQ frequency", `${getNumber(readinessMetrics.dlq_escalation_frequency, 0).toFixed(2)}%`],
+                ["Operator interventions", `${getNumber(readinessMetrics.operator_intervention_frequency, 0).toFixed(2)}%`],
+              ]}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Readiness Score History</h3>
+              <StatusBadge label={`${readinessHistory.length} snapshot(s)`} tone="neutral" />
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="p-3 text-left">Run</th>
+                    <th className="p-3 text-left">Grade</th>
+                    <th className="p-3 text-right">Score</th>
+                    <th className="p-3 text-right">Retry</th>
+                    <th className="p-3 text-right">Queue</th>
+                    <th className="p-3 text-right">Worker</th>
+                    <th className="p-3 text-left">Generated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {readinessHistory.length ? (
+                    readinessHistory.map((item: Record<string, any>) => (
+                      <tr key={getString(item.run_id, Math.random().toString())} className="border-t border-slate-800">
+                        <td className="p-3 font-medium">{getString(item.run_id, "n/a")}</td>
+                        <td className="p-3">
+                          <StatusBadge
+                            label={getString(item.readiness_grade, "unknown")}
+                            tone={item.readiness_grade === "ready" ? "ok" : item.readiness_grade === "watch" ? "neutral" : "error"}
+                          />
+                        </td>
+                        <td className="p-3 text-right">{getNumber(item.readiness_score, 0).toFixed(2)}</td>
+                        <td className="p-3 text-right">{getNumber(item.metrics?.retry_recovery_success, 0).toFixed(2)}%</td>
+                        <td className="p-3 text-right">{getNumber(item.metrics?.queue_stability, 0).toFixed(2)}%</td>
+                        <td className="p-3 text-right">{getNumber(item.metrics?.worker_stability, 0).toFixed(2)}%</td>
+                        <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="p-4 text-slate-400" colSpan={7}>
+                        No readiness score history found in the staging runtime.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Operational Rehearsal Evidence</h2>
+              <p className="text-sm text-slate-400">
+                Read-only rehearsal history, drill outcomes, and evidence artifacts. No controls are exposed.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only evidence" : "Read-only evidence"}
+              tone="neutral"
+            />
+          </div>
+
+          {Array.isArray(rehearsalLatest.warning_banners) && rehearsalLatest.warning_banners.length ? (
+            <div className="space-y-3">
+              {rehearsalLatest.warning_banners.map((banner: string, index: number) => (
+                <div key={`${banner}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {banner}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Latest Rehearsal"
+              tone={getString(rehearsalLatest.status, "unknown") === "ok" ? "ok" : "neutral"}
+              summary={getString(rehearsalLatest.run_id, "No rehearsal evidence")}
+              items={[
+                ["Generated", getString(rehearsalLatest.generated_at, "n/a")],
+                ["PASS", String(getNumber(rehearsalLatest.run?.overall_counts?.PASS, 0))],
+                ["WARN", String(getNumber(rehearsalLatest.run?.overall_counts?.WARN, 0))],
+                ["FAIL", String(getNumber(rehearsalLatest.run?.overall_counts?.FAIL, 0))],
+                ["Evidence files", String(getNumber(rehearsalArtifacts.artifact_count, 0))],
+                ["Total size", `${getNumber(rehearsalArtifacts.total_size_bytes, 0)} bytes`],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Health"
+              tone={getString(rehearsalHealth.status, "unknown") === "ok" ? "ok" : "error"}
+              summary={getString(rehearsalHealth.status, "unknown")}
+              items={[
+                ["Healthy", getBooleanBadge(rehearsalHealth.healthy).label],
+                ["PASS", String(getNumber(rehearsalHealth.pass_count, 0))],
+                ["WARN", String(getNumber(rehearsalHealth.warn_count, 0))],
+                ["FAIL", String(getNumber(rehearsalHealth.fail_count, 0))],
+                ["Dry-run", getBooleanBadge(rehearsalLatest.run?.dry_run_guarantees?.live_submissions === false).label],
+                ["Environment", getString(rehearsalLatest.run?.environment_contract?.path, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Evidence Summary"
+              tone="neutral"
+              summary={`${rehearsalTimeline.length} timeline step(s)`}
+              items={[
+                ["Scenarios", String(getNumber(rehearsalLatest.run?.scenario_count, rehearsalTimeline.length))],
+                ["Retry drill", getString(rehearsalDrills.retry_drill?.status, "n/a")],
+                ["Rollback drill", getString(rehearsalDrills.rollback_drill?.status, "n/a")],
+                ["Queue drill", getString(rehearsalDrills.queue_drill?.status, "n/a")],
+                ["DLQ drill", getString(rehearsalDrills.dlq_drill?.status, "n/a")],
+                ["Telemetry drill", getString(rehearsalDrills.telemetry_validation?.status, "n/a")],
+              ]}
+            />
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Rehearsal Timeline</h2>
+              <StatusBadge label="Read-only" tone="neutral" />
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {rehearsalTimeline.length ? (
+                rehearsalTimeline.map((step: Record<string, any>) => (
+                  <div key={`${step.index}-${step.scenario}`} className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{getString(step.scenario, "scenario")}</p>
+                        <p className="text-xs text-slate-500">Step {getNumber(step.index, 0)}</p>
+                      </div>
+                      <StatusBadge label={getString(step.status, "unknown")} tone={step.status === "PASS" ? "ok" : step.status === "FAIL" ? "error" : "neutral"} />
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-sm text-slate-300 md:grid-cols-4">
+                      <div>Checks: {getNumber(step.checks, 0)}</div>
+                      <div>Warnings: {getNumber(step.warnings, 0)}</div>
+                      <div>Failures: {getNumber(step.failures, 0)}</div>
+                      <div>Evidence: {getString(step.evidence_dir, "n/a")}</div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4 text-slate-400">
+                  No rehearsal timeline is available yet.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold">Rehearsal History</h2>
+              <StatusBadge label={`${rehearsalHistory.length} run(s)`} tone="neutral" />
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="p-3 text-left">Run</th>
+                    <th className="p-3 text-left">Status</th>
+                    <th className="p-3 text-right">PASS</th>
+                    <th className="p-3 text-right">WARN</th>
+                    <th className="p-3 text-right">FAIL</th>
+                    <th className="p-3 text-left">Generated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rehearsalHistory.length ? (
+                    rehearsalHistory.map((run: Record<string, any>) => (
+                      <tr key={getString(run.run_id, Math.random().toString())} className="border-t border-slate-800">
+                        <td className="p-3 font-medium">{getString(run.run_id, "n/a")}</td>
+                        <td className="p-3">
+                          <StatusBadge
+                            label={getString(run.status, "unknown")}
+                            tone={run.status === "PASS" ? "ok" : run.status === "FAIL" ? "error" : "neutral"}
+                          />
+                        </td>
+                        <td className="p-3 text-right">{getNumber(run.overall_counts?.PASS, 0)}</td>
+                        <td className="p-3 text-right">{getNumber(run.overall_counts?.WARN, 0)}</td>
+                        <td className="p-3 text-right">{getNumber(run.overall_counts?.FAIL, 0)}</td>
+                        <td className="p-3 text-slate-400">{getString(run.generated_at, "n/a")}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="p-4 text-slate-400" colSpan={6}>
+                        No rehearsal history found in the staging runtime.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 

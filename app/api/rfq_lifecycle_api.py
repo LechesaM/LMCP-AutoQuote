@@ -20,6 +20,7 @@ from app.services.operational_pilot_execution_service import OperationalPilotExe
 from app.services.operational_stability_service import OperationalStabilityService
 from app.services.operational_intelligence_service import OperationalIntelligenceService
 from app.services.executive_command_service import ExecutiveCommandService
+from app.services.executive_governance_index_service import ExecutiveGovernanceIndexService
 from app.services.production_operationalization_service import ProductionOperationalizationService
 from app.services.production_release_governance_service import ProductionReleaseGovernanceService
 from app.services.activation_governance_service import ActivationGovernanceService
@@ -131,6 +132,10 @@ def operational_intelligence_service() -> OperationalIntelligenceService:
 
 def executive_command_service() -> ExecutiveCommandService:
     return ExecutiveCommandService()
+
+
+def executive_governance_index_service() -> ExecutiveGovernanceIndexService:
+    return ExecutiveGovernanceIndexService()
 
 
 def production_operationalization_service() -> ProductionOperationalizationService:
@@ -620,6 +625,21 @@ def executive_command_latest() -> Dict[str, Any]:
 @router.get("/executive-command/history")
 def executive_command_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return executive_command_service().executive_command_history(limit=limit)
+
+
+@router.get("/governance-index")
+def governance_index(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return executive_governance_index_service().list_executive_governance_index(limit=limit)
+
+
+@router.get("/governance-index/latest")
+def governance_index_latest() -> Dict[str, Any]:
+    return executive_governance_index_service().latest_executive_governance_index()
+
+
+@router.get("/governance-index/history")
+def governance_index_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return executive_governance_index_service().executive_governance_index_history(limit=limit)
 
 
 @router.get("/production-governance")

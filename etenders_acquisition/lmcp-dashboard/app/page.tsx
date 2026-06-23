@@ -94,6 +94,8 @@ type VisibilitySnapshot = {
   operationalIntelligenceHistory: Array<Record<string, any>>;
   executiveCommandLatest: Record<string, any> | null;
   executiveCommandHistory: Array<Record<string, any>>;
+  governanceIndexLatest: Record<string, any> | null;
+  governanceIndexHistory: Array<Record<string, any>>;
   productionOperationalizationLatest: Record<string, any> | null;
   productionOperationalizationHistory: Array<Record<string, any>>;
   releaseGovernanceLatest: Record<string, any> | null;
@@ -221,6 +223,8 @@ export default function Home() {
     operationalIntelligenceHistory: [],
     executiveCommandLatest: null,
     executiveCommandHistory: [],
+    governanceIndexLatest: null,
+    governanceIndexHistory: [],
     productionOperationalizationLatest: null,
     productionOperationalizationHistory: [],
     releaseGovernanceLatest: null,
@@ -316,6 +320,8 @@ export default function Home() {
       { key: "operationalIntelligenceHistory", path: "/rfq-lifecycle/operational-intelligence/history?limit=8" },
       { key: "executiveCommandLatest", path: "/rfq-lifecycle/executive-command/latest" },
       { key: "executiveCommandHistory", path: "/rfq-lifecycle/executive-command/history?limit=8" },
+      { key: "governanceIndexLatest", path: "/rfq-lifecycle/governance-index/latest" },
+      { key: "governanceIndexHistory", path: "/rfq-lifecycle/governance-index/history?limit=8" },
       { key: "productionOperationalizationLatest", path: "/rfq-lifecycle/production-governance/latest" },
       { key: "productionOperationalizationHistory", path: "/rfq-lifecycle/production-governance/history?limit=8" },
       { key: "releaseGovernanceLatest", path: "/rfq-lifecycle/release-governance/latest" },
@@ -395,6 +401,8 @@ export default function Home() {
       operationalIntelligenceHistory: [],
       executiveCommandLatest: null,
       executiveCommandHistory: [],
+      governanceIndexLatest: null,
+      governanceIndexHistory: [],
       productionOperationalizationLatest: null,
       productionOperationalizationHistory: [],
       releaseGovernanceLatest: null,
@@ -531,6 +539,11 @@ export default function Home() {
       } else if (key === "executiveCommandHistory") {
         const items = data.executive_intelligence_history;
         next.executiveCommandHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "governanceIndexLatest") {
+        next.governanceIndexLatest = data;
+      } else if (key === "governanceIndexHistory") {
+        const items = data.executive_governance_index_history;
+        next.governanceIndexHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "productionOperationalizationLatest") {
         next.productionOperationalizationLatest = data;
       } else if (key === "productionOperationalizationHistory") {
@@ -701,6 +714,24 @@ export default function Home() {
   const executiveSaturationIndicators = executiveCommandLatest.procurement_saturation_indicators || {};
   const executiveReadinessIndicators = executiveCommandLatest.strategic_readiness_indicators || {};
   const executiveForecastingIndicators = executiveCommandLatest.operational_forecasting_indicators || {};
+  const governanceIndexLatest = visibility.governanceIndexLatest || {};
+  const governanceIndexHistory = Array.isArray(visibility.governanceIndexHistory) ? visibility.governanceIndexHistory : [];
+  const governanceIndexWarnings = Array.isArray(governanceIndexLatest.warnings) ? governanceIndexLatest.warnings : [];
+  const governanceIndexStatus = getString(governanceIndexLatest.executive_governance_index_status, "watch");
+  const governanceIndexAuthority = getString(governanceIndexLatest.executive_governance_index_authority, "WATCH");
+  const governanceIndexScore = getNumber(governanceIndexLatest.executive_governance_index_score, 0);
+  const governanceIndexGrade = getString(governanceIndexLatest.executive_governance_index_grade, "blocked");
+  const governanceIndexActivation = governanceIndexLatest.activation_readiness || {};
+  const governanceIndexSupervision = governanceIndexLatest.supervision_readiness || {};
+  const governanceIndexAudit = governanceIndexLatest.audit_completeness || {};
+  const governanceIndexIncident = governanceIndexLatest.incident_severity || {};
+  const governanceIndexContinuity = governanceIndexLatest.continuity_readiness || {};
+  const governanceIndexRelease = governanceIndexLatest.release_authority || {};
+  const governanceIndexIntelligence = governanceIndexLatest.operational_intelligence || {};
+  const governanceIndexInstitutional = governanceIndexLatest.institutional_rollout_readiness || {};
+  const governanceIndexDegradation = governanceIndexLatest.governance_degradation_indicators || {};
+  const governanceIndexEscalation = governanceIndexLatest.executive_escalation_indicators || {};
+  const governanceIndexHistorySummary = governanceIndexLatest.executive_governance_index_history_summary || {};
   const productionOperationalizationLatest = visibility.productionOperationalizationLatest || {};
   const productionOperationalizationHistory = Array.isArray(visibility.productionOperationalizationHistory) ? visibility.productionOperationalizationHistory : [];
   const productionOperationalizationWarnings = Array.isArray(productionOperationalizationLatest.warnings) ? productionOperationalizationLatest.warnings : [];
@@ -867,6 +898,7 @@ export default function Home() {
     ...operationalPilotWarnings,
     ...operationalIntelligenceWarnings,
     ...executiveCommandWarnings,
+    ...governanceIndexWarnings,
     ...productionOperationalizationWarnings,
     ...activationWarnings,
     ...supervisionCommandWarnings,
@@ -5186,6 +5218,151 @@ export default function Home() {
                 <div>Supervision capacity: {getString(executiveCommandForecast.supervision_capacity_forecast?.trend, "stable")}</div>
                 <div>Forecasting trend: {getString(executiveCommandForecast.procurement_trend_forecast?.trend, "stable")}</div>
                 <div>Escalation trend: {getString(executiveCommandForecast.escalation_forecast?.trend, "stable")}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Executive Governance Index</h2>
+              <p className="text-sm text-slate-400">
+                Consolidated read-only governance overview spanning activation, supervision, audit, incident, continuity, release, intelligence, and executive command.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only governance index" : "Read-only governance index"}
+              tone="neutral"
+            />
+          </div>
+
+          {governanceIndexWarnings.length ? (
+            <div className="space-y-3">
+              {governanceIndexWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Executive governance index remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Governance Index"
+              tone={governanceIndexStatus === "ok" ? "ok" : governanceIndexStatus === "blocked" ? "error" : "neutral"}
+              summary={`${governanceIndexGrade} • ${governanceIndexScore.toFixed(2)}`}
+              items={[
+                ["Status", governanceIndexStatus],
+                ["Authority", governanceIndexAuthority],
+                ["Score", governanceIndexScore.toFixed(2)],
+                ["Grade", governanceIndexGrade],
+                ["History", String(governanceIndexHistory.length)],
+                ["Trend", getString(governanceIndexHistorySummary.score_history?.trend, "stable")],
+                ["Analysis", getString(governanceIndexLatest.latest_executive_governance_index?.analysis_id, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Readiness Domains"
+              tone={getBooleanBadge(Boolean(governanceIndexInstitutional.ready_for_controlled_rollout)).tone}
+              summary={`${getNumber(governanceIndexInstitutional.rollout_readiness_score, governanceIndexScore).toFixed(2)} rollout score`}
+              items={[
+                ["Activation", getBooleanBadge(getString(governanceIndexActivation.authority, "WATCH") === "GO").label],
+                ["Supervision", getBooleanBadge(getString(governanceIndexSupervision.authority, "WATCH") === "GO").label],
+                ["Audit", getBooleanBadge(getString(governanceIndexAudit.authority, "WATCH") === "GO").label],
+                ["Incident", getBooleanBadge(getString(governanceIndexIncident.authority, "WATCH") === "GO").label],
+                ["Continuity", getBooleanBadge(getString(governanceIndexContinuity.authority, "WATCH") === "GO").label],
+                ["Intelligence", getBooleanBadge(getString(governanceIndexIntelligence.authority, "WATCH") === "GO").label],
+                ["Release", getBooleanBadge(getString(governanceIndexRelease.authority, "WATCH") === "GO").label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Risk & Escalation"
+              tone={Object.values(governanceIndexEscalation || {}).some(Boolean) ? "error" : "ok"}
+              summary={`${Object.values(governanceIndexDegradation || {}).filter(Boolean).length} degradation flag(s)`}
+              items={[
+                ["Activation", getBooleanBadge(governanceIndexDegradation.activation_degradation ? false : true).label],
+                ["Supervision", getBooleanBadge(governanceIndexDegradation.supervision_degradation ? false : true).label],
+                ["Audit", getBooleanBadge(governanceIndexDegradation.audit_degradation ? false : true).label],
+                ["Incident", getBooleanBadge(governanceIndexDegradation.incident_degradation ? false : true).label],
+                ["Continuity", getBooleanBadge(governanceIndexDegradation.continuity_degradation ? false : true).label],
+                ["Release blocker", getBooleanBadge(governanceIndexEscalation.release_blocker ? false : true).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Institutional Rollout"
+              tone={governanceIndexInstitutional.ready_for_controlled_rollout ? "ok" : "error"}
+              summary={`${getNumber(governanceIndexInstitutional.rollout_readiness_score, governanceIndexScore).toFixed(2)} readiness score`}
+              items={[
+                ["Ready", getBooleanBadge(governanceIndexInstitutional.ready_for_controlled_rollout).label],
+                ["Release valid", getBooleanBadge(governanceIndexInstitutional.release_authority_valid).label],
+                ["Activation ready", getBooleanBadge(governanceIndexInstitutional.activation_ready).label],
+                ["Supervision ready", getBooleanBadge(governanceIndexInstitutional.supervision_ready).label],
+                ["Audit ready", getBooleanBadge(governanceIndexInstitutional.audit_ready).label],
+                ["Human supervision", getBooleanBadge(governanceIndexEscalation.human_supervision_required).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Governance Index History</h3>
+                <StatusBadge label={`${governanceIndexHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {governanceIndexHistory.length ? (
+                      governanceIndexHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.executive_governance_index_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.executive_governance_index_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.executive_governance_index_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No executive governance index history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Governance Index Indicators</h3>
+                <StatusBadge label={governanceIndexAuthority} tone={governanceIndexAuthority === "GO" ? "ok" : governanceIndexAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Activation ready: {getBooleanBadge(governanceIndexInstitutional.activation_ready).label}</div>
+                <div>Supervision ready: {getBooleanBadge(governanceIndexInstitutional.supervision_ready).label}</div>
+                <div>Audit ready: {getBooleanBadge(governanceIndexInstitutional.audit_ready).label}</div>
+                <div>Incident ready: {getBooleanBadge(governanceIndexInstitutional.incident_ready).label}</div>
+                <div>Continuity ready: {getBooleanBadge(governanceIndexInstitutional.continuity_ready).label}</div>
+                <div>Intelligence ready: {getBooleanBadge(governanceIndexInstitutional.intelligence_ready).label}</div>
+                <div>Governance degradation: {String(Object.values(governanceIndexDegradation || {}).filter(Boolean).length)}</div>
+                <div>Escalation indicators: {String(Object.values(governanceIndexEscalation || {}).filter(Boolean).length)}</div>
               </div>
             </div>
           </div>

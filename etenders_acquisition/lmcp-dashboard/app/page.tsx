@@ -84,6 +84,8 @@ type VisibilitySnapshot = {
   progressionHistory: Array<Record<string, any>>;
   operationsSummaryLatest: Record<string, any> | null;
   operationsSummaryHistory: Array<Record<string, any>>;
+  declarationLatest: Record<string, any> | null;
+  declarationHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -169,6 +171,8 @@ export default function Home() {
     progressionHistory: [],
     operationsSummaryLatest: null,
     operationsSummaryHistory: [],
+    declarationLatest: null,
+    declarationHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -222,6 +226,8 @@ export default function Home() {
       { key: "progressionHistory", path: "/rfq-lifecycle/progression/history?limit=8" },
       { key: "operationsSummaryLatest", path: "/rfq-lifecycle/operations-summary/latest" },
       { key: "operationsSummaryHistory", path: "/rfq-lifecycle/operations-summary/history?limit=8" },
+      { key: "declarationLatest", path: "/rfq-lifecycle/declaration/latest" },
+      { key: "declarationHistory", path: "/rfq-lifecycle/declaration/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -259,6 +265,8 @@ export default function Home() {
       progressionHistory: [],
       operationsSummaryLatest: null,
       operationsSummaryHistory: [],
+      declarationLatest: null,
+      declarationHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -338,6 +346,11 @@ export default function Home() {
       } else if (key === "operationsSummaryHistory") {
         const items = data.institutional_operational_summary_history;
         next.operationsSummaryHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "declarationLatest") {
+        next.declarationLatest = data;
+      } else if (key === "declarationHistory") {
+        const items = data.declaration_history;
+        next.declarationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -404,6 +417,9 @@ export default function Home() {
   const operationsSummaryLatest = visibility.operationsSummaryLatest || {};
   const operationsSummaryHistory = Array.isArray(visibility.operationsSummaryHistory) ? visibility.operationsSummaryHistory : [];
   const operationsSummaryWarnings = Array.isArray(operationsSummaryLatest.warnings) ? operationsSummaryLatest.warnings : [];
+  const declarationLatest = visibility.declarationLatest || {};
+  const declarationHistory = Array.isArray(visibility.declarationHistory) ? visibility.declarationHistory : [];
+  const declarationWarnings = Array.isArray(declarationLatest.warnings) ? declarationLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -413,6 +429,7 @@ export default function Home() {
     ...exceptionWarnings,
     ...progressionWarnings,
     ...operationsSummaryWarnings,
+    ...declarationWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -1852,6 +1869,159 @@ export default function Home() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Institutional Readiness Declaration</h2>
+              <p className="text-sm text-slate-400">
+                Final read-only staging declaration for controlled pilot readiness, watch, or no-go.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only declaration" : "Read-only declaration"}
+              tone="neutral"
+            />
+          </div>
+
+          {declarationWarnings.length ? (
+            <div className="space-y-3">
+              {declarationWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Readiness declaration status is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Declaration Status"
+              tone={getString(declarationLatest.declaration_status, "WATCH") === "READY_FOR_CONTROLLED_PILOT" ? "ok" : getString(declarationLatest.declaration_status, "WATCH") === "WATCH" ? "neutral" : "error"}
+              summary={`${getString(declarationLatest.declaration_status, "WATCH")} • ${getNumber(declarationLatest.declaration_score, 0).toFixed(2)}`}
+              items={[
+                ["Grade", getString(declarationLatest.declaration_grade, "watch")],
+                ["Readiness", `${getNumber(declarationLatest.declaration_rationale_summary?.readiness_score, 0).toFixed(2)}`],
+                ["Stability", `${getNumber(declarationLatest.declaration_rationale_summary?.stability_score, 0).toFixed(2)}`],
+                ["NO-GO", getString(declarationLatest.declaration_rationale_summary?.no_go_status, "UNKNOWN")],
+                ["Decision history", String(declarationHistory.length)],
+                ["Latest summary", getString(declarationLatest.declaration_history_summary?.latest_declaration_status, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Declaration Rationale"
+              tone={getString(declarationLatest.declaration_status, "WATCH") === "READY_FOR_CONTROLLED_PILOT" ? "ok" : "neutral"}
+              summary={getString(declarationLatest.declaration_rationale_summary?.status, "WARN")}
+              items={[
+                ["Remediation", getString(declarationLatest.declaration_rationale_summary?.remediation_status, "watch")],
+                ["Cadence", getString(declarationLatest.declaration_rationale_summary?.cadence_status, "on_track")],
+                ["Progression", getString(declarationLatest.declaration_rationale_summary?.progression_status, "watch")],
+                ["Recommendation", getString(declarationLatest.declaration_rationale_summary?.governance_recommendation, "review_required")],
+                ["Rationale entries", String(Array.isArray(declarationLatest.declaration_rationale_summary?.rationale) ? declarationLatest.declaration_rationale_summary.rationale.length : 0)],
+                ["History safe", getBooleanBadge(declarationLatest.declaration_history_summary?.latest_declaration_status === "READY_FOR_CONTROLLED_PILOT").label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Overrides & Escalation"
+              tone={Object.values(declarationLatest.governance_override_indicators || {}).some(Boolean) || Array.isArray(declarationLatest.escalation_triggers) && declarationLatest.escalation_triggers.length ? "error" : "ok"}
+              summary={`${Object.values(declarationLatest.governance_override_indicators || {}).filter(Boolean).length} override(s)`}
+              items={[
+                ["History override", getBooleanBadge(declarationLatest.governance_override_indicators?.history_override_required).label],
+                ["Recommendation override", getBooleanBadge(declarationLatest.governance_override_indicators?.recommendation_override_required).label],
+                ["Blocker override", getBooleanBadge(declarationLatest.governance_override_indicators?.blocker_override_required).label],
+                ["NO-GO override", getBooleanBadge(declarationLatest.governance_override_indicators?.no_go_override_required).label],
+                ["Escalations", String(Array.isArray(declarationLatest.escalation_triggers) ? declarationLatest.escalation_triggers.length : 0)],
+                ["Latest declaration", getString(declarationLatest.declaration_history_summary?.latest_declaration_id, "n/a")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Declaration History</h3>
+                <StatusBadge label={`${declarationHistory.length} declaration(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Declaration</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Readiness</th>
+                      <th className="p-3 text-left">Progression</th>
+                      <th className="p-3 text-left">NO-GO</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {declarationHistory.length ? (
+                      declarationHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.declaration_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.declaration_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.declaration_status, "WATCH")}
+                              tone={item.declaration_status === "READY_FOR_CONTROLLED_PILOT" ? "ok" : item.declaration_status === "WATCH" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3 text-right">{getNumber(item.declaration_score, 0).toFixed(2)}</td>
+                          <td className="p-3">{getString(item.readiness_status, "watch")}</td>
+                          <td className="p-3">{getString(item.progression_status, "watch")}</td>
+                          <td className="p-3">{getString(item.no_go_status, "UNKNOWN")}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={7}>
+                          No declaration history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Declaration Rationale</h3>
+                <StatusBadge label={getString(declarationLatest.declaration_status, "WATCH")} tone={declarationLatest.declaration_status === "READY_FOR_CONTROLLED_PILOT" ? "ok" : declarationLatest.declaration_status === "WATCH" ? "neutral" : "error"} />
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                  <div className="grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                    <div>Readiness: {getNumber(declarationLatest.declaration_rationale_summary?.readiness_score, 0).toFixed(2)}</div>
+                    <div>Stability: {getNumber(declarationLatest.declaration_rationale_summary?.stability_score, 0).toFixed(2)}</div>
+                    <div>Remediation: {getString(declarationLatest.declaration_rationale_summary?.remediation_status, "watch")}</div>
+                    <div>Cadence: {getString(declarationLatest.declaration_rationale_summary?.cadence_status, "on_track")}</div>
+                    <div>Progression: {getString(declarationLatest.declaration_rationale_summary?.progression_status, "watch")}</div>
+                    <div>NO-GO: {getString(declarationLatest.declaration_rationale_summary?.no_go_status, "UNKNOWN")}</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {Array.isArray(declarationLatest.declaration_rationale_summary?.rationale) ? declarationLatest.declaration_rationale_summary.rationale.map((line: string, index: number) => (
+                    <div key={`${line}-${index}`} className="rounded-lg border border-slate-800 bg-slate-950/30 p-3 text-sm text-slate-300">
+                      {line}
+                    </div>
+                  )) : (
+                    <div className="rounded-lg border border-emerald-700 bg-emerald-950/40 p-3 text-sm text-emerald-100">
+                      No readiness declaration rationale has been recorded yet.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </section>

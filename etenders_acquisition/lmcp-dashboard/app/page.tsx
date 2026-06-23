@@ -70,6 +70,14 @@ type VisibilitySnapshot = {
   pilotEvidenceLatest: Record<string, any> | null;
   pilotEvidenceHistory: Array<Record<string, any>>;
   governanceReview: Record<string, any> | null;
+  cadenceLatest: Record<string, any> | null;
+  cadenceHistory: Array<Record<string, any>>;
+  reviewBoardLatest: Record<string, any> | null;
+  reviewBoardHistory: Array<Record<string, any>>;
+  recurringCyclesLatest: Record<string, any> | null;
+  recurringCyclesHistory: Array<Record<string, any>>;
+  stabilityLatest: Record<string, any> | null;
+  stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
 };
 
@@ -139,6 +147,14 @@ export default function Home() {
     pilotEvidenceLatest: null,
     pilotEvidenceHistory: [],
     governanceReview: null,
+    cadenceLatest: null,
+    cadenceHistory: [],
+    reviewBoardLatest: null,
+    reviewBoardHistory: [],
+    recurringCyclesLatest: null,
+    recurringCyclesHistory: [],
+    stabilityLatest: null,
+    stabilityHistory: [],
     warnings: [],
   });
 
@@ -176,6 +192,14 @@ export default function Home() {
       { key: "pilotEvidenceLatest", path: "/rfq-lifecycle/pilot-evidence/latest" },
       { key: "pilotEvidenceHistory", path: "/rfq-lifecycle/pilot-evidence/history?limit=8" },
       { key: "governanceReview", path: "/rfq-lifecycle/pilot-evidence/governance-review" },
+      { key: "cadenceLatest", path: "/rfq-lifecycle/cadence/latest" },
+      { key: "cadenceHistory", path: "/rfq-lifecycle/cadence/history?limit=8" },
+      { key: "reviewBoardLatest", path: "/rfq-lifecycle/review-board/latest" },
+      { key: "reviewBoardHistory", path: "/rfq-lifecycle/review-board/history?limit=8" },
+      { key: "recurringCyclesLatest", path: "/rfq-lifecycle/recurring-cycles/latest" },
+      { key: "recurringCyclesHistory", path: "/rfq-lifecycle/recurring-cycles/history?limit=8" },
+      { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
+      { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
 
     const settled = await Promise.allSettled(
@@ -197,6 +221,14 @@ export default function Home() {
       pilotEvidenceLatest: null,
       pilotEvidenceHistory: [],
       governanceReview: null,
+      cadenceLatest: null,
+      cadenceHistory: [],
+      reviewBoardLatest: null,
+      reviewBoardHistory: [],
+      recurringCyclesLatest: null,
+      recurringCyclesHistory: [],
+      stabilityLatest: null,
+      stabilityHistory: [],
       warnings: [],
     };
 
@@ -239,6 +271,26 @@ export default function Home() {
         next.pilotEvidenceHistory = Array.isArray(packs) ? packs.slice(0, 8) : [];
       } else if (key === "governanceReview") {
         next.governanceReview = data;
+      } else if (key === "cadenceLatest") {
+        next.cadenceLatest = data;
+      } else if (key === "cadenceHistory") {
+        const checkpoints = data.checkpoints;
+        next.cadenceHistory = Array.isArray(checkpoints) ? checkpoints.slice(0, 8) : [];
+      } else if (key === "reviewBoardLatest") {
+        next.reviewBoardLatest = data;
+      } else if (key === "reviewBoardHistory") {
+        const sessions = data.review_board_history;
+        next.reviewBoardHistory = Array.isArray(sessions) ? sessions.slice(0, 8) : [];
+      } else if (key === "recurringCyclesLatest") {
+        next.recurringCyclesLatest = data;
+      } else if (key === "recurringCyclesHistory") {
+        const cycles = data.cycle_history;
+        next.recurringCyclesHistory = Array.isArray(cycles) ? cycles.slice(0, 8) : [];
+      } else if (key === "stabilityLatest") {
+        next.stabilityLatest = data;
+      } else if (key === "stabilityHistory") {
+        const cycles = data.cycles;
+        next.stabilityHistory = Array.isArray(cycles) ? cycles.slice(0, 8) : [];
       }
     }
 
@@ -291,10 +343,15 @@ export default function Home() {
   const retryCount = getNumber(visibility.lifecycleStatus?.throughput?.retried, 0);
   const queuedForRetry = getNumber(lifecycleCounts.READY_FOR_RETRY, 0);
   const deadQueues = Array.isArray(queueBacklog.isolated_dead_queues) ? queueBacklog.isolated_dead_queues : [];
+  const reviewBoardWarnings = Array.isArray(visibility.reviewBoardLatest?.warnings) ? visibility.reviewBoardLatest.warnings : [];
+  const recurringCycleWarnings = Array.isArray(visibility.recurringCyclesLatest?.warnings) ? visibility.recurringCyclesLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
     ...(Array.isArray(visibility.rehearsalLatest?.warning_banners) ? visibility.rehearsalLatest.warning_banners : []),
+    ...(Array.isArray(visibility.cadenceLatest?.warnings) ? visibility.cadenceLatest.warnings : []),
+    ...recurringCycleWarnings,
+    ...reviewBoardWarnings,
   ];
 
   const systemResilienceScore = getNumber(lifecycleTelemetry.system_resilience_score, 0);
@@ -319,6 +376,24 @@ export default function Home() {
   const pilotEvidenceSummary = pilotEvidenceLatest.summary || {};
   const pilotEvidenceHistory = Array.isArray(visibility.pilotEvidenceHistory) ? visibility.pilotEvidenceHistory : [];
   const governanceReview = visibility.governanceReview || {};
+  const cadenceLatest = visibility.cadenceLatest || {};
+  const cadenceHistory = Array.isArray(visibility.cadenceHistory) ? visibility.cadenceHistory : [];
+  const reviewBoardLatest = visibility.reviewBoardLatest || {};
+  const reviewBoardHistory = Array.isArray(visibility.reviewBoardHistory) ? visibility.reviewBoardHistory : [];
+  const recurringCyclesLatest = visibility.recurringCyclesLatest || {};
+  const recurringCyclesHistory = Array.isArray(visibility.recurringCyclesHistory) ? visibility.recurringCyclesHistory : [];
+  const cadence = cadenceLatest.cadence || {};
+  const pilotCadence = cadence.pilot_cycle_cadence || {};
+  const governanceCadence = cadence.governance_review_cadence || {};
+  const cadenceStability = cadence.stability_trend_checkpoints || {};
+  const cadenceWarnings = Array.isArray(cadenceLatest.warnings) ? cadenceLatest.warnings : [];
+  const recurringCycleTrends = recurringCyclesLatest.recurring_cycle_trends || {};
+  const recurringCompliance = recurringCyclesLatest.governance_compliance_summary || {};
+  const recurringEndurance = recurringCyclesLatest.operational_endurance_indicators || {};
+  const recurringStability = Array.isArray(recurringCyclesLatest.recurring_stability_snapshots) ? recurringCyclesLatest.recurring_stability_snapshots : [];
+  const stabilityLatest = visibility.stabilityLatest || {};
+  const stability = stabilityLatest.stability || {};
+  const stabilityHistory = Array.isArray(visibility.stabilityHistory) ? visibility.stabilityHistory : [];
   const noGoIndicators = Array.isArray(governanceReview.no_go_indicators) ? governanceReview.no_go_indicators : [];
   const signOffChecklist = Array.isArray(governanceReview.operator_sign_off_checklist) ? governanceReview.operator_sign_off_checklist : [];
   const governanceChecklist = Array.isArray(governanceReview.governance_review_checklist) ? governanceReview.governance_review_checklist : [];
@@ -329,6 +404,31 @@ export default function Home() {
   const latestEvidencePackSummary = latestEvidencePack.summary || {};
   const latestEvidencePackCounts = latestEvidencePackSummary.summary_counts || {};
   const governanceHistory = governanceReview["PASS/WARN/FAIL_history"] || {};
+  const readinessDrift = stability.readiness_drift || {};
+  const cadenceDrift = stability.cadence_drift || {};
+  const queueTrend = stability.queue_stability_trend || {};
+  const workerTrend = stability.worker_stability_trend || {};
+  const telemetryTrend = stability.telemetry_degradation || {};
+  const retryTrend = stability.retry_escalation_trend || {};
+  const dlqTrend = stability.dlq_frequency_trend || {};
+  const operatorTrend = stability.operator_intervention_trend || {};
+  const driftWarnings = Array.isArray(stability.drift_warnings) ? stability.drift_warnings : [];
+  const cadenceCompliance = stability.cadence_compliance || {};
+  const warningIndicators = stability.warning_indicators || {};
+  const reviewBoardStatus = getString(reviewBoardLatest.review_board_status, "watch");
+  const reviewBoardScore = getNumber(reviewBoardLatest.review_board_score, 0);
+  const reviewBoardHistoryCadence = reviewBoardLatest.review_board_cadence || {};
+  const reviewBoardSummary = reviewBoardLatest.institutional_review_summary || {};
+  const reviewBoardOutstanding = Array.isArray(reviewBoardLatest.outstanding_governance_actions) ? reviewBoardLatest.outstanding_governance_actions : [];
+  const reviewBoardExceptions = Array.isArray(reviewBoardLatest.unresolved_operational_exceptions) ? reviewBoardLatest.unresolved_operational_exceptions : [];
+  const reviewBoardEscalation = reviewBoardLatest.escalation_review_tracking || {};
+  const recurringCycleStatus = getString(recurringCyclesLatest.recurring_cycle_status, "watch");
+  const recurringCycleScore = getNumber(recurringCyclesLatest.recurring_cycle_score, 0);
+  const recurringCycleGrade = getString(recurringCyclesLatest.recurring_cycle_grade, "watch");
+  const recurringCycleSummaryCounts = recurringCyclesLatest.summary_counts || {};
+  const recurringCycleLatest = recurringCyclesLatest.latest_cycle || {};
+  const latestStabilityCycle = stabilityLatest.latest_cycle || {};
+  const latestStabilityExport = stabilityLatest.latest_governance_export || {};
 
   const readinessWarnings = [
     ...(readinessIndicators.score_below_threshold ? ["Readiness score below threshold"] : []),
@@ -340,6 +440,14 @@ export default function Home() {
     ...(readinessIndicators.telemetry_health_below_threshold ? ["Telemetry health below threshold"] : []),
     ...(readinessIndicators.dlq_escalation_above_threshold ? ["DLQ escalation frequency above threshold"] : []),
     ...(readinessIndicators.operator_intervention_above_threshold ? ["Operator intervention frequency above threshold"] : []),
+    ...(driftWarnings.includes("readiness_drift_warning") ? ["Readiness drift warning"] : []),
+    ...(driftWarnings.includes("cadence_drift_warning") ? ["Cadence drift warning"] : []),
+    ...(driftWarnings.includes("queue_stability_warning") ? ["Queue stability drift warning"] : []),
+    ...(driftWarnings.includes("worker_stability_warning") ? ["Worker stability drift warning"] : []),
+    ...(driftWarnings.includes("telemetry_degradation_warning") ? ["Telemetry degradation warning"] : []),
+    ...(driftWarnings.includes("retry_escalation_warning") ? ["Retry escalation warning"] : []),
+    ...(driftWarnings.includes("dlq_frequency_warning") ? ["DLQ frequency warning"] : []),
+    ...(driftWarnings.includes("operator_intervention_warning") ? ["Operator intervention warning"] : []),
   ];
 
   return (
@@ -537,6 +645,136 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Operational Stability Monitoring</h2>
+              <p className="text-sm text-slate-400">
+                Read-only drift monitoring for controlled pilot cycles. No controls or production paths are exposed.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only stability" : "Read-only stability"}
+              tone="neutral"
+            />
+          </div>
+
+          {driftWarnings.length ? (
+            <div className="space-y-3">
+              {driftWarnings.map((warning: string, index: number) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Stability drift is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Stability Score"
+              tone={getNumber(stabilityLatest.stability_score, 0) >= 85 ? "ok" : getNumber(stabilityLatest.stability_score, 0) >= 70 ? "neutral" : "error"}
+              summary={`${getString(stabilityLatest.stability_grade, "unstable")} • ${getNumber(stabilityLatest.stability_score, 0).toFixed(2)}`}
+              items={[
+                ["Score", getNumber(stabilityLatest.stability_score, 0).toFixed(2)],
+                ["Grade", getString(stabilityLatest.stability_grade, "unstable")],
+                ["Cycles", String(getNumber(stabilityLatest.stability?.cycle_count, 0))],
+                ["Rehearsals", String(getNumber(stabilityLatest.stability?.rehearsal_count, 0))],
+                ["Warning count", String(driftWarnings.length)],
+                ["Cadence compliant", getBooleanBadge(cadenceCompliance.compliant).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Readiness Drift"
+              tone={getNumber(readinessDrift.delta, 0) < -2 ? "error" : getNumber(readinessDrift.delta, 0) > 2 ? "ok" : "neutral"}
+              summary={`${getString(readinessDrift.trend, "unknown")} • Δ ${getNumber(readinessDrift.delta, 0).toFixed(2)}`}
+              items={[
+                ["Latest", `${getNumber(readinessDrift.latest, 0).toFixed(2)}`],
+                ["Previous", `${getNumber(readinessDrift.previous, 0).toFixed(2)}`],
+                ["Average", `${getNumber(readinessDrift.average, 0).toFixed(2)}`],
+                ["Cycles tracked", String(Array.isArray(readinessDrift.points) ? readinessDrift.points.length : 0)],
+                ["Cadence drift", `${getNumber(cadenceDrift.delta, 0).toFixed(2)}`],
+                ["Cadence trend", getString(cadenceDrift.trend, "unknown")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Trends"
+              tone={driftWarnings.length ? "error" : "ok"}
+              summary={`${stabilityHistory.length} stability snapshot(s)`}
+              items={[
+                ["Queue trend", getString(queueTrend.trend, "unknown")],
+                ["Worker trend", getString(workerTrend.trend, "unknown")],
+                ["Telemetry trend", getString(telemetryTrend.trend, "unknown")],
+                ["Retry trend", getString(retryTrend.trend, "unknown")],
+                ["DLQ trend", getString(dlqTrend.trend, "unknown")],
+                ["Operator trend", getString(operatorTrend.trend, "unknown")],
+              ]}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-lg font-bold">Latest Stability Snapshot</h3>
+              <StatusBadge label={getString(stabilityLatest.status, "unknown")} tone={stabilityLatest.status === "ok" ? "ok" : stabilityLatest.status === "watch" ? "neutral" : "error"} />
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Card title="Latest cycle" value={getString(latestStabilityCycle.cycle_id, "n/a")} />
+              <Card title="Latest export" value={getString(latestStabilityExport.export_id, "n/a")} />
+              <Card title="Cadence compliant" value={getBooleanBadge(cadenceCompliance.compliant).label} />
+              <Card title="Drift warnings" value={String(driftWarnings.length)} />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Stability Trend History</h3>
+              <StatusBadge label={`${stabilityHistory.length} snapshot(s)`} tone="neutral" />
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="p-3 text-left">Cycle</th>
+                    <th className="p-3 text-right">Readiness</th>
+                    <th className="p-3 text-right">Queue</th>
+                    <th className="p-3 text-right">Worker</th>
+                    <th className="p-3 text-right">Telemetry</th>
+                    <th className="p-3 text-right">Retry</th>
+                    <th className="p-3 text-left">Generated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stabilityHistory.length ? (
+                    stabilityHistory.map((item: Record<string, any>) => (
+                      <tr key={getString(item.cycle_id, Math.random().toString())} className="border-t border-slate-800">
+                        <td className="p-3 font-medium">{getString(item.cycle_id, "n/a")}</td>
+                        <td className="p-3 text-right">{getNumber(item.readiness_score, 0).toFixed(2)}</td>
+                        <td className="p-3 text-right">{getNumber(item.queue_score, 0).toFixed(2)}</td>
+                        <td className="p-3 text-right">{getNumber(item.worker_score, 0).toFixed(2)}</td>
+                        <td className="p-3 text-right">{getNumber(item.telemetry_score, 0).toFixed(2)}</td>
+                        <td className="p-3 text-right">{getNumber(item.retry_score, 0).toFixed(2)}</td>
+                        <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="p-4 text-slate-400" colSpan={7}>
+                        No stability history is available yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
@@ -797,6 +1035,422 @@ export default function Home() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Scheduled Pilot Cadence</h2>
+              <p className="text-sm text-slate-400">
+                Read-only cadence governance for recurring staging pilot cycles, governance review timing, and stability checkpoints.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only cadence" : "Read-only cadence"}
+              tone="neutral"
+            />
+          </div>
+
+          {cadenceWarnings.length ? (
+            <div className="space-y-3">
+              {cadenceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Cadence governance is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Cadence Status"
+              tone={cadenceLatest.status === "ok" ? "ok" : cadenceLatest.status === "watch" ? "neutral" : "error"}
+              summary={`${getString(cadenceLatest.cadence_grade, "late")} • ${getNumber(cadenceLatest.cadence_score, 0).toFixed(2)}`}
+              items={[
+                ["Score", getNumber(cadenceLatest.cadence_score, 0).toFixed(2)],
+                ["Grade", getString(cadenceLatest.cadence_grade, "late")],
+                ["Pilot cycles", String(getNumber(pilotCadence.runs_last_7_days, 0))],
+                ["Governance reviews", String(getNumber(governanceCadence.runs_last_7_days, 0))],
+                ["Stability checkpoints", String(getNumber(cadenceStability.history_count, 0))],
+                ["Warnings", String(cadenceWarnings.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Pilot Cycle Cadence"
+              tone={pilotCadence.compliant ? "ok" : "error"}
+              summary={`${getString(pilotCadence.cadence_status, "unknown")} • ${getNumber(pilotCadence.runs_last_7_days, 0)} in window`}
+              items={[
+                ["Latest cycle", getString(pilotCadence.latest_cycle_id, "n/a")],
+                ["Latest run", getString(pilotCadence.latest_run_at, "n/a")],
+                ["Average gap hours", `${getNumber(pilotCadence.average_gap_hours, 0).toFixed(2)}`],
+                ["Next due", getString(pilotCadence.next_cycle_due_at, "n/a")],
+                ["Missed cycle warning", getBooleanBadge(pilotCadence.missed_cycle_warning).label],
+                ["Window days", String(getNumber(pilotCadence.warning_threshold_days, 7))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Review Cadence"
+              tone={governanceCadence.compliant ? "ok" : "error"}
+              summary={`${getString(governanceCadence.cadence_status, "unknown")} • ${getNumber(governanceCadence.runs_last_7_days, 0)} in window`}
+              items={[
+                ["Latest review", getString(governanceCadence.latest_export_id, "n/a")],
+                ["Latest review at", getString(governanceCadence.latest_review_at, "n/a")],
+                ["Average gap hours", `${getNumber(governanceCadence.average_gap_hours, 0).toFixed(2)}`],
+                ["Next due", getString(governanceCadence.next_review_due_at, "n/a")],
+                ["Overdue warning", getBooleanBadge(governanceCadence.overdue_governance_review_warning).label],
+                ["Window days", String(getNumber(governanceCadence.warning_threshold_days, 7))],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <MetricPanel
+              title="Stability Trend Checkpoints"
+              tone={cadenceStability.cadence_compliant ? "ok" : "error"}
+              summary={`${getNumber(cadenceStability.latest_score, 0).toFixed(2)} • ${getString(cadenceStability.latest_grade, "unstable")}`}
+              items={[
+                ["Latest score", `${getNumber(cadenceStability.latest_score, 0).toFixed(2)}`],
+                ["Latest grade", getString(cadenceStability.latest_grade, "unstable")],
+                ["Latest checkpoint", getString(cadenceStability.latest_generated_at, "n/a")],
+                ["Drift warnings", String(Array.isArray(cadenceStability.drift_warnings) ? cadenceStability.drift_warnings.length : 0)],
+                ["Cycle count", String(getNumber(cadenceStability.stability_cycle_count, 0))],
+                ["Rehearsal count", String(getNumber(cadenceStability.stability_rehearsal_count, 0))],
+              ]}
+            />
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Cadence Tracking</h3>
+                <StatusBadge label={`${cadenceHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Type</th>
+                      <th className="p-3 text-left">ID</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cadenceHistory.length ? (
+                      cadenceHistory.map((item: Record<string, any>) => (
+                        <tr key={`${getString(item.kind, "cadence")}-${getString(item.id, Math.random().toString())}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.kind, "cadence")}</td>
+                          <td className="p-3">{getString(item.id, "n/a")}</td>
+                          <td className="p-3 text-right">
+                            {getNumber(item.readiness_score ?? item.stability_score ?? 0, 0).toFixed(2)}
+                          </td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.status, "unknown")}
+                              tone={item.status === "PASS" ? "ok" : item.status === "FAIL" ? "error" : "neutral"}
+                            />
+                          </td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No cadence tracking data is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Operational Review Board</h2>
+              <p className="text-sm text-slate-400">
+                Read-only institutional governance review for recurring pilot oversight, exceptions, and escalation tracking.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only review board" : "Read-only review board"}
+              tone="neutral"
+            />
+          </div>
+
+          {reviewBoardWarnings.length ? (
+            <div className="space-y-3">
+              {reviewBoardWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Governance review-board status is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Review-Board Status"
+              tone={reviewBoardStatus === "ok" ? "ok" : reviewBoardStatus === "watch" ? "neutral" : "error"}
+              summary={`${getString(reviewBoardSummary.latest_recommendation, "review_required")} • ${reviewBoardScore.toFixed(2)}`}
+              items={[
+                ["Status", reviewBoardStatus],
+                ["Score", reviewBoardScore.toFixed(2)],
+                ["Latest review", getString(reviewBoardLatest.latest_session?.review_id, "n/a")],
+                ["Latest readiness", `${getNumber(reviewBoardSummary.latest_readiness_score, 0).toFixed(2)}`],
+                ["Latest trend", getString(reviewBoardSummary.latest_trend, "stable")],
+                ["Sessions", String(getNumber(reviewBoardSummary.session_count, 0))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Review History"
+              tone="neutral"
+              summary={`${reviewBoardHistory.length} review session(s)`}
+              items={[
+                ["Runs last 7 days", String(getNumber(reviewBoardHistoryCadence.runs_last_7_days, 0))],
+                ["Average gap hours", `${getNumber(reviewBoardHistoryCadence.average_gap_hours, 0).toFixed(2)}`],
+                ["Most recent", getString(reviewBoardHistoryCadence.most_recent_review_at, "n/a")],
+                ["Previous", getString(reviewBoardHistoryCadence.previous_review_at, "n/a")],
+                ["Cadence status", getString(reviewBoardHistoryCadence.status, "unknown")],
+                ["Window days", String(getNumber(reviewBoardHistoryCadence.window_days, 7))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Exceptions"
+              tone={reviewBoardOutstanding.length || reviewBoardExceptions.length ? "error" : "ok"}
+              summary={`${reviewBoardOutstanding.length} outstanding / ${reviewBoardExceptions.length} unresolved`}
+              items={[
+                ["Outstanding actions", String(reviewBoardOutstanding.length)],
+                ["Unresolved exceptions", String(reviewBoardExceptions.length)],
+                ["Escalation items", String(getNumber(reviewBoardEscalation.count, 0))],
+                ["Submission lock", getString(reviewBoardLatest.submission_lock_status, "unknown")],
+                ["Dry-run", getString(reviewBoardLatest.dry_run_status, "unknown")],
+                ["NO-GO", getString(reviewBoardLatest.no_go_status, "unknown")],
+              ]}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Review-Board History</h3>
+              <StatusBadge label={`${reviewBoardHistory.length} session(s)`} tone="neutral" />
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="p-3 text-left">Review</th>
+                    <th className="p-3 text-left">Status</th>
+                    <th className="p-3 text-right">Score</th>
+                    <th className="p-3 text-right">Outstanding</th>
+                    <th className="p-3 text-right">Exceptions</th>
+                    <th className="p-3 text-left">Generated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviewBoardHistory.length ? (
+                    reviewBoardHistory.map((item: Record<string, any>) => (
+                      <tr key={getString(item.review_id, Math.random().toString())} className="border-t border-slate-800">
+                        <td className="p-3 font-medium">{getString(item.review_id, "n/a")}</td>
+                        <td className="p-3">
+                          <StatusBadge
+                            label={getString(item.review_board_status, "unknown")}
+                            tone={item.review_board_status === "ok" ? "ok" : item.review_board_status === "watch" ? "neutral" : "error"}
+                          />
+                        </td>
+                        <td className="p-3 text-right">{getNumber(item.readiness_score, 0).toFixed(2)}</td>
+                        <td className="p-3 text-right">{Array.isArray(item.outstanding_governance_actions) ? item.outstanding_governance_actions.length : 0}</td>
+                        <td className="p-3 text-right">{Array.isArray(item.unresolved_operational_exceptions) ? item.unresolved_operational_exceptions.length : 0}</td>
+                        <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="p-4 text-slate-400" colSpan={6}>
+                        No governance review-board history is available yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Recurring Controlled Pilot Cycles</h2>
+              <p className="text-sm text-slate-400">
+                Longitudinal pilot-cycle oversight with recurring readiness, NO-GO, governance, and stability summaries.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only recurring cycles" : "Read-only recurring cycles"}
+              tone="neutral"
+            />
+          </div>
+
+          {recurringCycleWarnings.length ? (
+            <div className="space-y-3">
+              {recurringCycleWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Recurring controlled pilot cycles are within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Recurring Cycle Status"
+              tone={recurringCycleStatus === "ok" ? "ok" : recurringCycleStatus === "watch" ? "neutral" : "error"}
+              summary={`${recurringCycleGrade} • ${recurringCycleScore.toFixed(2)}`}
+              items={[
+                ["Status", recurringCycleStatus],
+                ["Score", recurringCycleScore.toFixed(2)],
+                ["Grade", recurringCycleGrade],
+                ["Latest cycle", getString(recurringCycleLatest.cycle_id, "n/a")],
+                ["Total cycles", String(getNumber(recurringCycleSummaryCounts.PASS, 0) + getNumber(recurringCycleSummaryCounts.WARN, 0) + getNumber(recurringCycleSummaryCounts.FAIL, 0))],
+                ["History entries", String(recurringCyclesHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Compliance"
+              tone={getString(recurringCompliance.status, "PASS") === "PASS" ? "ok" : getString(recurringCompliance.status, "PASS") === "WARN" ? "neutral" : "error"}
+              summary={`${getNumber(recurringCompliance.compliance_rate, 0).toFixed(2)}% compliant`}
+              items={[
+                ["Compliance rate", `${getNumber(recurringCompliance.compliance_rate, 0).toFixed(2)}%`],
+                ["Governance checkpoint", `${getNumber(recurringCompliance.governance_checkpoint_pass_rate, 0).toFixed(2)}%`],
+                ["Submission lock", `${getNumber(recurringCompliance.submission_lock_pass_rate, 0).toFixed(2)}%`],
+                ["Dry-run", `${getNumber(recurringCompliance.dry_run_pass_rate, 0).toFixed(2)}%`],
+                ["NO-GO clear", `${getNumber(recurringCompliance.no_go_clear_rate, 0).toFixed(2)}%`],
+                ["Operator acknowledgement", `${getNumber(recurringCompliance.operator_acknowledgement_rate, 0).toFixed(2)}%`],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Endurance"
+              tone={getNumber(recurringEndurance.clean_cycle_rate, 0) >= 85 ? "ok" : "neutral"}
+              summary={`${getNumber(recurringEndurance.clean_cycle_rate, 0).toFixed(2)}% clean cycles`}
+              items={[
+                ["Clean cycle rate", `${getNumber(recurringEndurance.clean_cycle_rate, 0).toFixed(2)}%`],
+                ["Readiness pass rate", `${getNumber(recurringEndurance.readiness_pass_rate, 0).toFixed(2)}%`],
+                ["Evidence generation", `${getNumber(recurringEndurance.evidence_generation_rate, 0).toFixed(2)}%`],
+                ["Stability snapshots", String(getNumber(recurringEndurance.stability_snapshot_count, 0))],
+                ["Trend", getString(recurringCycleTrends.readiness?.trend, "unknown")],
+                ["Delta", `${getNumber(recurringCycleTrends.readiness?.delta, 0).toFixed(2)}`],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Longitudinal Pilot History</h3>
+                <StatusBadge label={`${recurringCyclesHistory.length} cycle(s)`} tone="neutral" />
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Cycle</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-right">Artifacts</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recurringCyclesHistory.length ? (
+                      recurringCyclesHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.cycle_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.cycle_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.status, "unknown")}
+                              tone={item.status === "PASS" ? "ok" : item.status === "FAIL" ? "error" : "neutral"}
+                            />
+                          </td>
+                          <td className="p-3 text-right">{getNumber(item.readiness_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right">{getNumber(item.artifact_count, 0)}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No recurring pilot cycle history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Recurring Stability Snapshots</h3>
+                <StatusBadge label={`${recurringStability.length} snapshot(s)`} tone="neutral" />
+              </div>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Cycle</th>
+                      <th className="p-3 text-right">Queue</th>
+                      <th className="p-3 text-right">Worker</th>
+                      <th className="p-3 text-right">Telemetry</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recurringStability.length ? (
+                      recurringStability.map((item: Record<string, any>) => (
+                        <tr key={`${getString(item.cycle_id, "cycle")}-${getString(item.generated_at, Math.random().toString())}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.cycle_id, "n/a")}</td>
+                          <td className="p-3 text-right">{getString(item.queue_status, "n/a")}</td>
+                          <td className="p-3 text-right">{getString(item.worker_status, "n/a")}</td>
+                          <td className="p-3 text-right">{getString(item.telemetry_status, "n/a")}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No recurring stability snapshots are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </section>

@@ -6,7 +6,11 @@ from fastapi import APIRouter, Body, Query
 
 from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.operational_rehearsal_service import OperationalRehearsalService
+from app.services.pilot_cadence_service import PilotCadenceService
+from app.services.recurring_pilot_cycle_service import RecurringPilotCycleService
+from app.services.pilot_review_board_service import PilotReviewBoardService
 from app.services.pilot_evidence_pack_service import PilotEvidencePackService
+from app.services.operational_stability_service import OperationalStabilityService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -22,6 +26,22 @@ def rehearsal_service() -> OperationalRehearsalService:
 
 def pilot_evidence_service() -> PilotEvidencePackService:
     return PilotEvidencePackService()
+
+
+def cadence_service() -> PilotCadenceService:
+    return PilotCadenceService()
+
+
+def recurring_cycle_service() -> RecurringPilotCycleService:
+    return RecurringPilotCycleService()
+
+
+def review_board_service() -> PilotReviewBoardService:
+    return PilotReviewBoardService()
+
+
+def stability_service() -> OperationalStabilityService:
+    return OperationalStabilityService()
 
 
 @router.get("/status")
@@ -310,3 +330,63 @@ def pilot_evidence_governance_review() -> Dict[str, Any]:
 @router.get("/pilot-evidence/{pack_id}")
 def pilot_evidence_pack(pack_id: str) -> Dict[str, Any]:
     return pilot_evidence_service().get_pack(pack_id)
+
+
+@router.get("/stability")
+def stability(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return stability_service().list_stability(limit=limit)
+
+
+@router.get("/stability/latest")
+def stability_latest() -> Dict[str, Any]:
+    return stability_service().latest_stability()
+
+
+@router.get("/stability/history")
+def stability_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return stability_service().stability_history(limit=limit)
+
+
+@router.get("/cadence")
+def cadence(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return cadence_service().list_cadence(limit=limit)
+
+
+@router.get("/cadence/latest")
+def cadence_latest() -> Dict[str, Any]:
+    return cadence_service().latest_cadence()
+
+
+@router.get("/cadence/history")
+def cadence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return cadence_service().cadence_history(limit=limit)
+
+
+@router.get("/review-board")
+def review_board(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return review_board_service().list_review_board(limit=limit)
+
+
+@router.get("/review-board/latest")
+def review_board_latest() -> Dict[str, Any]:
+    return review_board_service().latest_review_board()
+
+
+@router.get("/review-board/history")
+def review_board_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return review_board_service().review_board_history(limit=limit)
+
+
+@router.get("/recurring-cycles")
+def recurring_cycles(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return recurring_cycle_service().list_recurring_cycles(limit=limit)
+
+
+@router.get("/recurring-cycles/latest")
+def recurring_cycles_latest() -> Dict[str, Any]:
+    return recurring_cycle_service().latest_recurring_cycles()
+
+
+@router.get("/recurring-cycles/history")
+def recurring_cycles_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return recurring_cycle_service().recurring_cycles_history(limit=limit)

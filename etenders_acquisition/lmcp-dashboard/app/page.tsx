@@ -76,6 +76,8 @@ type VisibilitySnapshot = {
   reviewBoardHistory: Array<Record<string, any>>;
   recurringCyclesLatest: Record<string, any> | null;
   recurringCyclesHistory: Array<Record<string, any>>;
+  exceptionsLatest: Record<string, any> | null;
+  exceptionsHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -153,6 +155,8 @@ export default function Home() {
     reviewBoardHistory: [],
     recurringCyclesLatest: null,
     recurringCyclesHistory: [],
+    exceptionsLatest: null,
+    exceptionsHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -198,6 +202,8 @@ export default function Home() {
       { key: "reviewBoardHistory", path: "/rfq-lifecycle/review-board/history?limit=8" },
       { key: "recurringCyclesLatest", path: "/rfq-lifecycle/recurring-cycles/latest" },
       { key: "recurringCyclesHistory", path: "/rfq-lifecycle/recurring-cycles/history?limit=8" },
+      { key: "exceptionsLatest", path: "/rfq-lifecycle/exceptions/latest" },
+      { key: "exceptionsHistory", path: "/rfq-lifecycle/exceptions/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -227,6 +233,8 @@ export default function Home() {
       reviewBoardHistory: [],
       recurringCyclesLatest: null,
       recurringCyclesHistory: [],
+      exceptionsLatest: null,
+      exceptionsHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -286,6 +294,11 @@ export default function Home() {
       } else if (key === "recurringCyclesHistory") {
         const cycles = data.cycle_history;
         next.recurringCyclesHistory = Array.isArray(cycles) ? cycles.slice(0, 8) : [];
+      } else if (key === "exceptionsLatest") {
+        next.exceptionsLatest = data;
+      } else if (key === "exceptionsHistory") {
+        const exceptions = data.classification_history;
+        next.exceptionsHistory = Array.isArray(exceptions) ? exceptions.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -345,12 +358,14 @@ export default function Home() {
   const deadQueues = Array.isArray(queueBacklog.isolated_dead_queues) ? queueBacklog.isolated_dead_queues : [];
   const reviewBoardWarnings = Array.isArray(visibility.reviewBoardLatest?.warnings) ? visibility.reviewBoardLatest.warnings : [];
   const recurringCycleWarnings = Array.isArray(visibility.recurringCyclesLatest?.warnings) ? visibility.recurringCyclesLatest.warnings : [];
+  const exceptionWarnings = Array.isArray(visibility.exceptionsLatest?.warnings) ? visibility.exceptionsLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
     ...(Array.isArray(visibility.rehearsalLatest?.warning_banners) ? visibility.rehearsalLatest.warning_banners : []),
     ...(Array.isArray(visibility.cadenceLatest?.warnings) ? visibility.cadenceLatest.warnings : []),
     ...recurringCycleWarnings,
+    ...exceptionWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -382,6 +397,8 @@ export default function Home() {
   const reviewBoardHistory = Array.isArray(visibility.reviewBoardHistory) ? visibility.reviewBoardHistory : [];
   const recurringCyclesLatest = visibility.recurringCyclesLatest || {};
   const recurringCyclesHistory = Array.isArray(visibility.recurringCyclesHistory) ? visibility.recurringCyclesHistory : [];
+  const exceptionsLatest = visibility.exceptionsLatest || {};
+  const exceptionsHistory = Array.isArray(visibility.exceptionsHistory) ? visibility.exceptionsHistory : [];
   const cadence = cadenceLatest.cadence || {};
   const pilotCadence = cadence.pilot_cycle_cadence || {};
   const governanceCadence = cadence.governance_review_cadence || {};
@@ -427,6 +444,13 @@ export default function Home() {
   const recurringCycleGrade = getString(recurringCyclesLatest.recurring_cycle_grade, "watch");
   const recurringCycleSummaryCounts = recurringCyclesLatest.summary_counts || {};
   const recurringCycleLatest = recurringCyclesLatest.latest_cycle || {};
+  const exceptionSummary = exceptionsLatest.exception_summary || {};
+  const remediationSummary = exceptionsLatest.remediation_status_summary || {};
+  const riskIndicators = exceptionsLatest.operational_risk_indicators || {};
+  const anomalySummary = exceptionsLatest.recurring_anomaly_summary || {};
+  const unresolvedExceptions = Array.isArray(exceptionsLatest.unresolved_exception_tracking) ? exceptionsLatest.unresolved_exception_tracking : [];
+  const resolvedExceptionHistory = Array.isArray(exceptionsLatest.resolved_exception_history) ? exceptionsLatest.resolved_exception_history : [];
+  const classificationHistory = Array.isArray(exceptionsLatest.classification_history) ? exceptionsLatest.classification_history : [];
   const latestStabilityCycle = stabilityLatest.latest_cycle || {};
   const latestStabilityExport = stabilityLatest.latest_governance_export || {};
 
@@ -1171,6 +1195,188 @@ export default function Home() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Operational Exception Classification</h2>
+              <p className="text-sm text-slate-400">
+                Read-only classification and remediation tracking for recurring pilot-cycle anomalies.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only exceptions" : "Read-only exceptions"}
+              tone="neutral"
+            />
+          </div>
+
+          {exceptionWarnings.length ? (
+            <div className="space-y-3">
+              {exceptionWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Operational exception status is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Exception Status"
+              tone={exceptionsLatest.exception_status === "ok" ? "ok" : exceptionsLatest.exception_status === "watch" ? "neutral" : "error"}
+              summary={`${getString(exceptionsLatest.exception_status, "watch")} • ${getNumber(exceptionSummary.total_exception_count, 0)} total`}
+              items={[
+                ["Total exceptions", String(getNumber(exceptionSummary.total_exception_count, 0))],
+                ["Open", String(getNumber(exceptionSummary.open_exception_count, 0))],
+                ["Resolved", String(getNumber(exceptionSummary.resolved_exception_count, 0))],
+                ["Latest exception", getString(anomalySummary.latest_exception_type, "none")],
+                ["Most common", getString(anomalySummary.most_common_exception_type, "none")],
+                ["History entries", String(classificationHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Remediation Tracking"
+              tone={getNumber(remediationSummary.unresolved_count, 0) > 0 ? "error" : "ok"}
+              summary={`${getNumber(remediationSummary.unresolved_count, 0)} unresolved / ${getNumber(remediationSummary.resolved_count, 0)} resolved`}
+              items={[
+                ["Unresolved", String(getNumber(remediationSummary.unresolved_count, 0))],
+                ["Resolved", String(getNumber(remediationSummary.resolved_count, 0))],
+                ["Open categories", String(Array.isArray(remediationSummary.open_categories) ? remediationSummary.open_categories.length : 0)],
+                ["Resolved categories", String(Array.isArray(remediationSummary.resolved_categories) ? remediationSummary.resolved_categories.length : 0)],
+                ["Risk score", `${getNumber(riskIndicators.latest_readiness_score, 0).toFixed(2)}`],
+                ["Latest exception age", `${getNumber(riskIndicators.latest_exception_age_hours, 0).toFixed(2)}h`],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Risk Indicators"
+              tone={riskIndicators.governance_compliance_risk || riskIndicators.systemic_failure_risk || riskIndicators.telemetry_degradation_risk || riskIndicators.queue_instability_risk || riskIndicators.retry_exhaustion_risk ? "error" : "ok"}
+              summary={`${Array.isArray(riskIndicators.repeated_exception_types) ? riskIndicators.repeated_exception_types.length : 0} repeated type(s)`}
+              items={[
+                ["Governance risk", getBooleanBadge(riskIndicators.governance_compliance_risk).label],
+                ["Systemic risk", getBooleanBadge(riskIndicators.systemic_failure_risk).label],
+                ["Telemetry risk", getBooleanBadge(riskIndicators.telemetry_degradation_risk).label],
+                ["Queue risk", getBooleanBadge(riskIndicators.queue_instability_risk).label],
+                ["Retry risk", getBooleanBadge(riskIndicators.retry_exhaustion_risk).label],
+                ["Operator risk", getBooleanBadge(riskIndicators.operator_intervention_risk).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Unresolved Exceptions</h3>
+                <StatusBadge label={`${unresolvedExceptions.length} open`} tone={unresolvedExceptions.length ? "error" : "ok"} />
+              </div>
+              <div className="mt-4 space-y-3">
+                {unresolvedExceptions.length ? unresolvedExceptions.map((item: Record<string, any>) => (
+                  <div key={getString(item.exception_id, Math.random().toString())} className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{getString(item.category, "unknown")}</p>
+                        <p className="text-xs text-slate-500">{getString(item.source, "source")}</p>
+                      </div>
+                      <StatusBadge label={getString(item.severity, "medium")} tone={item.severity === "critical" || item.severity === "high" ? "error" : "neutral"} />
+                    </div>
+                    <p className="mt-2 text-sm text-slate-300">{getString(item.message, "No message")}</p>
+                    <p className="mt-2 text-xs text-slate-500">Remediation: {getString(item.remediation_action, "n/a")}</p>
+                  </div>
+                )) : (
+                  <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+                    No unresolved operational exceptions are currently recorded in staging.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Resolved Exception History</h3>
+                <StatusBadge label={`${resolvedExceptionHistory.length} resolved`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Type</th>
+                      <th className="p-3 text-left">Source</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Resolved</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resolvedExceptionHistory.length ? (
+                      resolvedExceptionHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.exception_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.category, "n/a")}</td>
+                          <td className="p-3">{getString(item.source, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge label={getString(item.remediation_status, "resolved")} tone={item.remediation_status === "resolved" ? "ok" : "neutral"} />
+                          </td>
+                          <td className="p-3 text-slate-400">{getString(item.resolved_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No resolved exception history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Historical Anomalies</h3>
+              <StatusBadge label={`${exceptionsHistory.length} item(s)`} tone="neutral" />
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="p-3 text-left">Exception</th>
+                    <th className="p-3 text-left">Category</th>
+                    <th className="p-3 text-left">Severity</th>
+                    <th className="p-3 text-left">Remediation</th>
+                    <th className="p-3 text-left">Detected</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exceptionsHistory.length ? (
+                    exceptionsHistory.map((item: Record<string, any>) => (
+                      <tr key={getString(item.exception_id, Math.random().toString())} className="border-t border-slate-800">
+                        <td className="p-3 font-medium">{getString(item.exception_id, "n/a")}</td>
+                        <td className="p-3">{getString(item.category, "n/a")}</td>
+                        <td className="p-3">
+                          <StatusBadge label={getString(item.severity, "medium")} tone={item.severity === "critical" || item.severity === "high" ? "error" : "neutral"} />
+                        </td>
+                        <td className="p-3 text-slate-300">{getString(item.remediation_action, "n/a")}</td>
+                        <td className="p-3 text-slate-400">{getString(item.detected_at, "n/a")}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="p-4 text-slate-400" colSpan={5}>
+                        No historical anomalies are available yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </section>

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Query
 from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.operational_rehearsal_service import OperationalRehearsalService
 from app.services.pilot_cadence_service import PilotCadenceService
+from app.services.operational_exception_service import OperationalExceptionService
 from app.services.recurring_pilot_cycle_service import RecurringPilotCycleService
 from app.services.pilot_review_board_service import PilotReviewBoardService
 from app.services.pilot_evidence_pack_service import PilotEvidencePackService
@@ -34,6 +35,10 @@ def cadence_service() -> PilotCadenceService:
 
 def recurring_cycle_service() -> RecurringPilotCycleService:
     return RecurringPilotCycleService()
+
+
+def exception_service() -> OperationalExceptionService:
+    return OperationalExceptionService()
 
 
 def review_board_service() -> PilotReviewBoardService:
@@ -390,3 +395,18 @@ def recurring_cycles_latest() -> Dict[str, Any]:
 @router.get("/recurring-cycles/history")
 def recurring_cycles_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return recurring_cycle_service().recurring_cycles_history(limit=limit)
+
+
+@router.get("/exceptions")
+def exceptions(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return exception_service().list_exceptions(limit=limit)
+
+
+@router.get("/exceptions/latest")
+def exceptions_latest() -> Dict[str, Any]:
+    return exception_service().latest_exceptions()
+
+
+@router.get("/exceptions/history")
+def exceptions_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return exception_service().exceptions_history(limit=limit)

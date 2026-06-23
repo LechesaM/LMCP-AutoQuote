@@ -19,6 +19,7 @@ from app.services.rfq_recovery_service import RfqRecoveryService, classify_failu
 from app.services.rfq_state_store import PROJECT_ROOT, RfqStateStore, utc_now_iso
 from app.services.live_rfq_store import summarize_rfq_document_intelligence as _summarize_rfq_document_intelligence
 from app.services.validation_readiness_service import build_validation_readiness
+from app.operations.structured_logging import log_rfq_lifecycle_event
 
 
 LIFECYCLE_STATES = [
@@ -517,6 +518,19 @@ class RfqLifecycleService:
         trace.setdefault("timeline_history", []).append(row)
         try:
             self.store.append_audit_events([row])
+        except Exception:
+            pass
+        try:
+            log_rfq_lifecycle_event(
+                event,
+                "RFQ lifecycle event recorded",
+                rfq_id=str(item.get("rfq_id") or ""),
+                tender_id=str(item.get("tender_id") or ""),
+                workflow_stage=str(item.get("current_state") or ""),
+                status="ok",
+                reason=str(extra.get("reason") or ""),
+                details=extra,
+            )
         except Exception:
             pass
 

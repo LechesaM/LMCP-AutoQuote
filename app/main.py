@@ -33,7 +33,9 @@ except Exception:  # pragma: no cover - optional runtime dependency
 from app.api.router_registry import RouterSpec, iter_router_specs
 from app.config import settings
 from app.database import Base, engine
+from app.deployment.request_id import RequestIdMiddleware
 import app.models  # noqa: F401
+from app.operations.structured_logging import log_runtime_diagnostic
 from app.monitoring.health_service import get_system_health
 from app.monitoring.workflow_monitor import get_workflow_summary
 from app.legacy_router_quarantine import QUARANTINED_ROOT_ROUTER_MODULES
@@ -262,6 +264,15 @@ async def lifespan(app: FastAPI):
     logger.info("Portal submission static path: %s", settings.portal_submission_dir)
     logger.info("Final submission static path: %s", settings.final_submission_dir)
     logger.info("Proof center static path: %s", settings.proof_center_dir)
+    log_runtime_diagnostic(
+        "startup",
+        "LMCP AutoQuote API startup complete",
+        environment=settings.environment,
+        database_startup_degraded=bool(app.state.database_startup_degraded),
+        loaded_router_count=len(report["loaded"]),
+        failed_router_count=len(report["failures"]),
+        duplicate_route_count=len(report["duplicates"]),
+    )
     yield
     logger.info("LMCP AutoQuote API shutdown complete")
 
@@ -279,6 +290,7 @@ def build_application() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RequestIdMiddleware)
 
     mounts = (
         ("/downloads", settings.monthly_quotes_dir, "downloads"),
@@ -367,13 +379,15 @@ def health() -> Dict[str, Any]:
 
 @app.get("/status")
 def status() -> Dict[str, Any]:
-    return {
+    payload = {
         "api_status": "alive",
         "database": _probe_database_connectivity(),
         "broker": _probe_broker_connectivity(),
         "environment": settings.environment,
         "timestamp": _utc_now_iso(),
     }
+    log_runtime_diagnostic("status", "Runtime status requested", environment=settings.environment, status_payload=payload)
+    return payload
 
 
 @app.get("/health/system")

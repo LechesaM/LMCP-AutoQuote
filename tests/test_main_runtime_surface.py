@@ -18,6 +18,7 @@ def test_main_exposes_frontend_runtime_surface() -> None:
         "/telemetry/operational-health",
         "/telemetry/qualification",
         "/operations/source-health-details",
+        "/rfq-lifecycle/upload-dry-run/status",
         "/observability/prometheus",
         "/observability/grafana",
         "/observability/sentry",

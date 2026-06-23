@@ -15,6 +15,7 @@ class QueueJobStatus(str, Enum):
 class QueueJobType(str, Enum):
     RFQ_EXTRACTION = "rfq_extraction"
     PRICING = "pricing"
+    QUOTE_GENERATION = "quote_generation"
     APPROVAL_TRACKING = "approval_tracking"
     SUBMISSION_REVIEW = "submission_review"
     PROOF_CAPTURE = "proof_capture"

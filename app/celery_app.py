@@ -3,8 +3,17 @@ from __future__ import annotations
 import os
 
 from celery import Celery
+from celery import signals
 from celery.schedules import crontab
 from kombu import Queue
+
+from app.operations.structured_logging import (
+    build_celery_headers,
+    clear_observability_context,
+    log_worker_event,
+    set_observability_context,
+)
+from app.orchestration.worker_supervision import record_worker_heartbeat
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis://redis:6379/0"))
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://redis:6379/0"))
@@ -114,3 +123,84 @@ try:
     import app.tasks.submission_scheduler_tasks  # noqa: F401
 except Exception:
     pass
+
+
+@signals.before_task_publish.connect(weak=False)
+def _inject_correlation_headers(sender=None, headers=None, body=None, **kwargs):
+    if isinstance(headers, dict):
+        headers.update(build_celery_headers(task_name=str(sender or headers.get("task") or "")))
+
+
+@signals.task_prerun.connect(weak=False)
+def _task_prerun_handler(task_id=None, task=None, args=None, kwargs=None, **extra):
+    request = getattr(task, "request", None)
+    headers = getattr(request, "headers", {}) if request is not None else {}
+    context = {
+        "request_id": headers.get("request_id") or headers.get("x-request-id") or task_id or "",
+        "trace_id": headers.get("trace_id") or headers.get("x-trace-id") or headers.get("request_id") or task_id or "",
+        "rfq_id": headers.get("rfq_id") or "",
+        "tender_id": headers.get("tender_id") or "",
+        "workflow_stage": headers.get("workflow_stage") or "",
+        "task_id": task_id or "",
+        "worker_id": headers.get("worker_id") or "",
+    }
+    set_observability_context(**context)
+    try:
+        if request is not None:
+            setattr(request, "_lmcp_observability_context", context)
+    except Exception:
+        pass
+    worker_id = context["worker_id"] or getattr(task, "hostname", "") or "celery-worker"
+    queue_name = ""
+    try:
+        queue_name = str(getattr(request, "delivery_info", {}).get("routing_key") or getattr(request, "delivery_info", {}).get("exchange") or "")
+    except Exception:
+        queue_name = ""
+    record_worker_heartbeat(
+        worker_id,
+        status="busy",
+        queue_name=queue_name,
+        task_id=str(task_id or ""),
+        task_name=str(getattr(task, "name", "") or ""),
+        details={"phase": "started"},
+    )
+    log_worker_event(
+        "task_started",
+        "Celery task started",
+        worker_id=worker_id,
+        task_id=str(task_id or ""),
+        task_name=str(getattr(task, "name", "") or ""),
+        queue_name=queue_name,
+        status="started",
+    )
+
+
+@signals.task_postrun.connect(weak=False)
+def _task_postrun_handler(task_id=None, task=None, args=None, kwargs=None, retval=None, state=None, **extra):
+    request = getattr(task, "request", None)
+    headers = getattr(request, "headers", {}) if request is not None else {}
+    worker_id = str(headers.get("worker_id") or getattr(task, "hostname", "") or "celery-worker")
+    queue_name = ""
+    try:
+        queue_name = str(getattr(request, "delivery_info", {}).get("routing_key") or getattr(request, "delivery_info", {}).get("exchange") or "")
+    except Exception:
+        queue_name = ""
+    final_status = str(state or "SUCCESS").lower()
+    record_worker_heartbeat(
+        worker_id,
+        status="healthy" if final_status in {"success", "ok"} else "degraded",
+        queue_name=queue_name,
+        task_id=str(task_id or ""),
+        task_name=str(getattr(task, "name", "") or ""),
+        details={"phase": "finished", "state": state},
+    )
+    log_worker_event(
+        "task_finished",
+        "Celery task finished",
+        worker_id=worker_id,
+        task_id=str(task_id or ""),
+        task_name=str(getattr(task, "name", "") or ""),
+        queue_name=queue_name,
+        status=final_status,
+    )
+    clear_observability_context()

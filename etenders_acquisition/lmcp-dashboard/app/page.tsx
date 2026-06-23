@@ -102,6 +102,8 @@ type VisibilitySnapshot = {
   activationHistory: Array<Record<string, any>>;
   supervisionCommandLatest: Record<string, any> | null;
   supervisionCommandHistory: Array<Record<string, any>>;
+  operationsAuditLatest: Record<string, any> | null;
+  operationsAuditHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -223,6 +225,8 @@ export default function Home() {
     activationHistory: [],
     supervisionCommandLatest: null,
     supervisionCommandHistory: [],
+    operationsAuditLatest: null,
+    operationsAuditHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -312,6 +316,8 @@ export default function Home() {
       { key: "activationHistory", path: "/rfq-lifecycle/activation-governance/history?limit=8" },
       { key: "supervisionCommandLatest", path: "/rfq-lifecycle/supervision-command/latest" },
       { key: "supervisionCommandHistory", path: "/rfq-lifecycle/supervision-command/history?limit=8" },
+      { key: "operationsAuditLatest", path: "/rfq-lifecycle/operations-audit/latest" },
+      { key: "operationsAuditHistory", path: "/rfq-lifecycle/operations-audit/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -385,6 +391,8 @@ export default function Home() {
       activationHistory: [],
       supervisionCommandLatest: null,
       supervisionCommandHistory: [],
+      operationsAuditLatest: null,
+      operationsAuditHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -527,6 +535,11 @@ export default function Home() {
       } else if (key === "supervisionCommandHistory") {
         const items = data.supervision_governance_history;
         next.supervisionCommandHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "operationsAuditLatest") {
+        next.operationsAuditLatest = data;
+      } else if (key === "operationsAuditHistory") {
+        const items = data.operations_audit_history;
+        next.operationsAuditHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -730,6 +743,25 @@ export default function Home() {
   const supervisionCommandSla = supervisionCommandLatest.supervision_sla_visibility || {};
   const supervisionCommandFreeze = supervisionCommandLatest.operational_freeze_indicators || {};
   const supervisionCommandHistorySummary = supervisionCommandLatest.supervision_governance_history_summary || {};
+  const operationsAuditLatest = visibility.operationsAuditLatest || {};
+  const operationsAuditHistory = Array.isArray(visibility.operationsAuditHistory) ? visibility.operationsAuditHistory : [];
+  const operationsAuditWarnings = Array.isArray(operationsAuditLatest.warnings) ? operationsAuditLatest.warnings : [];
+  const operationsAuditStatus = getString(operationsAuditLatest.operations_audit_status, "watch");
+  const operationsAuditAuthority = getString(operationsAuditLatest.operations_audit_authority, "WATCH");
+  const operationsAuditScore = getNumber(operationsAuditLatest.operations_audit_score, 0);
+  const operationsAuditGrade = getString(operationsAuditLatest.operations_audit_grade, "blocked");
+  const operationsAuditRetention = operationsAuditLatest.audit_retention_indicators || {};
+  const operationsAuditCompleteness = operationsAuditLatest.audit_completeness_indicators || {};
+  const operationsAuditRolloutActions = Array.isArray(operationsAuditLatest.supervised_rollout_actions) ? operationsAuditLatest.supervised_rollout_actions : [];
+  const operationsAuditEscalations = Array.isArray(operationsAuditLatest.escalation_acknowledgements) ? operationsAuditLatest.escalation_acknowledgements : [];
+  const operationsAuditFreezeHistory = Array.isArray(operationsAuditLatest.operational_freeze_history) ? operationsAuditLatest.operational_freeze_history : [];
+  const operationsAuditOverrideHistory = Array.isArray(operationsAuditLatest.governance_override_history) ? operationsAuditLatest.governance_override_history : [];
+  const operationsAuditOperatorAckHistory = Array.isArray(operationsAuditLatest.operator_acknowledgement_history) ? operationsAuditLatest.operator_acknowledgement_history : [];
+  const operationsAuditSupervisionApprovalHistory = Array.isArray(operationsAuditLatest.supervision_approval_history) ? operationsAuditLatest.supervision_approval_history : [];
+  const operationsAuditReleaseDecisionHistory = Array.isArray(operationsAuditLatest.release_decision_history) ? operationsAuditLatest.release_decision_history : [];
+  const operationsAuditHistorySummary = operationsAuditLatest.operations_audit_history_summary || {};
+  const operationsAuditLatestRollout = operationsAuditLatest.latest_rollout_validation || {};
+  const operationsAuditLatestRelease = operationsAuditLatest.latest_release_certification || {};
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
@@ -775,6 +807,7 @@ export default function Home() {
     ...productionOperationalizationWarnings,
     ...activationWarnings,
     ...supervisionCommandWarnings,
+    ...operationsAuditWarnings,
     ...operatorSessionWarnings,
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
@@ -1573,6 +1606,141 @@ export default function Home() {
                 <div>Assigned RFQs: {String(Array.isArray(supervisionCommandCoverage.coverage_assigned_rfqs) ? supervisionCommandCoverage.coverage_assigned_rfqs.length : 0)}</div>
                 <div>Pending approvals: {String(Array.isArray(supervisionCommandCoverage.coverage_pending_approvals) ? supervisionCommandCoverage.coverage_pending_approvals.length : 0)}</div>
                 <div>Score trend: {getString(supervisionCommandHistorySummary.score_history?.trend, "stable")}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Production Operations Audit</h2>
+              <p className="text-sm text-slate-400">
+                Immutable audit visibility for supervised rollout actions, acknowledgements, freeze history, and institutional retention.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only audit" : "Read-only audit"}
+              tone="neutral"
+            />
+          </div>
+
+          {operationsAuditWarnings.length ? (
+            <div className="space-y-3">
+              {operationsAuditWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Production operations audit status is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Audit Governance"
+              tone={operationsAuditStatus === "ok" ? "ok" : operationsAuditStatus === "blocked" ? "error" : "neutral"}
+              summary={`${operationsAuditGrade} • ${operationsAuditScore.toFixed(2)} • ${getString(operationsAuditHistorySummary.score_history?.trend, "stable")}`}
+              items={[
+                ["Status", operationsAuditStatus],
+                ["Authority", operationsAuditAuthority],
+                ["Score", operationsAuditScore.toFixed(2)],
+                ["Grade", operationsAuditGrade],
+                ["History", String(operationsAuditHistory.length)],
+                ["Trend", getString(operationsAuditHistorySummary.score_history?.trend, "stable")],
+                ["Latest rollout score", getNumber(operationsAuditLatestRollout?.rollout_governance_score, 0).toFixed(2)],
+                ["Audit history", String(Array.isArray(operationsAuditLatest.institutional_audit_history) ? operationsAuditLatest.institutional_audit_history.length : 0)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Audit Retention & Completeness"
+              tone={operationsAuditRetention.retention_compliant && operationsAuditCompleteness.audit_completeness_ready ? "ok" : "error"}
+              summary={`${Object.values(operationsAuditRetention || {}).filter(Boolean).length} retained / ${Object.values(operationsAuditCompleteness || {}).filter(Boolean).length} complete`}
+              items={[
+                ["Retained", getBooleanBadge(operationsAuditRetention.retention_compliant).label],
+                ["Rollout retained", getBooleanBadge(operationsAuditRetention.rollout_validation_retained).label],
+                ["Release retained", getBooleanBadge(operationsAuditRetention.release_certification_retained).label],
+                ["Completeness", getBooleanBadge(operationsAuditCompleteness.audit_completeness_ready).label],
+                ["Retention indicators", String(Object.values(operationsAuditRetention || {}).filter(Boolean).length)],
+                ["Completeness indicators", String(Object.values(operationsAuditCompleteness || {}).filter(Boolean).length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Audit Activity"
+              tone={operationsAuditFreezeHistory.some((item) => item.freeze_active) ? "error" : "ok"}
+              summary={`${operationsAuditRolloutActions.length} rollout / ${operationsAuditReleaseDecisionHistory.length} release`}
+              items={[
+                ["Rollout actions", String(operationsAuditRolloutActions.length)],
+                ["Escalations", String(operationsAuditEscalations.length)],
+                ["Freeze history", String(operationsAuditFreezeHistory.length)],
+                ["Overrides", String(operationsAuditOverrideHistory.length)],
+                ["Operator acks", String(operationsAuditOperatorAckHistory.length)],
+                ["Supervision approvals", String(operationsAuditSupervisionApprovalHistory.length)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Operations Audit History</h3>
+                <StatusBadge label={`${operationsAuditHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operationsAuditHistory.length ? (
+                      operationsAuditHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.operations_audit_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.operations_audit_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.operations_audit_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No operations audit history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Audit Indicators</h3>
+                <StatusBadge label={operationsAuditAuthority} tone={operationsAuditAuthority === "GO" ? "ok" : operationsAuditAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Rollout actions: {String(operationsAuditRolloutActions.length)}</div>
+                <div>Escalation acknowledgements: {String(operationsAuditEscalations.length)}</div>
+                <div>Freeze history: {String(operationsAuditFreezeHistory.length)}</div>
+                <div>Override history: {String(operationsAuditOverrideHistory.length)}</div>
+                <div>Operator acknowledgements: {String(operationsAuditOperatorAckHistory.length)}</div>
+                <div>Supervision approvals: {String(operationsAuditSupervisionApprovalHistory.length)}</div>
+                <div>Release decisions: {String(operationsAuditReleaseDecisionHistory.length)}</div>
+                <div>Retention compliant: {getBooleanBadge(operationsAuditRetention.retention_compliant).label}</div>
+                <div>Completeness ready: {getBooleanBadge(operationsAuditCompleteness.audit_completeness_ready).label}</div>
+                <div>Latest release authority: {getString(operationsAuditLatestRelease?.release_authority, "WATCH")}</div>
+                <div>Release status: {getString(operationsAuditLatestRelease?.certification_status, "WATCH")}</div>
+                <div>Audit history entries: {String(Array.isArray(operationsAuditLatest.institutional_audit_history) ? operationsAuditLatest.institutional_audit_history.length : 0)}</div>
               </div>
             </div>
           </div>

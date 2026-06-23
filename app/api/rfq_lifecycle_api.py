@@ -24,6 +24,7 @@ from app.services.production_operationalization_service import ProductionOperati
 from app.services.production_release_governance_service import ProductionReleaseGovernanceService
 from app.services.activation_governance_service import ActivationGovernanceService
 from app.services.production_supervision_command_service import ProductionSupervisionCommandService
+from app.services.production_audit_governance_service import ProductionAuditGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
@@ -144,6 +145,10 @@ def activation_governance_service() -> ActivationGovernanceService:
 
 def supervision_command_service() -> ProductionSupervisionCommandService:
     return ProductionSupervisionCommandService()
+
+
+def production_audit_governance_service() -> ProductionAuditGovernanceService:
+    return ProductionAuditGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -665,6 +670,21 @@ def supervision_command_latest() -> Dict[str, Any]:
 @router.get("/supervision-command/history")
 def supervision_command_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return supervision_command_service().supervision_command_history(limit=limit)
+
+
+@router.get("/operations-audit")
+def operations_audit(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_audit_governance_service().list_operations_audit(limit=limit)
+
+
+@router.get("/operations-audit/latest")
+def operations_audit_latest() -> Dict[str, Any]:
+    return production_audit_governance_service().latest_operations_audit()
+
+
+@router.get("/operations-audit/history")
+def operations_audit_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_audit_governance_service().operations_audit_history(limit=limit)
 
 
 @router.get("/declaration")

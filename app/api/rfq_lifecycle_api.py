@@ -248,3 +248,10 @@ def run_upload_dry_run_endpoint(payload: Optional[Dict[str, Any]] = Body(default
         limit=int(payload.get("limit") or 5),
         dry_run=bool(payload.get("dry_run", True)),
     )
+
+
+@router.get("/upload-dry-run/status")
+def upload_dry_run_status() -> Dict[str, Any]:
+    from app.services.upload_dry_run_service import latest_upload_dry_run_status
+
+    return latest_upload_dry_run_status()

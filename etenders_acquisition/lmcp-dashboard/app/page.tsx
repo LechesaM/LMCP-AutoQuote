@@ -67,6 +67,9 @@ type VisibilitySnapshot = {
   rehearsalHistory: Array<Record<string, any>>;
   readinessLatest: Record<string, any> | null;
   readinessHistory: Array<Record<string, any>>;
+  pilotEvidenceLatest: Record<string, any> | null;
+  pilotEvidenceHistory: Array<Record<string, any>>;
+  governanceReview: Record<string, any> | null;
   warnings: string[];
 };
 
@@ -133,6 +136,9 @@ export default function Home() {
     rehearsalHistory: [],
     readinessLatest: null,
     readinessHistory: [],
+    pilotEvidenceLatest: null,
+    pilotEvidenceHistory: [],
+    governanceReview: null,
     warnings: [],
   });
 
@@ -167,6 +173,9 @@ export default function Home() {
       { key: "rehearsalHistory", path: "/rfq-lifecycle/rehearsals/history?limit=8" },
       { key: "readinessLatest", path: "/rfq-lifecycle/rehearsals/readiness" },
       { key: "readinessHistory", path: "/rfq-lifecycle/rehearsals/readiness/history?limit=8" },
+      { key: "pilotEvidenceLatest", path: "/rfq-lifecycle/pilot-evidence/latest" },
+      { key: "pilotEvidenceHistory", path: "/rfq-lifecycle/pilot-evidence/history?limit=8" },
+      { key: "governanceReview", path: "/rfq-lifecycle/pilot-evidence/governance-review" },
     ] as const;
 
     const settled = await Promise.allSettled(
@@ -185,6 +194,9 @@ export default function Home() {
       rehearsalHistory: [],
       readinessLatest: null,
       readinessHistory: [],
+      pilotEvidenceLatest: null,
+      pilotEvidenceHistory: [],
+      governanceReview: null,
       warnings: [],
     };
 
@@ -220,6 +232,13 @@ export default function Home() {
       } else if (key === "readinessHistory") {
         const runs = data.runs;
         next.readinessHistory = Array.isArray(runs) ? runs.slice(0, 8) : [];
+      } else if (key === "pilotEvidenceLatest") {
+        next.pilotEvidenceLatest = data;
+      } else if (key === "pilotEvidenceHistory") {
+        const packs = data.packs;
+        next.pilotEvidenceHistory = Array.isArray(packs) ? packs.slice(0, 8) : [];
+      } else if (key === "governanceReview") {
+        next.governanceReview = data;
       }
     }
 
@@ -296,6 +315,20 @@ export default function Home() {
   const readinessThresholds = readinessLatest.thresholds || {};
   const readinessIndicators = readinessLatest.warning_threshold_indicators || {};
   const readinessHistory = Array.isArray(visibility.readinessHistory) ? visibility.readinessHistory : [];
+  const pilotEvidenceLatest = visibility.pilotEvidenceLatest || {};
+  const pilotEvidenceSummary = pilotEvidenceLatest.summary || {};
+  const pilotEvidenceHistory = Array.isArray(visibility.pilotEvidenceHistory) ? visibility.pilotEvidenceHistory : [];
+  const governanceReview = visibility.governanceReview || {};
+  const noGoIndicators = Array.isArray(governanceReview.no_go_indicators) ? governanceReview.no_go_indicators : [];
+  const signOffChecklist = Array.isArray(governanceReview.operator_sign_off_checklist) ? governanceReview.operator_sign_off_checklist : [];
+  const governanceChecklist = Array.isArray(governanceReview.governance_review_checklist) ? governanceReview.governance_review_checklist : [];
+  const latestEvidenceLock = governanceReview.submission_lock_verification || {};
+  const latestEvidenceDryRun = (governanceReview.evidence_sections || {}).dry_run_enforcement_verification || {};
+  const pilotAuthorizationStatus = getString(governanceReview.pilot_authorization_status, "pending_review");
+  const latestEvidencePack = governanceReview.latest_evidence_pack || {};
+  const latestEvidencePackSummary = latestEvidencePack.summary || {};
+  const latestEvidencePackCounts = latestEvidencePackSummary.summary_counts || {};
+  const governanceHistory = governanceReview["PASS/WARN/FAIL_history"] || {};
 
   const readinessWarnings = [
     ...(readinessIndicators.score_below_threshold ? ["Readiness score below threshold"] : []),
@@ -504,6 +537,152 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Pilot Governance Review</h2>
+              <p className="text-sm text-slate-400">
+                Read-only sign-off review derived from the latest pilot evidence pack. No authorization controls are exposed.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only governance" : "Read-only governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {pilotAuthorizationStatus !== "authorized" ? (
+            <div className="space-y-3 rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+              <p className="font-semibold">Pilot authorization is not granted.</p>
+              {noGoIndicators.length ? <p className="text-sm text-amber-200">NO-GO indicators: {noGoIndicators.join("; ")}</p> : null}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Pilot authorization status is read-only and currently {pilotAuthorizationStatus}.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Latest Evidence Pack"
+              tone={pilotAuthorizationStatus === "authorized" ? "ok" : "neutral"}
+              summary={getString(pilotEvidenceLatest.pack_id, "No evidence pack")}
+              items={[
+                ["Generated", getString(pilotEvidenceLatest.generated_at, "n/a")],
+                ["Readiness score", `${getNumber(pilotEvidenceSummary.readiness_score, 0).toFixed(2)}`],
+                ["Readiness grade", getString(pilotEvidenceSummary.readiness_grade, "not_ready")],
+                ["Trend", getString(pilotEvidenceSummary.trend, "unknown")],
+                ["History entries", String(getNumber(pilotEvidenceSummary.history_count, 0))],
+                ["Lock source", getString(pilotEvidenceLatest.pack?.lock_source, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Sign-Off"
+              tone={pilotAuthorizationStatus === "authorized" ? "ok" : "error"}
+              summary={pilotAuthorizationStatus}
+              items={[
+                ["Readiness threshold", `${getNumber(governanceReview.readiness_threshold, 85).toFixed(2)}`],
+                ["No-GO indicators", String(noGoIndicators.length)],
+                ["Operator checklist", String(signOffChecklist.length)],
+                ["Governance checklist", String(governanceChecklist.length)],
+                ["Dry-run verified", getBooleanBadge(latestEvidenceDryRun.status === "PASS").label],
+                ["Submission lock verified", getBooleanBadge(latestEvidenceLock.status === "PASS").label],
+                ["PASS / WARN / FAIL", `${getNumber(latestEvidencePackCounts.PASS, 0)} / ${getNumber(latestEvidencePackCounts.WARN, 0)} / ${getNumber(latestEvidencePackCounts.FAIL, 0)}`],
+              ]}
+            />
+
+            <MetricPanel
+              title="Rehearsal Cadence"
+              tone="neutral"
+              summary={`${getNumber(pilotEvidenceSummary.history_count, 0)} evidence pack(s)`}
+              items={[
+                ["Runs last 7 days", String(getNumber(pilotEvidenceSummary.cadence?.runs_last_7_days, 0))],
+                ["Average gap hours", `${getNumber(pilotEvidenceSummary.cadence?.average_gap_hours, 0).toFixed(2)}`],
+                ["Most recent", getString(pilotEvidenceSummary.cadence?.most_recent_run_at, "n/a")],
+                ["Previous", getString(pilotEvidenceSummary.cadence?.previous_run_at, "n/a")],
+                ["PASS/WARN/FAIL", JSON.stringify(governanceHistory.trends || {})],
+                ["Evidence packs", String(pilotEvidenceHistory.length)],
+              ]}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Operator and Governance Checklist</h3>
+              <StatusBadge label={pilotAuthorizationStatus === "authorized" ? "Ready for review" : "Review required"} tone={pilotAuthorizationStatus === "authorized" ? "ok" : "error"} />
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                <h4 className="font-semibold text-slate-200">Operator Sign-Off Checklist</h4>
+                <ul className="mt-3 space-y-2 text-sm text-slate-300">
+                  {signOffChecklist.length ? signOffChecklist.map((item: Record<string, any>, index: number) => (
+                    <li key={`${item.item || "operator"}-${index}`} className="flex items-start justify-between gap-3">
+                      <span>{getString(item.item, "Checklist item")}</span>
+                      <StatusBadge label={getString(item.status, "unknown")} tone={item.status === "PASS" ? "ok" : item.status === "FAIL" ? "error" : "neutral"} />
+                    </li>
+                  )) : <li className="text-slate-500">No operator checklist items available.</li>}
+                </ul>
+              </div>
+
+              <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                <h4 className="font-semibold text-slate-200">Governance Review Checklist</h4>
+                <ul className="mt-3 space-y-2 text-sm text-slate-300">
+                  {governanceChecklist.length ? governanceChecklist.map((item: Record<string, any>, index: number) => (
+                    <li key={`${item.item || "governance"}-${index}`} className="flex items-start justify-between gap-3">
+                      <span>{getString(item.item, "Checklist item")}</span>
+                      <StatusBadge label={getString(item.status, "unknown")} tone={item.status === "PASS" ? "ok" : item.status === "FAIL" ? "error" : "neutral"} />
+                    </li>
+                  )) : <li className="text-slate-500">No governance checklist items available.</li>}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Evidence Pack History</h3>
+              <StatusBadge label={`${pilotEvidenceHistory.length} pack(s)`} tone="neutral" />
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="p-3 text-left">Pack</th>
+                    <th className="p-3 text-right">Score</th>
+                    <th className="p-3 text-right">PASS</th>
+                    <th className="p-3 text-right">WARN</th>
+                    <th className="p-3 text-right">FAIL</th>
+                    <th className="p-3 text-left">Generated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pilotEvidenceHistory.length ? (
+                    pilotEvidenceHistory.map((item: Record<string, any>) => (
+                      <tr key={getString(item.pack_id, Math.random().toString())} className="border-t border-slate-800">
+                        <td className="p-3 font-medium">{getString(item.pack_id, "n/a")}</td>
+                        <td className="p-3 text-right">{getNumber(item.readiness_score, 0).toFixed(2)}</td>
+                        <td className="p-3 text-right">{getNumber(item.summary_counts?.PASS, 0)}</td>
+                        <td className="p-3 text-right">{getNumber(item.summary_counts?.WARN, 0)}</td>
+                        <td className="p-3 text-right">{getNumber(item.summary_counts?.FAIL, 0)}</td>
+                        <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="p-4 text-slate-400" colSpan={6}>
+                        No evidence pack history found in the staging runtime.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 

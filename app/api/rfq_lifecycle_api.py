@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Query
 
 from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.operational_rehearsal_service import OperationalRehearsalService
+from app.services.pilot_evidence_pack_service import PilotEvidencePackService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -17,6 +18,10 @@ def service() -> RfqLifecycleService:
 
 def rehearsal_service() -> OperationalRehearsalService:
     return OperationalRehearsalService()
+
+
+def pilot_evidence_service() -> PilotEvidencePackService:
+    return PilotEvidencePackService()
 
 
 @router.get("/status")
@@ -285,3 +290,23 @@ def rehearsal_readiness_history(limit: int = Query(default=20, ge=1, le=100)) ->
 @router.get("/rehearsals/{run_id}")
 def rehearsal_run(run_id: str) -> Dict[str, Any]:
     return rehearsal_service().get_rehearsal(run_id)
+
+
+@router.get("/pilot-evidence/history")
+def pilot_evidence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return pilot_evidence_service().list_packs(limit=limit)
+
+
+@router.get("/pilot-evidence/latest")
+def pilot_evidence_latest() -> Dict[str, Any]:
+    return pilot_evidence_service().latest_pack()
+
+
+@router.get("/pilot-evidence/governance-review")
+def pilot_evidence_governance_review() -> Dict[str, Any]:
+    return pilot_evidence_service().governance_review()
+
+
+@router.get("/pilot-evidence/{pack_id}")
+def pilot_evidence_pack(pack_id: str) -> Dict[str, Any]:
+    return pilot_evidence_service().get_pack(pack_id)

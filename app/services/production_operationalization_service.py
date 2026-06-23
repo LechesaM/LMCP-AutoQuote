@@ -124,7 +124,7 @@ class ProductionOperationalizationService:
         workload = _safe_dict(session.get("operator_workload"))
         pending_approvals = _safe_list(workload.get("pending_approval_items"))
         assigned_rfqs = _safe_list(workload.get("assigned_rfqs"))
-        active_sessions = _safe_int(review.get("review_board_cadence", {}).get("runs_last_7_days"), 0)
+        active_sessions = _safe_int(_safe_dict(review.get("review_board_cadence")).get("runs_last_7_days"), 0)
         operator_role = _safe_str(session.get("operator_role"), "governance_reviewer")
         operator_name = _safe_str(session.get("operator_name"), "staging-governance-operator")
         score = mean([
@@ -156,7 +156,7 @@ class ProductionOperationalizationService:
         telemetry = self._telemetry()
         stability = _safe_dict(self.stability.latest_stability())
         health_score = mean([
-            _safe_float(lifecycle.get("system_health_trend", {}).get("score"), 0.0),
+            _safe_float(_safe_dict(lifecycle.get("system_health_trend")).get("score"), 0.0),
             _safe_float(telemetry.get("system_resilience_score"), 0.0),
             _safe_float(stability.get("stability_score"), 0.0),
         ])

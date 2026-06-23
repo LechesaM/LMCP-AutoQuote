@@ -11,6 +11,7 @@ from app.services.operational_exception_service import OperationalExceptionServi
 from app.services.operational_remediation_service import OperationalRemediationService
 from app.services.pilot_progression_service import PilotProgressionService
 from app.services.pilot_readiness_declaration_service import PilotReadinessDeclarationService
+from app.services.pilot_operator_session_service import PilotOperatorSessionService
 from app.services.recurring_pilot_cycle_service import RecurringPilotCycleService
 from app.services.pilot_review_board_service import PilotReviewBoardService
 from app.services.pilot_evidence_pack_service import PilotEvidencePackService
@@ -55,6 +56,10 @@ def progression_service() -> PilotProgressionService:
 
 def declaration_service() -> PilotReadinessDeclarationService:
     return PilotReadinessDeclarationService()
+
+
+def operator_session_service() -> PilotOperatorSessionService:
+    return PilotOperatorSessionService()
 
 
 def review_board_service() -> PilotReviewBoardService:
@@ -490,3 +495,18 @@ def declaration_latest() -> Dict[str, Any]:
 @router.get("/declaration/history")
 def declaration_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return declaration_service().declaration_history(limit=limit)
+
+
+@router.get("/operator-sessions")
+def operator_sessions(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return operator_session_service().list_operator_sessions(limit=limit)
+
+
+@router.get("/operator-sessions/latest")
+def operator_sessions_latest() -> Dict[str, Any]:
+    return operator_session_service().latest_operator_session()
+
+
+@router.get("/operator-sessions/history")
+def operator_sessions_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return operator_session_service().operator_session_history(limit=limit)

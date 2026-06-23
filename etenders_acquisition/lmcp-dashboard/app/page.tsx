@@ -86,6 +86,8 @@ type VisibilitySnapshot = {
   operationsSummaryHistory: Array<Record<string, any>>;
   declarationLatest: Record<string, any> | null;
   declarationHistory: Array<Record<string, any>>;
+  operatorSessionsLatest: Record<string, any> | null;
+  operatorSessionsHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -173,6 +175,8 @@ export default function Home() {
     operationsSummaryHistory: [],
     declarationLatest: null,
     declarationHistory: [],
+    operatorSessionsLatest: null,
+    operatorSessionsHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -228,6 +232,8 @@ export default function Home() {
       { key: "operationsSummaryHistory", path: "/rfq-lifecycle/operations-summary/history?limit=8" },
       { key: "declarationLatest", path: "/rfq-lifecycle/declaration/latest" },
       { key: "declarationHistory", path: "/rfq-lifecycle/declaration/history?limit=8" },
+      { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
+      { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -267,6 +273,8 @@ export default function Home() {
       operationsSummaryHistory: [],
       declarationLatest: null,
       declarationHistory: [],
+      operatorSessionsLatest: null,
+      operatorSessionsHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -351,6 +359,11 @@ export default function Home() {
       } else if (key === "declarationHistory") {
         const items = data.declaration_history;
         next.declarationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "operatorSessionsLatest") {
+        next.operatorSessionsLatest = data;
+      } else if (key === "operatorSessionsHistory") {
+        const items = data.operator_session_history;
+        next.operatorSessionsHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -420,6 +433,9 @@ export default function Home() {
   const declarationLatest = visibility.declarationLatest || {};
   const declarationHistory = Array.isArray(visibility.declarationHistory) ? visibility.declarationHistory : [];
   const declarationWarnings = Array.isArray(declarationLatest.warnings) ? declarationLatest.warnings : [];
+  const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
+  const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
+  const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -430,6 +446,7 @@ export default function Home() {
     ...progressionWarnings,
     ...operationsSummaryWarnings,
     ...declarationWarnings,
+    ...operatorSessionWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -756,6 +773,162 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Supervised Pilot Operator Sessions</h2>
+              <p className="text-sm text-slate-400">
+                Read-only operator session coverage, acknowledgements, approvals, and supervision windows.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only sessions" : "Read-only sessions"}
+              tone="neutral"
+            />
+          </div>
+
+          {operatorSessionWarnings.length ? (
+            <div className="space-y-3">
+              {operatorSessionWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Supervised operator sessions are within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Session Summary"
+              tone={getString(operatorSessionsLatest.operator_session_status, "watch") === "ok" ? "ok" : "neutral"}
+              summary={`${getNumber(operatorSessionsLatest.operator_supervision_score, 0).toFixed(2)} supervision score`}
+              items={[
+                ["Active sessions", String(getNumber(operatorSessionsLatest.active_operator_session_count, 0))],
+                ["Session status", getString(operatorSessionsLatest.operator_session_status, "watch")],
+                ["Coverage", `${getNumber(operatorSessionsLatest.supervision_coverage?.coverage_rate, 0).toFixed(2)}%`],
+                ["Workload", String(getNumber(operatorSessionsLatest.operator_workload?.assigned_rfq_count, 0))],
+                ["Pending approvals", String(getNumber(operatorSessionsLatest.operator_workload?.pending_approval_count, 0))],
+                ["Supervision grade", getString(operatorSessionsLatest.supervision_grade, "watch")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Readiness & Coverage"
+              tone={getString(operatorSessionsLatest.readiness_declaration_status, "WATCH") === "READY_FOR_CONTROLLED_PILOT" ? "ok" : "neutral"}
+              summary={getString(operatorSessionsLatest.readiness_declaration_status, "WATCH")}
+              items={[
+                ["Declaration grade", getString(operatorSessionsLatest.readiness_declaration_grade, "watch")],
+                ["Declaration score", getNumber(operatorSessionsLatest.readiness_declaration_score, 0).toFixed(2)],
+                ["Coverage rate", `${getNumber(operatorSessionsLatest.supervision_coverage?.coverage_rate, 0).toFixed(2)}%`],
+                ["Acknowledged", getBooleanBadge(operatorSessionsLatest.operator_acknowledgement?.acknowledged).label],
+                ["Sequence match", getBooleanBadge(operatorSessionsLatest.supervision_coverage?.approved_sequence_matches).label],
+                ["Window active", getBooleanBadge(operatorSessionsLatest.supervision_window?.active).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Approvals & Escalations"
+              tone={Array.isArray(operatorSessionsLatest.pending_approval_checkpoints) && operatorSessionsLatest.pending_approval_checkpoints.length ? "error" : "ok"}
+              summary={`${Array.isArray(operatorSessionsLatest.pending_approval_checkpoints) ? operatorSessionsLatest.pending_approval_checkpoints.length : 0} pending checkpoint(s)`}
+              items={[
+                ["SLA within limit", getBooleanBadge(operatorSessionsLatest.escalation_sla_tracking?.within_sla).label],
+                ["Operator", getString(operatorSessionsLatest.operator_name, "staging-governance-operator")],
+                ["Role", getString(operatorSessionsLatest.operator_role, "governance_reviewer")],
+                ["Active RFQs", String(getNumber(operatorSessionsLatest.active_rfq_count, 0))],
+                ["Unattended warnings", String(Array.isArray(operatorSessionsLatest.unattended_rfq_warnings) ? operatorSessionsLatest.unattended_rfq_warnings.length : 0)],
+                ["Latest session", getString(operatorSessionsLatest.operator_session_id, "n/a")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Assigned RFQs</h3>
+                <StatusBadge label={`${Array.isArray(operatorSessionsLatest.supervised_rfq_assignments) ? operatorSessionsLatest.supervised_rfq_assignments.length : 0} assignment(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">State</th>
+                      <th className="p-3 text-left">Assigned</th>
+                      <th className="p-3 text-left">Source cycle</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(operatorSessionsLatest.supervised_rfq_assignments) && operatorSessionsLatest.supervised_rfq_assignments.length ? (
+                      operatorSessionsLatest.supervised_rfq_assignments.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.rfq_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.supervision_state, "assigned")}</td>
+                          <td className="p-3 text-slate-400">{getString(item.assigned_at, "n/a")}</td>
+                          <td className="p-3 text-slate-400">{getString(item.source_cycle_id, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No supervised RFQ assignments are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Operator Session History</h3>
+                <StatusBadge label={`${operatorSessionsHistory.length} session(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Session</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Coverage</th>
+                      <th className="p-3 text-left">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {operatorSessionsHistory.length ? (
+                      operatorSessionsHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.operator_session_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.operator_session_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.status, "watch")}
+                              tone={item.status === "active" ? "ok" : item.status === "blocked" ? "error" : "neutral"}
+                            />
+                          </td>
+                          <td className="p-3 text-right">{getNumber(item.operator_supervision_score, 0).toFixed(2)}</td>
+                          <td className="p-3">{getNumber(item.supervision_coverage?.coverage_rate, 0).toFixed(2)}%</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No operator session history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 

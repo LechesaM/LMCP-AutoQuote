@@ -90,6 +90,8 @@ type VisibilitySnapshot = {
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
   intakeHistory: Array<Record<string, any>>;
+  physicalSubmissionLatest: Record<string, any> | null;
+  physicalSubmissionHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -181,6 +183,8 @@ export default function Home() {
     operatorSessionsHistory: [],
     intakeLatest: null,
     intakeHistory: [],
+    physicalSubmissionLatest: null,
+    physicalSubmissionHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -240,6 +244,8 @@ export default function Home() {
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
       { key: "intakeHistory", path: "/rfq-lifecycle/intake/history?limit=8" },
+      { key: "physicalSubmissionLatest", path: "/rfq-lifecycle/physical-submission/latest" },
+      { key: "physicalSubmissionHistory", path: "/rfq-lifecycle/physical-submission/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -283,6 +289,8 @@ export default function Home() {
       operatorSessionsHistory: [],
       intakeLatest: null,
       intakeHistory: [],
+      physicalSubmissionLatest: null,
+      physicalSubmissionHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -377,6 +385,11 @@ export default function Home() {
       } else if (key === "intakeHistory") {
         const items = data.intake_decision_history;
         next.intakeHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "physicalSubmissionLatest") {
+        next.physicalSubmissionLatest = data;
+      } else if (key === "physicalSubmissionHistory") {
+        const items = data.physical_submission_decision_history;
+        next.physicalSubmissionHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -452,6 +465,9 @@ export default function Home() {
   const intakeLatest = visibility.intakeLatest || {};
   const intakeHistory = Array.isArray(visibility.intakeHistory) ? visibility.intakeHistory : [];
   const intakeWarnings = Array.isArray(intakeLatest.warnings) ? intakeLatest.warnings : [];
+  const physicalSubmissionLatest = visibility.physicalSubmissionLatest || {};
+  const physicalSubmissionHistory = Array.isArray(visibility.physicalSubmissionHistory) ? visibility.physicalSubmissionHistory : [];
+  const physicalSubmissionWarnings = Array.isArray(physicalSubmissionLatest.warnings) ? physicalSubmissionLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -464,6 +480,7 @@ export default function Home() {
     ...declarationWarnings,
     ...operatorSessionWarnings,
     ...intakeWarnings,
+    ...physicalSubmissionWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -1100,6 +1117,165 @@ export default function Home() {
                       <tr>
                         <td className="p-4 text-slate-400" colSpan={5}>
                           No operator session history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Physical Submission Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only classification and readiness checks for RFQs that require courier, manual delivery, printing, signatures, or sealing.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only physical submission" : "Read-only physical submission"}
+              tone="neutral"
+            />
+          </div>
+
+          {physicalSubmissionWarnings.length ? (
+            <div className="space-y-3">
+              {physicalSubmissionWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Physical submission governance is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Physical Governance"
+              tone={getString(physicalSubmissionLatest.physical_rfq_governance_status, "watch") === "ok" ? "ok" : getString(physicalSubmissionLatest.physical_rfq_governance_status, "watch") === "watch" ? "neutral" : "error"}
+              summary={`${getNumber(physicalSubmissionLatest.physical_submission_readiness_score, 0).toFixed(2)} readiness score`}
+              items={[
+                ["Status", getString(physicalSubmissionLatest.physical_rfq_governance_status, "watch")],
+                ["Classification", getString(physicalSubmissionLatest.physical_submission_classification, "physical_delivery")],
+                ["Physical RFQs", String(getNumber(physicalSubmissionLatest.physical_submission_required_count, 0))],
+                ["Readiness decisions", String(Array.isArray(physicalSubmissionLatest.physical_submission_decision_history) ? physicalSubmissionLatest.physical_submission_decision_history.length : 0)],
+                ["Gate count", String(getNumber(physicalSubmissionLatest.governance_approval_gate_count, 0))],
+                ["Ready count", String(getNumber(physicalSubmissionLatest.operator_assignment_ready_count, 0))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Chain of Custody"
+              tone={getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.chain_of_custody_tracking?.chain_of_custody_present).tone}
+              summary={getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.chain_of_custody_tracking?.chain_of_custody_present).label}
+              items={[
+                ["Custody present", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.chain_of_custody_tracking?.chain_of_custody_present).label],
+                ["Handoff ok", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.chain_of_custody_tracking?.handoff_tracking_ok).label],
+                ["POD expected", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.pod_evidence_placeholders?.pod_placeholder_required).label],
+                ["POD present", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.pod_evidence_placeholders?.pod_placeholder_present).label],
+                ["Manual handoff", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.manual_handoff_tracking?.manual_handoff_present).label],
+                ["Manual route", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.courier_manual_delivery_routing?.manual_delivery_required).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Pack & Proof Readiness"
+              tone={getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.submission_pack_readiness).tone}
+              summary={getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.submission_pack_readiness).label}
+              items={[
+                ["Pack ready", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.submission_pack_readiness).label],
+                ["Printing required", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.printing_signature_sealing_requirements?.requires_printing).label],
+                ["Signature required", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.printing_signature_sealing_requirements?.requires_signature).label],
+                ["Sealing required", getBooleanBadge(physicalSubmissionLatest.latest_physical_submission?.printing_signature_sealing_requirements?.requires_sealing).label],
+                ["Deadline warnings", String(Array.isArray(physicalSubmissionLatest.latest_physical_submission?.delivery_deadline_warnings) ? physicalSubmissionLatest.latest_physical_submission?.delivery_deadline_warnings.length : 0)],
+                ["Proof warnings", String(Array.isArray(physicalSubmissionLatest.latest_physical_submission?.missing_proof_warnings) ? physicalSubmissionLatest.latest_physical_submission?.missing_proof_warnings.length : 0)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Physical Submission Decisions</h3>
+                <StatusBadge label={`${Array.isArray(physicalSubmissionLatest.physical_submission_decision_history) ? physicalSubmissionLatest.physical_submission_decision_history.length : 0} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">Classification</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(physicalSubmissionLatest.physical_submission_decision_history) && physicalSubmissionLatest.physical_submission_decision_history.length ? (
+                      physicalSubmissionLatest.physical_submission_decision_history.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.physical_submission_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.decision, "watch_physical_submission")}
+                              tone={item.decision === "approve_physical_submission" ? "ok" : item.decision === "watch_physical_submission" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getString(physicalSubmissionLatest.physical_submission_classification, "physical_delivery")}</td>
+                          <td className="p-3 text-right">{getNumber(item.score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No physical submission decisions are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Physical Submission History</h3>
+                <StatusBadge label={`${Array.isArray(physicalSubmissionHistory) ? physicalSubmissionHistory.length : 0} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Handoff</th>
+                      <th className="p-3 text-right">Readiness</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {physicalSubmissionHistory.length ? (
+                      physicalSubmissionHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.physical_submission_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.physical_rfq_governance_status, "watch")}
+                              tone={item.physical_rfq_governance_status === "ok" ? "ok" : item.physical_rfq_governance_status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getBooleanBadge(item.manual_handoff_tracking?.manual_handoff_present).label}</td>
+                          <td className="p-3 text-right">{getNumber(item.physical_submission_readiness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No physical submission history is available yet.
                         </td>
                       </tr>
                     )}

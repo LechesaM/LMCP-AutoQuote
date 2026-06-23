@@ -18,6 +18,7 @@ from app.services.pilot_evidence_pack_service import PilotEvidencePackService
 from app.services.pilot_operations_summary_service import PilotOperationsSummaryService
 from app.services.operational_stability_service import OperationalStabilityService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
+from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -65,6 +66,10 @@ def operator_session_service() -> PilotOperatorSessionService:
 
 def intake_service() -> SupervisedRfqIntakeService:
     return SupervisedRfqIntakeService()
+
+
+def physical_submission_service() -> PhysicalSubmissionGovernanceService:
+    return PhysicalSubmissionGovernanceService()
 
 
 def review_board_service() -> PilotReviewBoardService:
@@ -530,3 +535,18 @@ def intake_latest() -> Dict[str, Any]:
 @router.get("/intake/history")
 def intake_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return intake_service().intake_history(limit=limit)
+
+
+@router.get("/physical-submission")
+def physical_submission(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return physical_submission_service().list_physical_submissions(limit=limit)
+
+
+@router.get("/physical-submission/latest")
+def physical_submission_latest() -> Dict[str, Any]:
+    return physical_submission_service().latest_physical_submission()
+
+
+@router.get("/physical-submission/history")
+def physical_submission_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return physical_submission_service().physical_submission_history(limit=limit)

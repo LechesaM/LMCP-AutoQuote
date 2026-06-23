@@ -96,6 +96,8 @@ type VisibilitySnapshot = {
   executiveCommandHistory: Array<Record<string, any>>;
   productionOperationalizationLatest: Record<string, any> | null;
   productionOperationalizationHistory: Array<Record<string, any>>;
+  releaseGovernanceLatest: Record<string, any> | null;
+  releaseGovernanceHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -211,6 +213,8 @@ export default function Home() {
     executiveCommandHistory: [],
     productionOperationalizationLatest: null,
     productionOperationalizationHistory: [],
+    releaseGovernanceLatest: null,
+    releaseGovernanceHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -294,6 +298,8 @@ export default function Home() {
       { key: "executiveCommandHistory", path: "/rfq-lifecycle/executive-command/history?limit=8" },
       { key: "productionOperationalizationLatest", path: "/rfq-lifecycle/production-governance/latest" },
       { key: "productionOperationalizationHistory", path: "/rfq-lifecycle/production-governance/history?limit=8" },
+      { key: "releaseGovernanceLatest", path: "/rfq-lifecycle/release-governance/latest" },
+      { key: "releaseGovernanceHistory", path: "/rfq-lifecycle/release-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -361,6 +367,8 @@ export default function Home() {
       executiveCommandHistory: [],
       productionOperationalizationLatest: null,
       productionOperationalizationHistory: [],
+      releaseGovernanceLatest: null,
+      releaseGovernanceHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -488,6 +496,11 @@ export default function Home() {
       } else if (key === "productionOperationalizationHistory") {
         const items = data.production_governance_history;
         next.productionOperationalizationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "releaseGovernanceLatest") {
+        next.releaseGovernanceLatest = data;
+      } else if (key === "releaseGovernanceHistory") {
+        const items = data.release_governance_history;
+        next.releaseGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -641,6 +654,20 @@ export default function Home() {
   const productionAccessRiskIndicators = productionOperationalizationLatest.operator_access_risk_indicators || {};
   const productionHAIndicators = productionOperationalizationLatest.ha_readiness_indicators || {};
   const productionRecoveryIndicators = productionOperationalizationLatest.recovery_readiness_indicators || {};
+  const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
+  const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
+  const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
+  const releaseGovernanceStatus = getString(releaseGovernanceLatest.release_governance_status, "watch");
+  const releaseGovernanceAuthority = getString(releaseGovernanceLatest.release_governance_authority, "WATCH");
+  const releaseGovernanceScore = getNumber(releaseGovernanceLatest.release_governance_score, 0);
+  const releaseGovernanceGrade = getString(releaseGovernanceLatest.release_governance_grade, "blocked");
+  const releaseLatest = releaseGovernanceLatest.latest_release_governance || {};
+  const releaseDeploymentRisk = releaseGovernanceLatest.deployment_risk_indicators || {};
+  const releaseOperational = releaseGovernanceLatest.operational_release_indicators || {};
+  const releaseReadiness = releaseGovernanceLatest.release_readiness_indicators || {};
+  const releaseAuthorityIndicators = releaseGovernanceLatest.release_authority_indicators || {};
+  const releaseHistorySummary = releaseGovernanceLatest.release_governance_history_summary || {};
+  const releaseSummaryComponents = releaseGovernanceLatest.summary_components || {};
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
@@ -1019,6 +1046,163 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Production Release Gate</h2>
+              <p className="text-sm text-slate-400">
+                Read-only production release authority derived from staged deployment validation evidence.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only release gate" : "Read-only release gate"}
+              tone="neutral"
+            />
+          </div>
+
+          {releaseGovernanceWarnings.length ? (
+            <div className="space-y-3">
+              {releaseGovernanceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Release gate evidence remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Release Authority"
+              tone={releaseGovernanceAuthority === "GO" ? "ok" : releaseGovernanceAuthority === "NO_GO" ? "error" : "neutral"}
+              summary={`${releaseGovernanceAuthority} • ${releaseGovernanceScore.toFixed(2)}`}
+              items={[
+                ["Status", releaseGovernanceStatus],
+                ["Authority", releaseGovernanceAuthority],
+                ["Grade", releaseGovernanceGrade],
+                ["History", String(releaseGovernanceHistory.length)],
+                ["Analysis", getString(releaseLatest.analysis_id, "n/a")],
+                ["Rollout", getBooleanBadge(Boolean(releaseGovernanceLatest.production_rollout_readiness)).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Release Readiness"
+              tone={releaseGovernanceAuthority === "GO" ? "ok" : releaseGovernanceAuthority === "NO_GO" ? "error" : "neutral"}
+              summary={`${getNumber(releaseGovernanceLatest.production_readiness_score, releaseGovernanceScore).toFixed(2)} readiness score`}
+              items={[
+                ["Runtime segmentation", getBooleanBadge(releaseReadiness.runtime_segmentation_ready).label],
+                ["Operator access", getBooleanBadge(releaseReadiness.operator_access_ready).label],
+                ["Observability", getBooleanBadge(releaseReadiness.observability_ready).label],
+                ["Backup restore", getBooleanBadge(releaseReadiness.backup_restore_ready).label],
+                ["Disaster recovery", getBooleanBadge(releaseReadiness.disaster_recovery_ready).label],
+                ["Deployment governance", getBooleanBadge(releaseReadiness.deployment_governance_ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Risk Indicators"
+              tone={releaseDeploymentRisk.deployment_risk ? "error" : "ok"}
+              summary={`${Object.values(releaseDeploymentRisk || {}).filter(Boolean).length} risk flag(s)`}
+              items={[
+                ["Deployment risk", getBooleanBadge(releaseDeploymentRisk.deployment_risk).label],
+                ["Runtime segmentation risk", getBooleanBadge(releaseDeploymentRisk.runtime_segmentation_risk).label],
+                ["Operator access risk", getBooleanBadge(releaseDeploymentRisk.operator_access_risk).label],
+                ["Observability risk", getBooleanBadge(releaseDeploymentRisk.observability_risk).label],
+                ["Backup restore risk", getBooleanBadge(releaseDeploymentRisk.backup_restore_risk).label],
+                ["HA risk", getBooleanBadge(releaseDeploymentRisk.high_availability_risk).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Release"
+              tone={releaseOperational.overall_validation_passed ? "ok" : "error"}
+              summary={`${getBooleanBadge(Boolean(releaseOperational.overall_validation_passed)).label} validation`}
+              items={[
+                ["Lock verified", getBooleanBadge(releaseOperational.submission_lock_verified).label],
+                ["Dry-run verified", getBooleanBadge(releaseOperational.dry_run_verified).label],
+                ["Environment safe", getBooleanBadge(releaseOperational.environment_safe).label],
+                ["Override", getBooleanBadge(Boolean(releaseGovernanceLatest.governance_override_authority)).label],
+                ["Escalation", getBooleanBadge(Boolean(releaseGovernanceLatest.release_escalation_authority)).label],
+                ["Rollout ready", getBooleanBadge(Boolean(releaseGovernanceLatest.production_rollout_readiness)).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Release Governance History</h3>
+                <StatusBadge label={`${releaseGovernanceHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {releaseGovernanceHistory.length ? (
+                      releaseGovernanceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.release_governance_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.release_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.release_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No release governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Release Readiness Indicators</h3>
+                <StatusBadge label={releaseGovernanceAuthority} tone={releaseGovernanceAuthority === "GO" ? "ok" : releaseGovernanceAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Runtime segmentation: {getBooleanBadge(releaseReadiness.runtime_segmentation_ready).label}</div>
+                <div>Operator access: {getBooleanBadge(releaseReadiness.operator_access_ready).label}</div>
+                <div>Observability: {getBooleanBadge(releaseReadiness.observability_ready).label}</div>
+                <div>Backup restore: {getBooleanBadge(releaseReadiness.backup_restore_ready).label}</div>
+                <div>Disaster recovery: {getBooleanBadge(releaseReadiness.disaster_recovery_ready).label}</div>
+                <div>High availability: {getBooleanBadge(releaseReadiness.high_availability_ready).label}</div>
+                <div>Audit retention: {getBooleanBadge(releaseReadiness.audit_retention_ready).label}</div>
+                <div>Deployment governance: {getBooleanBadge(releaseReadiness.deployment_governance_ready).label}</div>
+              </div>
+              <div className="mt-6 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Submission lock: {getBooleanBadge(releaseOperational.submission_lock_verified).label}</div>
+                <div>Dry-run: {getBooleanBadge(releaseOperational.dry_run_verified).label}</div>
+                <div>Environment: {getBooleanBadge(releaseOperational.environment_safe).label}</div>
+                <div>Rollout: {getBooleanBadge(Boolean(releaseGovernanceLatest.production_rollout_readiness)).label}</div>
+              </div>
+              <div className="mt-6 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>GO authority: {getBooleanBadge(Boolean(releaseAuthorityIndicators.go_release_authority)).label}</div>
+                <div>WATCH authority: {getBooleanBadge(Boolean(releaseAuthorityIndicators.watch_release_authority)).label}</div>
+                <div>NO-GO authority: {getBooleanBadge(Boolean(releaseAuthorityIndicators.no_go_release_authority)).label}</div>
+                <div>Override: {getBooleanBadge(Boolean(releaseGovernanceLatest.governance_override_authority)).label}</div>
+                <div>Escalation: {getBooleanBadge(Boolean(releaseGovernanceLatest.release_escalation_authority)).label}</div>
+                <div>Score trend: {getString(releaseHistorySummary.score_history?.trend, "stable")}</div>
+              </div>
+            </div>
           </div>
         </section>
 

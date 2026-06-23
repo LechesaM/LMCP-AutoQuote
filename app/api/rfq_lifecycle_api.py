@@ -21,6 +21,7 @@ from app.services.operational_stability_service import OperationalStabilityServi
 from app.services.operational_intelligence_service import OperationalIntelligenceService
 from app.services.executive_command_service import ExecutiveCommandService
 from app.services.production_operationalization_service import ProductionOperationalizationService
+from app.services.production_release_governance_service import ProductionReleaseGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
@@ -129,6 +130,10 @@ def executive_command_service() -> ExecutiveCommandService:
 
 def production_operationalization_service() -> ProductionOperationalizationService:
     return ProductionOperationalizationService()
+
+
+def release_governance_service() -> ProductionReleaseGovernanceService:
+    return ProductionReleaseGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -605,6 +610,21 @@ def production_governance_latest() -> Dict[str, Any]:
 @router.get("/production-governance/history")
 def production_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return production_operationalization_service().production_governance_history(limit=limit)
+
+
+@router.get("/release-governance")
+def release_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return release_governance_service().list_release_governance(limit=limit)
+
+
+@router.get("/release-governance/latest")
+def release_governance_latest() -> Dict[str, Any]:
+    return release_governance_service().latest_release_governance()
+
+
+@router.get("/release-governance/history")
+def release_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return release_governance_service().release_governance_history(limit=limit)
 
 
 @router.get("/declaration")

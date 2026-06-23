@@ -104,6 +104,8 @@ type VisibilitySnapshot = {
   supervisionCommandHistory: Array<Record<string, any>>;
   operationsAuditLatest: Record<string, any> | null;
   operationsAuditHistory: Array<Record<string, any>>;
+  incidentGovernanceLatest: Record<string, any> | null;
+  incidentGovernanceHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -227,6 +229,8 @@ export default function Home() {
     supervisionCommandHistory: [],
     operationsAuditLatest: null,
     operationsAuditHistory: [],
+    incidentGovernanceLatest: null,
+    incidentGovernanceHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -318,6 +322,8 @@ export default function Home() {
       { key: "supervisionCommandHistory", path: "/rfq-lifecycle/supervision-command/history?limit=8" },
       { key: "operationsAuditLatest", path: "/rfq-lifecycle/operations-audit/latest" },
       { key: "operationsAuditHistory", path: "/rfq-lifecycle/operations-audit/history?limit=8" },
+      { key: "incidentGovernanceLatest", path: "/rfq-lifecycle/incident-governance/latest" },
+      { key: "incidentGovernanceHistory", path: "/rfq-lifecycle/incident-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -393,6 +399,8 @@ export default function Home() {
       supervisionCommandHistory: [],
       operationsAuditLatest: null,
       operationsAuditHistory: [],
+      incidentGovernanceLatest: null,
+      incidentGovernanceHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -540,6 +548,11 @@ export default function Home() {
       } else if (key === "operationsAuditHistory") {
         const items = data.operations_audit_history;
         next.operationsAuditHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "incidentGovernanceLatest") {
+        next.incidentGovernanceLatest = data;
+      } else if (key === "incidentGovernanceHistory") {
+        const items = data.incident_governance_history;
+        next.incidentGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -762,6 +775,26 @@ export default function Home() {
   const operationsAuditHistorySummary = operationsAuditLatest.operations_audit_history_summary || {};
   const operationsAuditLatestRollout = operationsAuditLatest.latest_rollout_validation || {};
   const operationsAuditLatestRelease = operationsAuditLatest.latest_release_certification || {};
+  const incidentGovernanceLatest = visibility.incidentGovernanceLatest || {};
+  const incidentGovernanceHistory = Array.isArray(visibility.incidentGovernanceHistory) ? visibility.incidentGovernanceHistory : [];
+  const incidentGovernanceWarnings = Array.isArray(incidentGovernanceLatest.warnings) ? incidentGovernanceLatest.warnings : [];
+  const incidentGovernanceStatus = getString(incidentGovernanceLatest.incident_governance_status, "watch");
+  const incidentGovernanceAuthority = getString(incidentGovernanceLatest.incident_governance_authority, "WATCH");
+  const incidentGovernanceScore = getNumber(incidentGovernanceLatest.incident_governance_score, 0);
+  const incidentGovernanceGrade = getString(incidentGovernanceLatest.incident_governance_grade, "blocked");
+  const incidentGovernanceHistorySummary = incidentGovernanceLatest.incident_governance_history_summary || {};
+  const incidentGovernanceRetention = incidentGovernanceLatest.audit_retention_indicators || {};
+  const incidentGovernanceCompleteness = incidentGovernanceLatest.audit_completeness_indicators || {};
+  const incidentGovernanceIncidents = Array.isArray(incidentGovernanceLatest.operational_incidents) ? incidentGovernanceLatest.operational_incidents : [];
+  const incidentGovernanceSupervisionFailures = Array.isArray(incidentGovernanceLatest.supervision_failures) ? incidentGovernanceLatest.supervision_failures : [];
+  const incidentGovernanceEscalationFailures = Array.isArray(incidentGovernanceLatest.escalation_failures) ? incidentGovernanceLatest.escalation_failures : [];
+  const incidentGovernanceRolloutAnomalies = Array.isArray(incidentGovernanceLatest.rollout_anomalies) ? incidentGovernanceLatest.rollout_anomalies : [];
+  const incidentGovernanceBreaches = Array.isArray(incidentGovernanceLatest.governance_breach_indicators) ? incidentGovernanceLatest.governance_breach_indicators : [];
+  const incidentGovernanceRecovery = incidentGovernanceLatest.operational_recovery_coordination || {};
+  const incidentGovernanceFreeze = incidentGovernanceLatest.freeze_escalation_indicators || {};
+  const incidentGovernanceRecoveryReadiness = incidentGovernanceLatest.recovery_readiness_indicators || {};
+  const incidentGovernanceSeverity = Array.isArray(incidentGovernanceLatest.incident_severity_indicators) ? incidentGovernanceLatest.incident_severity_indicators : [];
+  const incidentGovernanceHistoryHistory = Array.isArray(incidentGovernanceHistory) ? incidentGovernanceHistory : [];
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
@@ -808,6 +841,7 @@ export default function Home() {
     ...activationWarnings,
     ...supervisionCommandWarnings,
     ...operationsAuditWarnings,
+    ...incidentGovernanceWarnings,
     ...operatorSessionWarnings,
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
@@ -1741,6 +1775,137 @@ export default function Home() {
                 <div>Latest release authority: {getString(operationsAuditLatestRelease?.release_authority, "WATCH")}</div>
                 <div>Release status: {getString(operationsAuditLatestRelease?.certification_status, "WATCH")}</div>
                 <div>Audit history entries: {String(Array.isArray(operationsAuditLatest.institutional_audit_history) ? operationsAuditLatest.institutional_audit_history.length : 0)}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Production Incident Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only incident, supervision failure, and recovery coordination visibility for supervised production operations.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only incident governance" : "Read-only incident governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {incidentGovernanceWarnings.length ? (
+            <div className="space-y-3">
+              {incidentGovernanceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Production incident governance status is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Incident Governance"
+              tone={incidentGovernanceStatus === "ok" ? "ok" : incidentGovernanceStatus === "blocked" ? "error" : "neutral"}
+              summary={`${incidentGovernanceGrade} • ${incidentGovernanceScore.toFixed(2)}`}
+              items={[
+                ["Status", incidentGovernanceStatus],
+                ["Authority", incidentGovernanceAuthority],
+                ["Score", incidentGovernanceScore.toFixed(2)],
+                ["Grade", incidentGovernanceGrade],
+                ["History", String(incidentGovernanceHistoryHistory.length)],
+                ["Incident history", String(Array.isArray(incidentGovernanceLatest.institutional_incident_history) ? incidentGovernanceLatest.institutional_incident_history.length : 0)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Incident Flags"
+              tone={incidentGovernanceIncidents.length || incidentGovernanceSupervisionFailures.length || incidentGovernanceEscalationFailures.length || incidentGovernanceRolloutAnomalies.length || incidentGovernanceBreaches.length ? "error" : "ok"}
+              summary={`${incidentGovernanceIncidents.length} incident / ${incidentGovernanceBreaches.length} breach`}
+              items={[
+                ["Operational incidents", String(incidentGovernanceIncidents.length)],
+                ["Supervision failures", String(incidentGovernanceSupervisionFailures.length)],
+                ["Escalation failures", String(incidentGovernanceEscalationFailures.length)],
+                ["Rollout anomalies", String(incidentGovernanceRolloutAnomalies.length)],
+                ["Governance breaches", String(incidentGovernanceBreaches.length)],
+                ["Severity flags", String(incidentGovernanceSeverity.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Recovery & Retention"
+              tone={incidentGovernanceRetention.retention_compliant && incidentGovernanceRecoveryReadiness.recovery_ready ? "ok" : "error"}
+              summary={`${Object.values(incidentGovernanceRetention || {}).filter(Boolean).length} retained / ${Object.values(incidentGovernanceRecoveryReadiness || {}).filter(Boolean).length} ready`}
+              items={[
+                ["Retained", getBooleanBadge(incidentGovernanceRetention.retention_compliant).label],
+                ["Recovery ready", getBooleanBadge(incidentGovernanceRecoveryReadiness.recovery_ready).label],
+                ["Deployment health", getBooleanBadge(incidentGovernanceRecovery.deployment_health_ready).label],
+                ["Observability", getBooleanBadge(incidentGovernanceRecovery.observability_ready).label],
+                ["Freeze active", getBooleanBadge(incidentGovernanceFreeze.freeze_active).label],
+                ["Completeness", getBooleanBadge(incidentGovernanceCompleteness.audit_completeness_ready).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Incident Governance History</h3>
+                <StatusBadge label={`${incidentGovernanceHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {incidentGovernanceHistory.length ? (
+                      incidentGovernanceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.incident_governance_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.incident_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.incident_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No incident governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Incident Indicators</h3>
+                <StatusBadge label={incidentGovernanceAuthority} tone={incidentGovernanceAuthority === "GO" ? "ok" : incidentGovernanceAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Operational incidents: {String(incidentGovernanceIncidents.length)}</div>
+                <div>Supervision failures: {String(incidentGovernanceSupervisionFailures.length)}</div>
+                <div>Escalation failures: {String(incidentGovernanceEscalationFailures.length)}</div>
+                <div>Rollout anomalies: {String(incidentGovernanceRolloutAnomalies.length)}</div>
+                <div>Governance breach indicators: {String(incidentGovernanceBreaches.length)}</div>
+                <div>Recovery ready: {getBooleanBadge(incidentGovernanceRecoveryReadiness.recovery_ready).label}</div>
+                <div>Freeze active: {getBooleanBadge(incidentGovernanceFreeze.freeze_active).label}</div>
+                <div>Retention compliant: {getBooleanBadge(incidentGovernanceRetention.retention_compliant).label}</div>
+                <div>Latest analysis: {getString(incidentGovernanceLatest.analysis_id, "n/a")}</div>
+                <div>History entries: {String(Array.isArray(incidentGovernanceLatest.institutional_incident_history) ? incidentGovernanceLatest.institutional_incident_history.length : 0)}</div>
               </div>
             </div>
           </div>

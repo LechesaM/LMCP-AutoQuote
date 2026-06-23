@@ -25,6 +25,7 @@ from app.services.production_release_governance_service import ProductionRelease
 from app.services.activation_governance_service import ActivationGovernanceService
 from app.services.production_supervision_command_service import ProductionSupervisionCommandService
 from app.services.production_audit_governance_service import ProductionAuditGovernanceService
+from app.services.production_incident_governance_service import ProductionIncidentGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
@@ -149,6 +150,10 @@ def supervision_command_service() -> ProductionSupervisionCommandService:
 
 def production_audit_governance_service() -> ProductionAuditGovernanceService:
     return ProductionAuditGovernanceService()
+
+
+def production_incident_governance_service() -> ProductionIncidentGovernanceService:
+    return ProductionIncidentGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -685,6 +690,21 @@ def operations_audit_latest() -> Dict[str, Any]:
 @router.get("/operations-audit/history")
 def operations_audit_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return production_audit_governance_service().operations_audit_history(limit=limit)
+
+
+@router.get("/incident-governance")
+def incident_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_incident_governance_service().list_incident_governance(limit=limit)
+
+
+@router.get("/incident-governance/latest")
+def incident_governance_latest() -> Dict[str, Any]:
+    return production_incident_governance_service().latest_incident_governance()
+
+
+@router.get("/incident-governance/history")
+def incident_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_incident_governance_service().incident_governance_history(limit=limit)
 
 
 @router.get("/declaration")

@@ -13,6 +13,7 @@ from app.services.pilot_progression_service import PilotProgressionService
 from app.services.recurring_pilot_cycle_service import RecurringPilotCycleService
 from app.services.pilot_review_board_service import PilotReviewBoardService
 from app.services.pilot_evidence_pack_service import PilotEvidencePackService
+from app.services.pilot_operations_summary_service import PilotOperationsSummaryService
 from app.services.operational_stability_service import OperationalStabilityService
 
 
@@ -57,6 +58,10 @@ def review_board_service() -> PilotReviewBoardService:
 
 def stability_service() -> OperationalStabilityService:
     return OperationalStabilityService()
+
+
+def operations_summary_service() -> PilotOperationsSummaryService:
+    return PilotOperationsSummaryService()
 
 
 @router.get("/status")
@@ -450,3 +455,18 @@ def progression_latest() -> Dict[str, Any]:
 @router.get("/progression/history")
 def progression_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return progression_service().progression_history(limit=limit)
+
+
+@router.get("/operations-summary")
+def operations_summary(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return operations_summary_service().list_operations_summary(limit=limit)
+
+
+@router.get("/operations-summary/latest")
+def operations_summary_latest() -> Dict[str, Any]:
+    return operations_summary_service().latest_operations_summary()
+
+
+@router.get("/operations-summary/history")
+def operations_summary_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return operations_summary_service().operations_summary_history(limit=limit)

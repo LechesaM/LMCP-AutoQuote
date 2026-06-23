@@ -82,6 +82,8 @@ type VisibilitySnapshot = {
   remediationHistory: Array<Record<string, any>>;
   progressionLatest: Record<string, any> | null;
   progressionHistory: Array<Record<string, any>>;
+  operationsSummaryLatest: Record<string, any> | null;
+  operationsSummaryHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -165,6 +167,8 @@ export default function Home() {
     remediationHistory: [],
     progressionLatest: null,
     progressionHistory: [],
+    operationsSummaryLatest: null,
+    operationsSummaryHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -216,6 +220,8 @@ export default function Home() {
       { key: "remediationHistory", path: "/rfq-lifecycle/remediation/history?limit=8" },
       { key: "progressionLatest", path: "/rfq-lifecycle/progression/latest" },
       { key: "progressionHistory", path: "/rfq-lifecycle/progression/history?limit=8" },
+      { key: "operationsSummaryLatest", path: "/rfq-lifecycle/operations-summary/latest" },
+      { key: "operationsSummaryHistory", path: "/rfq-lifecycle/operations-summary/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -251,6 +257,8 @@ export default function Home() {
       remediationHistory: [],
       progressionLatest: null,
       progressionHistory: [],
+      operationsSummaryLatest: null,
+      operationsSummaryHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -325,6 +333,11 @@ export default function Home() {
       } else if (key === "progressionHistory") {
         const decisions = data.progression_decision_history;
         next.progressionHistory = Array.isArray(decisions) ? decisions.slice(0, 8) : [];
+      } else if (key === "operationsSummaryLatest") {
+        next.operationsSummaryLatest = data;
+      } else if (key === "operationsSummaryHistory") {
+        const items = data.institutional_operational_summary_history;
+        next.operationsSummaryHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -388,6 +401,9 @@ export default function Home() {
   const progressionLatest = visibility.progressionLatest || {};
   const progressionHistory = Array.isArray(visibility.progressionHistory) ? visibility.progressionHistory : [];
   const progressionWarnings = Array.isArray(progressionLatest.warnings) ? progressionLatest.warnings : [];
+  const operationsSummaryLatest = visibility.operationsSummaryLatest || {};
+  const operationsSummaryHistory = Array.isArray(visibility.operationsSummaryHistory) ? visibility.operationsSummaryHistory : [];
+  const operationsSummaryWarnings = Array.isArray(operationsSummaryLatest.warnings) ? operationsSummaryLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -396,6 +412,7 @@ export default function Home() {
     ...recurringCycleWarnings,
     ...exceptionWarnings,
     ...progressionWarnings,
+    ...operationsSummaryWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -498,6 +515,11 @@ export default function Home() {
   const progressionBlockers = progressionLatest.unresolved_blocker_summary || {};
   const progressionRationale = progressionLatest.governance_rationale_summary || {};
   const progressionDecisionHistory = Array.isArray(progressionLatest.progression_decision_history) ? progressionLatest.progression_decision_history : [];
+  const operationsSummary = operationsSummaryLatest.summary_components || {};
+  const operationsWatchIndicators = operationsSummaryLatest.consolidated_watch_indicators || {};
+  const operationsBlockers = operationsSummaryLatest.unresolved_blocker_summary || {};
+  const operationsRecommendation = operationsSummaryLatest.governance_recommendation_summary || {};
+  const operationsHistory = Array.isArray(operationsSummaryLatest.institutional_operational_summary_history) ? operationsSummaryLatest.institutional_operational_summary_history : [];
   const latestStabilityCycle = stabilityLatest.latest_cycle || {};
   const latestStabilityExport = stabilityLatest.latest_governance_export || {};
 
@@ -1705,6 +1727,131 @@ export default function Home() {
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Pilot Operations Summary Index</h2>
+              <p className="text-sm text-slate-400">
+                Consolidated read-only readiness, stability, remediation, progression, cadence, exception, and governance summary for staging operations.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only summary" : "Read-only summary"}
+              tone="neutral"
+            />
+          </div>
+
+          {operationsSummaryWarnings.length ? (
+            <div className="space-y-3">
+              {operationsSummaryWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Pilot operations summary status is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Consolidated Governance Score"
+              tone={getNumber(operationsSummaryLatest.consolidated_governance_score, 0) >= 85 ? "ok" : getNumber(operationsSummaryLatest.consolidated_governance_score, 0) >= 70 ? "neutral" : "error"}
+              summary={`${getString(operationsSummaryLatest.consolidated_governance_grade, "blocked")} • ${getNumber(operationsSummaryLatest.consolidated_governance_score, 0).toFixed(2)}`}
+              items={[
+                ["Readiness", getString(operationsSummaryLatest.readiness_status, "watch")],
+                ["Stability", getString(operationsSummaryLatest.stability_status, "watch")],
+                ["Remediation", getString(operationsSummaryLatest.remediation_status, "watch")],
+                ["Progression", getString(operationsSummaryLatest.progression_status, "watch")],
+                ["Cadence", getString(operationsSummaryLatest.cadence_status, "on_track")],
+                ["NO-GO", getString(operationsSummaryLatest.no_go_status, "UNKNOWN")],
+                ["Readiness component", `${getNumber(operationsSummary.readiness, 0).toFixed(2)}`],
+                ["Stability component", `${getNumber(operationsSummary.stability, 0).toFixed(2)}`],
+              ]}
+            />
+
+            <MetricPanel
+              title="Consolidated Watch Indicators"
+              tone={Object.values(operationsWatchIndicators).some(Boolean) ? "error" : "ok"}
+              summary={`${Object.values(operationsWatchIndicators).filter(Boolean).length} active watch indicator(s)`}
+              items={[
+                ["Readiness watch", getBooleanBadge(operationsWatchIndicators.readiness_watch).label],
+                ["Stability watch", getBooleanBadge(operationsWatchIndicators.stability_watch).label],
+                ["Remediation watch", getBooleanBadge(operationsWatchIndicators.remediation_watch).label],
+                ["Progression watch", getBooleanBadge(operationsWatchIndicators.progression_watch).label],
+                ["Cadence watch", getBooleanBadge(operationsWatchIndicators.cadence_watch).label],
+                ["Exception watch", getBooleanBadge(operationsWatchIndicators.exception_watch).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Recommendation"
+              tone={getString(operationsRecommendation.recommendation, "review_required") === "scope_expansion_review" ? "ok" : getString(operationsRecommendation.recommendation, "review_required") === "pilot_continuation_review" ? "neutral" : "error"}
+              summary={getString(operationsRecommendation.recommendation, "review_required")}
+              items={[
+                ["Latest readiness", `${getNumber(operationsRecommendation.latest_readiness_score, 0).toFixed(2)}`],
+                ["Latest stability", `${getNumber(operationsRecommendation.latest_stability_score, 0).toFixed(2)}`],
+                ["Blocking remediations", String(getNumber(operationsBlockers.blocking_remediation_count, 0))],
+                ["Open remediations", String(getNumber(operationsBlockers.open_remediation_count, 0))],
+                ["Open exceptions", String(getNumber(operationsBlockers.open_exception_count, 0))],
+                ["History entries", String(operationsHistory.length)],
+              ]}
+            />
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Operational Summary History</h3>
+              <StatusBadge label={`${operationsSummaryHistory.length} snapshot(s)`} tone="neutral" />
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="p-3 text-left">Summary</th>
+                    <th className="p-3 text-left">Governance</th>
+                    <th className="p-3 text-right">Score</th>
+                    <th className="p-3 text-left">Readiness</th>
+                    <th className="p-3 text-left">Remediation</th>
+                    <th className="p-3 text-left">Progression</th>
+                    <th className="p-3 text-left">Generated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {operationsSummaryHistory.length ? (
+                    operationsSummaryHistory.map((item: Record<string, any>) => (
+                      <tr key={getString(item.summary_id, Math.random().toString())} className="border-t border-slate-800">
+                        <td className="p-3 font-medium">{getString(item.summary_id, "n/a")}</td>
+                        <td className="p-3">{getString(item.governance_review_status, "n/a")}</td>
+                        <td className="p-3 text-right">{getNumber(item.consolidated_governance_score, 0).toFixed(2)}</td>
+                        <td className="p-3">
+                          <StatusBadge label={getString(item.readiness_status, "watch")} tone={item.readiness_status === "ok" ? "ok" : item.readiness_status === "watch" ? "neutral" : "error"} />
+                        </td>
+                        <td className="p-3">
+                          <StatusBadge label={getString(item.remediation_status, "watch")} tone={item.remediation_status === "ok" ? "ok" : item.remediation_status === "watch" ? "neutral" : "error"} />
+                        </td>
+                        <td className="p-3">
+                          <StatusBadge label={getString(item.progression_status, "watch")} tone={item.progression_status === "ok" ? "ok" : item.progression_status === "watch" ? "neutral" : "error"} />
+                        </td>
+                        <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="p-4 text-slate-400" colSpan={7}>
+                        No operational summary history is available yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </section>

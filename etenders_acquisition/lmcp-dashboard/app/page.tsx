@@ -78,6 +78,8 @@ type VisibilitySnapshot = {
   recurringCyclesHistory: Array<Record<string, any>>;
   exceptionsLatest: Record<string, any> | null;
   exceptionsHistory: Array<Record<string, any>>;
+  remediationLatest: Record<string, any> | null;
+  remediationHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -157,6 +159,8 @@ export default function Home() {
     recurringCyclesHistory: [],
     exceptionsLatest: null,
     exceptionsHistory: [],
+    remediationLatest: null,
+    remediationHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -204,6 +208,8 @@ export default function Home() {
       { key: "recurringCyclesHistory", path: "/rfq-lifecycle/recurring-cycles/history?limit=8" },
       { key: "exceptionsLatest", path: "/rfq-lifecycle/exceptions/latest" },
       { key: "exceptionsHistory", path: "/rfq-lifecycle/exceptions/history?limit=8" },
+      { key: "remediationLatest", path: "/rfq-lifecycle/remediation/latest" },
+      { key: "remediationHistory", path: "/rfq-lifecycle/remediation/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -235,6 +241,8 @@ export default function Home() {
       recurringCyclesHistory: [],
       exceptionsLatest: null,
       exceptionsHistory: [],
+      remediationLatest: null,
+      remediationHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -299,6 +307,11 @@ export default function Home() {
       } else if (key === "exceptionsHistory") {
         const exceptions = data.classification_history;
         next.exceptionsHistory = Array.isArray(exceptions) ? exceptions.slice(0, 8) : [];
+      } else if (key === "remediationLatest") {
+        next.remediationLatest = data;
+      } else if (key === "remediationHistory") {
+        const actions = data.remediation_actions;
+        next.remediationHistory = Array.isArray(actions) ? actions.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -451,6 +464,14 @@ export default function Home() {
   const unresolvedExceptions = Array.isArray(exceptionsLatest.unresolved_exception_tracking) ? exceptionsLatest.unresolved_exception_tracking : [];
   const resolvedExceptionHistory = Array.isArray(exceptionsLatest.resolved_exception_history) ? exceptionsLatest.resolved_exception_history : [];
   const classificationHistory = Array.isArray(exceptionsLatest.classification_history) ? exceptionsLatest.classification_history : [];
+  const remediationLatest = visibility.remediationLatest || {};
+  const remediationHistory = Array.isArray(visibility.remediationHistory) ? visibility.remediationHistory : [];
+  const remediationActions = Array.isArray(remediationLatest.remediation_actions) ? remediationLatest.remediation_actions : [];
+  const remediationSummaryData = remediationLatest.remediation_summary || {};
+  const remediationClosureSummary = remediationLatest.operational_risk_closure_summary || {};
+  const remediationHistorySummary = remediationLatest.remediation_governance_history || {};
+  const remediationIndicators = remediationLatest.operational_risk_indicators || {};
+  const remediationWarnings = Array.isArray(remediationLatest.warnings) ? remediationLatest.warnings : [];
   const latestStabilityCycle = stabilityLatest.latest_cycle || {};
   const latestStabilityExport = stabilityLatest.latest_governance_export || {};
 
@@ -472,6 +493,7 @@ export default function Home() {
     ...(driftWarnings.includes("retry_escalation_warning") ? ["Retry escalation warning"] : []),
     ...(driftWarnings.includes("dlq_frequency_warning") ? ["DLQ frequency warning"] : []),
     ...(driftWarnings.includes("operator_intervention_warning") ? ["Operator intervention warning"] : []),
+    ...remediationWarnings,
   ];
 
   return (
@@ -1377,6 +1399,153 @@ export default function Home() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Operational Remediation Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only remediation ownership, deadlines, accepted-risk classification, and closure tracking for recurring pilot exceptions.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only remediation" : "Read-only remediation"}
+              tone="neutral"
+            />
+          </div>
+
+          {remediationWarnings.length ? (
+            <div className="space-y-3">
+              {remediationWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Operational remediation governance is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Remediation Status"
+              tone={getString(remediationLatest.remediation_status, "watch") === "ok" ? "ok" : getNumber(remediationSummaryData.open_remediation_count, 0) > 0 ? "error" : "neutral"}
+              summary={`${getNumber(remediationSummaryData.open_remediation_count, 0)} open / ${getNumber(remediationSummaryData.resolved_remediation_count, 0)} resolved`}
+              items={[
+                ["Total", String(getNumber(remediationSummaryData.total_remediation_count, 0))],
+                ["Open", String(getNumber(remediationSummaryData.open_remediation_count, 0))],
+                ["Resolved", String(getNumber(remediationSummaryData.resolved_remediation_count, 0))],
+                ["Overdue", String(getNumber(remediationSummaryData.overdue_remediation_count, 0))],
+                ["Blocking", String(getNumber(remediationSummaryData.blocking_remediation_count, 0))],
+                ["Accepted risk", String(getNumber(remediationSummaryData.accepted_risk_remediation_count, 0))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Risk Closure Summary"
+              tone={getNumber(remediationClosureSummary.overdue_count, 0) > 0 ? "error" : "ok"}
+              summary={`${getNumber(remediationClosureSummary.open_count, 0)} open / ${getNumber(remediationClosureSummary.closed_count, 0)} closed`}
+              items={[
+                ["Open", String(getNumber(remediationClosureSummary.open_count, 0))],
+                ["Closed", String(getNumber(remediationClosureSummary.closed_count, 0))],
+                ["Overdue", String(getNumber(remediationClosureSummary.overdue_count, 0))],
+                ["Accepted risk", String(getNumber(remediationClosureSummary.accepted_risk_count, 0))],
+                ["Latest remediation", getString(remediationHistorySummary.latest_remediation_id, "n/a")],
+                ["Latest owner", getString(remediationHistorySummary.latest_owner, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Risk Indicators"
+              tone={remediationIndicators.overdue_remediation_warning || remediationIndicators.unresolved_blocker_warning ? "error" : "ok"}
+              summary={`${remediationHistory.length} history item(s)`}
+              items={[
+                ["Overdue warning", getBooleanBadge(remediationIndicators.overdue_remediation_warning).label],
+                ["Unresolved blocker", getBooleanBadge(remediationIndicators.unresolved_blocker_warning).label],
+                ["Accepted risk", getBooleanBadge(remediationIndicators.accepted_risk_warning).label],
+                ["History warning", getBooleanBadge(remediationIndicators.history_warning).label],
+                ["Latest cycle", getString(remediationLatest.latest_cycle?.cycle_id, "n/a")],
+                ["Latest export", getString(remediationLatest.latest_governance_export?.export_id, "n/a")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Remediation Actions</h3>
+                <StatusBadge label={`${remediationActions.length} tracked`} tone={remediationActions.length ? "neutral" : "ok"} />
+              </div>
+              <div className="mt-4 space-y-3">
+                {remediationActions.length ? remediationActions.map((item: Record<string, any>) => (
+                  <div key={getString(item.remediation_id, Math.random().toString())} className="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{getString(item.category, "unknown")}</p>
+                        <p className="text-xs text-slate-500">{getString(item.owner, "unassigned")}</p>
+                      </div>
+                      <StatusBadge label={getString(item.completion_status, "in_progress")} tone={item.completion_status === "completed" ? "ok" : item.overdue ? "error" : "neutral"} />
+                    </div>
+                    <p className="mt-2 text-sm text-slate-300">{getString(item.remediation_action, "n/a")}</p>
+                    <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-400 md:grid-cols-2">
+                      <div>Deadline: {getString(item.deadline_at, "n/a")}</div>
+                      <div>Risk: {getString(item.accepted_operational_risk_classification, "n/a")}</div>
+                      <div>Blocker: {getString(item.blocker_status, "n/a")}</div>
+                      <div>Resolved: {getString(item.resolved_at, "n/a")}</div>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+                    No remediation actions are currently tracked in staging.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Remediation History</h3>
+                <StatusBadge label={`${remediationHistory.length} item(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Remediation</th>
+                      <th className="p-3 text-left">Owner</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Deadline</th>
+                      <th className="p-3 text-left">Resolved</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {remediationHistory.length ? (
+                      remediationHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.remediation_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.category, "n/a")}</td>
+                          <td className="p-3">{getString(item.owner, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge label={getString(item.completion_status, "in_progress")} tone={item.completion_status === "completed" ? "ok" : item.overdue ? "error" : "neutral"} />
+                          </td>
+                          <td className="p-3 text-slate-300">{getString(item.deadline_at, "n/a")}</td>
+                          <td className="p-3 text-slate-400">{getString(item.resolved_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No remediation history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </section>

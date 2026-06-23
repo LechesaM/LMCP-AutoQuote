@@ -8,6 +8,7 @@ from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.operational_rehearsal_service import OperationalRehearsalService
 from app.services.pilot_cadence_service import PilotCadenceService
 from app.services.operational_exception_service import OperationalExceptionService
+from app.services.operational_remediation_service import OperationalRemediationService
 from app.services.recurring_pilot_cycle_service import RecurringPilotCycleService
 from app.services.pilot_review_board_service import PilotReviewBoardService
 from app.services.pilot_evidence_pack_service import PilotEvidencePackService
@@ -39,6 +40,10 @@ def recurring_cycle_service() -> RecurringPilotCycleService:
 
 def exception_service() -> OperationalExceptionService:
     return OperationalExceptionService()
+
+
+def remediation_service() -> OperationalRemediationService:
+    return OperationalRemediationService()
 
 
 def review_board_service() -> PilotReviewBoardService:
@@ -410,3 +415,18 @@ def exceptions_latest() -> Dict[str, Any]:
 @router.get("/exceptions/history")
 def exceptions_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return exception_service().exceptions_history(limit=limit)
+
+
+@router.get("/remediation")
+def remediation(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return remediation_service().list_remediation(limit=limit)
+
+
+@router.get("/remediation/latest")
+def remediation_latest() -> Dict[str, Any]:
+    return remediation_service().latest_remediation()
+
+
+@router.get("/remediation/history")
+def remediation_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return remediation_service().remediation_history(limit=limit)

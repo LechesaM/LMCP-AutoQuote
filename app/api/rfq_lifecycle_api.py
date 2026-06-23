@@ -19,6 +19,7 @@ from app.services.pilot_operations_summary_service import PilotOperationsSummary
 from app.services.operational_stability_service import OperationalStabilityService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
+from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -70,6 +71,10 @@ def intake_service() -> SupervisedRfqIntakeService:
 
 def physical_submission_service() -> PhysicalSubmissionGovernanceService:
     return PhysicalSubmissionGovernanceService()
+
+
+def submission_modality_service() -> SubmissionModalityGovernanceService:
+    return SubmissionModalityGovernanceService()
 
 
 def review_board_service() -> PilotReviewBoardService:
@@ -550,3 +555,18 @@ def physical_submission_latest() -> Dict[str, Any]:
 @router.get("/physical-submission/history")
 def physical_submission_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return physical_submission_service().physical_submission_history(limit=limit)
+
+
+@router.get("/submission-modality")
+def submission_modality(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return submission_modality_service().list_submission_modalities(limit=limit)
+
+
+@router.get("/submission-modality/latest")
+def submission_modality_latest() -> Dict[str, Any]:
+    return submission_modality_service().latest_submission_modality()
+
+
+@router.get("/submission-modality/history")
+def submission_modality_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return submission_modality_service().submission_modality_history(limit=limit)

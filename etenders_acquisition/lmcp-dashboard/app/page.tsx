@@ -92,6 +92,8 @@ type VisibilitySnapshot = {
   intakeHistory: Array<Record<string, any>>;
   physicalSubmissionLatest: Record<string, any> | null;
   physicalSubmissionHistory: Array<Record<string, any>>;
+  modalityLatest: Record<string, any> | null;
+  modalityHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -185,6 +187,8 @@ export default function Home() {
     intakeHistory: [],
     physicalSubmissionLatest: null,
     physicalSubmissionHistory: [],
+    modalityLatest: null,
+    modalityHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -246,6 +250,8 @@ export default function Home() {
       { key: "intakeHistory", path: "/rfq-lifecycle/intake/history?limit=8" },
       { key: "physicalSubmissionLatest", path: "/rfq-lifecycle/physical-submission/latest" },
       { key: "physicalSubmissionHistory", path: "/rfq-lifecycle/physical-submission/history?limit=8" },
+      { key: "modalityLatest", path: "/rfq-lifecycle/submission-modality/latest" },
+      { key: "modalityHistory", path: "/rfq-lifecycle/submission-modality/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -291,6 +297,8 @@ export default function Home() {
       intakeHistory: [],
       physicalSubmissionLatest: null,
       physicalSubmissionHistory: [],
+      modalityLatest: null,
+      modalityHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -390,6 +398,11 @@ export default function Home() {
       } else if (key === "physicalSubmissionHistory") {
         const items = data.physical_submission_decision_history;
         next.physicalSubmissionHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "modalityLatest") {
+        next.modalityLatest = data;
+      } else if (key === "modalityHistory") {
+        const items = data.modality_decision_history;
+        next.modalityHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -468,6 +481,9 @@ export default function Home() {
   const physicalSubmissionLatest = visibility.physicalSubmissionLatest || {};
   const physicalSubmissionHistory = Array.isArray(visibility.physicalSubmissionHistory) ? visibility.physicalSubmissionHistory : [];
   const physicalSubmissionWarnings = Array.isArray(physicalSubmissionLatest.warnings) ? physicalSubmissionLatest.warnings : [];
+  const modalityLatest = visibility.modalityLatest || {};
+  const modalityHistory = Array.isArray(visibility.modalityHistory) ? visibility.modalityHistory : [];
+  const modalityWarnings = Array.isArray(modalityLatest.warnings) ? modalityLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -481,6 +497,7 @@ export default function Home() {
     ...operatorSessionWarnings,
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
+    ...modalityWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -1276,6 +1293,165 @@ export default function Home() {
                       <tr>
                         <td className="p-4 text-slate-400" colSpan={4}>
                           No physical submission history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Submission Modality Orchestration Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only routing governance across email, portal, and physical submission modalities.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only modality" : "Read-only modality"}
+              tone="neutral"
+            />
+          </div>
+
+          {modalityWarnings.length ? (
+            <div className="space-y-3">
+              {modalityWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Submission modality orchestration is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Modality Governance"
+              tone={getString(modalityLatest.submission_modality_status, "watch") === "ok" ? "ok" : getString(modalityLatest.submission_modality_status, "watch") === "watch" ? "neutral" : "error"}
+              summary={`${getNumber(modalityLatest.modality_governance_score, 0).toFixed(2)} governance score`}
+              items={[
+                ["Status", getString(modalityLatest.submission_modality_status, "watch")],
+                ["Selected", getString(modalityLatest.selected_modality, "unsupported")],
+                ["Fallback", getString(modalityLatest.fallback_modality, "unsupported")],
+                ["Mixed routing", getBooleanBadge(modalityLatest.latest_submission_modality?.mixed_modality_routing).label],
+                ["Gate count", String(getNumber(modalityLatest.governance_approval_gate_count, 0))],
+                ["Ready count", String(getNumber(modalityLatest.operator_assignment_ready_count, 0))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Modality Conflicts"
+              tone={modalityWarnings.length ? "error" : "ok"}
+              summary={modalityWarnings.length ? `${modalityWarnings.length} warning(s)` : "No conflicts"}
+              items={[
+                ["Selected missing", getBooleanBadge(modalityLatest.latest_submission_modality?.modality_conflict_indicators?.selected_modality_missing).label],
+                ["Mixed routing", getBooleanBadge(modalityLatest.latest_submission_modality?.modality_conflict_indicators?.mixed_modality_routing).label],
+                ["Portal/email conflict", getBooleanBadge(modalityLatest.latest_submission_modality?.modality_conflict_indicators?.portal_email_conflict).label],
+                ["Physical/digital conflict", getBooleanBadge(modalityLatest.latest_submission_modality?.modality_conflict_indicators?.physical_with_digital_conflict).label],
+                ["Unsupported warnings", String(Array.isArray(modalityLatest.latest_submission_modality?.unsupported_modality_warnings) ? modalityLatest.latest_submission_modality?.unsupported_modality_warnings.length : 0)],
+                ["Supported modalities", String(Array.isArray(modalityLatest.latest_submission_modality?.supported_modalities) ? modalityLatest.latest_submission_modality?.supported_modalities.length : 0)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Channel Governance"
+              tone={getBooleanBadge(modalityLatest.latest_submission_modality?.governance_approval_gating).tone}
+              summary={getBooleanBadge(modalityLatest.latest_submission_modality?.governance_approval_gating).label}
+              items={[
+                ["Email supported", getBooleanBadge(modalityLatest.latest_submission_modality?.submission_channel_governance_summary?.email_supported).label],
+                ["Portal supported", getBooleanBadge(modalityLatest.latest_submission_modality?.submission_channel_governance_summary?.portal_supported).label],
+                ["Physical supported", getBooleanBadge(modalityLatest.latest_submission_modality?.submission_channel_governance_summary?.physical_supported).label],
+                ["Physical required", getBooleanBadge(modalityLatest.latest_submission_modality?.submission_channel_governance_summary?.physical_required).label],
+                ["Selected matches supported", getBooleanBadge(modalityLatest.latest_submission_modality?.submission_channel_governance_summary?.selected_matches_supported).label],
+                ["Supervision required", getBooleanBadge(modalityLatest.latest_submission_modality?.submission_channel_governance_summary?.modality_supervision_required).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Modality Decisions</h3>
+                <StatusBadge label={`${Array.isArray(modalityLatest.modality_decision_history) ? modalityLatest.modality_decision_history.length : 0} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">Selected</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(modalityLatest.modality_decision_history) && modalityLatest.modality_decision_history.length ? (
+                      modalityLatest.modality_decision_history.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.submission_modality_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.modality_decision, "watch_modality")}
+                              tone={item.modality_decision === "approve_modality" ? "ok" : item.modality_decision === "watch_modality" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getString(item.selected_modality, "unsupported")}</td>
+                          <td className="p-3 text-right">{getNumber(item.modality_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No modality decisions are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Submission Channel Governance</h3>
+                <StatusBadge label={`${Array.isArray(modalityHistory) ? modalityHistory.length : 0} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Fallback</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {modalityHistory.length ? (
+                      modalityHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.submission_modality_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.modality_governance_status, "watch")}
+                              tone={item.modality_governance_status === "ok" ? "ok" : item.modality_governance_status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getString(item.fallback_modality, "unsupported")}</td>
+                          <td className="p-3 text-right">{getNumber(item.modality_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No modality governance history is available yet.
                         </td>
                       </tr>
                     )}

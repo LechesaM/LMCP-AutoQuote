@@ -94,6 +94,10 @@ type VisibilitySnapshot = {
   physicalSubmissionHistory: Array<Record<string, any>>;
   modalityLatest: Record<string, any> | null;
   modalityHistory: Array<Record<string, any>>;
+  signatureLatest: Record<string, any> | null;
+  signatureHistory: Array<Record<string, any>>;
+  complianceLatest: Record<string, any> | null;
+  complianceHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
   warnings: string[];
@@ -189,6 +193,10 @@ export default function Home() {
     physicalSubmissionHistory: [],
     modalityLatest: null,
     modalityHistory: [],
+    signatureLatest: null,
+    signatureHistory: [],
+    complianceLatest: null,
+    complianceHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
     warnings: [],
@@ -252,6 +260,10 @@ export default function Home() {
       { key: "physicalSubmissionHistory", path: "/rfq-lifecycle/physical-submission/history?limit=8" },
       { key: "modalityLatest", path: "/rfq-lifecycle/submission-modality/latest" },
       { key: "modalityHistory", path: "/rfq-lifecycle/submission-modality/history?limit=8" },
+      { key: "signatureLatest", path: "/rfq-lifecycle/signature-governance/latest" },
+      { key: "signatureHistory", path: "/rfq-lifecycle/signature-governance/history?limit=8" },
+      { key: "complianceLatest", path: "/rfq-lifecycle/compliance-governance/latest" },
+      { key: "complianceHistory", path: "/rfq-lifecycle/compliance-governance/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
     ] as const;
@@ -299,6 +311,10 @@ export default function Home() {
       physicalSubmissionHistory: [],
       modalityLatest: null,
       modalityHistory: [],
+      signatureLatest: null,
+      signatureHistory: [],
+      complianceLatest: null,
+      complianceHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
       warnings: [],
@@ -403,6 +419,16 @@ export default function Home() {
       } else if (key === "modalityHistory") {
         const items = data.modality_decision_history;
         next.modalityHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "signatureLatest") {
+        next.signatureLatest = data;
+      } else if (key === "signatureHistory") {
+        const items = data.signature_governance_decision_history;
+        next.signatureHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "complianceLatest") {
+        next.complianceLatest = data;
+      } else if (key === "complianceHistory") {
+        const items = data.compliance_governance_decision_history;
+        next.complianceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "stabilityLatest") {
         next.stabilityLatest = data;
       } else if (key === "stabilityHistory") {
@@ -484,6 +510,12 @@ export default function Home() {
   const modalityLatest = visibility.modalityLatest || {};
   const modalityHistory = Array.isArray(visibility.modalityHistory) ? visibility.modalityHistory : [];
   const modalityWarnings = Array.isArray(modalityLatest.warnings) ? modalityLatest.warnings : [];
+  const signatureLatest = visibility.signatureLatest || {};
+  const signatureHistory = Array.isArray(visibility.signatureHistory) ? visibility.signatureHistory : [];
+  const signatureWarnings = Array.isArray(signatureLatest.warnings) ? signatureLatest.warnings : [];
+  const complianceLatest = visibility.complianceLatest || {};
+  const complianceHistory = Array.isArray(visibility.complianceHistory) ? visibility.complianceHistory : [];
+  const complianceWarnings = Array.isArray(complianceLatest.warnings) ? complianceLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -498,6 +530,8 @@ export default function Home() {
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
     ...modalityWarnings,
+    ...signatureWarnings,
+    ...complianceWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -824,6 +858,174 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Procurement Compliance Artifacts</h2>
+              <p className="text-sm text-slate-400">
+                Read-only oversight for tax clearance, BBBEE, CIDB, COIDA, NHBRC, company registration, bank letters, and certificate validity.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only compliance governance" : "Read-only compliance governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {complianceWarnings.length ? (
+            <div className="space-y-3">
+              {complianceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Procurement compliance artifacts are within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Compliance Governance"
+              tone={getString(complianceLatest.compliance_artifact_governance_status, "watch") === "ok" ? "ok" : getString(complianceLatest.compliance_artifact_governance_status, "watch") === "watch" ? "neutral" : "error"}
+              summary={`${getNumber(complianceLatest.compliance_readiness_score, 0).toFixed(2)} readiness score`}
+              items={[
+                ["Status", getString(complianceLatest.compliance_artifact_governance_status, "watch")],
+                ["Tax clearance", getBooleanBadge(complianceLatest.latest_compliance_governance?.tax_clearance_present).label],
+                ["BBBEE", getBooleanBadge(complianceLatest.latest_compliance_governance?.bbbee_present).label],
+                ["CIDB", getBooleanBadge(complianceLatest.latest_compliance_governance?.cidb_present).label],
+                ["COIDA", getBooleanBadge(complianceLatest.latest_compliance_governance?.coida_present).label],
+                ["NHBRC", getBooleanBadge(complianceLatest.latest_compliance_governance?.nhbrc_present).label],
+                ["Company reg.", getBooleanBadge(complianceLatest.latest_compliance_governance?.company_registration_present).label],
+                ["Bank letter", getBooleanBadge(complianceLatest.latest_compliance_governance?.bank_letter_present).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Artifact Integrity"
+              tone={(complianceLatest.latest_compliance_governance?.missing_artifact_warnings || []).length || Object.values(complianceLatest.latest_compliance_governance?.invalid_artifact_indicators || {}).some(Boolean) ? "error" : "ok"}
+              summary={`${(complianceLatest.latest_compliance_governance?.missing_artifact_warnings || []).length} missing / ${Object.values(complianceLatest.latest_compliance_governance?.invalid_artifact_indicators || {}).filter(Boolean).length} invalid`}
+              items={[
+                ["Missing warnings", String((complianceLatest.latest_compliance_governance?.missing_artifact_warnings || []).length)],
+                ["Invalid indicators", String(Object.values(complianceLatest.latest_compliance_governance?.invalid_artifact_indicators || {}).filter(Boolean).length)],
+                ["Expiry warnings", String((complianceLatest.latest_compliance_governance?.expiry_warnings || []).length)],
+                ["Tax expiry", getBooleanBadge(complianceLatest.latest_compliance_governance?.certificate_expiry_governance?.tax_clearance?.expiry_warning).label],
+                ["BBBEE expiry", getBooleanBadge(complianceLatest.latest_compliance_governance?.certificate_expiry_governance?.bbbee?.expiry_warning).label],
+                ["CIDB expiry", getBooleanBadge(complianceLatest.latest_compliance_governance?.certificate_expiry_governance?.cidb?.expiry_warning).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Compliance Supervision"
+              tone={getBooleanBadge(complianceLatest.latest_compliance_governance?.governance_approval_gating).tone}
+              summary={getBooleanBadge(complianceLatest.latest_compliance_governance?.governance_approval_gating).label}
+              items={[
+                ["Supervision OK", getBooleanBadge(complianceLatest.latest_compliance_governance?.governance_approval_gating).label],
+                ["Readiness status", getString(complianceLatest.latest_compliance_governance?.readiness_declaration_status, "WATCH")],
+                ["Operator ready", String(getNumber(complianceLatest.operator_assignment_readiness_summary?.ready_count, 0))],
+                ["Not ready", String(getNumber(complianceLatest.operator_assignment_readiness_summary?.not_ready_count, 0))],
+                ["Approval gate", String(getNumber(complianceLatest.operator_assignment_readiness_summary?.governance_approval_gate_count, 0))],
+                ["Decision", getString(complianceLatest.latest_compliance_governance?.compliance_governance_decision, "watch_compliance_governance")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Compliance Decisions</h3>
+                <StatusBadge label={`${Array.isArray(complianceLatest.compliance_governance_decision_history) ? complianceLatest.compliance_governance_decision_history.length : 0} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">Artifacts</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(complianceLatest.compliance_governance_decision_history) && complianceLatest.compliance_governance_decision_history.length ? (
+                      complianceLatest.compliance_governance_decision_history.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.compliance_artifact_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.compliance_governance_decision, "watch_compliance_governance")}
+                              tone={item.compliance_governance_decision === "approve_compliance_governance" ? "ok" : item.compliance_governance_decision === "watch_compliance_governance" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">
+                            {[
+                              getBooleanBadge(item.tax_clearance_required).label,
+                              getBooleanBadge(item.bbbee_required).label,
+                              getBooleanBadge(item.cidb_required).label,
+                              getBooleanBadge(item.coida_required).label,
+                            ].join(" / ")}
+                          </td>
+                          <td className="p-3 text-right">{getNumber(item.compliance_readiness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No compliance governance decisions are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Compliance History</h3>
+                <StatusBadge label={`${Array.isArray(complianceHistory) ? complianceHistory.length : 0} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Expiry</th>
+                      <th className="p-3 text-right">Readiness</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {complianceHistory.length ? (
+                      complianceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.compliance_artifact_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.compliance_artifact_governance_status, "watch")}
+                              tone={item.compliance_artifact_governance_status === "ok" ? "ok" : item.compliance_artifact_governance_status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{String((item.expiry_warnings || []).length)}</td>
+                          <td className="p-3 text-right">{getNumber(item.compliance_readiness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No compliance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -1293,6 +1495,174 @@ export default function Home() {
                       <tr>
                         <td className="p-4 text-slate-400" colSpan={4}>
                           No physical submission history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Handwritten & Signature Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only oversight for wet signatures, handwritten declarations, witnesses, commissioner requirements, affidavits, and manual attestation.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only signature governance" : "Read-only signature governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {signatureWarnings.length ? (
+            <div className="space-y-3">
+              {signatureWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Signature governance is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Signature Governance"
+              tone={getString(signatureLatest.signature_governance_status, "watch") === "ok" ? "ok" : getString(signatureLatest.signature_governance_status, "watch") === "watch" ? "neutral" : "error"}
+              summary={`${getNumber(signatureLatest.signature_governance_score, 0).toFixed(2)} governance score`}
+              items={[
+                ["Status", getString(signatureLatest.signature_governance_status, "watch")],
+                ["Wet signature", getBooleanBadge(signatureLatest.latest_signature_governance?.wet_signature_required).label],
+                ["Handwritten", getBooleanBadge(signatureLatest.latest_signature_governance?.handwritten_declaration_required).label],
+                ["Witness", getBooleanBadge(signatureLatest.latest_signature_governance?.witness_required).label],
+                ["Commissioner", getBooleanBadge(signatureLatest.latest_signature_governance?.commissioner_required).label],
+                ["Affidavit", getBooleanBadge(signatureLatest.latest_signature_governance?.affidavit_required).label],
+                ["Operator ready", String(getNumber(signatureLatest.operator_assignment_readiness_summary?.ready_count, 0))],
+                ["Not ready", String(getNumber(signatureLatest.operator_assignment_readiness_summary?.not_ready_count, 0))],
+              ]}
+            />
+
+            <MetricPanel
+              title="Human Completion"
+              tone={getBooleanBadge(signatureLatest.latest_signature_governance?.signature_completion_supervision?.signature_supervision_ok).tone}
+              summary={getBooleanBadge(signatureLatest.latest_signature_governance?.signature_completion_supervision?.signature_supervision_ok).label}
+              items={[
+                ["Supervision OK", getBooleanBadge(signatureLatest.latest_signature_governance?.signature_completion_supervision?.signature_supervision_ok).label],
+                ["Readiness OK", getBooleanBadge(signatureLatest.latest_signature_governance?.signature_completion_supervision?.readiness_ok).label],
+                ["Human required", getBooleanBadge(signatureLatest.latest_signature_governance?.signature_completion_supervision?.signature_supervision_required).label],
+                ["Unsigned docs", String(Object.values(signatureLatest.latest_signature_governance?.unsigned_document_indicators || {}).filter(Boolean).length)],
+                ["Manual attestation", getBooleanBadge(signatureLatest.latest_signature_governance?.manual_attestation_required).label],
+                ["Attestation routing", getBooleanBadge(signatureLatest.latest_signature_governance?.manual_attestation_routing?.manual_attestation_route_required).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Affidavit & Proof"
+              tone={getBooleanBadge(signatureLatest.latest_signature_governance?.affidavit_readiness_indicators?.affidavit_present).tone}
+              summary={getBooleanBadge(signatureLatest.latest_signature_governance?.affidavit_readiness_indicators?.affidavit_present).label}
+              items={[
+                ["Affidavit required", getBooleanBadge(signatureLatest.latest_signature_governance?.affidavit_readiness_indicators?.affidavit_required).label],
+                ["Affidavit present", getBooleanBadge(signatureLatest.latest_signature_governance?.affidavit_readiness_indicators?.affidavit_present).label],
+                ["Commissioner required", getBooleanBadge(signatureLatest.latest_signature_governance?.affidavit_readiness_indicators?.commissioner_required).label],
+                ["Witness required", getBooleanBadge(signatureLatest.latest_signature_governance?.affidavit_readiness_indicators?.witness_required).label],
+                ["Gate count", String(getNumber(signatureLatest.operator_assignment_readiness_summary?.governance_approval_gate_count, 0))],
+                ["Ready count", String(getNumber(signatureLatest.operator_assignment_readiness_summary?.ready_count, 0))],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Signature Decisions</h3>
+                <StatusBadge label={`${Array.isArray(signatureLatest.signature_governance_decision_history) ? signatureLatest.signature_governance_decision_history.length : 0} decision(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-left">Type</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(signatureLatest.signature_governance_decision_history) && signatureLatest.signature_governance_decision_history.length ? (
+                      signatureLatest.signature_governance_decision_history.slice(0, 8).map((item: Record<string, any>) => (
+                        <tr key={getString(item.signature_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.signature_decision, "watch_signature_governance")}
+                              tone={item.signature_decision === "approve_signature_governance" ? "ok" : item.signature_decision === "watch_signature_governance" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">
+                            {[
+                              getBooleanBadge(item.wet_signature_required).label,
+                              getBooleanBadge(item.handwritten_declaration_required).label,
+                              getBooleanBadge(item.witness_required).label,
+                              getBooleanBadge(item.commissioner_required).label,
+                            ].join(" / ")}
+                          </td>
+                          <td className="p-3 text-right">{getNumber(item.signature_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No signature decisions are available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Signature History</h3>
+                <StatusBadge label={`${Array.isArray(signatureHistory) ? signatureHistory.length : 0} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">RFQ</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Attestation</th>
+                      <th className="p-3 text-right">Readiness</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {signatureHistory.length ? (
+                      signatureHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.signature_governance_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.rfq_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.signature_governance_status, "watch")}
+                              tone={item.signature_governance_status === "ok" ? "ok" : item.signature_governance_status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getBooleanBadge(item.manual_attestation_required).label}</td>
+                          <td className="p-3 text-right">{getNumber(item.signature_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No signature history is available yet.
                         </td>
                       </tr>
                     )}

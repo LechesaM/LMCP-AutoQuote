@@ -20,6 +20,8 @@ from app.services.operational_stability_service import OperationalStabilityServi
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
+from app.services.signature_governance_service import SignatureGovernanceService
+from app.services.compliance_governance_service import ComplianceGovernanceService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -75,6 +77,14 @@ def physical_submission_service() -> PhysicalSubmissionGovernanceService:
 
 def submission_modality_service() -> SubmissionModalityGovernanceService:
     return SubmissionModalityGovernanceService()
+
+
+def signature_governance_service() -> SignatureGovernanceService:
+    return SignatureGovernanceService()
+
+
+def compliance_governance_service() -> ComplianceGovernanceService:
+    return ComplianceGovernanceService()
 
 
 def review_board_service() -> PilotReviewBoardService:
@@ -570,3 +580,33 @@ def submission_modality_latest() -> Dict[str, Any]:
 @router.get("/submission-modality/history")
 def submission_modality_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return submission_modality_service().submission_modality_history(limit=limit)
+
+
+@router.get("/signature-governance")
+def signature_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return signature_governance_service().list_signature_governance(limit=limit)
+
+
+@router.get("/signature-governance/latest")
+def signature_governance_latest() -> Dict[str, Any]:
+    return signature_governance_service().latest_signature_governance()
+
+
+@router.get("/signature-governance/history")
+def signature_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return signature_governance_service().signature_governance_history(limit=limit)
+
+
+@router.get("/compliance-governance")
+def compliance_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return compliance_governance_service().list_compliance_governance(limit=limit)
+
+
+@router.get("/compliance-governance/latest")
+def compliance_governance_latest() -> Dict[str, Any]:
+    return compliance_governance_service().latest_compliance_governance()
+
+
+@router.get("/compliance-governance/history")
+def compliance_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return compliance_governance_service().compliance_governance_history(limit=limit)

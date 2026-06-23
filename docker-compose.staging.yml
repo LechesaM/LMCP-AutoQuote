@@ -36,6 +36,7 @@ services:
       LMCP_PORTAL_SUBMISSION_DIR: /app/runtime/staging/portal_submission
       LMCP_FINAL_SUBMISSION_DIR: /app/runtime/staging/final_submission_v47_5
       LMCP_PROOF_CENTER_DIR: /app/runtime/staging/proof_center
+      LMCP_SUBMISSION_LOCK_FILE: /app/runtime/staging/go_live_guards/submission_locks.json
       LMCP_OPERATOR_AUTH_DIR: /app/runtime/staging/operator_auth
       LMCP_OPERATOR_AUTH_DB_PATH: /app/runtime/staging/operator_auth/operator_auth.sqlite3
       LMCP_HANDWRITING_RUNTIME_DIR: /app/runtime/staging/handwriting_simulation

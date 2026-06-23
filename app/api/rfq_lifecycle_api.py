@@ -26,6 +26,7 @@ from app.services.activation_governance_service import ActivationGovernanceServi
 from app.services.production_supervision_command_service import ProductionSupervisionCommandService
 from app.services.production_audit_governance_service import ProductionAuditGovernanceService
 from app.services.production_incident_governance_service import ProductionIncidentGovernanceService
+from app.services.production_continuity_governance_service import ProductionContinuityGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
@@ -154,6 +155,10 @@ def production_audit_governance_service() -> ProductionAuditGovernanceService:
 
 def production_incident_governance_service() -> ProductionIncidentGovernanceService:
     return ProductionIncidentGovernanceService()
+
+
+def production_continuity_governance_service() -> ProductionContinuityGovernanceService:
+    return ProductionContinuityGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -705,6 +710,21 @@ def incident_governance_latest() -> Dict[str, Any]:
 @router.get("/incident-governance/history")
 def incident_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return production_incident_governance_service().incident_governance_history(limit=limit)
+
+
+@router.get("/continuity-governance")
+def continuity_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_continuity_governance_service().list_continuity_governance(limit=limit)
+
+
+@router.get("/continuity-governance/latest")
+def continuity_governance_latest() -> Dict[str, Any]:
+    return production_continuity_governance_service().latest_continuity_governance()
+
+
+@router.get("/continuity-governance/history")
+def continuity_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_continuity_governance_service().continuity_governance_history(limit=limit)
 
 
 @router.get("/declaration")

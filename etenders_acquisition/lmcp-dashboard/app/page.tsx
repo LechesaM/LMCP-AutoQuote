@@ -106,6 +106,8 @@ type VisibilitySnapshot = {
   operationsAuditHistory: Array<Record<string, any>>;
   incidentGovernanceLatest: Record<string, any> | null;
   incidentGovernanceHistory: Array<Record<string, any>>;
+  continuityGovernanceLatest: Record<string, any> | null;
+  continuityGovernanceHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -231,6 +233,8 @@ export default function Home() {
     operationsAuditHistory: [],
     incidentGovernanceLatest: null,
     incidentGovernanceHistory: [],
+    continuityGovernanceLatest: null,
+    continuityGovernanceHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -324,6 +328,8 @@ export default function Home() {
       { key: "operationsAuditHistory", path: "/rfq-lifecycle/operations-audit/history?limit=8" },
       { key: "incidentGovernanceLatest", path: "/rfq-lifecycle/incident-governance/latest" },
       { key: "incidentGovernanceHistory", path: "/rfq-lifecycle/incident-governance/history?limit=8" },
+      { key: "continuityGovernanceLatest", path: "/rfq-lifecycle/continuity-governance/latest" },
+      { key: "continuityGovernanceHistory", path: "/rfq-lifecycle/continuity-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -401,6 +407,8 @@ export default function Home() {
       operationsAuditHistory: [],
       incidentGovernanceLatest: null,
       incidentGovernanceHistory: [],
+      continuityGovernanceLatest: null,
+      continuityGovernanceHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -553,6 +561,11 @@ export default function Home() {
       } else if (key === "incidentGovernanceHistory") {
         const items = data.incident_governance_history;
         next.incidentGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "continuityGovernanceLatest") {
+        next.continuityGovernanceLatest = data;
+      } else if (key === "continuityGovernanceHistory") {
+        const items = data.continuity_governance_history;
+        next.continuityGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -795,6 +808,23 @@ export default function Home() {
   const incidentGovernanceRecoveryReadiness = incidentGovernanceLatest.recovery_readiness_indicators || {};
   const incidentGovernanceSeverity = Array.isArray(incidentGovernanceLatest.incident_severity_indicators) ? incidentGovernanceLatest.incident_severity_indicators : [];
   const incidentGovernanceHistoryHistory = Array.isArray(incidentGovernanceHistory) ? incidentGovernanceHistory : [];
+  const continuityGovernanceLatest = visibility.continuityGovernanceLatest || {};
+  const continuityGovernanceHistory = Array.isArray(visibility.continuityGovernanceHistory) ? visibility.continuityGovernanceHistory : [];
+  const continuityGovernanceWarnings = Array.isArray(continuityGovernanceLatest.warnings) ? continuityGovernanceLatest.warnings : [];
+  const continuityGovernanceStatus = getString(continuityGovernanceLatest.continuity_governance_status, "watch");
+  const continuityGovernanceAuthority = getString(continuityGovernanceLatest.continuity_governance_authority, "WATCH");
+  const continuityGovernanceScore = getNumber(continuityGovernanceLatest.continuity_governance_score, 0);
+  const continuityGovernanceGrade = getString(continuityGovernanceLatest.continuity_governance_grade, "blocked");
+  const continuityGovernanceHistorySummary = continuityGovernanceLatest.continuity_governance_history_summary || {};
+  const continuityRecoveryDrill = Array.isArray(continuityGovernanceLatest.recovery_drill_readiness) ? continuityGovernanceLatest.recovery_drill_readiness : [];
+  const continuityDrRehearsal = Array.isArray(continuityGovernanceLatest.disaster_recovery_rehearsal_status) ? continuityGovernanceLatest.disaster_recovery_rehearsal_status : [];
+  const continuityOperatorFailover = Array.isArray(continuityGovernanceLatest.operator_failover_readiness) ? continuityGovernanceLatest.operator_failover_readiness : [];
+  const continuitySupervision = Array.isArray(continuityGovernanceLatest.supervision_continuity_readiness) ? continuityGovernanceLatest.supervision_continuity_readiness : [];
+  const continuityFreeze = Array.isArray(continuityGovernanceLatest.continuity_freeze_indicators) ? continuityGovernanceLatest.continuity_freeze_indicators : [];
+  const continuityEscalation = Array.isArray(continuityGovernanceLatest.recovery_escalation_readiness) ? continuityGovernanceLatest.recovery_escalation_readiness : [];
+  const continuityTiming = Array.isArray(continuityGovernanceLatest.recovery_timing_indicators) ? continuityGovernanceLatest.recovery_timing_indicators : [];
+  const continuityRetention = continuityGovernanceLatest.audit_retention_indicators || {};
+  const continuityCompleteness = continuityGovernanceLatest.audit_completeness_indicators || {};
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
@@ -842,6 +872,7 @@ export default function Home() {
     ...supervisionCommandWarnings,
     ...operationsAuditWarnings,
     ...incidentGovernanceWarnings,
+    ...continuityGovernanceWarnings,
     ...operatorSessionWarnings,
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
@@ -1906,6 +1937,135 @@ export default function Home() {
                 <div>Retention compliant: {getBooleanBadge(incidentGovernanceRetention.retention_compliant).label}</div>
                 <div>Latest analysis: {getString(incidentGovernanceLatest.analysis_id, "n/a")}</div>
                 <div>History entries: {String(Array.isArray(incidentGovernanceLatest.institutional_incident_history) ? incidentGovernanceLatest.institutional_incident_history.length : 0)}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Production Continuity Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only continuity, failover, recovery rehearsal, and supervision continuity visibility for supervised production operations.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only continuity governance" : "Read-only continuity governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {continuityGovernanceWarnings.length ? (
+            <div className="space-y-3">
+              {continuityGovernanceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Production continuity governance status is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Continuity Governance"
+              tone={continuityGovernanceStatus === "ok" ? "ok" : continuityGovernanceStatus === "blocked" ? "error" : "neutral"}
+              summary={`${continuityGovernanceGrade} • ${continuityGovernanceScore.toFixed(2)}`}
+              items={[
+                ["Status", continuityGovernanceStatus],
+                ["Authority", continuityGovernanceAuthority],
+                ["Score", continuityGovernanceScore.toFixed(2)],
+                ["Grade", continuityGovernanceGrade],
+                ["History", String(continuityGovernanceHistory.length)],
+                ["Trend", getString(continuityGovernanceHistorySummary.score_history?.trend, "stable")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Recovery Readiness"
+              tone={continuityRecoveryDrill.length || continuityDrRehearsal.length ? "neutral" : "ok"}
+              summary={`${continuityRecoveryDrill.length} drill / ${continuityDrRehearsal.length} rehearsal`}
+              items={[
+                ["Recovery drills", String(continuityRecoveryDrill.length)],
+                ["DR rehearsals", String(continuityDrRehearsal.length)],
+                ["Failover readiness", String(continuityOperatorFailover.length)],
+                ["Supervision continuity", String(continuitySupervision.length)],
+                ["Recovery escalation", String(continuityEscalation.length)],
+                ["Recovery timing", String(continuityTiming.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Freeze & Retention"
+              tone={continuityRetention.retention_compliant && !continuityFreeze.some((item: Record<string, any>) => item.freeze_active) ? "ok" : "error"}
+              summary={`${Object.values(continuityRetention || {}).filter(Boolean).length} retained / ${Object.values(continuityCompleteness || {}).filter(Boolean).length} complete`}
+              items={[
+                ["Freeze active", getBooleanBadge(continuityFreeze.some((item: Record<string, any>) => item.freeze_active)).label],
+                ["Retention compliant", getBooleanBadge(continuityRetention.retention_compliant).label],
+                ["Recovery ready", getBooleanBadge(continuityGovernanceLatest.operational_continuity_scoring?.score >= 85).label],
+                ["Completeness ready", getBooleanBadge(continuityCompleteness.continuity_governance_history_recorded).label],
+                ["History retained", getBooleanBadge(continuityRetention.institutional_continuity_history_retained).label],
+                ["Latest status", getString(continuityGovernanceLatest.operational_continuity_scoring?.status, "watch")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Continuity Governance History</h3>
+                <StatusBadge label={`${continuityGovernanceHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {continuityGovernanceHistory.length ? (
+                      continuityGovernanceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.continuity_governance_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.continuity_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.continuity_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No continuity governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Continuity Indicators</h3>
+                <StatusBadge label={continuityGovernanceAuthority} tone={continuityGovernanceAuthority === "GO" ? "ok" : continuityGovernanceAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Recovery drill readiness: {String(continuityRecoveryDrill.length)}</div>
+                <div>DR rehearsal status: {String(continuityDrRehearsal.length)}</div>
+                <div>Operator failover readiness: {String(continuityOperatorFailover.length)}</div>
+                <div>Supervision continuity: {String(continuitySupervision.length)}</div>
+                <div>Continuity freeze: {String(continuityFreeze.length)}</div>
+                <div>Recovery escalation: {String(continuityEscalation.length)}</div>
+                <div>Recovery timing: {String(continuityTiming.length)}</div>
+                <div>History entries: {String(Array.isArray(continuityGovernanceLatest.continuity_governance_history) ? continuityGovernanceLatest.continuity_governance_history.length : 0)}</div>
               </div>
             </div>
           </div>

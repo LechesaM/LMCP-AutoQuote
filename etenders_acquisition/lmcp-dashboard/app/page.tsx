@@ -170,6 +170,8 @@ type VisibilitySnapshot = {
   historicalLearningHistory: Array<Record<string, any>>;
   recommendationFeedbackLatest: Record<string, any> | null;
   recommendationFeedbackHistory: Array<Record<string, any>>;
+  tenderKnowledgeGraphLatest: Record<string, any> | null;
+  tenderKnowledgeGraphHistory: Array<Record<string, any>>;
   vectorIntelligenceLatest: Record<string, any> | null;
   vectorIntelligenceHistory: Array<Record<string, any>>;
   controlledAutomationOrchestrationLatest: Record<string, any> | null;
@@ -345,6 +347,8 @@ export default function Home() {
     historicalLearningHistory: [],
     recommendationFeedbackLatest: null,
     recommendationFeedbackHistory: [],
+    tenderKnowledgeGraphLatest: null,
+    tenderKnowledgeGraphHistory: [],
     vectorIntelligenceLatest: null,
     vectorIntelligenceHistory: [],
     controlledAutomationOrchestrationLatest: null,
@@ -488,6 +492,8 @@ export default function Home() {
       { key: "historicalLearningHistory", path: "/rfq-lifecycle/historical-learning/history?limit=8" },
       { key: "recommendationFeedbackLatest", path: "/rfq-lifecycle/recommendation-feedback/latest" },
       { key: "recommendationFeedbackHistory", path: "/rfq-lifecycle/recommendation-feedback/history?limit=8" },
+      { key: "tenderKnowledgeGraphLatest", path: "/rfq-lifecycle/tender-knowledge-graph/latest" },
+      { key: "tenderKnowledgeGraphHistory", path: "/rfq-lifecycle/tender-knowledge-graph/history?limit=8" },
       { key: "vectorIntelligenceLatest", path: "/rfq-lifecycle/vector-intelligence/latest" },
       { key: "vectorIntelligenceHistory", path: "/rfq-lifecycle/vector-intelligence/history?limit=8" },
       { key: "controlledAutomationOrchestrationLatest", path: "/rfq-lifecycle/controlled-automation-orchestration/latest" },
@@ -615,6 +621,8 @@ export default function Home() {
       historicalLearningHistory: [],
       recommendationFeedbackLatest: null,
       recommendationFeedbackHistory: [],
+      tenderKnowledgeGraphLatest: null,
+      tenderKnowledgeGraphHistory: [],
       vectorIntelligenceLatest: null,
       vectorIntelligenceHistory: [],
       controlledAutomationOrchestrationLatest: null,
@@ -913,6 +921,11 @@ export default function Home() {
       } else if (key === "recommendationFeedbackHistory") {
         const items = data.recommendation_feedback_history;
         next.recommendationFeedbackHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "tenderKnowledgeGraphLatest") {
+        next.tenderKnowledgeGraphLatest = data;
+      } else if (key === "tenderKnowledgeGraphHistory") {
+        const items = data.tender_knowledge_graph_history;
+        next.tenderKnowledgeGraphHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "vectorIntelligenceLatest") {
         next.vectorIntelligenceLatest = data;
       } else if (key === "vectorIntelligenceHistory") {
@@ -1542,6 +1555,19 @@ export default function Home() {
   const confidenceDriftIndicators = recommendationFeedbackLatest.confidence_drift_indicators || {};
   const falsePositiveNegativeIndicators = recommendationFeedbackLatest.false_positive_negative_indicators || {};
   const recommendationFeedbackBlockers = Array.isArray(recommendationFeedbackLatest.unresolved_feedback_blockers) ? recommendationFeedbackLatest.unresolved_feedback_blockers : [];
+  const tenderKnowledgeGraphLatest = visibility.tenderKnowledgeGraphLatest || {};
+  const tenderKnowledgeGraphHistory = Array.isArray(visibility.tenderKnowledgeGraphHistory) ? visibility.tenderKnowledgeGraphHistory : [];
+  const tenderKnowledgeGraphWarnings = Array.isArray(tenderKnowledgeGraphLatest.warnings) ? tenderKnowledgeGraphLatest.warnings : [];
+  const tenderKnowledgeGraphReadiness = tenderKnowledgeGraphLatest.knowledge_graph_readiness || {};
+  const entityRelationshipMappingReadiness = tenderKnowledgeGraphLatest.entity_relationship_mapping_readiness || {};
+  const procurementEntityResolutionReadiness = tenderKnowledgeGraphLatest.procurement_entity_resolution_readiness || {};
+  const commodityRelationshipReadiness = tenderKnowledgeGraphLatest.commodity_relationship_readiness || {};
+  const riskRelationshipReadiness = tenderKnowledgeGraphLatest.risk_relationship_intelligence_readiness || {};
+  const supplierRelationshipCoverage = tenderKnowledgeGraphLatest.supplier_relationship_coverage || {};
+  const departmentRelationshipCoverage = tenderKnowledgeGraphLatest.department_relationship_coverage || {};
+  const boqToPricingCoverage = tenderKnowledgeGraphLatest.boq_to_pricing_relationship_coverage || {};
+  const outcomeRelationshipCoverage = tenderKnowledgeGraphLatest.outcome_relationship_coverage || {};
+  const knowledgeGraphBlockers = Array.isArray(tenderKnowledgeGraphLatest.unresolved_knowledge_graph_blockers) ? tenderKnowledgeGraphLatest.unresolved_knowledge_graph_blockers : [];
   const vectorIntelligenceLatest = visibility.vectorIntelligenceLatest || {};
   const vectorIntelligenceHistory = Array.isArray(visibility.vectorIntelligenceHistory) ? visibility.vectorIntelligenceHistory : [];
   const vectorIntelligenceWarnings = Array.isArray(vectorIntelligenceLatest.warnings) ? vectorIntelligenceLatest.warnings : [];
@@ -2267,6 +2293,93 @@ export default function Home() {
                 ["Strategy", String((recommendationFeedbackLatest.tender_strategy_recommendation_outcomes || []).length)],
                 ["Executive", String((recommendationFeedbackLatest.executive_decision_feedback || []).length)],
                 ["Analyst", String((recommendationFeedbackLatest.analyst_review_feedback || []).length)],
+              ]}
+            />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Tender Knowledge Graph & Relationship Intelligence</h2>
+              <p className="text-sm text-slate-400">
+                Supervised relationship intelligence across tenders, suppliers, departments, commodities, BOQ, pricing, risk, outcomes, and executive decisions.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only graph governance" : "Read-only graph governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {tenderKnowledgeGraphWarnings.length ? (
+            <div className="space-y-3">
+              {tenderKnowledgeGraphWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Knowledge graph relationships remain advisory only, dry-run enforced, and supervised.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Graph Readiness"
+              tone={getBooleanBadge(tenderKnowledgeGraphReadiness.ready).tone}
+              summary={`${getString(tenderKnowledgeGraphLatest.knowledge_graph_status, "watch")} • ${getNumber(tenderKnowledgeGraphLatest.knowledge_graph_score, 0).toFixed(2)}`}
+              items={[
+                ["Ready", getBooleanBadge(tenderKnowledgeGraphReadiness.ready).label],
+                ["Entity mapping", getBooleanBadge(entityRelationshipMappingReadiness.ready).label],
+                ["Entity resolution", getBooleanBadge(procurementEntityResolutionReadiness.ready).label],
+                ["Commodity relationships", getBooleanBadge(commodityRelationshipReadiness.ready).label],
+                ["Risk relationships", getBooleanBadge(riskRelationshipReadiness.ready).label],
+                ["History", String(tenderKnowledgeGraphHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Relationship Coverage"
+              tone={knowledgeGraphBlockers.length ? "error" : "ok"}
+              summary={String((supplierRelationshipCoverage.count || 0))}
+              items={[
+                ["Supplier coverage", getBooleanBadge(supplierRelationshipCoverage.ready).label],
+                ["Department coverage", getBooleanBadge(departmentRelationshipCoverage.ready).label],
+                ["BOQ-to-pricing", getBooleanBadge(boqToPricingCoverage.ready).label],
+                ["Outcome coverage", getBooleanBadge(outcomeRelationshipCoverage.ready).label],
+                ["Unresolved blockers", String(knowledgeGraphBlockers.length)],
+                ["Count", String(tenderKnowledgeGraphHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Controls"
+              tone={tenderKnowledgeGraphReadiness.ready && tenderKnowledgeGraphLatest.dry_run_enforced && tenderKnowledgeGraphLatest.human_supervision_required ? "ok" : "error"}
+              summary={getBooleanBadge(tenderKnowledgeGraphLatest.dry_run_enforced).label}
+              items={[
+                ["Dry-run", getBooleanBadge(tenderKnowledgeGraphLatest.dry_run_enforced).label],
+                ["Supervision", getBooleanBadge(tenderKnowledgeGraphLatest.human_supervision_required).label],
+                ["Relationship review", getBooleanBadge(tenderKnowledgeGraphLatest.supervised_relationship_review_required).label],
+                ["Graph review", getBooleanBadge(tenderKnowledgeGraphLatest.graph_governance_review_required).label],
+                ["Autonomous graph", getBooleanBadge(tenderKnowledgeGraphLatest.autonomous_graph_decisioning_enabled).label],
+                ["Autonomous procurement", getBooleanBadge(tenderKnowledgeGraphLatest.autonomous_procurement_decisioning_enabled).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Graph Entities"
+              tone={knowledgeGraphBlockers.length ? "error" : "ok"}
+              summary={`${tenderKnowledgeGraphHistory.length} history item(s)`}
+              items={[
+                ["Procurement", String(Object.keys((tenderKnowledgeGraphLatest.knowledge_graph_entities || {}).procurement || {}).length)],
+                ["Supplier", String(Object.keys((tenderKnowledgeGraphLatest.knowledge_graph_entities || {}).supplier || {}).length)],
+                ["Pricing", String(Object.keys((tenderKnowledgeGraphLatest.knowledge_graph_entities || {}).pricing || {}).length)],
+                ["BOQ", String((tenderKnowledgeGraphLatest.knowledge_graph_entities || {}).boq?.length || 0)],
+                ["Strategy", String((tenderKnowledgeGraphLatest.knowledge_graph_entities || {}).strategy?.length || 0)],
+                ["Risk", String(Object.keys((tenderKnowledgeGraphLatest.knowledge_graph_entities || {}).risk || {}).length)],
               ]}
             />
           </div>

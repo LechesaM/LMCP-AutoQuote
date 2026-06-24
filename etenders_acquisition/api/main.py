@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.historical_learning_service import HistoricalLearningService
 from app.services.recommendation_feedback_service import RecommendationFeedbackService
+from app.services.tender_knowledge_graph_service import TenderKnowledgeGraphService
 from app.services.vector_intelligence_service import VectorIntelligenceService
 from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
 from etenders_acquisition.workflow_layer.workflow_status_dashboard import build_dashboard
@@ -96,6 +97,10 @@ def historical_learning_service() -> HistoricalLearningService:
 
 def recommendation_feedback_service() -> RecommendationFeedbackService:
     return RecommendationFeedbackService()
+
+
+def tender_knowledge_graph_service() -> TenderKnowledgeGraphService:
+    return TenderKnowledgeGraphService()
 
 
 def vector_intelligence_service() -> VectorIntelligenceService:
@@ -300,6 +305,21 @@ def recommendation_feedback_latest():
 @app.get("/rfq-lifecycle/recommendation-feedback/history")
 def recommendation_feedback_history():
     return recommendation_feedback_service().recommendation_feedback_history()
+
+
+@app.get("/rfq-lifecycle/tender-knowledge-graph")
+def tender_knowledge_graph():
+    return tender_knowledge_graph_service().latest_tender_knowledge_graph()
+
+
+@app.get("/rfq-lifecycle/tender-knowledge-graph/latest")
+def tender_knowledge_graph_latest():
+    return tender_knowledge_graph_service().latest_tender_knowledge_graph()
+
+
+@app.get("/rfq-lifecycle/tender-knowledge-graph/history")
+def tender_knowledge_graph_history():
+    return tender_knowledge_graph_service().tender_knowledge_graph_history()
 
 
 @app.get("/rfq-lifecycle/vector-intelligence")

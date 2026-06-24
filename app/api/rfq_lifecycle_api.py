@@ -32,6 +32,7 @@ from app.services.tender_strategy_governance_service import TenderStrategyGovern
 from app.services.controlled_automation_orchestration_service import ControlledAutomationOrchestrationService
 from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
 from app.services.recommendation_feedback_service import RecommendationFeedbackService
+from app.services.tender_knowledge_graph_service import TenderKnowledgeGraphService
 from app.services.vector_intelligence_service import VectorIntelligenceService
 from app.services.production_cutover_readiness_service import ProductionCutoverReadinessService
 from app.services.operational_runbook_readiness_service import OperationalRunbookReadinessService
@@ -204,6 +205,10 @@ def historical_learning_service() -> HistoricalLearningService:
 
 def recommendation_feedback_service() -> RecommendationFeedbackService:
     return RecommendationFeedbackService()
+
+
+def tender_knowledge_graph_service() -> TenderKnowledgeGraphService:
+    return TenderKnowledgeGraphService()
 
 
 def vector_intelligence_service() -> VectorIntelligenceService:
@@ -870,6 +875,21 @@ def recommendation_feedback_latest() -> Dict[str, Any]:
 @router.get("/recommendation-feedback/history")
 def recommendation_feedback_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return recommendation_feedback_service().recommendation_feedback_history(limit=limit)
+
+
+@router.get("/tender-knowledge-graph")
+def tender_knowledge_graph(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return tender_knowledge_graph_service().latest_tender_knowledge_graph()
+
+
+@router.get("/tender-knowledge-graph/latest")
+def tender_knowledge_graph_latest() -> Dict[str, Any]:
+    return tender_knowledge_graph_service().latest_tender_knowledge_graph()
+
+
+@router.get("/tender-knowledge-graph/history")
+def tender_knowledge_graph_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return tender_knowledge_graph_service().tender_knowledge_graph_history(limit=limit)
 
 
 @router.get("/vector-intelligence")

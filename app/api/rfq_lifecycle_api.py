@@ -29,6 +29,7 @@ from app.services.production_audit_governance_service import ProductionAuditGove
 from app.services.production_incident_governance_service import ProductionIncidentGovernanceService
 from app.services.production_continuity_governance_service import ProductionContinuityGovernanceService
 from app.services.distributed_orchestration_governance_service import DistributedOrchestrationGovernanceService
+from app.services.ha_topology_governance_service import HaTopologyGovernanceService
 from app.services.runtime_remediation_governance_service import RuntimeRemediationGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
@@ -174,6 +175,10 @@ def runtime_remediation_governance_service() -> RuntimeRemediationGovernanceServ
 
 def distributed_orchestration_governance_service() -> DistributedOrchestrationGovernanceService:
     return DistributedOrchestrationGovernanceService()
+
+
+def ha_topology_governance_service() -> HaTopologyGovernanceService:
+    return HaTopologyGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -785,6 +790,21 @@ def distributed_orchestration_latest() -> Dict[str, Any]:
 @router.get("/distributed-orchestration/history")
 def distributed_orchestration_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return distributed_orchestration_governance_service().distributed_orchestration_history(limit=limit)
+
+
+@router.get("/ha-topology")
+def ha_topology(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return ha_topology_governance_service().list_ha_topology(limit=limit)
+
+
+@router.get("/ha-topology/latest")
+def ha_topology_latest() -> Dict[str, Any]:
+    return ha_topology_governance_service().latest_ha_topology()
+
+
+@router.get("/ha-topology/history")
+def ha_topology_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return ha_topology_governance_service().ha_topology_history(limit=limit)
 
 
 @router.get("/declaration")

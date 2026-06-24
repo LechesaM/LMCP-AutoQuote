@@ -114,6 +114,8 @@ type VisibilitySnapshot = {
   runtimeRemediationHistory: Array<Record<string, any>>;
   distributedOrchestrationLatest: Record<string, any> | null;
   distributedOrchestrationHistory: Array<Record<string, any>>;
+  haTopologyLatest: Record<string, any> | null;
+  haTopologyHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -247,6 +249,8 @@ export default function Home() {
     runtimeRemediationHistory: [],
     distributedOrchestrationLatest: null,
     distributedOrchestrationHistory: [],
+    haTopologyLatest: null,
+    haTopologyHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -348,6 +352,8 @@ export default function Home() {
       { key: "runtimeRemediationHistory", path: "/rfq-lifecycle/runtime-remediation/history?limit=8" },
       { key: "distributedOrchestrationLatest", path: "/rfq-lifecycle/distributed-orchestration/latest" },
       { key: "distributedOrchestrationHistory", path: "/rfq-lifecycle/distributed-orchestration/history?limit=8" },
+      { key: "haTopologyLatest", path: "/rfq-lifecycle/ha-topology/latest" },
+      { key: "haTopologyHistory", path: "/rfq-lifecycle/ha-topology/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -433,6 +439,8 @@ export default function Home() {
       runtimeRemediationHistory: [],
       distributedOrchestrationLatest: null,
       distributedOrchestrationHistory: [],
+      haTopologyLatest: null,
+      haTopologyHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -605,6 +613,11 @@ export default function Home() {
       } else if (key === "distributedOrchestrationHistory") {
         const items = data.distributed_orchestration_history;
         next.distributedOrchestrationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "haTopologyLatest") {
+        next.haTopologyLatest = data;
+      } else if (key === "haTopologyHistory") {
+        const items = data.ha_topology_history;
+        next.haTopologyHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -795,6 +808,24 @@ export default function Home() {
   const distributedOrchestrationWorkload = distributedOrchestrationLatest.workload_saturation_indicators || {};
   const distributedOrchestrationDegradation = distributedOrchestrationLatest.orchestration_degradation_indicators || {};
   const distributedOrchestrationRecoveryHistory = Array.isArray(distributedOrchestrationLatest.recovery_state_history) ? distributedOrchestrationLatest.recovery_state_history : [];
+  const haTopologyLatest = visibility.haTopologyLatest || {};
+  const haTopologyHistory = Array.isArray(visibility.haTopologyHistory) ? visibility.haTopologyHistory : [];
+  const haTopologyWarnings = Array.isArray(haTopologyLatest.warnings) ? haTopologyLatest.warnings : [];
+  const haTopologyStatus = getString(haTopologyLatest.ha_topology_status, "watch");
+  const haTopologyAuthority = getString(haTopologyLatest.ha_topology_authority, "WATCH");
+  const haTopologyScore = getNumber(haTopologyLatest.ha_topology_score, 0);
+  const haTopologyGrade = getString(haTopologyLatest.ha_topology_grade, "blocked");
+  const haTopologyRedis = haTopologyLatest.redis_ha_readiness || {};
+  const haTopologyPostgres = haTopologyLatest.postgres_replication_readiness || {};
+  const haTopologyQuorum = haTopologyLatest.quorum_readiness || {};
+  const haTopologyFailover = haTopologyLatest.failover_orchestration_readiness || {};
+  const haTopologyPersistence = haTopologyLatest.persistence_durability_readiness || {};
+  const haTopologyReplicaSupervision = haTopologyLatest.replica_supervision_readiness || {};
+  const haTopologySplitBrain = haTopologyLatest.split_brain_prevention_readiness || {};
+  const haTopologyDegradation = haTopologyLatest.ha_degradation_indicators || {};
+  const haTopologySafety = haTopologyLatest.safety_model || {};
+  const haTopologyRuntimeControls = haTopologyLatest.runtime_controls || {};
+  const haTopologyHistorySummary = haTopologyLatest.ha_topology_history_summary || {};
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -5875,6 +5906,151 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre HA Topology</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging visibility for Redis HA, PostgreSQL replication, quorum control, failover orchestration, persistence durability, replica supervision, and split-brain prevention.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only HA topology" : "Read-only HA topology"}
+              tone="neutral"
+            />
+          </div>
+
+          {haTopologyWarnings.length ? (
+            <div className="space-y-3">
+              {haTopologyWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              HA topology governance remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="HA Topology"
+              tone={haTopologyStatus === "ok" ? "ok" : haTopologyStatus === "blocked" ? "error" : "neutral"}
+              summary={`${haTopologyGrade} • ${haTopologyScore.toFixed(2)}`}
+              items={[
+                ["Status", haTopologyStatus],
+                ["Authority", haTopologyAuthority],
+                ["Score", haTopologyScore.toFixed(2)],
+                ["Grade", haTopologyGrade],
+                ["History", String(haTopologyHistory.length)],
+                ["Trend", getString(haTopologyHistorySummary.score_history?.trend, "stable")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Storage & Replication"
+              tone={haTopologyRedis.ready && haTopologyPostgres.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(haTopologyRedis.ready).label} Redis / ${getBooleanBadge(haTopologyPostgres.ready).label} PostgreSQL`}
+              items={[
+                ["Redis HA", getBooleanBadge(haTopologyRedis.ready).label],
+                ["PostgreSQL", getBooleanBadge(haTopologyPostgres.ready).label],
+                ["Redis replicas", String(getNumber(haTopologyRedis.replicas, 0))],
+                ["Postgres replicas", String(getNumber(haTopologyPostgres.replicas, 0))],
+                ["Persistence", getBooleanBadge(haTopologyPersistence.ready).label],
+                ["Split-brain", getBooleanBadge(haTopologySplitBrain.ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Failover & Quorum"
+              tone={haTopologyQuorum.ready && haTopologyFailover.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(haTopologyQuorum.ready).label} quorum / ${getBooleanBadge(haTopologyFailover.ready).label} failover`}
+              items={[
+                ["Quorum", getBooleanBadge(haTopologyQuorum.ready).label],
+                ["Failover", getBooleanBadge(haTopologyFailover.ready).label],
+                ["Replica supervision", getBooleanBadge(haTopologyReplicaSupervision.ready).label],
+                ["Redis degradation", getBooleanBadge(haTopologyDegradation.redis_ha_degradation ? false : true).label],
+                ["Postgres degradation", getBooleanBadge(haTopologyDegradation.postgres_replication_degradation ? false : true).label],
+                ["Split-brain risk", getBooleanBadge(haTopologyDegradation.split_brain_risk ? false : true).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Boundary"
+              tone={haTopologySafety.final_automation_disabled && haTopologySafety.dry_run_mode_enabled && haTopologySafety.human_supervision_required ? "ok" : "error"}
+              summary={`${Object.values(haTopologySafety || {}).filter(Boolean).length} safeguard(s) active`}
+              items={[
+                ["Final automation", getBooleanBadge(haTopologySafety.final_automation_disabled).label],
+                ["Dry-run", getBooleanBadge(haTopologySafety.dry_run_mode_enabled).label],
+                ["Supervision", getBooleanBadge(haTopologySafety.human_supervision_required).label],
+                ["Submission lock", getBooleanBadge(haTopologySafety.submission_lock_required).label],
+                ["Separated overlays", getBooleanBadge(haTopologySafety.production_overlay_separated_from_staging).label],
+                ["Credentials", getBooleanBadge(!haTopologySafety.embedded_credentials_found).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">HA Topology History</h3>
+                <StatusBadge label={`${haTopologyHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {haTopologyHistory.length ? (
+                      haTopologyHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.ha_topology_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.ha_topology_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.ha_topology_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No HA topology history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Topology Indicators</h3>
+                <StatusBadge label={haTopologyAuthority} tone={haTopologyAuthority === "GO" ? "ok" : haTopologyAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Redis HA: {getBooleanBadge(haTopologyRedis.ready).label}</div>
+                <div>PostgreSQL replication: {getBooleanBadge(haTopologyPostgres.ready).label}</div>
+                <div>Quorum ready: {getBooleanBadge(haTopologyQuorum.ready).label}</div>
+                <div>Failover ready: {getBooleanBadge(haTopologyFailover.ready).label}</div>
+                <div>Persistence durability: {getBooleanBadge(haTopologyPersistence.ready).label}</div>
+                <div>Replica supervision: {getBooleanBadge(haTopologyReplicaSupervision.ready).label}</div>
+                <div>Split-brain prevention: {getBooleanBadge(haTopologySplitBrain.ready).label}</div>
+                <div>Dry-run enforced: {getBooleanBadge(haTopologySafety.dry_run_mode_enabled).label}</div>
+                <div>Supervision mandatory: {getBooleanBadge(haTopologySafety.human_supervision_required).label}</div>
+                <div>Overlay separation: {getBooleanBadge(haTopologySafety.production_overlay_separated_from_staging).label}</div>
               </div>
             </div>
           </div>

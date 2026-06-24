@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lmcp-runtime-config
+data:
+  LMCP_ENV: production
+  LMCP_DEPLOYMENT_PROFILE: distributed-production
+  LMCP_ALLOW_FINAL_AUTOMATION: "false"
+  LMCP_DRY_RUN_MODE: "true"
+  LMCP_REQUIRE_HUMAN_SUPERVISION: "true"
+  LMCP_SUBMISSION_LOCK_FILE: /app/runtime/production/go_live_guards/submission_locks.json
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: backend
+          env:
+            - name: LMCP_ALLOW_FINAL_AUTOMATION
+              value: "false"
+            - name: LMCP_DRY_RUN_MODE
+              value: "true"
+            - name: LMCP_REQUIRE_HUMAN_SUPERVISION
+              value: "true"
+            - name: LMCP_SUBMISSION_LOCK_FILE
+              value: /app/runtime/production/go_live_guards/submission_locks.json
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: frontend
+          env:
+            - name: LMCP_ALLOW_FINAL_AUTOMATION
+              value: "false"
+            - name: LMCP_DRY_RUN_MODE
+              value: "true"
+            - name: LMCP_REQUIRE_HUMAN_SUPERVISION
+              value: "true"
+            - name: LMCP_SUBMISSION_LOCK_FILE
+              value: /app/runtime/production/go_live_guards/submission_locks.json
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: LMCP_ALLOW_FINAL_AUTOMATION
+              value: "false"
+            - name: LMCP_DRY_RUN_MODE
+              value: "true"
+            - name: LMCP_REQUIRE_HUMAN_SUPERVISION
+              value: "true"
+            - name: LMCP_SUBMISSION_LOCK_FILE
+              value: /app/runtime/production/go_live_guards/submission_locks.json
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 2

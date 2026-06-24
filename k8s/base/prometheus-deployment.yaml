@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.54.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9090
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+          volumeMounts:
+            - name: prometheus-data
+              mountPath: /prometheus
+      volumes:
+        - name: prometheus-data
+          persistentVolumeClaim:
+            claimName: prometheus-data

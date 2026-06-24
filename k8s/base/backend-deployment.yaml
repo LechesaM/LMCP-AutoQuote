@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: backend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: backend
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/lmcp/backend:placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: lmcp-runtime-config
+            - secretRef:
+                name: lmcp-secret-placeholders

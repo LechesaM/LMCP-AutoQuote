@@ -6,6 +6,7 @@ from typing import Any, Callable
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.services.historical_learning_service import HistoricalLearningService
 from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
 from etenders_acquisition.workflow_layer.workflow_status_dashboard import build_dashboard
 from etenders_acquisition.workflow_layer.rfq_dispatch_review import build_dispatch_review
@@ -85,6 +86,10 @@ def not_available(module_name: str) -> dict:
 
 def production_hardening_readiness_service() -> ProductionHardeningReadinessService:
     return ProductionHardeningReadinessService()
+
+
+def historical_learning_service() -> HistoricalLearningService:
+    return HistoricalLearningService()
 
 
 @app.get("/")
@@ -255,6 +260,21 @@ def executive_decision_workspace_latest():
 @app.get("/rfq-lifecycle/executive-decision-workspace/history")
 def executive_decision_workspace_history():
     return not_available("executive_decision_workspace_service")
+
+
+@app.get("/rfq-lifecycle/historical-learning")
+def historical_learning():
+    return historical_learning_service().latest_historical_learning()
+
+
+@app.get("/rfq-lifecycle/historical-learning/latest")
+def historical_learning_latest():
+    return historical_learning_service().latest_historical_learning()
+
+
+@app.get("/rfq-lifecycle/historical-learning/history")
+def historical_learning_history():
+    return historical_learning_service().historical_learning_history()
 
 
 @app.get("/rfq-lifecycle/controlled-automation-orchestration")

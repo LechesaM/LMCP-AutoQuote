@@ -101,8 +101,8 @@ class PricingIntelligenceGovernanceService:
 
     def _analyze(self, item: Dict[str, Any]) -> Dict[str, Any]:
         benchmark = self.market_benchmarking_service.benchmark_market_rates(item, record_history=False)
-        confidence = self.pricing_confidence_service.assess_pricing_confidence(item, benchmark=benchmark, record_history=False)
         margin = self.margin_scenario_service.build_margin_scenarios(item, benchmark=benchmark, record_history=False)
+        confidence = self.pricing_confidence_service.assess_pricing_confidence(item, benchmark=benchmark, margin=margin, record_history=False)
 
         benchmark_ready = bool(benchmark.get("pricing_benchmark_readiness", {}).get("ready"))
         market_ready = bool(benchmark.get("market_rate_comparison_readiness", {}).get("ready"))

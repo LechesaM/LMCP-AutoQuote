@@ -166,6 +166,8 @@ type VisibilitySnapshot = {
   stabilityHistory: Array<Record<string, any>>;
   finalGovernanceReleaseReadinessLatest: Record<string, any> | null;
   finalGovernanceReleaseReadinessHistory: Array<Record<string, any>>;
+  historicalLearningLatest: Record<string, any> | null;
+  historicalLearningHistory: Array<Record<string, any>>;
   controlledAutomationOrchestrationLatest: Record<string, any> | null;
   controlledAutomationOrchestrationHistory: Array<Record<string, any>>;
   productionHardeningReadinessLatest: Record<string, any> | null;
@@ -335,6 +337,8 @@ export default function Home() {
     stabilityHistory: [],
     finalGovernanceReleaseReadinessLatest: null,
     finalGovernanceReleaseReadinessHistory: [],
+    historicalLearningLatest: null,
+    historicalLearningHistory: [],
     controlledAutomationOrchestrationLatest: null,
     controlledAutomationOrchestrationHistory: [],
     productionHardeningReadinessLatest: null,
@@ -472,6 +476,8 @@ export default function Home() {
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
       { key: "finalGovernanceReleaseReadinessLatest", path: "/rfq-lifecycle/final-governance-release-readiness/latest" },
       { key: "finalGovernanceReleaseReadinessHistory", path: "/rfq-lifecycle/final-governance-release-readiness/history?limit=8" },
+      { key: "historicalLearningLatest", path: "/rfq-lifecycle/historical-learning/latest" },
+      { key: "historicalLearningHistory", path: "/rfq-lifecycle/historical-learning/history?limit=8" },
       { key: "controlledAutomationOrchestrationLatest", path: "/rfq-lifecycle/controlled-automation-orchestration/latest" },
       { key: "controlledAutomationOrchestrationHistory", path: "/rfq-lifecycle/controlled-automation-orchestration/history?limit=8" },
       { key: "productionHardeningReadinessLatest", path: "/rfq-lifecycle/production-hardening-readiness/latest" },
@@ -593,6 +599,8 @@ export default function Home() {
       stabilityHistory: [],
       finalGovernanceReleaseReadinessLatest: null,
       finalGovernanceReleaseReadinessHistory: [],
+      historicalLearningLatest: null,
+      historicalLearningHistory: [],
       controlledAutomationOrchestrationLatest: null,
       controlledAutomationOrchestrationHistory: [],
       productionHardeningReadinessLatest: null,
@@ -879,6 +887,11 @@ export default function Home() {
       } else if (key === "finalGovernanceReleaseReadinessHistory") {
         const items = data.final_governance_release_readiness_history;
         next.finalGovernanceReleaseReadinessHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "historicalLearningLatest") {
+        next.historicalLearningLatest = data;
+      } else if (key === "historicalLearningHistory") {
+        const items = data.historical_learning_history;
+        next.historicalLearningHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "controlledAutomationOrchestrationLatest") {
         next.controlledAutomationOrchestrationLatest = data;
       } else if (key === "controlledAutomationOrchestrationHistory") {
@@ -1477,6 +1490,21 @@ export default function Home() {
   const finalGovernanceReleaseReadinessLatest = visibility.finalGovernanceReleaseReadinessLatest || {};
   const finalGovernanceReleaseReadinessHistory = Array.isArray(visibility.finalGovernanceReleaseReadinessHistory) ? visibility.finalGovernanceReleaseReadinessHistory : [];
   const finalGovernanceReleaseReadinessWarnings = Array.isArray(finalGovernanceReleaseReadinessLatest.warnings) ? finalGovernanceReleaseReadinessLatest.warnings : [];
+  const historicalLearningLatest = visibility.historicalLearningLatest || {};
+  const historicalLearningHistory = Array.isArray(visibility.historicalLearningHistory) ? visibility.historicalLearningHistory : [];
+  const historicalLearningWarnings = Array.isArray(historicalLearningLatest.warnings) ? historicalLearningLatest.warnings : [];
+  const historicalLearningStatus = getString(historicalLearningLatest.historical_learning_status, "watch");
+  const historicalLearningScore = getNumber(historicalLearningLatest.historical_learning_score, 0);
+  const historicalLearningGrade = getString(historicalLearningLatest.historical_learning_grade, "blocked");
+  const historicalLearningReadiness = historicalLearningLatest.historical_learning_readiness || {};
+  const historicalTenderOutcomeReadiness = historicalLearningLatest.tender_outcome_learning_readiness || {};
+  const historicalSupplierMemoryReadiness = historicalLearningLatest.supplier_memory_readiness || {};
+  const historicalPricingCalibrationReadiness = historicalLearningLatest.pricing_calibration_readiness || {};
+  const historicalWinLossReadiness = historicalLearningLatest.win_loss_analytics_readiness || {};
+  const historicalRecommendationFeedbackReadiness = historicalLearningLatest.recommendation_feedback_readiness || {};
+  const historicalConfidenceRecalibrationReadiness = historicalLearningLatest.confidence_recalibration_readiness || {};
+  const historicalBenchmarkReadiness = historicalLearningLatest.historical_benchmark_readiness || {};
+  const historicalLearningBlockers = Array.isArray(historicalLearningLatest.unresolved_learning_blockers) ? historicalLearningLatest.unresolved_learning_blockers : [];
   const productionHardeningReadinessLatest = visibility.productionHardeningReadinessLatest || {};
   const productionHardeningReadinessHistory = Array.isArray(visibility.productionHardeningReadinessHistory) ? visibility.productionHardeningReadinessHistory : [];
   const productionHardeningReadinessWarnings = Array.isArray(productionHardeningReadinessLatest.warnings) ? productionHardeningReadinessLatest.warnings : [];
@@ -2010,6 +2038,101 @@ export default function Home() {
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Historical Learning & Outcome Intelligence</h2>
+              <p className="text-sm text-slate-400">
+                Supervised historical outcome memory for procurement, supplier, pricing, strategy, and executive learning signals.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only learning governance" : "Read-only learning governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {historicalLearningWarnings.length ? (
+            <div className="space-y-3">
+              {historicalLearningWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Historical learning remains advisory only, dry-run enforced, and supervised.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Learning Readiness"
+              tone={historicalLearningStatus === "ok" ? "ok" : historicalLearningStatus === "blocked" ? "error" : "neutral"}
+              summary={`${historicalLearningGrade} • ${historicalLearningScore.toFixed(2)}`}
+              items={[
+                ["Status", historicalLearningStatus],
+                ["Score", historicalLearningScore.toFixed(2)],
+                ["Historical", getBooleanBadge(historicalLearningReadiness.ready).label],
+                ["Tender outcome", getBooleanBadge(historicalTenderOutcomeReadiness.ready).label],
+                ["Supplier memory", getBooleanBadge(historicalSupplierMemoryReadiness.ready).label],
+                ["Pricing calibration", getBooleanBadge(historicalPricingCalibrationReadiness.ready).label],
+                ["Win/loss analytics", getBooleanBadge(historicalWinLossReadiness.ready).label],
+                ["History", String(historicalLearningHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Controls"
+              tone={historicalLearningReadiness.ready && historicalLearningLatest.dry_run_enforced && historicalLearningLatest.human_supervision_required ? "ok" : "error"}
+              summary={getBooleanBadge(historicalLearningLatest.dry_run_enforced).label}
+              items={[
+                ["Dry-run", getBooleanBadge(historicalLearningLatest.dry_run_enforced).label],
+                ["Supervision", getBooleanBadge(historicalLearningLatest.human_supervision_required).label],
+                ["Review required", getBooleanBadge(historicalLearningLatest.supervised_learning_review_required).label],
+                ["Feedback required", getBooleanBadge(historicalLearningLatest.executive_feedback_required).label],
+                ["Autonomous learning", getBooleanBadge(historicalLearningLatest.autonomous_learning_execution_enabled).label],
+                ["Procurement updates", getBooleanBadge(historicalLearningLatest.autonomous_procurement_decision_updates_enabled).label],
+                ["Supplier blacklisting", getBooleanBadge(historicalLearningLatest.autonomous_supplier_blacklisting_enabled).label],
+                ["Strategy modification", getBooleanBadge(historicalLearningLatest.autonomous_strategy_modification_enabled).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Outcome Coverage"
+              tone={historicalLearningBlockers.length ? "error" : "ok"}
+              summary={`${historicalLearningBlockers.length} blocker(s)`}
+              items={[
+                ["Recommendation feedback", getBooleanBadge(historicalRecommendationFeedbackReadiness.ready).label],
+                ["Confidence recalibration", getBooleanBadge(historicalConfidenceRecalibrationReadiness.ready).label],
+                ["Historical benchmark", getBooleanBadge(historicalBenchmarkReadiness.ready).label],
+                ["Tender outcome history", String(Array.isArray(historicalLearningLatest.procurement_intelligence_history) ? historicalLearningLatest.procurement_intelligence_history.length : 0)],
+                ["Supplier outcomes", String(Array.isArray(historicalLearningLatest.supplier_intelligence_outcomes) ? historicalLearningLatest.supplier_intelligence_outcomes.length : 0)],
+                ["Pricing outcomes", String(Array.isArray(historicalLearningLatest.pricing_competitiveness_outcomes) ? historicalLearningLatest.pricing_competitiveness_outcomes.length : 0)],
+                ["Strategy outcomes", String(Array.isArray(historicalLearningLatest.tender_strategy_outcomes) ? historicalLearningLatest.tender_strategy_outcomes.length : 0)],
+                ["Executive outcomes", String(Array.isArray(historicalLearningLatest.executive_review_outcomes) ? historicalLearningLatest.executive_review_outcomes.length : 0)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Learning Flags"
+              tone={historicalLearningBlockers.length ? "error" : "ok"}
+              summary={`${historicalLearningBlockers.length} unresolved blocker(s)`}
+              items={[
+                ["Procurement updates", getBooleanBadge(historicalLearningLatest.autonomous_procurement_decision_updates_enabled).label],
+                ["Supplier blacklisting", getBooleanBadge(historicalLearningLatest.autonomous_supplier_blacklisting_enabled).label],
+                ["Strategy modification", getBooleanBadge(historicalLearningLatest.autonomous_strategy_modification_enabled).label],
+                ["Production learning", getBooleanBadge(historicalLearningLatest.production_learning_mode_enabled).label],
+                ["Unresolved blockers", String(historicalLearningBlockers.length)],
+                ["Executive feedback", getBooleanBadge(historicalLearningLatest.executive_feedback_required).label],
+                ["Review required", getBooleanBadge(historicalLearningLatest.supervised_learning_review_required).label],
+                ["Count", String(historicalLearningHistory.length)],
+              ]}
+            />
           </div>
         </section>
 

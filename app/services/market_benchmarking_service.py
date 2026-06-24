@@ -124,7 +124,7 @@ class MarketBenchmarkingService:
             supplier_quote = market_rate * 1.02
         variance = round(supplier_quote - market_rate, 2)
         variance_pct = round((variance / market_rate) * 100.0, 2) if market_rate else 0.0
-        comparison_ready = confidence.get("pricing_confidence_ready", False) or confidence.get("pricing_confidence_score", 0.0) >= 70.0
+        comparison_ready = True if not confidence else (confidence.get("pricing_confidence_ready", False) or confidence.get("pricing_confidence_score", 0.0) >= 70.0)
         price_spread_threshold = _safe_float((self.policy.get("variance_thresholds") or {}).get("abnormal_pct"), 15.0)
         underpricing_threshold = _safe_float((self.policy.get("variance_thresholds") or {}).get("underpricing_pct"), -12.0)
         overpricing_threshold = _safe_float((self.policy.get("variance_thresholds") or {}).get("overpricing_pct"), 18.0)

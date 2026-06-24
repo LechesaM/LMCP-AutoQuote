@@ -12,6 +12,7 @@ from app.services.data_residency_governance_service import data_residency_govern
 from app.services.pricing_intelligence_governance_service import pricing_intelligence_governance_service
 from app.services.executive_decision_workspace_service import executive_decision_workspace_service
 from app.services.tender_strategy_governance_service import tender_strategy_governance_service
+from app.services.controlled_automation_orchestration_service import ControlledAutomationOrchestrationService
 
 DB_PATH = Path("runtime/workflow/workflow_layer.db")
 DASHBOARD_PATH = Path("runtime/workflow/workflow_status_dashboard.json")
@@ -19,6 +20,10 @@ RFQ_SUMMARY_PATH = Path("runtime/rfqs/rfq_orchestration_summary.json")
 ADJUDICATION_PATH = Path("runtime/adjudication/live_adjudication_summary.json")
 ACTION_REVIEW_PATH = Path("runtime/adjudication/actions/action_dispatch_review.json")
 QUOTE_INGESTION_PATH = Path("runtime/supplier_responses/quote_ingestion_summary.json")
+
+
+def controlled_automation_orchestration_service() -> ControlledAutomationOrchestrationService:
+    return ControlledAutomationOrchestrationService()
 
 
 app = FastAPI(
@@ -217,3 +222,18 @@ def executive_decision_workspace_latest():
 @app.get("/rfq-lifecycle/executive-decision-workspace/history")
 def executive_decision_workspace_history():
     return executive_decision_workspace_service.executive_decision_workspace_history()
+
+
+@app.get("/rfq-lifecycle/controlled-automation-orchestration")
+def controlled_automation_orchestration():
+    return controlled_automation_orchestration_service().list_controlled_automation_orchestration()
+
+
+@app.get("/rfq-lifecycle/controlled-automation-orchestration/latest")
+def controlled_automation_orchestration_latest():
+    return controlled_automation_orchestration_service().latest_controlled_automation_orchestration()
+
+
+@app.get("/rfq-lifecycle/controlled-automation-orchestration/history")
+def controlled_automation_orchestration_history():
+    return controlled_automation_orchestration_service().controlled_automation_orchestration_history()

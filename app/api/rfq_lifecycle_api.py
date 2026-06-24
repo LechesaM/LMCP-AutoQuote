@@ -28,6 +28,7 @@ from app.services.executive_summary_service import ExecutiveSummaryService
 from app.services.executive_risk_review_service import ExecutiveRiskReviewService
 from app.services.executive_decision_queue_service import ExecutiveDecisionQueueService
 from app.services.tender_strategy_governance_service import TenderStrategyGovernanceService
+from app.services.controlled_automation_orchestration_service import ControlledAutomationOrchestrationService
 from app.services.executive_command_service import ExecutiveCommandService
 from app.services.executive_governance_index_service import ExecutiveGovernanceIndexService
 from app.services.production_operationalization_service import ProductionOperationalizationService
@@ -192,6 +193,10 @@ def executive_decision_queue_service() -> ExecutiveDecisionQueueService:
 
 def tender_strategy_governance_service() -> TenderStrategyGovernanceService:
     return TenderStrategyGovernanceService()
+
+
+def controlled_automation_orchestration_service() -> ControlledAutomationOrchestrationService:
+    return ControlledAutomationOrchestrationService()
 
 
 def executive_command_service() -> ExecutiveCommandService:
@@ -800,6 +805,21 @@ def executive_decision_workspace_latest() -> Dict[str, Any]:
 @router.get("/executive-decision-workspace/history")
 def executive_decision_workspace_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return executive_decision_workspace_service().executive_decision_workspace_history(limit=limit)
+
+
+@router.get("/controlled-automation-orchestration")
+def controlled_automation_orchestration(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return controlled_automation_orchestration_service().list_controlled_automation_orchestration(limit=limit)
+
+
+@router.get("/controlled-automation-orchestration/latest")
+def controlled_automation_orchestration_latest() -> Dict[str, Any]:
+    return controlled_automation_orchestration_service().latest_controlled_automation_orchestration()
+
+
+@router.get("/controlled-automation-orchestration/history")
+def controlled_automation_orchestration_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return controlled_automation_orchestration_service().controlled_automation_orchestration_history(limit=limit)
 
 
 @router.get("/executive-command")

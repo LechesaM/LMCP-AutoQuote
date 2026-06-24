@@ -166,6 +166,8 @@ type VisibilitySnapshot = {
   stabilityHistory: Array<Record<string, any>>;
   finalGovernanceReleaseReadinessLatest: Record<string, any> | null;
   finalGovernanceReleaseReadinessHistory: Array<Record<string, any>>;
+  controlledAutomationOrchestrationLatest: Record<string, any> | null;
+  controlledAutomationOrchestrationHistory: Array<Record<string, any>>;
   warnings: string[];
 };
 
@@ -331,6 +333,8 @@ export default function Home() {
     stabilityHistory: [],
     finalGovernanceReleaseReadinessLatest: null,
     finalGovernanceReleaseReadinessHistory: [],
+    controlledAutomationOrchestrationLatest: null,
+    controlledAutomationOrchestrationHistory: [],
     warnings: [],
   });
 
@@ -464,6 +468,8 @@ export default function Home() {
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
       { key: "finalGovernanceReleaseReadinessLatest", path: "/rfq-lifecycle/final-governance-release-readiness/latest" },
       { key: "finalGovernanceReleaseReadinessHistory", path: "/rfq-lifecycle/final-governance-release-readiness/history?limit=8" },
+      { key: "controlledAutomationOrchestrationLatest", path: "/rfq-lifecycle/controlled-automation-orchestration/latest" },
+      { key: "controlledAutomationOrchestrationHistory", path: "/rfq-lifecycle/controlled-automation-orchestration/history?limit=8" },
     ] as const;
 
     const settled = await Promise.allSettled(
@@ -581,6 +587,8 @@ export default function Home() {
       stabilityHistory: [],
       finalGovernanceReleaseReadinessLatest: null,
       finalGovernanceReleaseReadinessHistory: [],
+      controlledAutomationOrchestrationLatest: null,
+      controlledAutomationOrchestrationHistory: [],
       warnings: [],
     };
 
@@ -863,6 +871,11 @@ export default function Home() {
       } else if (key === "finalGovernanceReleaseReadinessHistory") {
         const items = data.final_governance_release_readiness_history;
         next.finalGovernanceReleaseReadinessHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "controlledAutomationOrchestrationLatest") {
+        next.controlledAutomationOrchestrationLatest = data;
+      } else if (key === "controlledAutomationOrchestrationHistory") {
+        const items = data.controlled_automation_orchestration_history;
+        next.controlledAutomationOrchestrationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       }
     }
 
@@ -1043,6 +1056,25 @@ export default function Home() {
   const complianceEscalationIndicators = executiveDecisionWorkspaceLatest.compliance_escalation_indicators || {};
   const riskEscalationIndicators = executiveDecisionWorkspaceLatest.risk_escalation_indicators || {};
   const executiveDecisionBlockers = Array.isArray(executiveDecisionWorkspaceLatest.unresolved_executive_blockers) ? executiveDecisionWorkspaceLatest.unresolved_executive_blockers : [];
+  const controlledAutomationOrchestrationLatest = visibility.controlledAutomationOrchestrationLatest || {};
+  const controlledAutomationOrchestrationHistory = Array.isArray(visibility.controlledAutomationOrchestrationHistory) ? visibility.controlledAutomationOrchestrationHistory : [];
+  const controlledAutomationOrchestrationWarnings = Array.isArray(controlledAutomationOrchestrationLatest.warnings) ? controlledAutomationOrchestrationLatest.warnings : [];
+  const controlledAutomationOrchestrationStatus = getString(controlledAutomationOrchestrationLatest.controlled_automation_orchestration_status, "watch");
+  const controlledAutomationOrchestrationScore = getNumber(controlledAutomationOrchestrationLatest.controlled_automation_orchestration_score, 0);
+  const controlledAutomationOrchestrationGrade = getString(controlledAutomationOrchestrationLatest.controlled_automation_orchestration_grade, "blocked");
+  const controlledAutomationReadinessScore = getNumber(controlledAutomationOrchestrationLatest.automation_readiness_score, 0);
+  const controlledAutomationReadiness = controlledAutomationOrchestrationLatest.automation_readiness || {};
+  const controlledAutomationGuardrail = controlledAutomationOrchestrationLatest.automation_guardrail || {};
+  const controlledAutomationExecutionPlan = controlledAutomationOrchestrationLatest.automation_execution_plan || {};
+  const controlledAutomationGuardrailReadiness = controlledAutomationOrchestrationLatest.guardrail_readiness || {};
+  const controlledAutomationOrchestrationPlanReadiness = controlledAutomationOrchestrationLatest.orchestration_plan_readiness || {};
+  const controlledAutomationSupervisedStepPlanningReadiness = controlledAutomationOrchestrationLatest.supervised_step_planning_readiness || {};
+  const controlledAutomationDryRunExecutionPlanReadiness = controlledAutomationOrchestrationLatest.dry_run_execution_plan_readiness || {};
+  const controlledAutomationHumanApprovalCheckpointReadiness = controlledAutomationOrchestrationLatest.human_approval_checkpoint_readiness || {};
+  const controlledAutomationRollbackPlanningReadiness = controlledAutomationOrchestrationLatest.rollback_planning_readiness || {};
+  const controlledAutomationAuditabilityReadiness = controlledAutomationOrchestrationLatest.auditability_readiness || {};
+  const controlledAutomationBlockedIndicators = controlledAutomationOrchestrationLatest.blocked_automation_indicators || {};
+  const controlledAutomationBlockers = Array.isArray(controlledAutomationOrchestrationLatest.unresolved_automation_blockers) ? controlledAutomationOrchestrationLatest.unresolved_automation_blockers : [];
   const executiveCommandLatest = visibility.executiveCommandLatest || {};
   const executiveCommandHistory = Array.isArray(visibility.executiveCommandHistory) ? visibility.executiveCommandHistory : [];
   const executiveCommandWarnings = Array.isArray(executiveCommandLatest.warnings) ? executiveCommandLatest.warnings : [];
@@ -1938,6 +1970,154 @@ export default function Home() {
                 <div>Procurement commitment generation: {getBooleanBadge(executiveDecisionWorkspaceLatest.procurement_commitment_generation_enabled).label}</div>
                 <div className="md:col-span-2">
                   Unresolved blockers: {executiveDecisionBlockers.length ? executiveDecisionBlockers.join(", ") : "none"}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Controlled Automation Orchestration</h2>
+              <p className="text-sm text-slate-400">
+                Advisory orchestration for automation readiness, guardrails, supervised step planning, and dry-run execution only.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only orchestration governance" : "Read-only orchestration governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {controlledAutomationOrchestrationWarnings.length ? (
+            <div className="space-y-3">
+              {controlledAutomationOrchestrationWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Controlled automation orchestration remains advisory only, dry-run enforced, and supervised.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Orchestration Readiness"
+              tone={controlledAutomationOrchestrationStatus === "ok" ? "ok" : controlledAutomationOrchestrationStatus === "blocked" ? "error" : "neutral"}
+              summary={`${controlledAutomationOrchestrationGrade} • ${controlledAutomationOrchestrationScore.toFixed(2)}`}
+              items={[
+                ["Status", controlledAutomationOrchestrationStatus],
+                ["Score", controlledAutomationOrchestrationScore.toFixed(2)],
+                ["Readiness", controlledAutomationReadinessScore.toFixed(2)],
+                ["Automation readiness", controlledAutomationReadiness.ready ? "Yes" : "No"],
+                ["Guardrail score", getNumber(controlledAutomationGuardrail.automation_guardrail_score, 0).toFixed(2)],
+                ["Execution score", getNumber(controlledAutomationExecutionPlan.automation_execution_plan_score, 0).toFixed(2)],
+                ["Plan readiness", getBooleanBadge(controlledAutomationOrchestrationPlanReadiness.ready).label],
+                ["Guardrail readiness", getBooleanBadge(controlledAutomationGuardrailReadiness.ready).label],
+                ["History", String(controlledAutomationOrchestrationHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Guardrails"
+              tone={Object.values(controlledAutomationBlockedIndicators).every(Boolean) ? "ok" : "error"}
+              summary={`${Object.values(controlledAutomationBlockedIndicators).filter(Boolean).length} blocked`}
+              items={[
+                ["Final automation", getBooleanBadge(controlledAutomationOrchestrationLatest.final_automation_enabled).label],
+                ["Procurement exec", getBooleanBadge(controlledAutomationOrchestrationLatest.autonomous_procurement_execution_enabled).label],
+                ["Tender submission", getBooleanBadge(controlledAutomationOrchestrationLatest.autonomous_tender_submission_enabled).label],
+                ["Supplier award", getBooleanBadge(controlledAutomationOrchestrationLatest.autonomous_supplier_award_enabled).label],
+                ["External alerts", getBooleanBadge(controlledAutomationOrchestrationLatest.live_external_alerting_enabled).label],
+                ["Production creds", getBooleanBadge(controlledAutomationOrchestrationLatest.production_credentials_present).label],
+                ["Commitment gen", getBooleanBadge(controlledAutomationOrchestrationLatest.procurement_commitment_generation_enabled).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Plan Controls"
+              tone={controlledAutomationDryRunExecutionPlanReadiness.ready && controlledAutomationHumanApprovalCheckpointReadiness.ready ? "ok" : "error"}
+              summary={`${getNumber(controlledAutomationReadinessScore, 0).toFixed(2)} readiness`}
+              items={[
+                ["Dry-run plan", getBooleanBadge(controlledAutomationDryRunExecutionPlanReadiness.ready).label],
+                ["Human checkpoints", getBooleanBadge(controlledAutomationHumanApprovalCheckpointReadiness.ready).label],
+                ["Rollback plan", getBooleanBadge(controlledAutomationRollbackPlanningReadiness.ready).label],
+                ["Auditability", getBooleanBadge(controlledAutomationAuditabilityReadiness.ready).label],
+                ["Supervised planning", getBooleanBadge(controlledAutomationSupervisedStepPlanningReadiness.ready).label],
+                ["LMCP automation", getBooleanBadge(controlledAutomationOrchestrationLatest.safety_boundaries?.lmcp_allow_final_automation).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Context"
+              tone={controlledAutomationBlockers.length ? "error" : "ok"}
+              summary={`${controlledAutomationBlockers.length} blocker(s)`}
+              items={[
+                ["Read-only", getBooleanBadge(controlledAutomationOrchestrationLatest.safety_boundaries?.read_only).label],
+                ["Staging-only", getBooleanBadge(controlledAutomationOrchestrationLatest.safety_boundaries?.staging_only).label],
+                ["Dry-run", getBooleanBadge(controlledAutomationOrchestrationLatest.dry_run_enforced).label],
+                ["Supervision", getBooleanBadge(controlledAutomationOrchestrationLatest.human_supervision_required).label],
+                ["Approval checkpoints", getBooleanBadge(controlledAutomationOrchestrationLatest.human_approval_checkpoints_required).label],
+                ["Auditability", getBooleanBadge(controlledAutomationOrchestrationLatest.auditability_required).label],
+                ["Rollback planning", getBooleanBadge(controlledAutomationOrchestrationLatest.rollback_planning_required).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Orchestration History</h3>
+                <StatusBadge label={`${controlledAutomationOrchestrationHistory.length} analysis(es)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-right">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {controlledAutomationOrchestrationHistory.length ? (
+                      controlledAutomationOrchestrationHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.controlled_automation_orchestration_id, "analysis")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.controlled_automation_orchestration_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.controlled_automation_orchestration_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.controlled_automation_orchestration_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No controlled automation orchestration history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Blocked Automation Indicators</h3>
+                <StatusBadge label={controlledAutomationBlockers.length ? "Blocked" : "Clear"} tone={controlledAutomationBlockers.length ? "error" : "ok"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                {Object.entries(controlledAutomationBlockedIndicators).map(([label, value]) => (
+                  <div key={label}>
+                    {label.replace(/_/g, " ")}: {getBooleanBadge(value).label}
+                  </div>
+                ))}
+                <div className="md:col-span-2">
+                  Unresolved blockers: {controlledAutomationBlockers.length ? controlledAutomationBlockers.join(", ") : "none"}
                 </div>
               </div>
             </div>

@@ -4,10 +4,11 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from workflow_layer.workflow_status_dashboard import build_dashboard
-from workflow_layer.rfq_dispatch_review import build_dispatch_review
-from workflow_layer.live_adjudication_engine import run_live_adjudication
-from workflow_layer.action_dispatch_review import build_action_dispatch_review
+from ..workflow_layer.workflow_status_dashboard import build_dashboard
+from ..workflow_layer.rfq_dispatch_review import build_dispatch_review
+from ..workflow_layer.live_adjudication_engine import run_live_adjudication
+from ..workflow_layer.action_dispatch_review import build_action_dispatch_review
+from app.services.data_residency_governance_service import data_residency_governance_service
 
 DB_PATH = Path("runtime/workflow/workflow_layer.db")
 DASHBOARD_PATH = Path("runtime/workflow/workflow_status_dashboard.json")
@@ -153,3 +154,18 @@ def refresh_all():
         "action_review": action_review,
         "dashboard": dashboard_result
     }
+
+
+@app.get("/rfq-lifecycle/data-residency-governance")
+def data_residency_governance():
+    return data_residency_governance_service.latest()
+
+
+@app.get("/rfq-lifecycle/data-residency-governance/latest")
+def data_residency_governance_latest():
+    return data_residency_governance_service.latest()
+
+
+@app.get("/rfq-lifecycle/data-residency-governance/history")
+def data_residency_governance_history():
+    return data_residency_governance_service.history()

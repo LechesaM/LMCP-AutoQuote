@@ -128,6 +128,8 @@ type VisibilitySnapshot = {
   backupRestoreGovernanceHistory: Array<Record<string, any>>;
   disasterRecoveryLatest: Record<string, any> | null;
   disasterRecoveryHistory: Array<Record<string, any>>;
+  dataResidencyLatest: Record<string, any> | null;
+  dataResidencyHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -275,6 +277,8 @@ export default function Home() {
     backupRestoreGovernanceHistory: [],
     disasterRecoveryLatest: null,
     disasterRecoveryHistory: [],
+    dataResidencyLatest: null,
+    dataResidencyHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -390,6 +394,8 @@ export default function Home() {
       { key: "backupRestoreGovernanceHistory", path: "/rfq-lifecycle/backup-restore-governance/history?limit=8" },
       { key: "disasterRecoveryLatest", path: "/rfq-lifecycle/disaster-recovery-governance/latest" },
       { key: "disasterRecoveryHistory", path: "/rfq-lifecycle/disaster-recovery-governance/history?limit=8" },
+      { key: "dataResidencyLatest", path: "/rfq-lifecycle/data-residency-governance/latest" },
+      { key: "dataResidencyHistory", path: "/rfq-lifecycle/data-residency-governance/history" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -489,6 +495,8 @@ export default function Home() {
       backupRestoreGovernanceHistory: [],
       disasterRecoveryLatest: null,
       disasterRecoveryHistory: [],
+      dataResidencyLatest: null,
+      dataResidencyHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -696,6 +704,11 @@ export default function Home() {
       } else if (key === "disasterRecoveryHistory") {
         const items = data.disaster_recovery_governance_history;
         next.disasterRecoveryHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "dataResidencyLatest") {
+        next.dataResidencyLatest = data;
+      } else if (key === "dataResidencyHistory") {
+        const items = data.history;
+        next.dataResidencyHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -1035,6 +1048,21 @@ export default function Home() {
   const disasterRecoveryBlockers = Array.isArray(disasterRecoveryLatest.unresolved_blockers) ? disasterRecoveryLatest.unresolved_blockers : [];
   const disasterRecoveryBlockerSources = Array.isArray(disasterRecoveryLatest.blocker_sources) ? disasterRecoveryLatest.blocker_sources : [];
   const disasterRecoveryRationale = disasterRecoveryLatest.recovery_rationale || {};
+  const dataResidencyLatest = visibility.dataResidencyLatest || {};
+  const dataResidencyHistory = Array.isArray(visibility.dataResidencyHistory) ? visibility.dataResidencyHistory : [];
+  const dataResidencyHistoryEvents = Array.isArray(dataResidencyLatest.governance_history) ? dataResidencyLatest.governance_history : [];
+  const dataResidencyTenant = getBooleanBadge(dataResidencyLatest.tenant_data_residency_ready).label;
+  const dataResidencyJurisdiction = getBooleanBadge(dataResidencyLatest.jurisdiction_boundary_ready).label;
+  const dataResidencyCrossRegion = getBooleanBadge(dataResidencyLatest.cross_region_movement_restricted).label;
+  const dataResidencyBackup = getBooleanBadge(dataResidencyLatest.backup_residency_aligned).label;
+  const dataResidencyAudit = getBooleanBadge(dataResidencyLatest.audit_log_residency_aligned).label;
+  const dataResidencyEvidence = getBooleanBadge(dataResidencyLatest.evidence_storage_residency_aligned).label;
+  const dataResidencyEscalation = getBooleanBadge(dataResidencyLatest.sovereignty_escalation_ready).label;
+  const dataResidencyRestricted = getBooleanBadge(dataResidencyLatest.restricted_region_blockers_clear).label;
+  const dataResidencyDryRun = getBooleanBadge(dataResidencyLatest.dry_run_enforced).label;
+  const dataResidencySupervision = getBooleanBadge(dataResidencyLatest.human_supervision_required).label;
+  const dataResidencyNoProductionMovement = getBooleanBadge(!dataResidencyLatest.production_data_movement_enabled).label;
+  const dataResidencySafety = dataResidencyLatest.unresolved_blockers || [];
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -7219,6 +7247,151 @@ export default function Home() {
                       <div className="text-slate-400">Blockers: {String(Array.isArray(source.blockers) ? source.blockers.length : 0)}</div>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre Data Residency &amp; Sovereignty Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging visibility for tenant residency, jurisdiction boundaries, cross-region movement controls, backup and evidence residency, and sovereignty escalation readiness.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only residency governance" : "Read-only residency governance"}
+              tone="neutral"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Residency State"
+              tone={dataResidencyLatest.ready ? "ok" : "error"}
+              summary={`${getString(dataResidencyLatest.governance_mode, "read_only")} • ${getString(dataResidencyLatest.environment, "staging")}`}
+              items={[
+                ["Tenant residency", dataResidencyTenant],
+                ["Jurisdiction boundary", dataResidencyJurisdiction],
+                ["Cross-region movement", dataResidencyCrossRegion],
+                ["Backup residency", dataResidencyBackup],
+                ["Audit residency", dataResidencyAudit],
+                ["Evidence residency", dataResidencyEvidence],
+              ]}
+            />
+
+            <MetricPanel
+              title="Sovereignty Controls"
+              tone={dataResidencyLatest.ready ? "ok" : "neutral"}
+              summary={`${dataResidencyEscalation === "Yes" ? "Ready" : "Watch"} sovereignty escalation`}
+              items={[
+                ["Sovereignty escalation", dataResidencyEscalation],
+                ["Restricted blockers", dataResidencyRestricted],
+                ["Dry-run", dataResidencyDryRun],
+                ["Supervision", dataResidencySupervision],
+                ["No production movement", dataResidencyNoProductionMovement],
+                ["Live cloud credentials", getBooleanBadge(!dataResidencyLatest.live_cloud_credentials_present).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Boundaries"
+              tone={dataResidencyLatest.ready ? "ok" : "error"}
+              summary={`${dataResidencySafety.length} blocker(s)`}
+              items={[
+                ["Read-only mode", getString(dataResidencyLatest.governance_mode, "read_only")],
+                ["Environment", getString(dataResidencyLatest.environment, "staging")],
+                ["Dry-run enforced", dataResidencyDryRun],
+                ["Human supervision", dataResidencySupervision],
+                ["No cloud creds", getBooleanBadge(!dataResidencyLatest.live_cloud_credentials_present).label],
+                ["No prod movement", dataResidencyNoProductionMovement],
+              ]}
+            />
+
+            <MetricPanel
+              title="History"
+              tone={dataResidencyLatest.ready ? "ok" : "neutral"}
+              summary={`${dataResidencyHistory.length} history item(s)`}
+              items={[
+                ["Governance history", String(dataResidencyHistoryEvents.length)],
+                ["Latest timestamp", getString(dataResidencyLatest.generated_at, "n/a")],
+                ["Ready", getBooleanBadge(dataResidencyLatest.ready).label],
+                ["Environment", getString(dataResidencyLatest.environment, "staging")],
+                ["Mode", getString(dataResidencyLatest.governance_mode, "read_only")],
+                ["Unresolved blockers", String(Array.isArray(dataResidencyLatest.unresolved_blockers) ? dataResidencyLatest.unresolved_blockers.length : 0)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Residency Governance History</h3>
+                <StatusBadge label={`${dataResidencyHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Event</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Mode</th>
+                      <th className="p-3 text-left">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dataResidencyHistory.length ? (
+                      dataResidencyHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.event, "event")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.event, "n/a")}</td>
+                          <td className="p-3">{getString(item.status, "n/a")}</td>
+                          <td className="p-3">{getString(item.mode, "read_only")}</td>
+                          <td className="p-3 text-slate-400">{getString(item.timestamp, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No residency governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Safety Boundaries</h3>
+                <StatusBadge label={dataResidencyLatest.ready ? "ready" : "watch"} tone={dataResidencyLatest.ready ? "ok" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Tenant residency: {dataResidencyTenant}</div>
+                <div>Jurisdiction boundary: {dataResidencyJurisdiction}</div>
+                <div>Cross-region movement restricted: {dataResidencyCrossRegion}</div>
+                <div>Backup residency: {dataResidencyBackup}</div>
+                <div>Audit/evidence residency: {dataResidencyAudit}</div>
+                <div>Sovereignty escalation: {dataResidencyEscalation}</div>
+                <div>Restricted-region blockers: {dataResidencyRestricted}</div>
+                <div>Dry-run: {dataResidencyDryRun}</div>
+                <div>Supervision: {dataResidencySupervision}</div>
+                <div>No production movement: {dataResidencyNoProductionMovement}</div>
+              </div>
+              <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300">
+                <div className="font-medium text-slate-100">Unresolved blockers</div>
+                <div className="mt-2 space-y-2">
+                  {Array.isArray(dataResidencyLatest.unresolved_blockers) && dataResidencyLatest.unresolved_blockers.length ? (
+                    dataResidencyLatest.unresolved_blockers.map((blocker: string, index: number) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {blocker}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved blockers remain in the staged residency evidence.</div>
+                  )}
                 </div>
               </div>
             </div>

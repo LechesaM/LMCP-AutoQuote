@@ -19,6 +19,8 @@ from app.services.pilot_operations_summary_service import PilotOperationsSummary
 from app.services.operational_pilot_execution_service import OperationalPilotExecutionService
 from app.services.operational_stability_service import OperationalStabilityService
 from app.services.operational_intelligence_service import OperationalIntelligenceService
+from app.services.procurement_intelligence_service import ProcurementIntelligenceService
+from app.services.supplier_intelligence_service import SupplierIntelligenceService
 from app.services.executive_command_service import ExecutiveCommandService
 from app.services.executive_governance_index_service import ExecutiveGovernanceIndexService
 from app.services.production_operationalization_service import ProductionOperationalizationService
@@ -147,6 +149,14 @@ def stability_service() -> OperationalStabilityService:
 
 def operational_intelligence_service() -> OperationalIntelligenceService:
     return OperationalIntelligenceService()
+
+
+def procurement_intelligence_service() -> ProcurementIntelligenceService:
+    return ProcurementIntelligenceService()
+
+
+def supplier_intelligence_service() -> SupplierIntelligenceService:
+    return SupplierIntelligenceService()
 
 
 def executive_command_service() -> ExecutiveCommandService:
@@ -665,6 +675,36 @@ def operational_intelligence_latest() -> Dict[str, Any]:
 @router.get("/operational-intelligence/history")
 def operational_intelligence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return operational_intelligence_service().operational_intelligence_history(limit=limit)
+
+
+@router.get("/procurement-intelligence")
+def procurement_intelligence(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return procurement_intelligence_service().list_procurement_intelligence(limit=limit)
+
+
+@router.get("/procurement-intelligence/latest")
+def procurement_intelligence_latest() -> Dict[str, Any]:
+    return procurement_intelligence_service().latest_procurement_intelligence()
+
+
+@router.get("/procurement-intelligence/history")
+def procurement_intelligence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return procurement_intelligence_service().procurement_intelligence_history(limit=limit)
+
+
+@router.get("/supplier-intelligence")
+def supplier_intelligence(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return supplier_intelligence_service().list_supplier_intelligence(limit=limit)
+
+
+@router.get("/supplier-intelligence/latest")
+def supplier_intelligence_latest() -> Dict[str, Any]:
+    return supplier_intelligence_service().latest_supplier_intelligence()
+
+
+@router.get("/supplier-intelligence/history")
+def supplier_intelligence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return supplier_intelligence_service().supplier_intelligence_history(limit=limit)
 
 
 @router.get("/executive-command")

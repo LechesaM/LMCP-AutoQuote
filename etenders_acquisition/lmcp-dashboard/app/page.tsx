@@ -92,6 +92,10 @@ type VisibilitySnapshot = {
   operationalPilotHistory: Array<Record<string, any>>;
   operationalIntelligenceLatest: Record<string, any> | null;
   operationalIntelligenceHistory: Array<Record<string, any>>;
+  procurementIntelligenceLatest: Record<string, any> | null;
+  procurementIntelligenceHistory: Array<Record<string, any>>;
+  supplierIntelligenceLatest: Record<string, any> | null;
+  supplierIntelligenceHistory: Array<Record<string, any>>;
   executiveCommandLatest: Record<string, any> | null;
   executiveCommandHistory: Array<Record<string, any>>;
   governanceIndexLatest: Record<string, any> | null;
@@ -245,6 +249,10 @@ export default function Home() {
     operationalPilotHistory: [],
     operationalIntelligenceLatest: null,
     operationalIntelligenceHistory: [],
+    procurementIntelligenceLatest: null,
+    procurementIntelligenceHistory: [],
+    supplierIntelligenceLatest: null,
+    supplierIntelligenceHistory: [],
     executiveCommandLatest: null,
     executiveCommandHistory: [],
     governanceIndexLatest: null,
@@ -366,6 +374,10 @@ export default function Home() {
       { key: "operationalPilotHistory", path: "/rfq-lifecycle/operational-pilot/history?limit=8" },
       { key: "operationalIntelligenceLatest", path: "/rfq-lifecycle/operational-intelligence/latest" },
       { key: "operationalIntelligenceHistory", path: "/rfq-lifecycle/operational-intelligence/history?limit=8" },
+      { key: "procurementIntelligenceLatest", path: "/rfq-lifecycle/procurement-intelligence/latest" },
+      { key: "procurementIntelligenceHistory", path: "/rfq-lifecycle/procurement-intelligence/history?limit=8" },
+      { key: "supplierIntelligenceLatest", path: "/rfq-lifecycle/supplier-intelligence/latest" },
+      { key: "supplierIntelligenceHistory", path: "/rfq-lifecycle/supplier-intelligence/history?limit=8" },
       { key: "executiveCommandLatest", path: "/rfq-lifecycle/executive-command/latest" },
       { key: "executiveCommandHistory", path: "/rfq-lifecycle/executive-command/history?limit=8" },
       { key: "governanceIndexLatest", path: "/rfq-lifecycle/governance-index/latest" },
@@ -471,6 +483,10 @@ export default function Home() {
       operationalPilotHistory: [],
       operationalIntelligenceLatest: null,
       operationalIntelligenceHistory: [],
+      procurementIntelligenceLatest: null,
+      procurementIntelligenceHistory: [],
+      supplierIntelligenceLatest: null,
+      supplierIntelligenceHistory: [],
       executiveCommandLatest: null,
       executiveCommandHistory: [],
       governanceIndexLatest: null,
@@ -630,6 +646,16 @@ export default function Home() {
       } else if (key === "operationalIntelligenceHistory") {
         const items = data.operational_intelligence_history;
         next.operationalIntelligenceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "procurementIntelligenceLatest") {
+        next.procurementIntelligenceLatest = data;
+      } else if (key === "procurementIntelligenceHistory") {
+        const items = data.procurement_intelligence_history;
+        next.procurementIntelligenceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "supplierIntelligenceLatest") {
+        next.supplierIntelligenceLatest = data;
+      } else if (key === "supplierIntelligenceHistory") {
+        const items = data.supplier_intelligence_history;
+        next.supplierIntelligenceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "executiveCommandLatest") {
         next.executiveCommandLatest = data;
       } else if (key === "executiveCommandHistory") {
@@ -858,6 +884,42 @@ export default function Home() {
   const operationalIntelligenceLatest = visibility.operationalIntelligenceLatest || {};
   const operationalIntelligenceHistory = Array.isArray(visibility.operationalIntelligenceHistory) ? visibility.operationalIntelligenceHistory : [];
   const operationalIntelligenceWarnings = Array.isArray(operationalIntelligenceLatest.warnings) ? operationalIntelligenceLatest.warnings : [];
+  const procurementIntelligenceLatest = visibility.procurementIntelligenceLatest || {};
+  const procurementIntelligenceHistory = Array.isArray(visibility.procurementIntelligenceHistory) ? visibility.procurementIntelligenceHistory : [];
+  const procurementIntelligenceWarnings = Array.isArray(procurementIntelligenceLatest.warnings) ? procurementIntelligenceLatest.warnings : [];
+  const procurementIntelligenceStatus = getString(procurementIntelligenceLatest.procurement_intelligence_status, "watch");
+  const procurementIntelligenceScore = getNumber(procurementIntelligenceLatest.procurement_intelligence_score, 0);
+  const procurementIntelligenceGrade = getString(procurementIntelligenceLatest.procurement_intelligence_grade, "blocked");
+  const procurementIntelligenceOpportunity = getNumber(procurementIntelligenceLatest.opportunity_score, 0);
+  const procurementIntelligenceTenderComplexity = procurementIntelligenceLatest.tender_complexity || {};
+  const procurementIntelligenceRiskFlags = Array.isArray(procurementIntelligenceLatest.risk_flags) ? procurementIntelligenceLatest.risk_flags : [];
+  const procurementIntelligenceMandatoryDocuments = Array.isArray(procurementIntelligenceLatest.mandatory_documents) ? procurementIntelligenceLatest.mandatory_documents : [];
+  const procurementIntelligenceSubmissionUrgency = procurementIntelligenceLatest.submission_urgency || {};
+  const procurementIntelligenceHeatmap = procurementIntelligenceLatest.procurement_category_heatmap || {};
+  const procurementIntelligenceSupplierFit = procurementIntelligenceLatest.supplier_fit_scoring || {};
+  const procurementIntelligenceHistorySummary = procurementIntelligenceLatest.procurement_intelligence_history_summary || {};
+  const procurementIntelligenceDecision = procurementIntelligenceLatest.decision_summary || {};
+  const procurementIntelligenceWhatUnlocks = Array.isArray(procurementIntelligenceLatest.what_this_unlocks) ? procurementIntelligenceLatest.what_this_unlocks : [];
+  const supplierIntelligenceLatest = visibility.supplierIntelligenceLatest || {};
+  const supplierIntelligenceHistory = Array.isArray(visibility.supplierIntelligenceHistory) ? visibility.supplierIntelligenceHistory : [];
+  const supplierIntelligenceWarnings = Array.isArray(supplierIntelligenceLatest.warnings) ? supplierIntelligenceLatest.warnings : [];
+  const supplierIntelligenceStatus = getString(supplierIntelligenceLatest.supplier_intelligence_status, "watch");
+  const supplierIntelligenceScore = getNumber(supplierIntelligenceLatest.supplier_intelligence_score, 0);
+  const supplierIntelligenceGrade = getString(supplierIntelligenceLatest.supplier_intelligence_grade, "blocked");
+  const supplierIntelligenceFit = getNumber(supplierIntelligenceLatest.supplier_fit_score, 0);
+  const supplierIntelligenceRisk = getNumber(supplierIntelligenceLatest.delivery_risk_score, 0);
+  const supplierIntelligenceCompliance = getNumber(supplierIntelligenceLatest.compliance_readiness, 0);
+  const supplierIntelligencePricing = getNumber(supplierIntelligenceLatest.pricing_reliability, 0);
+  const supplierIntelligenceGeo = getNumber(supplierIntelligenceLatest.geographic_suitability, 0);
+  const supplierIntelligenceCapacity = getNumber(supplierIntelligenceLatest.capacity_suitability, 0);
+  const supplierIntelligenceDocument = getNumber(supplierIntelligenceLatest.supplier_document_readiness, 0);
+  const supplierIntelligenceRiskFlags = Array.isArray(supplierIntelligenceLatest.supplier_risk_flags) ? supplierIntelligenceLatest.supplier_risk_flags : [];
+  const supplierIntelligenceBlockers = Array.isArray(supplierIntelligenceLatest.unresolved_supplier_blockers) ? supplierIntelligenceLatest.unresolved_supplier_blockers : [];
+  const supplierIntelligenceTier = getString(supplierIntelligenceLatest.recommended_supplier_tier, "C");
+  const supplierIntelligenceRankings = Array.isArray(supplierIntelligenceLatest.supplier_rankings) ? supplierIntelligenceLatest.supplier_rankings : [];
+  const supplierIntelligenceHeatmap = supplierIntelligenceLatest.supplier_category_heatmap || {};
+  const supplierIntelligenceHistorySummary = supplierIntelligenceLatest.supplier_intelligence_history_summary || {};
+  const supplierIntelligenceUnlocks = Array.isArray(supplierIntelligenceLatest.what_this_unlocks) ? supplierIntelligenceLatest.what_this_unlocks : [];
   const executiveCommandLatest = visibility.executiveCommandLatest || {};
   const executiveCommandHistory = Array.isArray(visibility.executiveCommandHistory) ? visibility.executiveCommandHistory : [];
   const executiveCommandWarnings = Array.isArray(executiveCommandLatest.warnings) ? executiveCommandLatest.warnings : [];
@@ -5866,6 +5928,377 @@ export default function Home() {
                 <div>Supervision load: {getString(operationalIntelligenceLatest.supervision_load_analysis?.supervision_load?.supervision_load_status, "watch")}</div>
                 <div>Throughput: {getString(operationalIntelligenceLatest.operational_throughput_analysis?.operational_throughput_status, "watch")}</div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Procurement Intelligence Engine</h2>
+              <p className="text-sm text-slate-400">
+                Tender understanding, prioritization, risk detection, and bid/no-bid support for supervised procurement operations.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only intelligence" : "Read-only intelligence"}
+              tone="neutral"
+            />
+          </div>
+
+          {procurementIntelligenceWarnings.length ? (
+            <div className="space-y-3">
+              {procurementIntelligenceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Procurement intelligence remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Opportunity Score"
+              tone={procurementIntelligenceStatus === "ok" ? "ok" : procurementIntelligenceStatus === "blocked" ? "error" : "neutral"}
+              summary={`${procurementIntelligenceGrade} • ${procurementIntelligenceOpportunity.toFixed(2)}`}
+              items={[
+                ["Status", procurementIntelligenceStatus],
+                ["Score", procurementIntelligenceOpportunity.toFixed(2)],
+                ["Overall", procurementIntelligenceScore.toFixed(2)],
+                ["Decision", getString(procurementIntelligenceDecision.bid_decision, "review")],
+                ["Priority", getString(procurementIntelligenceDecision.bid_priority, "medium")],
+                ["Sector", getString(procurementIntelligenceLatest.procurement_sector, "general")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Tender Complexity"
+              tone={getString(procurementIntelligenceTenderComplexity.band, "moderate") === "low" ? "ok" : getString(procurementIntelligenceTenderComplexity.band, "moderate") === "high" || getString(procurementIntelligenceTenderComplexity.band, "moderate") === "extreme" ? "error" : "neutral"}
+              summary={`${getString(procurementIntelligenceTenderComplexity.band, "moderate")} • ${getNumber(procurementIntelligenceTenderComplexity.score, 0).toFixed(2)}`}
+              items={[
+                ["Band", getString(procurementIntelligenceTenderComplexity.band, "moderate")],
+                ["Score", getNumber(procurementIntelligenceTenderComplexity.score, 0).toFixed(2)],
+                ["Days left", String(getNumber(procurementIntelligenceTenderComplexity.signals?.days_left, 0))],
+                ["Urgency", getString(procurementIntelligenceSubmissionUrgency.label, "normal")],
+                ["Urgency score", getNumber(procurementIntelligenceSubmissionUrgency.score, 0).toFixed(2)],
+                ["Mandatory docs", String(procurementIntelligenceMandatoryDocuments.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Risk Flags"
+              tone={procurementIntelligenceRiskFlags.length ? "error" : "ok"}
+              summary={`${procurementIntelligenceRiskFlags.length} flag(s)`}
+              items={[
+                ["Risk score", getNumber(procurementIntelligenceLatest.risk_scoring?.risk_score, 0).toFixed(2)],
+                ["Risk level", getString(procurementIntelligenceLatest.risk_scoring?.risk_level, "low")],
+                ["Recommendation", getString(procurementIntelligenceLatest.risk_scoring?.risk_recommendation, "review")],
+                ["Flags", procurementIntelligenceRiskFlags.slice(0, 3).join(", ") || "none"],
+                ["Docs", String(procurementIntelligenceMandatoryDocuments.length)],
+                ["History", String(procurementIntelligenceHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Supplier Fit"
+              tone={getNumber(procurementIntelligenceSupplierFit.supplier_fit_score, 0) >= 70 ? "ok" : getNumber(procurementIntelligenceSupplierFit.supplier_fit_score, 0) >= 50 ? "neutral" : "error"}
+              summary={`${getNumber(procurementIntelligenceSupplierFit.supplier_fit_score, 0).toFixed(2)} fit`}
+              items={[
+                ["Buyer", getNumber(procurementIntelligenceSupplierFit.buyer_alignment, 0).toFixed(2)],
+                ["Keyword", getNumber(procurementIntelligenceSupplierFit.keyword_alignment, 0).toFixed(2)],
+                ["Supply", getNumber(procurementIntelligenceSupplierFit.supply_alignment, 0).toFixed(2)],
+                ["Risk penalty", getNumber(procurementIntelligenceSupplierFit.risk_penalty, 0).toFixed(2)],
+                ["Decision", getString(procurementIntelligenceDecision.bid_decision, "review")],
+                ["Profitability", getString(procurementIntelligenceLatest.opportunity_scoring?.rank_profitability_likelihood, "medium")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Procurement Category Heatmap</h3>
+                <StatusBadge label={`${getNumber(procurementIntelligenceHeatmap.summary?.total_categories, 0)} categor${getNumber(procurementIntelligenceHeatmap.summary?.total_categories, 0) === 1 ? "y" : "ies"}`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Category</th>
+                      <th className="p-3 text-right">Tenders</th>
+                      <th className="p-3 text-right">Opportunity</th>
+                      <th className="p-3 text-right">Risk</th>
+                      <th className="p-3 text-right">Complexity</th>
+                      <th className="p-3 text-left">Temp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(procurementIntelligenceHeatmap.categories) && procurementIntelligenceHeatmap.categories.length ? (
+                      procurementIntelligenceHeatmap.categories.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.procurement_category, "category")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.procurement_category, "general")}</td>
+                          <td className="p-3 text-right">{getNumber(item.tender_count, 0)}</td>
+                          <td className="p-3 text-right">{getNumber(item.average_opportunity_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right">{getNumber(item.average_risk_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right">{getNumber(item.average_tender_complexity, 0).toFixed(2)}</td>
+                          <td className="p-3">{getString(item.temperature, "cool")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={6}>
+                          No procurement category heatmap is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Procurement Intelligence History</h3>
+                <StatusBadge label={`${procurementIntelligenceHistory.length} analysis(es)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Decision</th>
+                      <th className="p-3 text-right">Opportunity</th>
+                      <th className="p-3 text-left">Sector</th>
+                      <th className="p-3 text-right">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {procurementIntelligenceHistory.length ? (
+                      procurementIntelligenceHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.analysis_id, "analysis")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.bid_decision, "review")}</td>
+                          <td className="p-3 text-right">{getNumber(item.opportunity_score, 0).toFixed(2)}</td>
+                          <td className="p-3">{getString(item.procurement_sector, "general")}</td>
+                          <td className="p-3 text-right text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No procurement intelligence history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Procurement Intelligence Unlocks</h3>
+              <StatusBadge label={`${procurementIntelligenceWhatUnlocks.length} capability signal(s)`} tone="neutral" />
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+              {procurementIntelligenceWhatUnlocks.length ? (
+                procurementIntelligenceWhatUnlocks.map((item, index) => (
+                  <div key={`${item}-${index}`} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    {item}
+                  </div>
+                ))
+              ) : (
+                <div className="text-slate-400">No intelligence unlocks are available yet.</div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Supplier Intelligence &amp; Risk</h2>
+              <p className="text-sm text-slate-400">
+                Supplier fit, risk, compliance, and historical suitability for supervised tender support.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only supplier intelligence" : "Read-only supplier intelligence"}
+              tone="neutral"
+            />
+          </div>
+
+          {supplierIntelligenceWarnings.length ? (
+            <div className="space-y-3">
+              {supplierIntelligenceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Supplier intelligence remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Supplier Fit Score"
+              tone={supplierIntelligenceStatus === "ok" ? "ok" : supplierIntelligenceStatus === "blocked" ? "error" : "neutral"}
+              summary={`${supplierIntelligenceGrade} • ${supplierIntelligenceFit.toFixed(2)}`}
+              items={[
+                ["Status", supplierIntelligenceStatus],
+                ["Score", supplierIntelligenceFit.toFixed(2)],
+                ["Overall", supplierIntelligenceScore.toFixed(2)],
+                ["Tier", supplierIntelligenceTier],
+                ["History", String(supplierIntelligenceHistory.length)],
+                ["Supplier", getString(supplierIntelligenceLatest.supplier_name, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Risk & Compliance"
+              tone={supplierIntelligenceRisk >= 70 ? "error" : supplierIntelligenceRisk >= 55 ? "neutral" : "ok"}
+              summary={`${supplierIntelligenceRisk.toFixed(2)} risk`}
+              items={[
+                ["Delivery risk", supplierIntelligenceRisk.toFixed(2)],
+                ["Compliance", supplierIntelligenceCompliance.toFixed(2)],
+                ["Pricing", supplierIntelligencePricing.toFixed(2)],
+                ["Docs", supplierIntelligenceDocument.toFixed(2)],
+                ["Risk flags", String(supplierIntelligenceRiskFlags.length)],
+                ["Blockers", String(supplierIntelligenceBlockers.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Suitability"
+              tone={supplierIntelligenceGeo >= 70 && supplierIntelligenceCapacity >= 70 ? "ok" : supplierIntelligenceGeo >= 55 && supplierIntelligenceCapacity >= 55 ? "neutral" : "error"}
+              summary={`${supplierIntelligenceGeo.toFixed(2)} geo / ${supplierIntelligenceCapacity.toFixed(2)} cap`}
+              items={[
+                ["Geographic", supplierIntelligenceGeo.toFixed(2)],
+                ["Capacity", supplierIntelligenceCapacity.toFixed(2)],
+                ["Historical", getNumber(supplierIntelligenceLatest.historical_suitability, 0).toFixed(2)],
+                ["Recommended tier", supplierIntelligenceTier],
+                ["Supplier ID", getString(supplierIntelligenceLatest.supplier_id, "n/a")],
+                ["Tender ref", getString(supplierIntelligenceLatest.tender_reference, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Decision Support"
+              tone={supplierIntelligenceBlockers.length ? "error" : "ok"}
+              summary={`${supplierIntelligenceRankings.length} ranked supplier(s)`}
+              items={[
+                ["Fit", supplierIntelligenceFit.toFixed(2)],
+                ["Risk", supplierIntelligenceRisk.toFixed(2)],
+                ["Compliance", supplierIntelligenceCompliance.toFixed(2)],
+                ["Pricing", supplierIntelligencePricing.toFixed(2)],
+                ["Geo", supplierIntelligenceGeo.toFixed(2)],
+                ["Capacity", supplierIntelligenceCapacity.toFixed(2)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Supplier Tier Heatmap</h3>
+                <StatusBadge label={getString(supplierIntelligenceHeatmap.summary?.dominant_tier, "n/a")} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Tier</th>
+                      <th className="p-3 text-right">Suppliers</th>
+                      <th className="p-3 text-right">Avg score</th>
+                      <th className="p-3 text-right">Avg risk</th>
+                      <th className="p-3 text-left">Temp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(supplierIntelligenceHeatmap.categories) && supplierIntelligenceHeatmap.categories.length ? (
+                      supplierIntelligenceHeatmap.categories.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.supplier_tier, "tier")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.supplier_tier, "D")}</td>
+                          <td className="p-3 text-right">{getNumber(item.supplier_count, 0)}</td>
+                          <td className="p-3 text-right">{getNumber(item.average_supplier_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right">{getNumber(item.average_delivery_risk, 0).toFixed(2)}</td>
+                          <td className="p-3">{getString(item.temperature, "cold")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No supplier tier heatmap is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Supplier Intelligence History</h3>
+                <StatusBadge label={`${supplierIntelligenceHistory.length} analysis(es)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Tier</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Supplier</th>
+                      <th className="p-3 text-right">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {supplierIntelligenceHistory.length ? (
+                      supplierIntelligenceHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.analysis_id, "analysis")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.recommended_supplier_tier, "C")}</td>
+                          <td className="p-3 text-right">{getNumber(item.supplier_intelligence_score, 0).toFixed(2)}</td>
+                          <td className="p-3">{getString(item.supplier_name, "n/a")}</td>
+                          <td className="p-3 text-right text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No supplier intelligence history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold">Supplier Intelligence Signals</h3>
+              <StatusBadge label={`${supplierIntelligenceHistorySummary.analysis_count || supplierIntelligenceHistory.length} analysis(es)`} tone="neutral" />
+            </div>
+            <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+              <div>Recommended tier: {supplierIntelligenceTier}</div>
+              <div>Supplier fit: {supplierIntelligenceFit.toFixed(2)}</div>
+              <div>Delivery risk: {supplierIntelligenceRisk.toFixed(2)}</div>
+              <div>Compliance readiness: {supplierIntelligenceCompliance.toFixed(2)}</div>
+              <div>Pricing reliability: {supplierIntelligencePricing.toFixed(2)}</div>
+              <div>Supplier document readiness: {supplierIntelligenceDocument.toFixed(2)}</div>
+              <div>Geographic suitability: {supplierIntelligenceGeo.toFixed(2)}</div>
+              <div>Capacity suitability: {supplierIntelligenceCapacity.toFixed(2)}</div>
             </div>
           </div>
         </section>

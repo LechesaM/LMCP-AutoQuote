@@ -23,6 +23,7 @@ from app.services.procurement_intelligence_service import ProcurementIntelligenc
 from app.services.supplier_intelligence_service import SupplierIntelligenceService
 from app.services.boq_semantic_understanding_service import BoqSemanticUnderstandingService
 from app.services.pricing_intelligence_governance_service import PricingIntelligenceGovernanceService
+from app.services.tender_strategy_governance_service import TenderStrategyGovernanceService
 from app.services.executive_command_service import ExecutiveCommandService
 from app.services.executive_governance_index_service import ExecutiveGovernanceIndexService
 from app.services.production_operationalization_service import ProductionOperationalizationService
@@ -167,6 +168,10 @@ def boq_semantic_understanding_service() -> BoqSemanticUnderstandingService:
 
 def pricing_intelligence_governance_service() -> PricingIntelligenceGovernanceService:
     return PricingIntelligenceGovernanceService()
+
+
+def tender_strategy_governance_service() -> TenderStrategyGovernanceService:
+    return TenderStrategyGovernanceService()
 
 
 def executive_command_service() -> ExecutiveCommandService:
@@ -745,6 +750,21 @@ def pricing_intelligence_latest() -> Dict[str, Any]:
 @router.get("/pricing-intelligence/history")
 def pricing_intelligence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return pricing_intelligence_governance_service().pricing_intelligence_history(limit=limit)
+
+
+@router.get("/tender-strategy-governance")
+def tender_strategy_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return tender_strategy_governance_service().list_tender_strategy_governance(limit=limit)
+
+
+@router.get("/tender-strategy-governance/latest")
+def tender_strategy_governance_latest() -> Dict[str, Any]:
+    return tender_strategy_governance_service().latest_tender_strategy_governance()
+
+
+@router.get("/tender-strategy-governance/history")
+def tender_strategy_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return tender_strategy_governance_service().tender_strategy_governance_history(limit=limit)
 
 
 @router.get("/executive-command")

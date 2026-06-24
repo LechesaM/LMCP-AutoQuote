@@ -100,6 +100,8 @@ type VisibilitySnapshot = {
   boqSemanticUnderstandingHistory: Array<Record<string, any>>;
   pricingIntelligenceLatest: Record<string, any> | null;
   pricingIntelligenceHistory: Array<Record<string, any>>;
+  tenderStrategyGovernanceLatest: Record<string, any> | null;
+  tenderStrategyGovernanceHistory: Array<Record<string, any>>;
   executiveCommandLatest: Record<string, any> | null;
   executiveCommandHistory: Array<Record<string, any>>;
   governanceIndexLatest: Record<string, any> | null;
@@ -261,6 +263,8 @@ export default function Home() {
     boqSemanticUnderstandingHistory: [],
     pricingIntelligenceLatest: null,
     pricingIntelligenceHistory: [],
+    tenderStrategyGovernanceLatest: null,
+    tenderStrategyGovernanceHistory: [],
     executiveCommandLatest: null,
     executiveCommandHistory: [],
     governanceIndexLatest: null,
@@ -390,6 +394,8 @@ export default function Home() {
       { key: "boqSemanticUnderstandingHistory", path: "/rfq-lifecycle/boq-semantic-understanding/history?limit=8" },
       { key: "pricingIntelligenceLatest", path: "/rfq-lifecycle/pricing-intelligence/latest" },
       { key: "pricingIntelligenceHistory", path: "/rfq-lifecycle/pricing-intelligence/history?limit=8" },
+      { key: "tenderStrategyGovernanceLatest", path: "/rfq-lifecycle/tender-strategy-governance/latest" },
+      { key: "tenderStrategyGovernanceHistory", path: "/rfq-lifecycle/tender-strategy-governance/history?limit=8" },
       { key: "executiveCommandLatest", path: "/rfq-lifecycle/executive-command/latest" },
       { key: "executiveCommandHistory", path: "/rfq-lifecycle/executive-command/history?limit=8" },
       { key: "governanceIndexLatest", path: "/rfq-lifecycle/governance-index/latest" },
@@ -503,6 +509,8 @@ export default function Home() {
       boqSemanticUnderstandingHistory: [],
       pricingIntelligenceLatest: null,
       pricingIntelligenceHistory: [],
+      tenderStrategyGovernanceLatest: null,
+      tenderStrategyGovernanceHistory: [],
       executiveCommandLatest: null,
       executiveCommandHistory: [],
       governanceIndexLatest: null,
@@ -682,6 +690,11 @@ export default function Home() {
       } else if (key === "pricingIntelligenceHistory") {
         const items = data.pricing_intelligence_history;
         next.pricingIntelligenceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "tenderStrategyGovernanceLatest") {
+        next.tenderStrategyGovernanceLatest = data;
+      } else if (key === "tenderStrategyGovernanceHistory") {
+        const items = data.tender_strategy_governance_history;
+        next.tenderStrategyGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "executiveCommandLatest") {
         next.executiveCommandLatest = data;
       } else if (key === "executiveCommandHistory") {
@@ -983,6 +996,25 @@ export default function Home() {
   const markupVisibility = pricingIntelligenceLatest.markup_visibility || {};
   const escalationRequiredPricingItems = Array.isArray(pricingIntelligenceLatest.escalation_required_pricing_items) ? pricingIntelligenceLatest.escalation_required_pricing_items : [];
   const unresolvedPricingBlockers = Array.isArray(pricingIntelligenceLatest.unresolved_pricing_blockers) ? pricingIntelligenceLatest.unresolved_pricing_blockers : [];
+  const tenderStrategyGovernanceLatest = visibility.tenderStrategyGovernanceLatest || {};
+  const tenderStrategyGovernanceHistory = Array.isArray(visibility.tenderStrategyGovernanceHistory) ? visibility.tenderStrategyGovernanceHistory : [];
+  const tenderStrategyGovernanceWarnings = Array.isArray(tenderStrategyGovernanceLatest.warnings) ? tenderStrategyGovernanceLatest.warnings : [];
+  const tenderStrategyGovernanceStatus = getString(tenderStrategyGovernanceLatest.tender_strategy_governance_status, "watch");
+  const tenderStrategyGovernanceScore = getNumber(tenderStrategyGovernanceLatest.tender_strategy_governance_score, 0);
+  const tenderStrategyGovernanceGrade = getString(tenderStrategyGovernanceLatest.tender_strategy_governance_grade, "blocked");
+  const tenderStrategyBidReadiness = tenderStrategyGovernanceLatest.bid_no_bid_readiness || {};
+  const tenderStrategyAttractivenessScore = getNumber(tenderStrategyGovernanceLatest.tender_attractiveness_score, 0);
+  const tenderStrategyWinProbabilityEstimate = getNumber(tenderStrategyGovernanceLatest.win_probability_estimate, 0);
+  const tenderStrategyStrategicFitScore = getNumber(tenderStrategyGovernanceLatest.strategic_fit_score, 0);
+  const tenderStrategyPricingAlignment = getNumber(tenderStrategyGovernanceLatest.pricing_competitiveness_alignment, 0);
+  const tenderStrategySupplierAlignment = getNumber(tenderStrategyGovernanceLatest.supplier_readiness_alignment, 0);
+  const tenderStrategyComplianceAlignment = getNumber(tenderStrategyGovernanceLatest.compliance_readiness_alignment, 0);
+  const tenderStrategyRiskAdjustedOpportunityScore = getNumber(tenderStrategyGovernanceLatest.risk_adjusted_opportunity_score, 0);
+  const tenderStrategyMandatoryDocumentReadiness = tenderStrategyGovernanceLatest.mandatory_document_readiness || {};
+  const tenderStrategySubmissionUrgencyIndicators = tenderStrategyGovernanceLatest.submission_urgency_indicators || {};
+  const tenderStrategyExecutiveReviewRequired = getBooleanBadge(tenderStrategyGovernanceLatest.executive_review_required).label;
+  const tenderStrategyRecommendationDegradationIndicators = tenderStrategyGovernanceLatest.recommendation_degradation_indicators || {};
+  const tenderStrategyUnresolvedBlockers = Array.isArray(tenderStrategyGovernanceLatest.unresolved_strategy_blockers) ? tenderStrategyGovernanceLatest.unresolved_strategy_blockers : [];
   const executiveCommandLatest = visibility.executiveCommandLatest || {};
   const executiveCommandHistory = Array.isArray(visibility.executiveCommandHistory) ? visibility.executiveCommandHistory : [];
   const executiveCommandWarnings = Array.isArray(executiveCommandLatest.warnings) ? executiveCommandLatest.warnings : [];
@@ -1731,6 +1763,160 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Tender Strategy &amp; Bid/No-Bid Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only strategy support for bid/no-bid readiness, executive review, and supervised tender decisioning.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only strategy governance" : "Read-only strategy governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {tenderStrategyGovernanceWarnings.length ? (
+            <div className="space-y-3">
+              {tenderStrategyGovernanceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Tender strategy remains advisory only and within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Strategy Readiness"
+              tone={tenderStrategyGovernanceStatus === "ok" ? "ok" : tenderStrategyGovernanceStatus === "blocked" ? "error" : "neutral"}
+              summary={`${tenderStrategyGovernanceGrade} • ${tenderStrategyGovernanceScore.toFixed(2)}`}
+              items={[
+                ["Status", tenderStrategyGovernanceStatus],
+                ["Score", tenderStrategyGovernanceScore.toFixed(2)],
+                ["Bid/no-bid", getBooleanBadge(tenderStrategyBidReadiness.ready).label],
+                ["Attractiveness", tenderStrategyAttractivenessScore.toFixed(2)],
+                ["Win probability", tenderStrategyWinProbabilityEstimate.toFixed(2)],
+                ["History", String(tenderStrategyGovernanceHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Decision Alignment"
+              tone={tenderStrategyRiskAdjustedOpportunityScore >= 70 ? "ok" : tenderStrategyRiskAdjustedOpportunityScore >= 55 ? "neutral" : "error"}
+              summary={`${tenderStrategyRiskAdjustedOpportunityScore.toFixed(2)} risk-adjusted`}
+              items={[
+                ["Strategic fit", tenderStrategyStrategicFitScore.toFixed(2)],
+                ["Pricing alignment", tenderStrategyPricingAlignment.toFixed(2)],
+                ["Supplier alignment", tenderStrategySupplierAlignment.toFixed(2)],
+                ["Compliance alignment", tenderStrategyComplianceAlignment.toFixed(2)],
+                ["Risk-adjusted", tenderStrategyRiskAdjustedOpportunityScore.toFixed(2)],
+                ["Urgency", getString(tenderStrategySubmissionUrgencyIndicators.label, "normal")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Controls"
+              tone={tenderStrategyGovernanceLatest.executive_review_required && tenderStrategyGovernanceLatest.dry_run_enforced && tenderStrategyGovernanceLatest.human_supervision_required ? "ok" : "error"}
+              summary={`${tenderStrategyUnresolvedBlockers.length} blocker(s)`}
+              items={[
+                ["Human approval", getBooleanBadge(tenderStrategyGovernanceLatest.bid_no_bid_human_approval_required).label],
+                ["Executive review", getBooleanBadge(tenderStrategyGovernanceLatest.executive_review_required).label],
+                ["Autonomous bid", getBooleanBadge(tenderStrategyGovernanceLatest.autonomous_bid_submission_enabled).label],
+                ["Auto approval", getBooleanBadge(tenderStrategyGovernanceLatest.auto_bid_no_bid_approval_enabled).label],
+                ["Production authority", getBooleanBadge(tenderStrategyGovernanceLatest.production_submission_authority_enabled).label],
+                ["Commitment gen", getBooleanBadge(tenderStrategyGovernanceLatest.procurement_commitment_generation_enabled).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Readiness Details"
+              tone={tenderStrategyMandatoryDocumentReadiness.ready ? "ok" : "neutral"}
+              summary={`${tenderStrategyMandatoryDocumentReadiness.document_count || 0} document(s)`}
+              items={[
+                ["Mandatory docs", getBooleanBadge(tenderStrategyMandatoryDocumentReadiness.ready).label],
+                ["Document count", String(getNumber(tenderStrategyMandatoryDocumentReadiness.document_count, 0))],
+                ["Urgency score", getNumber(tenderStrategySubmissionUrgencyIndicators.score, 0).toFixed(2)],
+                ["Executive review", tenderStrategyExecutiveReviewRequired],
+                ["Degradation", Object.values(tenderStrategyRecommendationDegradationIndicators).some(Boolean) ? "Yes" : "No"],
+                ["Blockers", String(tenderStrategyUnresolvedBlockers.length)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Tender Strategy History</h3>
+                <StatusBadge label={`${tenderStrategyGovernanceHistory.length} analysis(es)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-right">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tenderStrategyGovernanceHistory.length ? (
+                      tenderStrategyGovernanceHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.analysis_id, "analysis")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.tender_strategy_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.tender_strategy_governance_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No tender strategy history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Strategy Signals</h3>
+                <StatusBadge label={tenderStrategyGovernanceLatest.environment || "staging"} tone="neutral" />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Bid/no-bid readiness: {getBooleanBadge(tenderStrategyBidReadiness.ready).label}</div>
+                <div>Tender attractiveness: {tenderStrategyAttractivenessScore.toFixed(2)}</div>
+                <div>Win probability: {tenderStrategyWinProbabilityEstimate.toFixed(2)}</div>
+                <div>Strategic fit: {tenderStrategyStrategicFitScore.toFixed(2)}</div>
+                <div>Pricing competitiveness: {tenderStrategyPricingAlignment.toFixed(2)}</div>
+                <div>Supplier readiness: {tenderStrategySupplierAlignment.toFixed(2)}</div>
+                <div>Compliance readiness: {tenderStrategyComplianceAlignment.toFixed(2)}</div>
+                <div>Risk-adjusted opportunity: {tenderStrategyRiskAdjustedOpportunityScore.toFixed(2)}</div>
+                <div>Mandatory documents: {getBooleanBadge(tenderStrategyMandatoryDocumentReadiness.ready).label}</div>
+                <div>Executive review required: {tenderStrategyExecutiveReviewRequired}</div>
+                <div>Dry-run enforced: {getBooleanBadge(tenderStrategyGovernanceLatest.dry_run_enforced).label}</div>
+                <div>Supervision required: {getBooleanBadge(tenderStrategyGovernanceLatest.human_supervision_required).label}</div>
+                <div>Autonomous bid submission: {getBooleanBadge(tenderStrategyGovernanceLatest.autonomous_bid_submission_enabled).label}</div>
+                <div>Auto bid/no-bid approval: {getBooleanBadge(tenderStrategyGovernanceLatest.auto_bid_no_bid_approval_enabled).label}</div>
+                <div>Production submission authority: {getBooleanBadge(tenderStrategyGovernanceLatest.production_submission_authority_enabled).label}</div>
+                <div>Procurement commitment generation: {getBooleanBadge(tenderStrategyGovernanceLatest.procurement_commitment_generation_enabled).label}</div>
+                <div className="md:col-span-2">
+                  Unresolved blockers: {tenderStrategyUnresolvedBlockers.length ? tenderStrategyUnresolvedBlockers.join(", ") : "none"}
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

@@ -1,0 +1,8 @@
+{
+  "advisory_only": true,
+  "human_approval_required": true,
+  "executive_review_required": true,
+  "low_risk_threshold": 35,
+  "medium_risk_threshold": 60,
+  "high_risk_threshold": 75
+}

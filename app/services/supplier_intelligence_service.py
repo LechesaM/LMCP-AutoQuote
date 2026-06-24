@@ -89,8 +89,14 @@ class SupplierIntelligenceService:
         }
 
     def _supplier_records(self) -> List[Dict[str, Any]]:
-        suppliers = supplier_catalog_service._load_suppliers()  # type: ignore[attr-defined]
-        return suppliers if isinstance(suppliers, list) else []
+        loader = getattr(supplier_catalog_service, "_load_suppliers", None)
+        if callable(loader):
+            try:
+                suppliers = loader()
+                return suppliers if isinstance(suppliers, list) else []
+            except Exception:
+                return []
+        return []
 
     def _recommended_tier(self, fit_score: float, compliance_score: float, risk_score: float) -> str:
         if fit_score >= 85 and compliance_score >= 85 and risk_score < 35:

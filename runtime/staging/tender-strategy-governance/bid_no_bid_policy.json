@@ -1,0 +1,8 @@
+{
+  "advisory_only": true,
+  "human_approval_required": true,
+  "executive_review_required": true,
+  "bid_threshold": 70,
+  "review_threshold": 50,
+  "no_bid_threshold": 50
+}

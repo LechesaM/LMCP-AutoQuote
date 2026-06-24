@@ -10,6 +10,7 @@ from ..workflow_layer.live_adjudication_engine import run_live_adjudication
 from ..workflow_layer.action_dispatch_review import build_action_dispatch_review
 from app.services.data_residency_governance_service import data_residency_governance_service
 from app.services.pricing_intelligence_governance_service import pricing_intelligence_governance_service
+from app.services.tender_strategy_governance_service import tender_strategy_governance_service
 
 DB_PATH = Path("runtime/workflow/workflow_layer.db")
 DASHBOARD_PATH = Path("runtime/workflow/workflow_status_dashboard.json")
@@ -185,3 +186,18 @@ def pricing_intelligence_governance_latest():
 @app.get("/rfq-lifecycle/pricing-intelligence/history")
 def pricing_intelligence_governance_history():
     return pricing_intelligence_governance_service.pricing_intelligence_history()
+
+
+@app.get("/rfq-lifecycle/tender-strategy-governance")
+def tender_strategy_governance():
+    return tender_strategy_governance_service.list_tender_strategy_governance()
+
+
+@app.get("/rfq-lifecycle/tender-strategy-governance/latest")
+def tender_strategy_governance_latest():
+    return tender_strategy_governance_service.latest_tender_strategy_governance()
+
+
+@app.get("/rfq-lifecycle/tender-strategy-governance/history")
+def tender_strategy_governance_history():
+    return tender_strategy_governance_service.tender_strategy_governance_history()

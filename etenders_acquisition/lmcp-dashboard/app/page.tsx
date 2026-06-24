@@ -120,6 +120,8 @@ type VisibilitySnapshot = {
   ingressGovernanceHistory: Array<Record<string, any>>;
   multiTenantGovernanceLatest: Record<string, any> | null;
   multiTenantGovernanceHistory: Array<Record<string, any>>;
+  distributedObservabilityLatest: Record<string, any> | null;
+  distributedObservabilityHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -259,6 +261,8 @@ export default function Home() {
     ingressGovernanceHistory: [],
     multiTenantGovernanceLatest: null,
     multiTenantGovernanceHistory: [],
+    distributedObservabilityLatest: null,
+    distributedObservabilityHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -366,6 +370,8 @@ export default function Home() {
       { key: "ingressGovernanceHistory", path: "/rfq-lifecycle/ingress-governance/history?limit=8" },
       { key: "multiTenantGovernanceLatest", path: "/rfq-lifecycle/multi-tenant-governance/latest" },
       { key: "multiTenantGovernanceHistory", path: "/rfq-lifecycle/multi-tenant-governance/history?limit=8" },
+      { key: "distributedObservabilityLatest", path: "/rfq-lifecycle/distributed-observability/latest" },
+      { key: "distributedObservabilityHistory", path: "/rfq-lifecycle/distributed-observability/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -457,6 +463,8 @@ export default function Home() {
       ingressGovernanceHistory: [],
       multiTenantGovernanceLatest: null,
       multiTenantGovernanceHistory: [],
+      distributedObservabilityLatest: null,
+      distributedObservabilityHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -644,6 +652,11 @@ export default function Home() {
       } else if (key === "multiTenantGovernanceHistory") {
         const items = data.multi_tenant_governance_history;
         next.multiTenantGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "distributedObservabilityLatest") {
+        next.distributedObservabilityLatest = data;
+      } else if (key === "distributedObservabilityHistory") {
+        const items = data.distributed_observability_history;
+        next.distributedObservabilityHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -895,6 +908,27 @@ export default function Home() {
   const multiTenantBlockerSources = Array.isArray(multiTenantGovernanceLatest.blocker_sources) ? multiTenantGovernanceLatest.blocker_sources : [];
   const multiTenantGovernanceRationale = multiTenantGovernanceLatest.recovery_rationale || {};
   const multiTenantRationale = multiTenantGovernanceLatest.recovery_rationale || {};
+  const distributedObservabilityLatest = visibility.distributedObservabilityLatest || {};
+  const distributedObservabilityHistory = Array.isArray(visibility.distributedObservabilityHistory) ? visibility.distributedObservabilityHistory : [];
+  const distributedObservabilityWarnings = Array.isArray(distributedObservabilityLatest.warnings) ? distributedObservabilityLatest.warnings : [];
+  const distributedObservabilityStatus = getString(distributedObservabilityLatest.distributed_observability_status, "watch");
+  const distributedObservabilityAuthority = getString(distributedObservabilityLatest.distributed_observability_authority, "WATCH");
+  const distributedObservabilityScore = getNumber(distributedObservabilityLatest.distributed_observability_score, 0);
+  const distributedObservabilityGrade = getString(distributedObservabilityLatest.distributed_observability_grade, "blocked");
+  const distributedObservabilityRecoveryState = getString(distributedObservabilityLatest.recovery_state, "degraded-but-recovering");
+  const distributedObservabilityHistorySummary = distributedObservabilityLatest.distributed_observability_history_summary || {};
+  const distributedObservabilityTelemetry = distributedObservabilityLatest.telemetry_aggregation_readiness || {};
+  const distributedObservabilityMetrics = distributedObservabilityLatest.distributed_metrics_readiness || {};
+  const distributedObservabilityLogs = distributedObservabilityLatest.centralized_log_governance_readiness || {};
+  const distributedObservabilityTracing = distributedObservabilityLatest.tracing_readiness || {};
+  const distributedObservabilityShard = distributedObservabilityLatest.observability_shard_readiness || {};
+  const distributedObservabilityIsolation = distributedObservabilityLatest.tenant_telemetry_isolation || {};
+  const distributedObservabilityFailover = distributedObservabilityLatest.observability_failover_readiness || {};
+  const distributedObservabilityAlerts = distributedObservabilityLatest.alert_governance_readiness || {};
+  const distributedObservabilityDegradation = distributedObservabilityLatest.observability_degradation_indicators || {};
+  const distributedObservabilityBlockers = Array.isArray(distributedObservabilityLatest.unresolved_blockers) ? distributedObservabilityLatest.unresolved_blockers : [];
+  const distributedObservabilityBlockerSources = Array.isArray(distributedObservabilityLatest.blocker_sources) ? distributedObservabilityLatest.blocker_sources : [];
+  const distributedObservabilityRationale = distributedObservabilityLatest.recovery_rationale || {};
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -6433,6 +6467,166 @@ export default function Home() {
                 </div>
                 <div className="space-y-2">
                   {multiTenantBlockerSources.map((source: Record<string, any>) => (
+                    <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
+                      <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>
+                      <div className="text-slate-400">Blockers: {String(Array.isArray(source.blockers) ? source.blockers.length : 0)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre Distributed Observability</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging visibility for telemetry aggregation, distributed metrics, log governance, tracing, shard coverage, tenant isolation, failover, and alert governance.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only observability governance" : "Read-only observability governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {distributedObservabilityWarnings.length ? (
+            <div className="space-y-3">
+              {distributedObservabilityWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Distributed observability remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Observability State"
+              tone={distributedObservabilityRecoveryState === "recovered" ? "ok" : distributedObservabilityRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${distributedObservabilityRecoveryState} • ${distributedObservabilityScore.toFixed(2)}`}
+              items={[
+                ["Status", distributedObservabilityStatus],
+                ["Authority", distributedObservabilityAuthority],
+                ["Score", distributedObservabilityScore.toFixed(2)],
+                ["Grade", distributedObservabilityGrade],
+                ["History", String(distributedObservabilityHistory.length)],
+                ["Trend", getString(distributedObservabilityHistorySummary.score_history?.trend, "stable")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Telemetry & Metrics"
+              tone={distributedObservabilityTelemetry.ready && distributedObservabilityMetrics.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(distributedObservabilityTelemetry.ready).label} telemetry / ${getBooleanBadge(distributedObservabilityMetrics.ready).label} metrics`}
+              items={[
+                ["Telemetry aggregation", getBooleanBadge(distributedObservabilityTelemetry.ready).label],
+                ["Distributed metrics", getBooleanBadge(distributedObservabilityMetrics.ready).label],
+                ["Log governance", getBooleanBadge(distributedObservabilityLogs.ready).label],
+                ["Tracing", getBooleanBadge(distributedObservabilityTracing.ready).label],
+                ["Observability shard", getBooleanBadge(distributedObservabilityShard.ready).label],
+                ["Tenant isolation", getBooleanBadge(distributedObservabilityIsolation.ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Failover & Alerts"
+              tone={distributedObservabilityFailover.ready && distributedObservabilityAlerts.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(distributedObservabilityFailover.ready).label} failover / ${getBooleanBadge(distributedObservabilityAlerts.ready).label} alerts`}
+              items={[
+                ["Failover readiness", getBooleanBadge(distributedObservabilityFailover.ready).label],
+                ["Alert governance", getBooleanBadge(distributedObservabilityAlerts.ready).label],
+                ["Live telemetry endpoints", getBooleanBadge(!distributedObservabilityLatest.safety_model?.live_telemetry_endpoints_found).label],
+                ["External alert delivery", getBooleanBadge(!distributedObservabilityLatest.safety_model?.external_alert_delivery_found).label],
+                ["Dry-run enforced", getBooleanBadge(distributedObservabilityLatest.safety_model?.dry_run_mode_enabled).label],
+                ["Supervision mandatory", getBooleanBadge(distributedObservabilityLatest.safety_model?.human_supervision_required).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Rationale"
+              tone={distributedObservabilityRecoveryState === "recovered" ? "ok" : distributedObservabilityRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${getNumber(distributedObservabilityRationale.score_impact?.final_score, distributedObservabilityScore).toFixed(2)} final score`}
+              items={[
+                ["Base score", getNumber(distributedObservabilityRationale.score_impact?.base_score, 0).toFixed(2)],
+                ["Deductions", getNumber(distributedObservabilityRationale.score_impact?.deductions, 0).toFixed(2)],
+                ["Final score", getNumber(distributedObservabilityRationale.score_impact?.final_score, distributedObservabilityScore).toFixed(2)],
+                ["Unresolved blockers", String(distributedObservabilityBlockers.length)],
+                ["Blocker sources", String(distributedObservabilityBlockerSources.length)],
+                ["Recovery state", distributedObservabilityRecoveryState],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Distributed Observability History</h3>
+                <StatusBadge label={`${distributedObservabilityHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">State</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {distributedObservabilityHistory.length ? (
+                      distributedObservabilityHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.recovery_state, "degraded-but-recovering")}</td>
+                          <td className="p-3">{getString(item.distributed_observability_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.distributed_observability_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No distributed observability history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Blockers and Boundaries</h3>
+                <StatusBadge label={distributedObservabilityRecoveryState} tone={distributedObservabilityRecoveryState === "recovered" ? "ok" : distributedObservabilityRecoveryState === "unresolved-blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div>Final recovery state: {distributedObservabilityRecoveryState}</div>
+                <div>Recovery rationale: {getString(distributedObservabilityRationale.summary, "n/a")}</div>
+                <div>Score impact: {getNumber(distributedObservabilityRationale.score_impact?.base_score, 0).toFixed(2)} {"->"} {getNumber(distributedObservabilityRationale.score_impact?.final_score, distributedObservabilityScore).toFixed(2)}</div>
+                <div>Unresolved blockers: {String(distributedObservabilityBlockers.length)}</div>
+                <div>Blocker sources: {String(distributedObservabilityBlockerSources.length)}</div>
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  {distributedObservabilityBlockers.length ? (
+                    distributedObservabilityBlockers.map((blocker, index) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {getString(blocker, "n/a")}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved blockers remain in the staged observability evidence.</div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {distributedObservabilityBlockerSources.map((source: Record<string, any>) => (
                     <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                       <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
                       <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: distributed-prometheus-placeholder
+data:
+  remote_write: placeholder
+  shard_mode: distributed
+  tenant_telemetry_isolation: placeholder

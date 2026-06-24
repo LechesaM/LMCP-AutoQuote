@@ -30,3 +30,7 @@ resources:
   - ingress.yaml
   - tls-secret-placeholder.yaml
   - cert-manager-placeholder.yaml
+  - loki-placeholder.yaml
+  - tempo-placeholder.yaml
+  - distributed-prometheus-placeholder.yaml
+  - alertmanager-placeholder.yaml

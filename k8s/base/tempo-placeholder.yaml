@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-placeholder
+data:
+  endpoint: placeholder
+  tracing: placeholder

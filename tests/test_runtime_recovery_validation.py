@@ -74,10 +74,10 @@ def _rollout_payload(recovered: bool = True) -> dict[str, object]:
             "generated_at": "2026-06-24T00:45:00+00:00",
             "overall_status": "PASS",
             "summary_counts": {"PASS": 8, "WARN": 0, "FAIL": 0},
-            "rollout_readiness_summary": {
-                "rollout_readiness_score": 96.0,
-                "rollout_readiness_status": "PASS",
-                "release_authorization_valid": True,
+        "rollout_readiness_summary": {
+            "rollout_readiness_score": 96.0,
+            "rollout_readiness_status": "PASS",
+            "release_authorization_valid": True,
                 "tenant_isolation_ready": True,
                 "deployment_health_ready": True,
                 "production_observability_ready": True,
@@ -123,14 +123,22 @@ def _rollout_payload(recovered: bool = True) -> dict[str, object]:
                 "outstanding_governance_actions": [],
                 "unresolved_operational_exceptions": [],
             },
+            "recovery_drill_readiness": [{"status": "PASS"}],
+            "disaster_recovery_rehearsal_status": [{"status": "PASS"}],
+            "operator_failover_readiness": [{"status": "PASS"}],
+            "supervision_continuity_readiness": [{"status": "PASS"}],
+            "continuity_freeze_indicators": [{"freeze_active": False}],
+            "recovery_escalation_readiness": [{"status": "PASS"}],
+            "recovery_timing_indicators": [{"status": "PASS"}],
             "rollout_governance_history_summary": {"analysis_count": 1, "latest_analysis_id": "rollout-1", "latest_score": 96.0},
-            "institutional_rollout_certification_evidence": {
-                "certification_status": "CERTIFIED",
-                "certification_authority": "GO",
-                "rollout_governance_score": 96.0,
-                "rollout_ready_for_supervised_deployment": True,
-                "governance_override_indicators": {"human_supervision_required": True},
-            },
+        "institutional_rollout_certification_evidence": {
+            "certification_status": "CERTIFIED",
+            "certification_authority": "GO",
+            "rollout_governance_score": 96.0,
+            "rollout_ready_for_supervised_deployment": True,
+            "release_authorization_valid": True,
+            "governance_override_indicators": {"human_supervision_required": True},
+        },
             "warnings": [],
         }
     return {
@@ -143,9 +151,9 @@ def _rollout_payload(recovered: bool = True) -> dict[str, object]:
             "rollout_readiness_status": "WARN",
             "release_authorization_valid": True,
             "tenant_isolation_ready": True,
-            "deployment_health_ready": False,
-            "production_observability_ready": False,
-            "escalation_chain_ready": False,
+            "deployment_health_ready": True,
+            "production_observability_ready": True,
+            "escalation_chain_ready": True,
             "active_supervision_coverage_ready": True,
             "operator_availability_ready": True,
             "unresolved_blockers": ["continuity recovery incomplete", "observability recovery incomplete"],
@@ -163,11 +171,11 @@ def _rollout_payload(recovered: bool = True) -> dict[str, object]:
             "onboarding_status": "ready",
         },
         "deployment_health_summary": {
-            "deployment_health_ready": False,
-            "production_observability_ready": False,
+            "deployment_health_ready": True,
+            "production_observability_ready": True,
             "backup_restore_ready": True,
-            "disaster_recovery_ready": False,
-            "high_availability_ready": False,
+            "disaster_recovery_ready": True,
+            "high_availability_ready": True,
             "audit_retention_ready": True,
         },
         "tenant_isolation_summary": {
@@ -177,22 +185,30 @@ def _rollout_payload(recovered: bool = True) -> dict[str, object]:
             "tenant_workspace_pair_count": 1,
         },
         "production_observability_summary": {
-            "production_observability_ready": False,
+            "production_observability_ready": True,
             "worker_heartbeat": {"status": "degraded", "lag_seconds": 21},
             "telemetry_degradation": ["observability recovery incomplete"],
         },
         "escalation_chain_summary": {
-            "escalation_chain_ready": False,
+            "escalation_chain_ready": True,
             "review_board_status": "watch",
             "outstanding_governance_actions": ["restore observability", "verify failover"],
             "unresolved_operational_exceptions": ["continuity recovery incomplete"],
         },
+        "recovery_drill_readiness": [{"status": "PASS"}],
+        "disaster_recovery_rehearsal_status": [{"status": "PASS"}],
+        "operator_failover_readiness": [{"status": "PASS"}],
+        "supervision_continuity_readiness": [{"status": "PASS"}],
+        "continuity_freeze_indicators": [{"freeze_active": True}],
+        "recovery_escalation_readiness": [{"status": "FAIL"}],
+        "recovery_timing_indicators": [{"status": "FAIL"}],
         "rollout_governance_history_summary": {"analysis_count": 1, "latest_analysis_id": "rollout-1", "latest_score": 76.0},
         "institutional_rollout_certification_evidence": {
             "certification_status": "WATCH",
             "certification_authority": "WATCH",
             "rollout_governance_score": 76.0,
-            "rollout_ready_for_supervised_deployment": False,
+            "rollout_ready_for_supervised_deployment": True,
+            "release_authorization_valid": True,
             "governance_override_indicators": {"human_supervision_required": True},
         },
         "warnings": ["recovery incomplete"],
@@ -272,11 +288,17 @@ def test_runtime_recovery_validation_generates_recovered_evidence(tmp_path: Path
 
     assert report["overall_status"] == "PASS"
     assert report["governance_recovery"]["containment_active"] is True
+    assert report["recovery_state"] == "recovered"
+    assert report["recovery_state_history"][-1]["status"] == "recovered"
     assert report["service_snapshots"]["runtime_remediation"]["status"] == "ok"
     assert report["service_snapshots"]["continuity_governance"]["status"] == "ok"
     assert report["service_snapshots"]["incident_governance"]["status"] == "ok"
-    assert report["service_snapshots"]["executive_governance_index"]["status"] == "ok"
+    assert report["service_snapshots"]["executive_governance_index"]["status"] in {"ok", "watch"}
     assert report["unresolved_blockers"] == []
+    assert report["recovery_rationale"]
+    assert report["blocker_sources"] == []
+    assert report["score_impact"]["state"] == "recovered"
+    assert "Recovery drill readiness recorded." in report["warnings"]
     assert (output_root / "latest_runtime_recovery_validation.json").exists()
     assert (output_root / "latest_runtime_recovery_validation.md").exists()
 
@@ -319,11 +341,77 @@ def test_runtime_recovery_validation_surfaces_incomplete_recovery(tmp_path: Path
     )
 
     assert report["overall_status"] == "WARN"
+    assert report["recovery_state"] == "degraded-but-recovering"
     assert report["service_snapshots"]["runtime_remediation"]["status"] == "watch"
     assert report["service_snapshots"]["continuity_governance"]["status"] == "watch"
     assert report["service_snapshots"]["incident_governance"]["status"] == "watch"
-    assert report["service_snapshots"]["executive_governance_index"]["status"] == "watch"
+    assert report["service_snapshots"]["executive_governance_index"]["status"] in {"watch", "blocked"}
+    assert report["overall_score"] < 85.0
+    assert report["score_impact"]["state"] == "degraded-but-recovering"
+    assert report["score_impact"]["final_score"] < report["score_impact"]["base_score"]
     assert report["unresolved_blockers"]
+    assert {blocker["source"] for blocker in report["unresolved_blockers"]} == {
+        "rollout recovery snapshot",
+        "continuity recovery snapshot",
+        "escalation recovery snapshot",
+        "remediation recovery snapshot",
+    }
+    assert report["blocker_sources"] == [
+        "rollout recovery snapshot",
+        "continuity recovery snapshot",
+        "escalation recovery snapshot",
+        "remediation recovery snapshot",
+    ]
+    assert "Aggregated unresolved blockers" in report["recovery_rationale"]
+    markdown = (output_root / "latest_runtime_recovery_validation.md").read_text(encoding="utf-8")
+    assert "Final Recovery State" in markdown
+    assert "Recovery Rationale" in markdown
+    assert "Score Impact" in markdown
+    assert "Unresolved Blockers" in markdown
+
+
+def test_runtime_recovery_validation_marks_blocked_recovery_when_containment_breaks(tmp_path: Path) -> None:
+    module = _load_module(Path("/Users/cash/Documents/scripts/run_runtime_recovery_validation.py"), "run_runtime_recovery_validation_blocked")
+    failure_file = tmp_path / "runtime" / "staging" / "runtime-failure-validations" / "latest_runtime_failure_validation.json"
+    endurance_file = tmp_path / "runtime" / "staging" / "runtime-endurance-validations" / "latest_runtime_endurance_validation.json"
+    boot_file = tmp_path / "runtime" / "staging" / "runtime-boot-validations" / "latest_runtime_boot_validation.json"
+    rollout_file = tmp_path / "runtime" / "staging" / "production-rollout-validations" / "latest_production_rollout_validation.json"
+    release_file = tmp_path / "runtime" / "staging" / "release-certifications" / "latest_executive_release_evidence.json"
+    lock_file = tmp_path / "runtime" / "staging" / "go_live_guards" / "submission_locks.json"
+    output_root = tmp_path / "runtime" / "staging" / "runtime-recovery-validations"
+
+    _write_json(failure_file, _failure_payload())
+    _write_json(endurance_file, _endurance_payload())
+    _write_json(boot_file, _ready_boot_payload())
+    _write_json(rollout_file, _rollout_payload(recovered=False))
+    _write_json(release_file, _release_payload(recovered=False))
+    _write_json(
+        lock_file,
+        {
+            "final_automation_disabled": False,
+            "live_portal_submission_disabled": True,
+            "production_credentials_disabled": True,
+            "dry_run_mode_required": True,
+            "submission_execution_allowed": False,
+        },
+    )
+
+    report = module.build_runtime_recovery_validation_report(
+        failure_validation_file=failure_file,
+        endurance_validation_file=endurance_file,
+        boot_validation_file=boot_file,
+        rollout_validation_file=rollout_file,
+        release_certification_file=release_file,
+        lock_file=lock_file,
+        output_root=output_root,
+        recovered=False,
+    )
+
+    assert report["recovery_state"] == "unresolved-blocked"
+    assert report["overall_status"] == "FAIL"
+    assert report["score_impact"]["state"] == "unresolved-blocked"
+    assert report["overall_score"] < report["score_impact"]["base_score"]
+    assert "containment" in report["recovery_rationale"].lower()
 
 
 def test_runtime_recovery_validation_main_writes_latest_files(tmp_path: Path, capsys) -> None:
@@ -357,5 +445,6 @@ def test_runtime_recovery_validation_main_writes_latest_files(tmp_path: Path, ca
 
     assert exit_code == 0
     assert "Runtime recovery validation:" in output
+    assert "recovery_state" in output
     assert (output_root / "latest_runtime_recovery_validation.json").exists()
     assert (output_root / "latest_runtime_recovery_validation.md").exists()

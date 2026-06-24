@@ -3,10 +3,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import or_
-from sqlalchemy.orm import Session
-
-from app.models.supplier_product import SupplierProduct
+try:  # pragma: no cover - optional dependency path
+    from sqlalchemy import or_  # type: ignore
+    from sqlalchemy.orm import Session  # type: ignore
+    from app.models.supplier_product import SupplierProduct  # type: ignore
+except Exception:  # pragma: no cover - fallback for read-only governance/runtime use
+    or_ = None  # type: ignore
+    Session = Any  # type: ignore
+    SupplierProduct = Any  # type: ignore
 
 
 def _safe_str(value: Any) -> str:
@@ -109,6 +113,8 @@ def get_all_supplier_products(
     in_stock_only: bool = False,
     limit: int = 500,
 ) -> List[SupplierProduct]:
+    if or_ is None or SupplierProduct is Any:
+        return []
     query = db.query(SupplierProduct)
 
     if active_only:
@@ -131,6 +137,8 @@ def search_supplier_products(
     in_stock_only: bool = False,
     limit: int = 100,
 ) -> List[SupplierProduct]:
+    if or_ is None or SupplierProduct is Any:
+        return []
     search_text = _safe_str(search_text)
     query = db.query(SupplierProduct)
 
@@ -168,6 +176,8 @@ def match_opportunity_to_supplier_products(
     min_score: float = 0.20,
     limit: int = 10,
 ) -> List[Dict[str, Any]]:
+    if or_ is None or SupplierProduct is Any:
+        return []
     opportunity_text = _combine_opportunity_text(opportunity)
     candidates = get_all_supplier_products(
         db=db,

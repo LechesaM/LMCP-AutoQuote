@@ -1,18 +1,17 @@
 import json
 import sqlite3
 from pathlib import Path
+from typing import Any, Callable
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from ..workflow_layer.workflow_status_dashboard import build_dashboard
-from ..workflow_layer.rfq_dispatch_review import build_dispatch_review
-from ..workflow_layer.live_adjudication_engine import run_live_adjudication
-from ..workflow_layer.action_dispatch_review import build_action_dispatch_review
-from app.services.data_residency_governance_service import data_residency_governance_service
-from app.services.pricing_intelligence_governance_service import pricing_intelligence_governance_service
-from app.services.executive_decision_workspace_service import executive_decision_workspace_service
-from app.services.tender_strategy_governance_service import tender_strategy_governance_service
-from app.services.controlled_automation_orchestration_service import ControlledAutomationOrchestrationService
+
+from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
+from etenders_acquisition.workflow_layer.workflow_status_dashboard import build_dashboard
+from etenders_acquisition.workflow_layer.rfq_dispatch_review import build_dispatch_review
+from etenders_acquisition.workflow_layer.live_adjudication_engine import run_live_adjudication
+from etenders_acquisition.workflow_layer.action_dispatch_review import build_action_dispatch_review
+
 
 DB_PATH = Path("runtime/workflow/workflow_layer.db")
 DASHBOARD_PATH = Path("runtime/workflow/workflow_status_dashboard.json")
@@ -22,14 +21,10 @@ ACTION_REVIEW_PATH = Path("runtime/adjudication/actions/action_dispatch_review.j
 QUOTE_INGESTION_PATH = Path("runtime/supplier_responses/quote_ingestion_summary.json")
 
 
-def controlled_automation_orchestration_service() -> ControlledAutomationOrchestrationService:
-    return ControlledAutomationOrchestrationService()
-
-
 app = FastAPI(
     title="LMCP AutoQuote API",
     version="2.0.0",
-    description="Enterprise workflow API for RFQ, quote ingestion, adjudication and supplier communication."
+    description="Enterprise workflow API for RFQ, quote ingestion, adjudication and supplier communication.",
 )
 
 app.add_middleware(
@@ -41,28 +36,55 @@ app.add_middleware(
 )
 
 
-def load_json(path, default):
+def load_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return default
 
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as exc:
+        return {"status": "error", "path": str(path), "error": str(exc)}
 
 
-def fetch_table(table_name):
+def fetch_table(table_name: str) -> Any:
+    if not DB_PATH.exists():
+        return {"status": "error", "error": f"Database not found: {DB_PATH}"}
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     try:
         cur.execute(f"SELECT * FROM {table_name}")
-        rows = [dict(row) for row in cur.fetchall()]
+        return [dict(row) for row in cur.fetchall()]
     except Exception as exc:
-        rows = {"error": str(exc)}
+        return {"status": "error", "table": table_name, "error": str(exc)}
     finally:
         conn.close()
 
-    return rows
+
+def safe_run(fn: Callable, fallback_name: str) -> Any:
+    try:
+        return fn()
+    except Exception as exc:
+        return {
+            "status": "partial",
+            "module": fallback_name,
+            "error": str(exc),
+        }
+
+
+def not_available(module_name: str) -> dict:
+    return {
+        "status": "not_available",
+        "module": module_name,
+        "reason": "Service module is not present in app/services in this project structure.",
+    }
+
+
+def production_hardening_readiness_service() -> ProductionHardeningReadinessService:
+    return ProductionHardeningReadinessService()
 
 
 @app.get("/")
@@ -70,7 +92,7 @@ def root():
     return {
         "system": "LMCP AutoQuote",
         "phase": "Phase 2B",
-        "status": "API operational"
+        "status": "API operational",
     }
 
 
@@ -79,12 +101,28 @@ def health():
     return {
         "status": "ok",
         "database_exists": DB_PATH.exists(),
-        "dashboard_exists": DASHBOARD_PATH.exists()
+        "dashboard_exists": DASHBOARD_PATH.exists(),
+    }
+
+
+@app.get("/system/status")
+def system_status():
+    return {
+        "status": "healthy",
+        "backend": "online",
+        "service": "LMCP AutoQuote API",
+        "database_exists": DB_PATH.exists(),
+        "dashboard_exists": DASHBOARD_PATH.exists(),
     }
 
 
 @app.get("/dashboard")
 def dashboard():
+    return load_json(DASHBOARD_PATH, {})
+
+
+@app.get("/api/dashboard")
+def api_dashboard():
     return load_json(DASHBOARD_PATH, {})
 
 
@@ -130,110 +168,120 @@ def db_adjudication_decisions():
 
 @app.post("/refresh/dashboard")
 def refresh_dashboard():
-    return build_dashboard()
+    return safe_run(build_dashboard, "workflow_status_dashboard")
 
 
 @app.post("/refresh/rfq-dispatch-review")
 def refresh_rfq_dispatch_review():
-    return build_dispatch_review()
+    return safe_run(build_dispatch_review, "rfq_dispatch_review")
 
 
 @app.post("/refresh/adjudication")
 def refresh_adjudication():
-    return run_live_adjudication()
+    return safe_run(run_live_adjudication, "live_adjudication_engine")
 
 
 @app.post("/refresh/action-dispatch-review")
 def refresh_action_dispatch_review():
-    return build_action_dispatch_review()
+    return safe_run(build_action_dispatch_review, "action_dispatch_review")
 
 
 @app.post("/refresh/all")
 def refresh_all():
-    rfq_review = build_dispatch_review()
-    adjudication_result = run_live_adjudication()
-    action_review = build_action_dispatch_review()
-    dashboard_result = build_dashboard()
-
     return {
         "status": "refresh_complete",
-        "rfq_review": rfq_review,
-        "adjudication": adjudication_result,
-        "action_review": action_review,
-        "dashboard": dashboard_result
+        "rfq_review": safe_run(build_dispatch_review, "rfq_dispatch_review"),
+        "adjudication": safe_run(run_live_adjudication, "live_adjudication_engine"),
+        "action_review": safe_run(build_action_dispatch_review, "action_dispatch_review"),
+        "dashboard": safe_run(build_dashboard, "workflow_status_dashboard"),
     }
 
 
 @app.get("/rfq-lifecycle/data-residency-governance")
 def data_residency_governance():
-    return data_residency_governance_service.latest()
+    return not_available("data_residency_governance_service")
 
 
 @app.get("/rfq-lifecycle/data-residency-governance/latest")
 def data_residency_governance_latest():
-    return data_residency_governance_service.latest()
+    return not_available("data_residency_governance_service")
 
 
 @app.get("/rfq-lifecycle/data-residency-governance/history")
 def data_residency_governance_history():
-    return data_residency_governance_service.history()
+    return not_available("data_residency_governance_service")
 
 
 @app.get("/rfq-lifecycle/pricing-intelligence")
 def pricing_intelligence_governance():
-    return pricing_intelligence_governance_service.list_pricing_intelligence()
+    return not_available("pricing_intelligence_governance_service")
 
 
 @app.get("/rfq-lifecycle/pricing-intelligence/latest")
 def pricing_intelligence_governance_latest():
-    return pricing_intelligence_governance_service.latest_pricing_intelligence()
+    return not_available("pricing_intelligence_governance_service")
 
 
 @app.get("/rfq-lifecycle/pricing-intelligence/history")
 def pricing_intelligence_governance_history():
-    return pricing_intelligence_governance_service.pricing_intelligence_history()
+    return not_available("pricing_intelligence_governance_service")
 
 
 @app.get("/rfq-lifecycle/tender-strategy-governance")
 def tender_strategy_governance():
-    return tender_strategy_governance_service.list_tender_strategy_governance()
+    return not_available("tender_strategy_governance_service")
 
 
 @app.get("/rfq-lifecycle/tender-strategy-governance/latest")
 def tender_strategy_governance_latest():
-    return tender_strategy_governance_service.latest_tender_strategy_governance()
+    return not_available("tender_strategy_governance_service")
 
 
 @app.get("/rfq-lifecycle/tender-strategy-governance/history")
 def tender_strategy_governance_history():
-    return tender_strategy_governance_service.tender_strategy_governance_history()
+    return not_available("tender_strategy_governance_service")
 
 
 @app.get("/rfq-lifecycle/executive-decision-workspace")
 def executive_decision_workspace():
-    return executive_decision_workspace_service.list_executive_decision_workspace()
+    return not_available("executive_decision_workspace_service")
 
 
 @app.get("/rfq-lifecycle/executive-decision-workspace/latest")
 def executive_decision_workspace_latest():
-    return executive_decision_workspace_service.latest_executive_decision_workspace()
+    return not_available("executive_decision_workspace_service")
 
 
 @app.get("/rfq-lifecycle/executive-decision-workspace/history")
 def executive_decision_workspace_history():
-    return executive_decision_workspace_service.executive_decision_workspace_history()
+    return not_available("executive_decision_workspace_service")
 
 
 @app.get("/rfq-lifecycle/controlled-automation-orchestration")
 def controlled_automation_orchestration():
-    return controlled_automation_orchestration_service().list_controlled_automation_orchestration()
+    return not_available("controlled_automation_orchestration_service")
 
 
 @app.get("/rfq-lifecycle/controlled-automation-orchestration/latest")
 def controlled_automation_orchestration_latest():
-    return controlled_automation_orchestration_service().latest_controlled_automation_orchestration()
+    return not_available("controlled_automation_orchestration_service")
 
 
 @app.get("/rfq-lifecycle/controlled-automation-orchestration/history")
 def controlled_automation_orchestration_history():
-    return controlled_automation_orchestration_service().controlled_automation_orchestration_history()
+    return not_available("controlled_automation_orchestration_service")
+
+
+@app.get("/rfq-lifecycle/production-hardening-readiness")
+def production_hardening_readiness():
+    return production_hardening_readiness_service().latest_production_hardening_readiness()
+
+
+@app.get("/rfq-lifecycle/production-hardening-readiness/latest")
+def production_hardening_readiness_latest():
+    return production_hardening_readiness_service().latest_production_hardening_readiness()
+
+
+@app.get("/rfq-lifecycle/production-hardening-readiness/history")
+def production_hardening_readiness_history():
+    return production_hardening_readiness_service().production_hardening_readiness_history()

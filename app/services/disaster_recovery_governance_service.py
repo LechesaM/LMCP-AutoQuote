@@ -611,6 +611,11 @@ class DisasterRecoveryGovernanceService:
         history_entry = {
             "analysis_id": "disaster-recovery-governance:latest",
             "generated_at": _now_iso(),
+            "ready": disaster_recovery_status in {"ok", "watch"},
+            "status": disaster_recovery_status,
+            "score": disaster_recovery_score,
+            "blockers": unresolved_blockers,
+            "authority": disaster_recovery_authority,
             "disaster_recovery_governance_status": disaster_recovery_status,
             "disaster_recovery_governance_authority": disaster_recovery_authority,
             "disaster_recovery_governance_score": disaster_recovery_score,

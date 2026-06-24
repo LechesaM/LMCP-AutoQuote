@@ -168,6 +168,8 @@ type VisibilitySnapshot = {
   finalGovernanceReleaseReadinessHistory: Array<Record<string, any>>;
   controlledAutomationOrchestrationLatest: Record<string, any> | null;
   controlledAutomationOrchestrationHistory: Array<Record<string, any>>;
+  productionHardeningReadinessLatest: Record<string, any> | null;
+  productionHardeningReadinessHistory: Array<Record<string, any>>;
   warnings: string[];
 };
 
@@ -335,6 +337,8 @@ export default function Home() {
     finalGovernanceReleaseReadinessHistory: [],
     controlledAutomationOrchestrationLatest: null,
     controlledAutomationOrchestrationHistory: [],
+    productionHardeningReadinessLatest: null,
+    productionHardeningReadinessHistory: [],
     warnings: [],
   });
 
@@ -470,6 +474,8 @@ export default function Home() {
       { key: "finalGovernanceReleaseReadinessHistory", path: "/rfq-lifecycle/final-governance-release-readiness/history?limit=8" },
       { key: "controlledAutomationOrchestrationLatest", path: "/rfq-lifecycle/controlled-automation-orchestration/latest" },
       { key: "controlledAutomationOrchestrationHistory", path: "/rfq-lifecycle/controlled-automation-orchestration/history?limit=8" },
+      { key: "productionHardeningReadinessLatest", path: "/rfq-lifecycle/production-hardening-readiness/latest" },
+      { key: "productionHardeningReadinessHistory", path: "/rfq-lifecycle/production-hardening-readiness/history?limit=8" },
     ] as const;
 
     const settled = await Promise.allSettled(
@@ -589,6 +595,8 @@ export default function Home() {
       finalGovernanceReleaseReadinessHistory: [],
       controlledAutomationOrchestrationLatest: null,
       controlledAutomationOrchestrationHistory: [],
+      productionHardeningReadinessLatest: null,
+      productionHardeningReadinessHistory: [],
       warnings: [],
     };
 
@@ -876,6 +884,11 @@ export default function Home() {
       } else if (key === "controlledAutomationOrchestrationHistory") {
         const items = data.controlled_automation_orchestration_history;
         next.controlledAutomationOrchestrationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "productionHardeningReadinessLatest") {
+        next.productionHardeningReadinessLatest = data;
+      } else if (key === "productionHardeningReadinessHistory") {
+        const items = data.production_hardening_readiness_history;
+        next.productionHardeningReadinessHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       }
     }
 
@@ -1464,6 +1477,30 @@ export default function Home() {
   const finalGovernanceReleaseReadinessLatest = visibility.finalGovernanceReleaseReadinessLatest || {};
   const finalGovernanceReleaseReadinessHistory = Array.isArray(visibility.finalGovernanceReleaseReadinessHistory) ? visibility.finalGovernanceReleaseReadinessHistory : [];
   const finalGovernanceReleaseReadinessWarnings = Array.isArray(finalGovernanceReleaseReadinessLatest.warnings) ? finalGovernanceReleaseReadinessLatest.warnings : [];
+  const productionHardeningReadinessLatest = visibility.productionHardeningReadinessLatest || {};
+  const productionHardeningReadinessHistory = Array.isArray(visibility.productionHardeningReadinessHistory) ? visibility.productionHardeningReadinessHistory : [];
+  const productionHardeningReadinessWarnings = Array.isArray(productionHardeningReadinessLatest.warnings) ? productionHardeningReadinessLatest.warnings : [];
+  const productionHardeningReadinessStatus = getString(productionHardeningReadinessLatest.production_hardening_readiness_status, "watch");
+  const productionHardeningReadinessScore = getNumber(productionHardeningReadinessLatest.production_hardening_readiness_score, 0);
+  const productionHardeningReadinessGrade = getString(productionHardeningReadinessLatest.production_hardening_readiness_grade, "blocked");
+  const productionCutoverReadiness = productionHardeningReadinessLatest.production_cutover_readiness || {};
+  const operationalRunbookReadiness = productionHardeningReadinessLatest.operational_runbook_readiness || {};
+  const securityHardeningReadiness = productionHardeningReadinessLatest.security_hardening_readiness || {};
+  const productionHardeningReleaseRollbackReadiness = productionHardeningReadinessLatest.release_rollback_readiness || {};
+  const productionHardeningObservabilityReadiness = productionHardeningReadinessLatest.observability_readiness || {};
+  const productionHardeningIncidentResponseReadiness = productionHardeningReadinessLatest.incident_response_readiness || {};
+  const productionHardeningDrFailoverReadiness = productionHardeningReadinessLatest.dr_failover_readiness || {};
+  const productionHardeningSecretsAccessReadiness = productionHardeningReadinessLatest.secrets_access_readiness || {};
+  const productionHardeningCicdPromotionReadiness = productionHardeningReadinessLatest.cicd_promotion_readiness || {};
+  const productionHardeningFinalGovernanceReleaseReadiness = productionHardeningReadinessLatest.final_governance_release_readiness || {};
+  const productionHardeningComplianceRegulatoryGovernanceReadiness = productionHardeningReadinessLatest.compliance_regulatory_governance_readiness || {};
+  const productionHardeningDataResidencyGovernanceReadiness = productionHardeningReadinessLatest.data_residency_sovereignty_governance_readiness || {};
+  const productionHardeningDisasterRecoveryReadiness = productionHardeningReadinessLatest.disaster_recovery_readiness || {};
+  const productionHardeningBackupRestoreReadiness = productionHardeningReadinessLatest.backup_restore_governance_readiness || {};
+  const productionHardeningControlledAutomationReadiness = productionHardeningReadinessLatest.controlled_automation_readiness || {};
+  const productionHardeningExecutiveDecisionWorkspaceReadiness = productionHardeningReadinessLatest.executive_decision_workspace_readiness || {};
+  const productionHardeningBlockers = Array.isArray(productionHardeningReadinessLatest.unresolved_production_hardening_blockers) ? productionHardeningReadinessLatest.unresolved_production_hardening_blockers : [];
+  const productionHardeningBlockerIndicators = productionHardeningReadinessLatest.production_blocker_indicators || {};
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -6402,6 +6439,163 @@ export default function Home() {
                       <tr>
                         <td className="p-4 text-slate-400" colSpan={5}>
                           No final governance release history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Production Hardening Readiness</h2>
+              <p className="text-sm text-slate-400">
+                Advisory readiness for a future controlled production transition across release, compliance, residency, recovery, automation, and executive layers.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only hardening readiness" : "Read-only hardening readiness"}
+              tone="neutral"
+            />
+          </div>
+
+          {productionHardeningReadinessWarnings.length ? (
+            <div className="space-y-3">
+              {productionHardeningReadinessWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Production hardening readiness is advisory only, dry-run enforced, and remains supervised.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Hardening Readiness"
+              tone={productionHardeningReadinessStatus === "ok" ? "ok" : productionHardeningReadinessStatus === "blocked" ? "error" : "neutral"}
+              summary={`${productionHardeningReadinessGrade} • ${productionHardeningReadinessScore.toFixed(2)}`}
+              items={[
+                ["Status", productionHardeningReadinessStatus],
+                ["Score", productionHardeningReadinessScore.toFixed(2)],
+                ["Cutover", getBooleanBadge(productionCutoverReadiness.ready).label],
+                ["Runbook", getBooleanBadge(operationalRunbookReadiness.ready).label],
+                ["Security", getBooleanBadge(securityHardeningReadiness.ready).label],
+                ["History", String(productionHardeningReadinessHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Controls"
+              tone={Object.values(productionHardeningReadinessLatest.safety_boundaries || {}).every(Boolean) ? "ok" : "error"}
+              summary={getBooleanBadge(productionHardeningReadinessLatest.dry_run_enforced).label}
+              items={[
+                ["Read-only", getBooleanBadge(productionHardeningReadinessLatest.safety_boundaries?.read_only).label],
+                ["Staging-only", getBooleanBadge(productionHardeningReadinessLatest.safety_boundaries?.staging_only).label],
+                ["Dry-run", getBooleanBadge(productionHardeningReadinessLatest.safety_boundaries?.dry_run_enforced).label],
+                ["Supervision", getBooleanBadge(productionHardeningReadinessLatest.safety_boundaries?.human_supervision_required).label],
+                ["Cutover approval", getBooleanBadge(productionHardeningReadinessLatest.safety_boundaries?.production_cutover_human_approval_required).label],
+                ["Rollback planning", getBooleanBadge(productionHardeningReadinessLatest.safety_boundaries?.rollback_planning_required).label],
+                ["Security review", getBooleanBadge(productionHardeningReadinessLatest.safety_boundaries?.security_review_required).label],
+                ["Final automation", getBooleanBadge(productionHardeningReadinessLatest.production_mode_enabled).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Operational Coverage"
+              tone={productionHardeningReadinessScore >= 80 ? "ok" : "error"}
+              summary={`${Object.values(productionHardeningBlockerIndicators).filter(Boolean).length} blocker(s)`}
+              items={[
+                ["Final governance", getBooleanBadge(productionHardeningFinalGovernanceReleaseReadiness.ready).label],
+                ["Compliance", getBooleanBadge(productionHardeningComplianceRegulatoryGovernanceReadiness.ready).label],
+                ["Residency", getBooleanBadge(productionHardeningDataResidencyGovernanceReadiness.ready).label],
+                ["Disaster recovery", getBooleanBadge(productionHardeningDisasterRecoveryReadiness.ready).label],
+                ["Backup restore", getBooleanBadge(productionHardeningBackupRestoreReadiness.ready).label],
+                ["Controlled automation", getBooleanBadge(productionHardeningControlledAutomationReadiness.ready).label],
+                ["Executive workspace", getBooleanBadge(productionHardeningExecutiveDecisionWorkspaceReadiness.ready).label],
+                ["CI/CD", getBooleanBadge(productionHardeningCicdPromotionReadiness.ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Hardening Flags"
+              tone={productionHardeningBlockers.length ? "error" : "ok"}
+              summary={`${productionHardeningBlockers.length} unresolved blocker(s)`}
+              items={[
+                ["Production mode", getBooleanBadge(productionHardeningReadinessLatest.production_mode_enabled).label],
+                ["Deployment exec", getBooleanBadge(productionHardeningReadinessLatest.production_deployment_execution_enabled).label],
+                ["Live credentials", getBooleanBadge(productionHardeningReadinessLatest.live_credentials_present).label],
+                ["External alerts", getBooleanBadge(productionHardeningReadinessLatest.live_external_alerting_enabled).label],
+                ["Procurement exec", getBooleanBadge(productionHardeningReadinessLatest.autonomous_procurement_execution_enabled).label],
+                ["Tender submission", getBooleanBadge(productionHardeningReadinessLatest.autonomous_tender_submission_enabled).label],
+                ["Supplier award", getBooleanBadge(productionHardeningReadinessLatest.autonomous_supplier_award_enabled).label],
+                ["Commitment gen", getBooleanBadge(productionHardeningReadinessLatest.procurement_commitment_generation_enabled).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Production Hardening Blockers</h3>
+                <StatusBadge label={`${productionHardeningBlockers.length} blocker(s)`} tone={productionHardeningBlockers.length ? "error" : "ok"} />
+              </div>
+              <div className="mt-4 space-y-3">
+                {productionHardeningBlockers.length ? (
+                  productionHardeningBlockers.map((blocker: string, index: number) => (
+                    <div key={`${blocker}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-3 text-sm text-amber-100">
+                      {blocker}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+                    No unresolved production hardening blockers are currently recorded.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Production Hardening History</h3>
+                <StatusBadge label={`${productionHardeningReadinessHistory.length} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Event</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {productionHardeningReadinessHistory.length ? (
+                      productionHardeningReadinessHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.production_hardening_readiness_id, "event")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.production_hardening_readiness_id, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.production_hardening_readiness_status, "watch")}
+                              tone={item.production_hardening_readiness_status === "ok" ? "ok" : item.production_hardening_readiness_status === "blocked" ? "error" : "neutral"}
+                            />
+                          </td>
+                          <td className="p-3 text-right">{getNumber(item.production_hardening_readiness_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No production hardening history is available yet.
                         </td>
                       </tr>
                     )}

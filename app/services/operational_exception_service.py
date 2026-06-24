@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import json
 
 
@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PILOT_CYCLE_ROOT = PROJECT_ROOT / "runtime" / "staging" / "pilot-cycles"
 GOVERNANCE_EXPORT_ROOT = PROJECT_ROOT / "runtime" / "staging" / "governance-exports"
 REVIEW_WINDOW_DAYS = 30
+_JSON_CACHE: Dict[Tuple[str, int, int], Any] = {}
 
 
 def _now_iso() -> str:
@@ -50,7 +51,13 @@ def _safe_list(value: Any) -> List[Any]:
 def _read_json(path: Path, default: Any) -> Any:
     try:
         if path.exists():
-            return json.loads(path.read_text(encoding="utf-8"))
+            stat = path.stat()
+            cache_key = (str(path), stat.st_mtime_ns, stat.st_size)
+            if cache_key in _JSON_CACHE:
+                return _JSON_CACHE[cache_key]
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            _JSON_CACHE[cache_key] = payload
+            return payload
     except Exception:
         return default
     return default

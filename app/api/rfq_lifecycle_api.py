@@ -29,6 +29,10 @@ from app.services.executive_risk_review_service import ExecutiveRiskReviewServic
 from app.services.executive_decision_queue_service import ExecutiveDecisionQueueService
 from app.services.tender_strategy_governance_service import TenderStrategyGovernanceService
 from app.services.controlled_automation_orchestration_service import ControlledAutomationOrchestrationService
+from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
+from app.services.production_cutover_readiness_service import ProductionCutoverReadinessService
+from app.services.operational_runbook_readiness_service import OperationalRunbookReadinessService
+from app.services.security_hardening_readiness_service import SecurityHardeningReadinessService
 from app.services.executive_command_service import ExecutiveCommandService
 from app.services.executive_governance_index_service import ExecutiveGovernanceIndexService
 from app.services.production_operationalization_service import ProductionOperationalizationService
@@ -197,6 +201,22 @@ def tender_strategy_governance_service() -> TenderStrategyGovernanceService:
 
 def controlled_automation_orchestration_service() -> ControlledAutomationOrchestrationService:
     return ControlledAutomationOrchestrationService()
+
+
+def production_hardening_readiness_service() -> ProductionHardeningReadinessService:
+    return ProductionHardeningReadinessService()
+
+
+def production_cutover_readiness_service() -> ProductionCutoverReadinessService:
+    return ProductionCutoverReadinessService()
+
+
+def operational_runbook_readiness_service() -> OperationalRunbookReadinessService:
+    return OperationalRunbookReadinessService()
+
+
+def security_hardening_readiness_service() -> SecurityHardeningReadinessService:
+    return SecurityHardeningReadinessService()
 
 
 def executive_command_service() -> ExecutiveCommandService:
@@ -820,6 +840,21 @@ def controlled_automation_orchestration_latest() -> Dict[str, Any]:
 @router.get("/controlled-automation-orchestration/history")
 def controlled_automation_orchestration_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return controlled_automation_orchestration_service().controlled_automation_orchestration_history(limit=limit)
+
+
+@router.get("/production-hardening-readiness")
+def production_hardening_readiness(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_hardening_readiness_service().list_production_hardening_readiness(limit=limit)
+
+
+@router.get("/production-hardening-readiness/latest")
+def production_hardening_readiness_latest() -> Dict[str, Any]:
+    return production_hardening_readiness_service().latest_production_hardening_readiness()
+
+
+@router.get("/production-hardening-readiness/history")
+def production_hardening_readiness_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return production_hardening_readiness_service().production_hardening_readiness_history(limit=limit)
 
 
 @router.get("/executive-command")

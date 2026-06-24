@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend/command-centre
+        working-directory: etenders_acquisition/lmcp-dashboard
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: frontend/command-centre/package-lock.json
+          cache-dependency-path: etenders_acquisition/lmcp-dashboard/package-lock.json
 
       - name: Install dependencies
         run: npm ci

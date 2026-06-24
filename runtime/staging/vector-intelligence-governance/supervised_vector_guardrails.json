@@ -1,0 +1,9 @@
+{
+  "dry_run_enforced": true,
+  "human_supervision_required": true,
+  "autonomous_vector_decisioning_enabled": false,
+  "autonomous_procurement_execution_enabled": false,
+  "autonomous_supplier_selection_enabled": false,
+  "autonomous_pricing_override_enabled": false,
+  "production_vector_learning_enabled": false
+}

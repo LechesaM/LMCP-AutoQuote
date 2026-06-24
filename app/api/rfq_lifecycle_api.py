@@ -31,6 +31,7 @@ from app.services.historical_learning_service import HistoricalLearningService
 from app.services.tender_strategy_governance_service import TenderStrategyGovernanceService
 from app.services.controlled_automation_orchestration_service import ControlledAutomationOrchestrationService
 from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
+from app.services.vector_intelligence_service import VectorIntelligenceService
 from app.services.production_cutover_readiness_service import ProductionCutoverReadinessService
 from app.services.operational_runbook_readiness_service import OperationalRunbookReadinessService
 from app.services.security_hardening_readiness_service import SecurityHardeningReadinessService
@@ -198,6 +199,10 @@ def executive_decision_queue_service() -> ExecutiveDecisionQueueService:
 
 def historical_learning_service() -> HistoricalLearningService:
     return HistoricalLearningService()
+
+
+def vector_intelligence_service() -> VectorIntelligenceService:
+    return VectorIntelligenceService()
 
 
 def tender_strategy_governance_service() -> TenderStrategyGovernanceService:
@@ -845,6 +850,21 @@ def historical_learning_latest() -> Dict[str, Any]:
 @router.get("/historical-learning/history")
 def historical_learning_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return historical_learning_service().historical_learning_history(limit=limit)
+
+
+@router.get("/vector-intelligence")
+def vector_intelligence(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return vector_intelligence_service().latest_vector_intelligence()
+
+
+@router.get("/vector-intelligence/latest")
+def vector_intelligence_latest() -> Dict[str, Any]:
+    return vector_intelligence_service().latest_vector_intelligence()
+
+
+@router.get("/vector-intelligence/history")
+def vector_intelligence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return vector_intelligence_service().vector_intelligence_history(limit=limit)
 
 
 @router.get("/controlled-automation-orchestration")

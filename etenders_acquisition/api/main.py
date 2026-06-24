@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.historical_learning_service import HistoricalLearningService
+from app.services.vector_intelligence_service import VectorIntelligenceService
 from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
 from etenders_acquisition.workflow_layer.workflow_status_dashboard import build_dashboard
 from etenders_acquisition.workflow_layer.rfq_dispatch_review import build_dispatch_review
@@ -90,6 +91,10 @@ def production_hardening_readiness_service() -> ProductionHardeningReadinessServ
 
 def historical_learning_service() -> HistoricalLearningService:
     return HistoricalLearningService()
+
+
+def vector_intelligence_service() -> VectorIntelligenceService:
+    return VectorIntelligenceService()
 
 
 @app.get("/")
@@ -275,6 +280,21 @@ def historical_learning_latest():
 @app.get("/rfq-lifecycle/historical-learning/history")
 def historical_learning_history():
     return historical_learning_service().historical_learning_history()
+
+
+@app.get("/rfq-lifecycle/vector-intelligence")
+def vector_intelligence():
+    return vector_intelligence_service().latest_vector_intelligence()
+
+
+@app.get("/rfq-lifecycle/vector-intelligence/latest")
+def vector_intelligence_latest():
+    return vector_intelligence_service().latest_vector_intelligence()
+
+
+@app.get("/rfq-lifecycle/vector-intelligence/history")
+def vector_intelligence_history():
+    return vector_intelligence_service().vector_intelligence_history()
 
 
 @app.get("/rfq-lifecycle/controlled-automation-orchestration")

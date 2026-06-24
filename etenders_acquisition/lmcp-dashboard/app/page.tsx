@@ -168,6 +168,8 @@ type VisibilitySnapshot = {
   finalGovernanceReleaseReadinessHistory: Array<Record<string, any>>;
   historicalLearningLatest: Record<string, any> | null;
   historicalLearningHistory: Array<Record<string, any>>;
+  vectorIntelligenceLatest: Record<string, any> | null;
+  vectorIntelligenceHistory: Array<Record<string, any>>;
   controlledAutomationOrchestrationLatest: Record<string, any> | null;
   controlledAutomationOrchestrationHistory: Array<Record<string, any>>;
   productionHardeningReadinessLatest: Record<string, any> | null;
@@ -339,6 +341,8 @@ export default function Home() {
     finalGovernanceReleaseReadinessHistory: [],
     historicalLearningLatest: null,
     historicalLearningHistory: [],
+    vectorIntelligenceLatest: null,
+    vectorIntelligenceHistory: [],
     controlledAutomationOrchestrationLatest: null,
     controlledAutomationOrchestrationHistory: [],
     productionHardeningReadinessLatest: null,
@@ -478,6 +482,8 @@ export default function Home() {
       { key: "finalGovernanceReleaseReadinessHistory", path: "/rfq-lifecycle/final-governance-release-readiness/history?limit=8" },
       { key: "historicalLearningLatest", path: "/rfq-lifecycle/historical-learning/latest" },
       { key: "historicalLearningHistory", path: "/rfq-lifecycle/historical-learning/history?limit=8" },
+      { key: "vectorIntelligenceLatest", path: "/rfq-lifecycle/vector-intelligence/latest" },
+      { key: "vectorIntelligenceHistory", path: "/rfq-lifecycle/vector-intelligence/history?limit=8" },
       { key: "controlledAutomationOrchestrationLatest", path: "/rfq-lifecycle/controlled-automation-orchestration/latest" },
       { key: "controlledAutomationOrchestrationHistory", path: "/rfq-lifecycle/controlled-automation-orchestration/history?limit=8" },
       { key: "productionHardeningReadinessLatest", path: "/rfq-lifecycle/production-hardening-readiness/latest" },
@@ -601,6 +607,8 @@ export default function Home() {
       finalGovernanceReleaseReadinessHistory: [],
       historicalLearningLatest: null,
       historicalLearningHistory: [],
+      vectorIntelligenceLatest: null,
+      vectorIntelligenceHistory: [],
       controlledAutomationOrchestrationLatest: null,
       controlledAutomationOrchestrationHistory: [],
       productionHardeningReadinessLatest: null,
@@ -892,6 +900,11 @@ export default function Home() {
       } else if (key === "historicalLearningHistory") {
         const items = data.historical_learning_history;
         next.historicalLearningHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "vectorIntelligenceLatest") {
+        next.vectorIntelligenceLatest = data;
+      } else if (key === "vectorIntelligenceHistory") {
+        const items = data.vector_intelligence_history;
+        next.vectorIntelligenceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "controlledAutomationOrchestrationLatest") {
         next.controlledAutomationOrchestrationLatest = data;
       } else if (key === "controlledAutomationOrchestrationHistory") {
@@ -1505,6 +1518,18 @@ export default function Home() {
   const historicalConfidenceRecalibrationReadiness = historicalLearningLatest.confidence_recalibration_readiness || {};
   const historicalBenchmarkReadiness = historicalLearningLatest.historical_benchmark_readiness || {};
   const historicalLearningBlockers = Array.isArray(historicalLearningLatest.unresolved_learning_blockers) ? historicalLearningLatest.unresolved_learning_blockers : [];
+  const vectorIntelligenceLatest = visibility.vectorIntelligenceLatest || {};
+  const vectorIntelligenceHistory = Array.isArray(visibility.vectorIntelligenceHistory) ? visibility.vectorIntelligenceHistory : [];
+  const vectorIntelligenceWarnings = Array.isArray(vectorIntelligenceLatest.warnings) ? vectorIntelligenceLatest.warnings : [];
+  const vectorIntelligenceReadiness = vectorIntelligenceLatest.vector_intelligence_readiness || {};
+  const vectorSemanticRetrievalReadiness = vectorIntelligenceLatest.semantic_retrieval_readiness || {};
+  const vectorContextualMemoryReadiness = vectorIntelligenceLatest.contextual_memory_readiness || {};
+  const vectorSimilarityAnalysisReadiness = vectorIntelligenceLatest.similarity_analysis_readiness || {};
+  const vectorEmbeddingGovernanceReadiness = vectorIntelligenceLatest.embedding_governance_readiness || {};
+  const vectorRetrievalConfidenceIndicators = vectorIntelligenceLatest.retrieval_confidence_indicators || {};
+  const vectorSemanticClusteringReadiness = vectorIntelligenceLatest.semantic_clustering_readiness || {};
+  const vectorHistoricalRetrievalCoverage = vectorIntelligenceLatest.historical_retrieval_coverage || {};
+  const vectorIntelligenceBlockers = Array.isArray(vectorIntelligenceLatest.unresolved_vector_blockers) ? vectorIntelligenceLatest.unresolved_vector_blockers : [];
   const productionHardeningReadinessLatest = visibility.productionHardeningReadinessLatest || {};
   const productionHardeningReadinessHistory = Array.isArray(visibility.productionHardeningReadinessHistory) ? visibility.productionHardeningReadinessHistory : [];
   const productionHardeningReadinessWarnings = Array.isArray(productionHardeningReadinessLatest.warnings) ? productionHardeningReadinessLatest.warnings : [];
@@ -2131,6 +2156,96 @@ export default function Home() {
                 ["Executive feedback", getBooleanBadge(historicalLearningLatest.executive_feedback_required).label],
                 ["Review required", getBooleanBadge(historicalLearningLatest.supervised_learning_review_required).label],
                 ["Count", String(historicalLearningHistory.length)],
+              ]}
+            />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Vector Intelligence & Semantic Retrieval</h2>
+              <p className="text-sm text-slate-400">
+                Supervised vector memory for semantic retrieval, contextual lookup, similarity analysis, and historical intelligence.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only vector governance" : "Read-only vector governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {vectorIntelligenceWarnings.length ? (
+            <div className="space-y-3">
+              {vectorIntelligenceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Vector intelligence remains advisory only, dry-run enforced, and supervised.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Vector Readiness"
+              tone={vectorIntelligenceReadiness.ready ? "ok" : "error"}
+              summary={`${getString(vectorIntelligenceLatest.vector_intelligence_status, "watch")} • ${getNumber(vectorIntelligenceLatest.vector_intelligence_score, 0).toFixed(2)}`}
+              items={[
+                ["Ready", getBooleanBadge(vectorIntelligenceReadiness.ready).label],
+                ["Semantic retrieval", getBooleanBadge(vectorSemanticRetrievalReadiness.ready).label],
+                ["Contextual memory", getBooleanBadge(vectorContextualMemoryReadiness.ready).label],
+                ["Similarity analysis", getBooleanBadge(vectorSimilarityAnalysisReadiness.ready).label],
+                ["Embedding governance", getBooleanBadge(vectorEmbeddingGovernanceReadiness.ready).label],
+                ["History", String(vectorIntelligenceHistory.length)],
+                ["Coverage", getBooleanBadge(vectorHistoricalRetrievalCoverage.ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Retrieval Confidence"
+              tone={vectorIntelligenceBlockers.length ? "error" : "ok"}
+              summary={String(vectorRetrievalConfidenceIndicators.reference_count || 0)}
+              items={[
+                ["Historical learning", getBooleanBadge(vectorRetrievalConfidenceIndicators.historical_learning_ready).label],
+                ["Contextual memory", getBooleanBadge(vectorRetrievalConfidenceIndicators.contextual_memory_ready).label],
+                ["Similarity analysis", getBooleanBadge(vectorRetrievalConfidenceIndicators.similarity_analysis_ready).label],
+                ["Semantic clustering", getBooleanBadge(vectorSemanticClusteringReadiness.ready).label],
+                ["Coverage count", String(vectorHistoricalRetrievalCoverage.count || 0)],
+                ["Unresolved blockers", String(vectorIntelligenceBlockers.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Controls"
+              tone={vectorIntelligenceReadiness.ready && vectorIntelligenceLatest.dry_run_enforced && vectorIntelligenceLatest.human_supervision_required ? "ok" : "error"}
+              summary={getBooleanBadge(vectorIntelligenceLatest.dry_run_enforced).label}
+              items={[
+                ["Dry-run", getBooleanBadge(vectorIntelligenceLatest.dry_run_enforced).label],
+                ["Supervision", getBooleanBadge(vectorIntelligenceLatest.human_supervision_required).label],
+                ["Retrieval review", getBooleanBadge(vectorIntelligenceLatest.supervised_retrieval_review_required).label],
+                ["Embedding review", getBooleanBadge(vectorIntelligenceLatest.embedding_governance_review_required).label],
+                ["Autonomous vectoring", getBooleanBadge(vectorIntelligenceLatest.autonomous_vector_decisioning_enabled).label],
+                ["Procurement exec", getBooleanBadge(vectorIntelligenceLatest.autonomous_procurement_execution_enabled).label],
+                ["Supplier selection", getBooleanBadge(vectorIntelligenceLatest.autonomous_supplier_selection_enabled).label],
+                ["Pricing override", getBooleanBadge(vectorIntelligenceLatest.autonomous_pricing_override_enabled).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Memory Scope"
+              tone={vectorIntelligenceBlockers.length ? "error" : "ok"}
+              summary={`${vectorIntelligenceHistory.length} history item(s)`}
+              items={[
+                ["Procurement memory", String((vectorIntelligenceLatest.procurement_intelligence_memory || []).length)],
+                ["Supplier memory", String((vectorIntelligenceLatest.supplier_memory || []).length)],
+                ["Pricing memory", String((vectorIntelligenceLatest.pricing_benchmark_memory || []).length)],
+                ["BOQ memory", String((vectorIntelligenceLatest.boq_semantic_memory || []).length)],
+                ["Strategy memory", String((vectorIntelligenceLatest.tender_strategy_memory || []).length)],
+                ["Executive memory", String((vectorIntelligenceLatest.executive_review_memory || []).length)],
               ]}
             />
           </div>

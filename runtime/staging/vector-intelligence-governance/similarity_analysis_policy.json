@@ -1,0 +1,5 @@
+{
+  "advisory_only": true,
+  "semantic_clustering_allowed": true,
+  "supervised_retrieval_review_required": true
+}

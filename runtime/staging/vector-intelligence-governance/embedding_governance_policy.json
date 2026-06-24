@@ -1,0 +1,5 @@
+{
+  "autonomous_vector_decisioning_enabled": false,
+  "production_vector_learning_enabled": false,
+  "embedding_governance_review_required": true
+}

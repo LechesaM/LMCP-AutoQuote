@@ -23,6 +23,10 @@ from app.services.procurement_intelligence_service import ProcurementIntelligenc
 from app.services.supplier_intelligence_service import SupplierIntelligenceService
 from app.services.boq_semantic_understanding_service import BoqSemanticUnderstandingService
 from app.services.pricing_intelligence_governance_service import PricingIntelligenceGovernanceService
+from app.services.executive_decision_workspace_service import ExecutiveDecisionWorkspaceService
+from app.services.executive_summary_service import ExecutiveSummaryService
+from app.services.executive_risk_review_service import ExecutiveRiskReviewService
+from app.services.executive_decision_queue_service import ExecutiveDecisionQueueService
 from app.services.tender_strategy_governance_service import TenderStrategyGovernanceService
 from app.services.executive_command_service import ExecutiveCommandService
 from app.services.executive_governance_index_service import ExecutiveGovernanceIndexService
@@ -168,6 +172,22 @@ def boq_semantic_understanding_service() -> BoqSemanticUnderstandingService:
 
 def pricing_intelligence_governance_service() -> PricingIntelligenceGovernanceService:
     return PricingIntelligenceGovernanceService()
+
+
+def executive_decision_workspace_service() -> ExecutiveDecisionWorkspaceService:
+    return ExecutiveDecisionWorkspaceService()
+
+
+def executive_summary_service() -> ExecutiveSummaryService:
+    return ExecutiveSummaryService()
+
+
+def executive_risk_review_service() -> ExecutiveRiskReviewService:
+    return ExecutiveRiskReviewService()
+
+
+def executive_decision_queue_service() -> ExecutiveDecisionQueueService:
+    return ExecutiveDecisionQueueService()
 
 
 def tender_strategy_governance_service() -> TenderStrategyGovernanceService:
@@ -765,6 +785,21 @@ def tender_strategy_governance_latest() -> Dict[str, Any]:
 @router.get("/tender-strategy-governance/history")
 def tender_strategy_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return tender_strategy_governance_service().tender_strategy_governance_history(limit=limit)
+
+
+@router.get("/executive-decision-workspace")
+def executive_decision_workspace(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return executive_decision_workspace_service().list_executive_decision_workspace(limit=limit)
+
+
+@router.get("/executive-decision-workspace/latest")
+def executive_decision_workspace_latest() -> Dict[str, Any]:
+    return executive_decision_workspace_service().latest_executive_decision_workspace()
+
+
+@router.get("/executive-decision-workspace/history")
+def executive_decision_workspace_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return executive_decision_workspace_service().executive_decision_workspace_history(limit=limit)
 
 
 @router.get("/executive-command")

@@ -102,6 +102,8 @@ type VisibilitySnapshot = {
   pricingIntelligenceHistory: Array<Record<string, any>>;
   tenderStrategyGovernanceLatest: Record<string, any> | null;
   tenderStrategyGovernanceHistory: Array<Record<string, any>>;
+  executiveDecisionWorkspaceLatest: Record<string, any> | null;
+  executiveDecisionWorkspaceHistory: Array<Record<string, any>>;
   executiveCommandLatest: Record<string, any> | null;
   executiveCommandHistory: Array<Record<string, any>>;
   governanceIndexLatest: Record<string, any> | null;
@@ -265,6 +267,8 @@ export default function Home() {
     pricingIntelligenceHistory: [],
     tenderStrategyGovernanceLatest: null,
     tenderStrategyGovernanceHistory: [],
+    executiveDecisionWorkspaceLatest: null,
+    executiveDecisionWorkspaceHistory: [],
     executiveCommandLatest: null,
     executiveCommandHistory: [],
     governanceIndexLatest: null,
@@ -396,6 +400,8 @@ export default function Home() {
       { key: "pricingIntelligenceHistory", path: "/rfq-lifecycle/pricing-intelligence/history?limit=8" },
       { key: "tenderStrategyGovernanceLatest", path: "/rfq-lifecycle/tender-strategy-governance/latest" },
       { key: "tenderStrategyGovernanceHistory", path: "/rfq-lifecycle/tender-strategy-governance/history?limit=8" },
+      { key: "executiveDecisionWorkspaceLatest", path: "/rfq-lifecycle/executive-decision-workspace/latest" },
+      { key: "executiveDecisionWorkspaceHistory", path: "/rfq-lifecycle/executive-decision-workspace/history?limit=8" },
       { key: "executiveCommandLatest", path: "/rfq-lifecycle/executive-command/latest" },
       { key: "executiveCommandHistory", path: "/rfq-lifecycle/executive-command/history?limit=8" },
       { key: "governanceIndexLatest", path: "/rfq-lifecycle/governance-index/latest" },
@@ -511,6 +517,8 @@ export default function Home() {
       pricingIntelligenceHistory: [],
       tenderStrategyGovernanceLatest: null,
       tenderStrategyGovernanceHistory: [],
+      executiveDecisionWorkspaceLatest: null,
+      executiveDecisionWorkspaceHistory: [],
       executiveCommandLatest: null,
       executiveCommandHistory: [],
       governanceIndexLatest: null,
@@ -695,6 +703,11 @@ export default function Home() {
       } else if (key === "tenderStrategyGovernanceHistory") {
         const items = data.tender_strategy_governance_history;
         next.tenderStrategyGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "executiveDecisionWorkspaceLatest") {
+        next.executiveDecisionWorkspaceLatest = data;
+      } else if (key === "executiveDecisionWorkspaceHistory") {
+        const items = data.executive_decision_governance_history;
+        next.executiveDecisionWorkspaceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "executiveCommandLatest") {
         next.executiveCommandLatest = data;
       } else if (key === "executiveCommandHistory") {
@@ -1015,6 +1028,21 @@ export default function Home() {
   const tenderStrategyExecutiveReviewRequired = getBooleanBadge(tenderStrategyGovernanceLatest.executive_review_required).label;
   const tenderStrategyRecommendationDegradationIndicators = tenderStrategyGovernanceLatest.recommendation_degradation_indicators || {};
   const tenderStrategyUnresolvedBlockers = Array.isArray(tenderStrategyGovernanceLatest.unresolved_strategy_blockers) ? tenderStrategyGovernanceLatest.unresolved_strategy_blockers : [];
+  const executiveDecisionWorkspaceLatest = visibility.executiveDecisionWorkspaceLatest || {};
+  const executiveDecisionWorkspaceHistory = Array.isArray(visibility.executiveDecisionWorkspaceHistory) ? visibility.executiveDecisionWorkspaceHistory : [];
+  const executiveDecisionWorkspaceWarnings = Array.isArray(executiveDecisionWorkspaceLatest.warnings) ? executiveDecisionWorkspaceLatest.warnings : [];
+  const executiveDecisionWorkspaceStatus = getString(executiveDecisionWorkspaceLatest.executive_decision_workspace_status, "watch");
+  const executiveDecisionWorkspaceScore = getNumber(executiveDecisionWorkspaceLatest.executive_decision_workspace_score, 0);
+  const executiveDecisionWorkspaceGrade = getString(executiveDecisionWorkspaceLatest.executive_decision_workspace_grade, "blocked");
+  const executiveReviewReadiness = executiveDecisionWorkspaceLatest.executive_review_readiness || {};
+  const executiveDecisionQueueReadiness = executiveDecisionWorkspaceLatest.executive_decision_queue_readiness || {};
+  const strategicAlignmentReadiness = executiveDecisionWorkspaceLatest.strategic_alignment_readiness || {};
+  const financialExposureIndicators = executiveDecisionWorkspaceLatest.financial_exposure_indicators || {};
+  const pricingEscalationIndicators = executiveDecisionWorkspaceLatest.pricing_escalation_indicators || {};
+  const supplierEscalationIndicators = executiveDecisionWorkspaceLatest.supplier_escalation_indicators || {};
+  const complianceEscalationIndicators = executiveDecisionWorkspaceLatest.compliance_escalation_indicators || {};
+  const riskEscalationIndicators = executiveDecisionWorkspaceLatest.risk_escalation_indicators || {};
+  const executiveDecisionBlockers = Array.isArray(executiveDecisionWorkspaceLatest.unresolved_executive_blockers) ? executiveDecisionWorkspaceLatest.unresolved_executive_blockers : [];
   const executiveCommandLatest = visibility.executiveCommandLatest || {};
   const executiveCommandHistory = Array.isArray(visibility.executiveCommandHistory) ? visibility.executiveCommandHistory : [];
   const executiveCommandWarnings = Array.isArray(executiveCommandLatest.warnings) ? executiveCommandLatest.warnings : [];
@@ -1763,6 +1791,156 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Executive Decision Workspace</h2>
+              <p className="text-sm text-slate-400">
+                Supervised executive review layer across procurement, supplier, pricing, BOQ, and strategy intelligence.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only executive workspace" : "Read-only executive workspace"}
+              tone="neutral"
+            />
+          </div>
+
+          {executiveDecisionWorkspaceWarnings.length ? (
+            <div className="space-y-3">
+              {executiveDecisionWorkspaceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Executive decision workspace remains advisory only and within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Workspace Readiness"
+              tone={executiveDecisionWorkspaceStatus === "ok" ? "ok" : executiveDecisionWorkspaceStatus === "blocked" ? "error" : "neutral"}
+              summary={`${executiveDecisionWorkspaceGrade} • ${executiveDecisionWorkspaceScore.toFixed(2)}`}
+              items={[
+                ["Status", executiveDecisionWorkspaceStatus],
+                ["Score", executiveDecisionWorkspaceScore.toFixed(2)],
+                ["Executive review", getBooleanBadge(executiveReviewReadiness.ready).label],
+                ["Queue readiness", getBooleanBadge(executiveDecisionQueueReadiness.ready).label],
+                ["Strategic alignment", getBooleanBadge(strategicAlignmentReadiness.ready).label],
+                ["History", String(executiveDecisionWorkspaceHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Risk & Exposure"
+              tone={riskEscalationIndicators.pricing_risk || riskEscalationIndicators.supplier_risk ? "error" : "ok"}
+              summary={`${executiveDecisionBlockers.length} blocker(s)`}
+              items={[
+                ["Underpricing", getBooleanBadge(financialExposureIndicators.underpricing_risk).label],
+                ["Overpricing", getBooleanBadge(financialExposureIndicators.overpricing_risk).label],
+                ["Margin pressure", getBooleanBadge(financialExposureIndicators.margin_pressure).label],
+                ["Pricing escalation", getBooleanBadge(pricingEscalationIndicators.abnormal_variance).label],
+                ["Supplier escalation", getBooleanBadge(supplierEscalationIndicators.delivery_risk).label],
+                ["Compliance escalation", getBooleanBadge(complianceEscalationIndicators.supplier_compliance_gap).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Controls"
+              tone={executiveDecisionWorkspaceLatest.executive_human_approval_required && executiveDecisionWorkspaceLatest.dry_run_enforced && executiveDecisionWorkspaceLatest.human_supervision_required ? "ok" : "error"}
+              summary={`${getBooleanBadge(executiveDecisionWorkspaceLatest.executive_human_approval_required).label} approval`}
+              items={[
+                ["Executive approval", getBooleanBadge(executiveDecisionWorkspaceLatest.executive_human_approval_required).label],
+                ["Autonomous approval", getBooleanBadge(executiveDecisionWorkspaceLatest.autonomous_executive_approval_enabled).label],
+                ["Production authority", getBooleanBadge(executiveDecisionWorkspaceLatest.production_submission_authority_enabled).label],
+                ["Commitment gen", getBooleanBadge(executiveDecisionWorkspaceLatest.procurement_commitment_generation_enabled).label],
+                ["Auto authorization", getBooleanBadge(executiveDecisionWorkspaceLatest.autonomous_tender_authorization_enabled).label],
+                ["Dry-run", getBooleanBadge(executiveDecisionWorkspaceLatest.dry_run_enforced).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Queue & Escalation"
+              tone={executiveDecisionQueueReadiness.ready ? "ok" : "neutral"}
+              summary={`${executiveDecisionQueueReadiness.score?.toFixed ? executiveDecisionQueueReadiness.score.toFixed(2) : "0.00"} queue`}
+              items={[
+                ["Queue ready", getBooleanBadge(executiveDecisionQueueReadiness.ready).label],
+                ["Queue score", getNumber(executiveDecisionQueueReadiness.score, 0).toFixed(2)],
+                ["Risk escalations", Object.values(riskEscalationIndicators).filter(Boolean).length.toString()],
+                ["Pricing items", String((pricingEscalationIndicators.escalation_required_items || []).length)],
+                ["Submission urgency", getString((executiveDecisionWorkspaceLatest.submission_urgency_indicators || {}).label, "normal")],
+                ["Blockers", String(executiveDecisionBlockers.length)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Executive Workspace History</h3>
+                <StatusBadge label={`${executiveDecisionWorkspaceHistory.length} analysis(es)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-right">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {executiveDecisionWorkspaceHistory.length ? (
+                      executiveDecisionWorkspaceHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.analysis_id, "analysis")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.executive_decision_workspace_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.executive_decision_workspace_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No executive workspace history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Executive Escalation Signals</h3>
+                <StatusBadge label={executiveDecisionWorkspaceLatest.environment || "staging"} tone="neutral" />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Executive review readiness: {getBooleanBadge(executiveReviewReadiness.ready).label}</div>
+                <div>Decision queue readiness: {getBooleanBadge(executiveDecisionQueueReadiness.ready).label}</div>
+                <div>Strategic alignment readiness: {getBooleanBadge(strategicAlignmentReadiness.ready).label}</div>
+                <div>Financial exposure: {Object.values(financialExposureIndicators).some(Boolean) ? "raised" : "clear"}</div>
+                <div>Pricing escalation: {Object.values(pricingEscalationIndicators).some(Boolean) ? "raised" : "clear"}</div>
+                <div>Supplier escalation: {Object.values(supplierEscalationIndicators).some(Boolean) ? "raised" : "clear"}</div>
+                <div>Compliance escalation: {Object.values(complianceEscalationIndicators).some(Boolean) ? "raised" : "clear"}</div>
+                <div>Risk escalation: {Object.values(riskEscalationIndicators).some(Boolean) ? "raised" : "clear"}</div>
+                <div>Autonomous executive approval: {getBooleanBadge(executiveDecisionWorkspaceLatest.autonomous_executive_approval_enabled).label}</div>
+                <div>Autonomous tender authorization: {getBooleanBadge(executiveDecisionWorkspaceLatest.autonomous_tender_authorization_enabled).label}</div>
+                <div>Production submission authority: {getBooleanBadge(executiveDecisionWorkspaceLatest.production_submission_authority_enabled).label}</div>
+                <div>Procurement commitment generation: {getBooleanBadge(executiveDecisionWorkspaceLatest.procurement_commitment_generation_enabled).label}</div>
+                <div className="md:col-span-2">
+                  Unresolved blockers: {executiveDecisionBlockers.length ? executiveDecisionBlockers.join(", ") : "none"}
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

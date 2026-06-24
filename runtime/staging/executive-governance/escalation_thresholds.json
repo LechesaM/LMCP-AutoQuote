@@ -1,0 +1,8 @@
+{
+  "advisory_only": true,
+  "dry_run_enforced": true,
+  "human_supervision_required": true,
+  "pricing_risk_threshold": 60,
+  "supplier_risk_threshold": 60,
+  "strategy_risk_threshold": 60
+}

@@ -1,0 +1,8 @@
+{
+  "advisory_only": true,
+  "dry_run_enforced": true,
+  "human_supervision_required": true,
+  "underpricing_risk_threshold": true,
+  "overpricing_risk_threshold": true,
+  "margin_pressure_threshold": true
+}

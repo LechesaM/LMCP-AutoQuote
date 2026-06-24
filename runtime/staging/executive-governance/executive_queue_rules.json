@@ -1,0 +1,7 @@
+{
+  "advisory_only": true,
+  "dry_run_enforced": true,
+  "human_supervision_required": true,
+  "queue_ready_threshold": 65,
+  "queue_blocker_limit": 8
+}

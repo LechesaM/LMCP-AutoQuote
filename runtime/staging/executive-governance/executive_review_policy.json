@@ -1,0 +1,7 @@
+{
+  "advisory_only": true,
+  "dry_run_enforced": true,
+  "human_supervision_required": true,
+  "executive_human_approval_required": true,
+  "autonomous_executive_approval_enabled": false
+}

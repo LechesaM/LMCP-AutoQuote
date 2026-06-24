@@ -143,6 +143,13 @@ def _accepted_risk_classification(open_issue: bool, severity: str) -> str:
     return "accepted"
 
 
+_BLOCKING_REMEDIATION_CATEGORIES = {
+    "governance_lock_failure",
+    "dry_run_failure",
+    "supervision_failure",
+}
+
+
 class RuntimeRemediationGovernanceService:
     def __init__(self, validation_root: Optional[Path] = None) -> None:
         self.validation_root = validation_root or RUNTIME_ENDURANCE_VALIDATION_ROOT
@@ -331,7 +338,11 @@ class RuntimeRemediationGovernanceService:
         findings = self._findings_from_payload(payload)
         open_findings = [finding for finding in findings if finding["open_issue"]]
         resolved_findings = [finding for finding in findings if not finding["open_issue"]]
-        blockers = [finding for finding in open_findings if finding["severity"] in {"high", "critical"}]
+        blockers = [
+            finding
+            for finding in open_findings
+            if finding["category"] in _BLOCKING_REMEDIATION_CATEGORIES
+        ]
         warnings = [finding["category"] for finding in findings if finding["open_issue"]]
         latest_sample = _safe_dict((_safe_list(payload.get("sample_history"))[-1] if _safe_list(payload.get("sample_history")) else {}))
         latest_sources = _safe_dict(latest_sample.get("sources"))

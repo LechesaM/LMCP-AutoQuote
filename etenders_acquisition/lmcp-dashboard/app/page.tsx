@@ -168,6 +168,8 @@ type VisibilitySnapshot = {
   finalGovernanceReleaseReadinessHistory: Array<Record<string, any>>;
   historicalLearningLatest: Record<string, any> | null;
   historicalLearningHistory: Array<Record<string, any>>;
+  recommendationFeedbackLatest: Record<string, any> | null;
+  recommendationFeedbackHistory: Array<Record<string, any>>;
   vectorIntelligenceLatest: Record<string, any> | null;
   vectorIntelligenceHistory: Array<Record<string, any>>;
   controlledAutomationOrchestrationLatest: Record<string, any> | null;
@@ -341,6 +343,8 @@ export default function Home() {
     finalGovernanceReleaseReadinessHistory: [],
     historicalLearningLatest: null,
     historicalLearningHistory: [],
+    recommendationFeedbackLatest: null,
+    recommendationFeedbackHistory: [],
     vectorIntelligenceLatest: null,
     vectorIntelligenceHistory: [],
     controlledAutomationOrchestrationLatest: null,
@@ -482,6 +486,8 @@ export default function Home() {
       { key: "finalGovernanceReleaseReadinessHistory", path: "/rfq-lifecycle/final-governance-release-readiness/history?limit=8" },
       { key: "historicalLearningLatest", path: "/rfq-lifecycle/historical-learning/latest" },
       { key: "historicalLearningHistory", path: "/rfq-lifecycle/historical-learning/history?limit=8" },
+      { key: "recommendationFeedbackLatest", path: "/rfq-lifecycle/recommendation-feedback/latest" },
+      { key: "recommendationFeedbackHistory", path: "/rfq-lifecycle/recommendation-feedback/history?limit=8" },
       { key: "vectorIntelligenceLatest", path: "/rfq-lifecycle/vector-intelligence/latest" },
       { key: "vectorIntelligenceHistory", path: "/rfq-lifecycle/vector-intelligence/history?limit=8" },
       { key: "controlledAutomationOrchestrationLatest", path: "/rfq-lifecycle/controlled-automation-orchestration/latest" },
@@ -607,6 +613,8 @@ export default function Home() {
       finalGovernanceReleaseReadinessHistory: [],
       historicalLearningLatest: null,
       historicalLearningHistory: [],
+      recommendationFeedbackLatest: null,
+      recommendationFeedbackHistory: [],
       vectorIntelligenceLatest: null,
       vectorIntelligenceHistory: [],
       controlledAutomationOrchestrationLatest: null,
@@ -900,6 +908,11 @@ export default function Home() {
       } else if (key === "historicalLearningHistory") {
         const items = data.historical_learning_history;
         next.historicalLearningHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "recommendationFeedbackLatest") {
+        next.recommendationFeedbackLatest = data;
+      } else if (key === "recommendationFeedbackHistory") {
+        const items = data.recommendation_feedback_history;
+        next.recommendationFeedbackHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "vectorIntelligenceLatest") {
         next.vectorIntelligenceLatest = data;
       } else if (key === "vectorIntelligenceHistory") {
@@ -1518,6 +1531,17 @@ export default function Home() {
   const historicalConfidenceRecalibrationReadiness = historicalLearningLatest.confidence_recalibration_readiness || {};
   const historicalBenchmarkReadiness = historicalLearningLatest.historical_benchmark_readiness || {};
   const historicalLearningBlockers = Array.isArray(historicalLearningLatest.unresolved_learning_blockers) ? historicalLearningLatest.unresolved_learning_blockers : [];
+  const recommendationFeedbackLatest = visibility.recommendationFeedbackLatest || {};
+  const recommendationFeedbackHistory = Array.isArray(visibility.recommendationFeedbackHistory) ? visibility.recommendationFeedbackHistory : [];
+  const recommendationFeedbackWarnings = Array.isArray(recommendationFeedbackLatest.warnings) ? recommendationFeedbackLatest.warnings : [];
+  const recommendationFeedbackReadiness = recommendationFeedbackLatest.recommendation_feedback_readiness || {};
+  const confidenceCalibrationReadiness = recommendationFeedbackLatest.confidence_calibration_readiness || {};
+  const analystFeedbackReviewReadiness = recommendationFeedbackLatest.analyst_feedback_review_readiness || {};
+  const executiveFeedbackLoopReadiness = recommendationFeedbackLatest.executive_feedback_loop_readiness || {};
+  const recommendationQualityReadiness = recommendationFeedbackLatest.recommendation_quality_readiness || {};
+  const confidenceDriftIndicators = recommendationFeedbackLatest.confidence_drift_indicators || {};
+  const falsePositiveNegativeIndicators = recommendationFeedbackLatest.false_positive_negative_indicators || {};
+  const recommendationFeedbackBlockers = Array.isArray(recommendationFeedbackLatest.unresolved_feedback_blockers) ? recommendationFeedbackLatest.unresolved_feedback_blockers : [];
   const vectorIntelligenceLatest = visibility.vectorIntelligenceLatest || {};
   const vectorIntelligenceHistory = Array.isArray(visibility.vectorIntelligenceHistory) ? visibility.vectorIntelligenceHistory : [];
   const vectorIntelligenceWarnings = Array.isArray(vectorIntelligenceLatest.warnings) ? vectorIntelligenceLatest.warnings : [];
@@ -2156,6 +2180,93 @@ export default function Home() {
                 ["Executive feedback", getBooleanBadge(historicalLearningLatest.executive_feedback_required).label],
                 ["Review required", getBooleanBadge(historicalLearningLatest.supervised_learning_review_required).label],
                 ["Count", String(historicalLearningHistory.length)],
+              ]}
+            />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Recommendation Feedback & Confidence Calibration</h2>
+              <p className="text-sm text-slate-400">
+                Supervised feedback and calibration memory for procurement recommendations and advisory quality.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only feedback governance" : "Read-only feedback governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {recommendationFeedbackWarnings.length ? (
+            <div className="space-y-3">
+              {recommendationFeedbackWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Feedback and calibration remain advisory only, dry-run enforced, and supervised.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Feedback Readiness"
+              tone={getBooleanBadge(recommendationFeedbackReadiness.ready).tone}
+              summary={`${getString(recommendationFeedbackLatest.recommendation_feedback_status, "watch")} • ${getNumber(recommendationFeedbackLatest.recommendation_feedback_score, 0).toFixed(2)}`}
+              items={[
+                ["Ready", getBooleanBadge(recommendationFeedbackReadiness.ready).label],
+                ["Confidence calibration", getBooleanBadge(confidenceCalibrationReadiness.ready).label],
+                ["Analyst review", getBooleanBadge(analystFeedbackReviewReadiness.ready).label],
+                ["Executive loop", getBooleanBadge(executiveFeedbackLoopReadiness.ready).label],
+                ["Recommendation quality", getBooleanBadge(recommendationQualityReadiness.ready).label],
+                ["History", String(recommendationFeedbackHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Confidence Signals"
+              tone={recommendationFeedbackBlockers.length ? "error" : "ok"}
+              summary={String(confidenceDriftIndicators.drift_pct || 0)}
+              items={[
+                ["Drift", String(confidenceDriftIndicators.drift_pct || 0)],
+                ["Stable", getBooleanBadge(confidenceDriftIndicators.stable).label],
+                ["False positive", String(falsePositiveNegativeIndicators.false_positive_rate || 0)],
+                ["False negative", String(falsePositiveNegativeIndicators.false_negative_rate || 0)],
+                ["Coverage", String((recommendationFeedbackLatest.feedback_coverage_indicators || {}).history_depth || 0)],
+                ["Blockers", String(recommendationFeedbackBlockers.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Controls"
+              tone={recommendationFeedbackReadiness.ready && recommendationFeedbackLatest.dry_run_enforced && recommendationFeedbackLatest.human_supervision_required ? "ok" : "error"}
+              summary={getBooleanBadge(recommendationFeedbackLatest.dry_run_enforced).label}
+              items={[
+                ["Dry-run", getBooleanBadge(recommendationFeedbackLatest.dry_run_enforced).label],
+                ["Supervision", getBooleanBadge(recommendationFeedbackLatest.human_supervision_required).label],
+                ["Calibration review", getBooleanBadge(recommendationFeedbackLatest.supervised_calibration_review_required).label],
+                ["Analyst review", getBooleanBadge(recommendationFeedbackLatest.analyst_feedback_review_required).label],
+                ["Executive review", getBooleanBadge(recommendationFeedbackLatest.executive_feedback_review_required).label],
+                ["Autonomous feedback", getBooleanBadge(recommendationFeedbackLatest.autonomous_feedback_learning_enabled).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Recommendation Outcomes"
+              tone={recommendationFeedbackBlockers.length ? "error" : "ok"}
+              summary={`${recommendationFeedbackHistory.length} history item(s)`}
+              items={[
+                ["Procurement", String((recommendationFeedbackLatest.procurement_recommendation_outcomes || []).length)],
+                ["Supplier", String((recommendationFeedbackLatest.supplier_recommendation_outcomes || []).length)],
+                ["Pricing", String((recommendationFeedbackLatest.pricing_recommendation_outcomes || []).length)],
+                ["Strategy", String((recommendationFeedbackLatest.tender_strategy_recommendation_outcomes || []).length)],
+                ["Executive", String((recommendationFeedbackLatest.executive_decision_feedback || []).length)],
+                ["Analyst", String((recommendationFeedbackLatest.analyst_review_feedback || []).length)],
               ]}
             />
           </div>

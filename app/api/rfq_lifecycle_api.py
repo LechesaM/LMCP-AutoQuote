@@ -31,6 +31,7 @@ from app.services.historical_learning_service import HistoricalLearningService
 from app.services.tender_strategy_governance_service import TenderStrategyGovernanceService
 from app.services.controlled_automation_orchestration_service import ControlledAutomationOrchestrationService
 from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
+from app.services.recommendation_feedback_service import RecommendationFeedbackService
 from app.services.vector_intelligence_service import VectorIntelligenceService
 from app.services.production_cutover_readiness_service import ProductionCutoverReadinessService
 from app.services.operational_runbook_readiness_service import OperationalRunbookReadinessService
@@ -199,6 +200,10 @@ def executive_decision_queue_service() -> ExecutiveDecisionQueueService:
 
 def historical_learning_service() -> HistoricalLearningService:
     return HistoricalLearningService()
+
+
+def recommendation_feedback_service() -> RecommendationFeedbackService:
+    return RecommendationFeedbackService()
 
 
 def vector_intelligence_service() -> VectorIntelligenceService:
@@ -850,6 +855,21 @@ def historical_learning_latest() -> Dict[str, Any]:
 @router.get("/historical-learning/history")
 def historical_learning_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return historical_learning_service().historical_learning_history(limit=limit)
+
+
+@router.get("/recommendation-feedback")
+def recommendation_feedback(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return recommendation_feedback_service().latest_recommendation_feedback()
+
+
+@router.get("/recommendation-feedback/latest")
+def recommendation_feedback_latest() -> Dict[str, Any]:
+    return recommendation_feedback_service().latest_recommendation_feedback()
+
+
+@router.get("/recommendation-feedback/history")
+def recommendation_feedback_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return recommendation_feedback_service().recommendation_feedback_history(limit=limit)
 
 
 @router.get("/vector-intelligence")

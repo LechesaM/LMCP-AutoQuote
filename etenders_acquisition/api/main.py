@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.historical_learning_service import HistoricalLearningService
+from app.services.recommendation_feedback_service import RecommendationFeedbackService
 from app.services.vector_intelligence_service import VectorIntelligenceService
 from app.services.production_hardening_readiness_service import ProductionHardeningReadinessService
 from etenders_acquisition.workflow_layer.workflow_status_dashboard import build_dashboard
@@ -91,6 +92,10 @@ def production_hardening_readiness_service() -> ProductionHardeningReadinessServ
 
 def historical_learning_service() -> HistoricalLearningService:
     return HistoricalLearningService()
+
+
+def recommendation_feedback_service() -> RecommendationFeedbackService:
+    return RecommendationFeedbackService()
 
 
 def vector_intelligence_service() -> VectorIntelligenceService:
@@ -280,6 +285,21 @@ def historical_learning_latest():
 @app.get("/rfq-lifecycle/historical-learning/history")
 def historical_learning_history():
     return historical_learning_service().historical_learning_history()
+
+
+@app.get("/rfq-lifecycle/recommendation-feedback")
+def recommendation_feedback():
+    return recommendation_feedback_service().latest_recommendation_feedback()
+
+
+@app.get("/rfq-lifecycle/recommendation-feedback/latest")
+def recommendation_feedback_latest():
+    return recommendation_feedback_service().latest_recommendation_feedback()
+
+
+@app.get("/rfq-lifecycle/recommendation-feedback/history")
+def recommendation_feedback_history():
+    return recommendation_feedback_service().recommendation_feedback_history()
 
 
 @app.get("/rfq-lifecycle/vector-intelligence")

@@ -1,0 +1,16 @@
+{
+  "scenarios": [
+    {
+      "name": "conservative",
+      "markup_adjustment": -0.05
+    },
+    {
+      "name": "base",
+      "markup_adjustment": 0.0
+    },
+    {
+      "name": "aggressive",
+      "markup_adjustment": 0.08
+    }
+  ]
+}

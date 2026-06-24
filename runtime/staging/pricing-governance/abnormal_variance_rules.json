@@ -1,0 +1,5 @@
+{
+  "abnormal_variance_pct": 15.0,
+  "underpricing_threshold_pct": -12.0,
+  "overpricing_threshold_pct": 18.0
+}

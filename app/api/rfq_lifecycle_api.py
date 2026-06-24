@@ -22,6 +22,7 @@ from app.services.operational_intelligence_service import OperationalIntelligenc
 from app.services.procurement_intelligence_service import ProcurementIntelligenceService
 from app.services.supplier_intelligence_service import SupplierIntelligenceService
 from app.services.boq_semantic_understanding_service import BoqSemanticUnderstandingService
+from app.services.pricing_intelligence_governance_service import PricingIntelligenceGovernanceService
 from app.services.executive_command_service import ExecutiveCommandService
 from app.services.executive_governance_index_service import ExecutiveGovernanceIndexService
 from app.services.production_operationalization_service import ProductionOperationalizationService
@@ -162,6 +163,10 @@ def supplier_intelligence_service() -> SupplierIntelligenceService:
 
 def boq_semantic_understanding_service() -> BoqSemanticUnderstandingService:
     return BoqSemanticUnderstandingService()
+
+
+def pricing_intelligence_governance_service() -> PricingIntelligenceGovernanceService:
+    return PricingIntelligenceGovernanceService()
 
 
 def executive_command_service() -> ExecutiveCommandService:
@@ -725,6 +730,21 @@ def boq_semantic_understanding_latest() -> Dict[str, Any]:
 @router.get("/boq-semantic-understanding/history")
 def boq_semantic_understanding_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return boq_semantic_understanding_service().boq_semantic_understanding_history(limit=limit)
+
+
+@router.get("/pricing-intelligence")
+def pricing_intelligence(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return pricing_intelligence_governance_service().list_pricing_intelligence(limit=limit)
+
+
+@router.get("/pricing-intelligence/latest")
+def pricing_intelligence_latest() -> Dict[str, Any]:
+    return pricing_intelligence_governance_service().latest_pricing_intelligence()
+
+
+@router.get("/pricing-intelligence/history")
+def pricing_intelligence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return pricing_intelligence_governance_service().pricing_intelligence_history(limit=limit)
 
 
 @router.get("/executive-command")

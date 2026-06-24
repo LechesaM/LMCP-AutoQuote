@@ -1,0 +1,8 @@
+{
+  "advisory_only": true,
+  "human_price_approval_required": true,
+  "automatic_submission_disabled": true,
+  "dry_run_enforced": true,
+  "supervision_mandatory": true,
+  "final_price_requires_human_approval": true
+}

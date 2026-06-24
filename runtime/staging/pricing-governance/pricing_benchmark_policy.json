@@ -1,0 +1,25 @@
+{
+  "category_benchmarks": {
+    "general": {
+      "market_rate": 100.0,
+      "historical_reference": 98.0
+    },
+    "stationery": {
+      "market_rate": 115.0,
+      "historical_reference": 112.0
+    },
+    "ict": {
+      "market_rate": 950.0,
+      "historical_reference": 900.0
+    },
+    "electrical": {
+      "market_rate": 185.0,
+      "historical_reference": 176.0
+    }
+  },
+  "variance_thresholds": {
+    "abnormal_pct": 15.0,
+    "underpricing_pct": -12.0,
+    "overpricing_pct": 18.0
+  }
+}

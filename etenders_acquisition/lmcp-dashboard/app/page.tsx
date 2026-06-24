@@ -98,6 +98,8 @@ type VisibilitySnapshot = {
   supplierIntelligenceHistory: Array<Record<string, any>>;
   boqSemanticUnderstandingLatest: Record<string, any> | null;
   boqSemanticUnderstandingHistory: Array<Record<string, any>>;
+  pricingIntelligenceLatest: Record<string, any> | null;
+  pricingIntelligenceHistory: Array<Record<string, any>>;
   executiveCommandLatest: Record<string, any> | null;
   executiveCommandHistory: Array<Record<string, any>>;
   governanceIndexLatest: Record<string, any> | null;
@@ -257,6 +259,8 @@ export default function Home() {
     supplierIntelligenceHistory: [],
     boqSemanticUnderstandingLatest: null,
     boqSemanticUnderstandingHistory: [],
+    pricingIntelligenceLatest: null,
+    pricingIntelligenceHistory: [],
     executiveCommandLatest: null,
     executiveCommandHistory: [],
     governanceIndexLatest: null,
@@ -384,6 +388,8 @@ export default function Home() {
       { key: "supplierIntelligenceHistory", path: "/rfq-lifecycle/supplier-intelligence/history?limit=8" },
       { key: "boqSemanticUnderstandingLatest", path: "/rfq-lifecycle/boq-semantic-understanding/latest" },
       { key: "boqSemanticUnderstandingHistory", path: "/rfq-lifecycle/boq-semantic-understanding/history?limit=8" },
+      { key: "pricingIntelligenceLatest", path: "/rfq-lifecycle/pricing-intelligence/latest" },
+      { key: "pricingIntelligenceHistory", path: "/rfq-lifecycle/pricing-intelligence/history?limit=8" },
       { key: "executiveCommandLatest", path: "/rfq-lifecycle/executive-command/latest" },
       { key: "executiveCommandHistory", path: "/rfq-lifecycle/executive-command/history?limit=8" },
       { key: "governanceIndexLatest", path: "/rfq-lifecycle/governance-index/latest" },
@@ -495,6 +501,8 @@ export default function Home() {
       supplierIntelligenceHistory: [],
       boqSemanticUnderstandingLatest: null,
       boqSemanticUnderstandingHistory: [],
+      pricingIntelligenceLatest: null,
+      pricingIntelligenceHistory: [],
       executiveCommandLatest: null,
       executiveCommandHistory: [],
       governanceIndexLatest: null,
@@ -669,6 +677,11 @@ export default function Home() {
       } else if (key === "boqSemanticUnderstandingHistory") {
         const items = data.boq_semantic_understanding_history;
         next.boqSemanticUnderstandingHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "pricingIntelligenceLatest") {
+        next.pricingIntelligenceLatest = data;
+      } else if (key === "pricingIntelligenceHistory") {
+        const items = data.pricing_intelligence_history;
+        next.pricingIntelligenceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "executiveCommandLatest") {
         next.executiveCommandLatest = data;
       } else if (key === "executiveCommandHistory") {
@@ -950,6 +963,26 @@ export default function Home() {
   const boqSemanticBlockers = Array.isArray(boqSemanticUnderstandingLatest.unresolved_boq_semantic_blockers) ? boqSemanticUnderstandingLatest.unresolved_boq_semantic_blockers : [];
   const boqSemanticRowAnalyses = Array.isArray(boqSemanticUnderstandingLatest.boq_row_analyses) ? boqSemanticUnderstandingLatest.boq_row_analyses : [];
   const boqSemanticHistorySummary = boqSemanticUnderstandingLatest.boq_semantic_understanding_history_summary || {};
+  const pricingIntelligenceLatest = visibility.pricingIntelligenceLatest || {};
+  const pricingIntelligenceHistory = Array.isArray(visibility.pricingIntelligenceHistory) ? visibility.pricingIntelligenceHistory : [];
+  const pricingIntelligenceWarnings = Array.isArray(pricingIntelligenceLatest.warnings) ? pricingIntelligenceLatest.warnings : [];
+  const pricingIntelligenceStatus = getString(pricingIntelligenceLatest.pricing_intelligence_status, "watch");
+  const pricingIntelligenceScore = getNumber(pricingIntelligenceLatest.pricing_intelligence_score, 0);
+  const pricingIntelligenceGrade = getString(pricingIntelligenceLatest.pricing_intelligence_grade, "blocked");
+  const pricingBenchmarkReadiness = pricingIntelligenceLatest.pricing_benchmark_readiness || {};
+  const marketRateComparisonReadiness = pricingIntelligenceLatest.market_rate_comparison_readiness || {};
+  const historicalPricingReferenceReadiness = pricingIntelligenceLatest.historical_pricing_reference_readiness || {};
+  const supplierQuoteComparisonReadiness = pricingIntelligenceLatest.supplier_quote_comparison_readiness || {};
+  const marginScenarioReadiness = pricingIntelligenceLatest.margin_scenario_readiness || {};
+  const pricingConfidenceScore = getNumber(pricingIntelligenceLatest.pricing_confidence_score, 0);
+  const pricingConfidence = pricingIntelligenceLatest.pricing_confidence || {};
+  const abnormalVarianceIndicators = pricingIntelligenceLatest.abnormal_price_variance_indicators || {};
+  const underpricingRiskIndicators = pricingIntelligenceLatest.underpricing_risk_indicators || {};
+  const overpricingCompetitivenessIndicators = pricingIntelligenceLatest.overpricing_competitiveness_indicators || {};
+  const vatVisibility = pricingIntelligenceLatest.vat_visibility || {};
+  const markupVisibility = pricingIntelligenceLatest.markup_visibility || {};
+  const escalationRequiredPricingItems = Array.isArray(pricingIntelligenceLatest.escalation_required_pricing_items) ? pricingIntelligenceLatest.escalation_required_pricing_items : [];
+  const unresolvedPricingBlockers = Array.isArray(pricingIntelligenceLatest.unresolved_pricing_blockers) ? pricingIntelligenceLatest.unresolved_pricing_blockers : [];
   const executiveCommandLatest = visibility.executiveCommandLatest || {};
   const executiveCommandHistory = Array.isArray(visibility.executiveCommandHistory) ? visibility.executiveCommandHistory : [];
   const executiveCommandWarnings = Array.isArray(executiveCommandLatest.warnings) ? executiveCommandLatest.warnings : [];
@@ -6482,6 +6515,159 @@ export default function Home() {
                     <div className="text-emerald-200">No unresolved BOQ semantic blockers remain in the staged evidence.</div>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Pricing Intelligence & Market Benchmarking</h2>
+              <p className="text-sm text-slate-400">
+                Read-only pricing governance for benchmark comparison, confidence scoring, variance detection, and supervised margin scenarios.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only pricing governance" : "Read-only pricing governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {pricingIntelligenceWarnings.length ? (
+            <div className="space-y-3">
+              {pricingIntelligenceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Pricing intelligence remains advisory only and within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Pricing Intelligence"
+              tone={pricingIntelligenceStatus === "ok" ? "ok" : pricingIntelligenceStatus === "blocked" ? "error" : "neutral"}
+              summary={`${pricingIntelligenceGrade} • ${pricingIntelligenceScore.toFixed(2)}`}
+              items={[
+                ["Status", pricingIntelligenceStatus],
+                ["Score", pricingIntelligenceScore.toFixed(2)],
+                ["Grade", pricingIntelligenceGrade],
+                ["Confidence", pricingConfidenceScore.toFixed(2)],
+                ["History", String(pricingIntelligenceHistory.length)],
+                ["Latest", getString(pricingIntelligenceLatest.analysis_id, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Benchmark Readiness"
+              tone={pricingBenchmarkReadiness.ready ? "ok" : "neutral"}
+              summary={`${getNumber(pricingBenchmarkReadiness.score, 0).toFixed(2)} benchmark score`}
+              items={[
+                ["Benchmark", getBooleanBadge(pricingBenchmarkReadiness.ready).label],
+                ["Market comparison", getBooleanBadge(marketRateComparisonReadiness.ready).label],
+                ["Historical reference", getBooleanBadge(historicalPricingReferenceReadiness.ready).label],
+                ["Supplier quotes", getBooleanBadge(supplierQuoteComparisonReadiness.ready).label],
+                ["Margin scenario", getBooleanBadge(marginScenarioReadiness.ready).label],
+                ["Readiness count", String([
+                  pricingBenchmarkReadiness.ready,
+                  marketRateComparisonReadiness.ready,
+                  historicalPricingReferenceReadiness.ready,
+                  supplierQuoteComparisonReadiness.ready,
+                  marginScenarioReadiness.ready,
+                ].filter(Boolean).length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Variance & Risk"
+              tone={abnormalVarianceIndicators.variance_pct_abnormal || underpricingRiskIndicators.underpricing_risk_flag || overpricingCompetitivenessIndicators.overpriced ? "error" : "ok"}
+              summary={`${getBooleanBadge(pricingIntelligenceLatest.mandatory_human_price_approval).label} approval`}
+              items={[
+                ["Abnormal variance", getBooleanBadge(abnormalVarianceIndicators.variance_pct_abnormal).label],
+                ["Underpricing risk", getBooleanBadge(underpricingRiskIndicators.underpricing_risk_flag).label],
+                ["Overpricing risk", getBooleanBadge(overpricingCompetitivenessIndicators.overpriced).label],
+                ["VAT visible", getBooleanBadge(vatVisibility.vat_rate >= 0).label],
+                ["Markup visible", getBooleanBadge(markupVisibility.markup_rate >= 0).label],
+                ["Escalations", String(escalationRequiredPricingItems.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Governance Controls"
+              tone={pricingIntelligenceLatest.mandatory_human_price_approval && pricingIntelligenceLatest.dry_run_enforced && pricingIntelligenceLatest.human_supervision_required ? "ok" : "error"}
+              summary={`${unresolvedPricingBlockers.length} blocker(s)`}
+              items={[
+                ["Human approval", getBooleanBadge(pricingIntelligenceLatest.mandatory_human_price_approval).label],
+                ["Autonomous submit", getBooleanBadge(pricingIntelligenceLatest.autonomous_pricing_submission_enabled).label],
+                ["Live commitment", getBooleanBadge(pricingIntelligenceLatest.live_procurement_commitment_enabled).label],
+                ["Supplier ordering", getBooleanBadge(pricingIntelligenceLatest.live_supplier_ordering_enabled).label],
+                ["Tender submission", getBooleanBadge(pricingIntelligenceLatest.production_tender_submission_enabled).label],
+                ["Dry-run", getBooleanBadge(pricingIntelligenceLatest.dry_run_enforced).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Pricing Intelligence History</h3>
+                <StatusBadge label={`${pricingIntelligenceHistory.length} analysis(es)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-right">Generated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pricingIntelligenceHistory.length ? (
+                      pricingIntelligenceHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.analysis_id, "analysis")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.pricing_intelligence_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.pricing_intelligence_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right text-slate-400">{getString(item.generated_at, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No pricing intelligence history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Pricing Signals</h3>
+                <StatusBadge label={pricingIntelligenceLatest.environment || "staging"} tone="neutral" />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Benchmark readiness: {getBooleanBadge(pricingBenchmarkReadiness.ready).label}</div>
+                <div>Market comparison: {getBooleanBadge(marketRateComparisonReadiness.ready).label}</div>
+                <div>Historical reference: {getBooleanBadge(historicalPricingReferenceReadiness.ready).label}</div>
+                <div>Supplier quote comparison: {getBooleanBadge(supplierQuoteComparisonReadiness.ready).label}</div>
+                <div>Margin scenario readiness: {getBooleanBadge(marginScenarioReadiness.ready).label}</div>
+                <div>Pricing confidence: {pricingConfidenceScore.toFixed(2)}</div>
+                <div>Abnormal variance: {getBooleanBadge(abnormalVarianceIndicators.variance_pct_abnormal).label}</div>
+                <div>Underpricing risk: {getBooleanBadge(underpricingRiskIndicators.underpricing_risk_flag).label}</div>
+                <div>Overpricing competitiveness: {getBooleanBadge(overpricingCompetitivenessIndicators.overpriced).label}</div>
+                <div>Mandatory human approval: {getBooleanBadge(pricingIntelligenceLatest.mandatory_human_price_approval).label}</div>
+                <div>Dry-run enforced: {getBooleanBadge(pricingIntelligenceLatest.dry_run_enforced).label}</div>
+                <div>Supervision required: {getBooleanBadge(pricingIntelligenceLatest.human_supervision_required).label}</div>
               </div>
             </div>
           </div>

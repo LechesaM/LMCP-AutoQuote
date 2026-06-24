@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-retention-policy-placeholder
+data:
+  retention_policy: placeholder
+  retention_days: "14"
+  rpo_minutes: "60"
+  rto_minutes: "120"
+  tenant_boundary_mode: placeholder

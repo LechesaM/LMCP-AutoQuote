@@ -33,6 +33,11 @@ resources:
   - resource-quota-placeholder.yaml
   - limit-range-placeholder.yaml
   - queue-depth-scaling-placeholder.yaml
+  - postgres-backup-cronjob-placeholder.yaml
+  - redis-persistence-placeholder.yaml
+  - backup-storage-secret-placeholder.yaml
+  - restore-rehearsal-job-placeholder.yaml
+  - backup-retention-policy-placeholder.yaml
   - ingress.yaml
   - tls-secret-placeholder.yaml
   - cert-manager-placeholder.yaml

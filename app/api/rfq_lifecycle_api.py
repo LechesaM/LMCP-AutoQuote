@@ -33,6 +33,7 @@ from app.services.ha_topology_governance_service import HaTopologyGovernanceServ
 from app.services.ingress_governance_service import IngressGovernanceService
 from app.services.distributed_observability_governance_service import DistributedObservabilityGovernanceService
 from app.services.autoscaling_governance_service import AutoscalingGovernanceService
+from app.services.backup_restore_governance_service import BackupRestoreGovernanceService
 from app.services.multi_tenant_governance_service import MultiTenantGovernanceService
 from app.services.runtime_remediation_governance_service import RuntimeRemediationGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
@@ -195,6 +196,10 @@ def distributed_observability_governance_service() -> DistributedObservabilityGo
 
 def autoscaling_governance_service() -> AutoscalingGovernanceService:
     return AutoscalingGovernanceService()
+
+
+def backup_restore_governance_service() -> BackupRestoreGovernanceService:
+    return BackupRestoreGovernanceService()
 
 
 def multi_tenant_governance_service() -> MultiTenantGovernanceService:
@@ -885,6 +890,21 @@ def autoscaling_governance_latest() -> Dict[str, Any]:
 @router.get("/autoscaling-governance/history")
 def autoscaling_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return autoscaling_governance_service().autoscaling_governance_history(limit=limit)
+
+
+@router.get("/backup-restore-governance")
+def backup_restore_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return backup_restore_governance_service().list_backup_restore_governance(limit=limit)
+
+
+@router.get("/backup-restore-governance/latest")
+def backup_restore_governance_latest() -> Dict[str, Any]:
+    return backup_restore_governance_service().latest_backup_restore_governance()
+
+
+@router.get("/backup-restore-governance/history")
+def backup_restore_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return backup_restore_governance_service().backup_restore_governance_history(limit=limit)
 
 
 @router.get("/declaration")

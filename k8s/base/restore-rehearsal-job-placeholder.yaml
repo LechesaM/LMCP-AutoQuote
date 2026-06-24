@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore-rehearsal-job-placeholder
+spec:
+  template:
+    spec:
+      containers:
+        - name: restore-rehearsal
+          image: ghcr.io/lmcp/restore-rehearsal:placeholder
+          env:
+            - name: restore_validation
+              value: placeholder
+            - name: rto_minutes
+              value: "120"
+            - name: rehearsal_mode
+              value: placeholder
+          command:
+            - /bin/sh
+            - -c
+            - echo restore rehearsal placeholder
+      restartPolicy: Never

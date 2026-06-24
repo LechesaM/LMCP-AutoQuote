@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup-cronjob-placeholder
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: postgres-backup
+              image: ghcr.io/lmcp/postgres-backup:placeholder
+              env:
+                - name: BACKUP_MODE
+                  value: placeholder
+                - name: backup_schedule
+                  value: daily
+                - name: rpo_minutes
+                  value: "60"
+              command:
+                - /bin/sh
+                - -c
+                - pg_dump --format=custom --file=/backups/postgres.dump
+          restartPolicy: OnFailure

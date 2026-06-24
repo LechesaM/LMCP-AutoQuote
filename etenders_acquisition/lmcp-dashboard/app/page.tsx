@@ -124,6 +124,8 @@ type VisibilitySnapshot = {
   distributedObservabilityHistory: Array<Record<string, any>>;
   autoscalingGovernanceLatest: Record<string, any> | null;
   autoscalingGovernanceHistory: Array<Record<string, any>>;
+  backupRestoreGovernanceLatest: Record<string, any> | null;
+  backupRestoreGovernanceHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -267,6 +269,8 @@ export default function Home() {
     distributedObservabilityHistory: [],
     autoscalingGovernanceLatest: null,
     autoscalingGovernanceHistory: [],
+    backupRestoreGovernanceLatest: null,
+    backupRestoreGovernanceHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -378,6 +382,8 @@ export default function Home() {
       { key: "distributedObservabilityHistory", path: "/rfq-lifecycle/distributed-observability/history?limit=8" },
       { key: "autoscalingGovernanceLatest", path: "/rfq-lifecycle/autoscaling-governance/latest" },
       { key: "autoscalingGovernanceHistory", path: "/rfq-lifecycle/autoscaling-governance/history?limit=8" },
+      { key: "backupRestoreGovernanceLatest", path: "/rfq-lifecycle/backup-restore-governance/latest" },
+      { key: "backupRestoreGovernanceHistory", path: "/rfq-lifecycle/backup-restore-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -473,6 +479,8 @@ export default function Home() {
       distributedObservabilityHistory: [],
       autoscalingGovernanceLatest: null,
       autoscalingGovernanceHistory: [],
+      backupRestoreGovernanceLatest: null,
+      backupRestoreGovernanceHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -665,6 +673,16 @@ export default function Home() {
       } else if (key === "distributedObservabilityHistory") {
         const items = data.distributed_observability_history;
         next.distributedObservabilityHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "autoscalingGovernanceLatest") {
+        next.autoscalingGovernanceLatest = data;
+      } else if (key === "autoscalingGovernanceHistory") {
+        const items = data.autoscaling_governance_history;
+        next.autoscalingGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "backupRestoreGovernanceLatest") {
+        next.backupRestoreGovernanceLatest = data;
+      } else if (key === "backupRestoreGovernanceHistory") {
+        const items = data.backup_governance_history;
+        next.backupRestoreGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -961,6 +979,28 @@ export default function Home() {
   const autoscalingBlockers = Array.isArray(autoscalingGovernanceLatest.unresolved_blockers) ? autoscalingGovernanceLatest.unresolved_blockers : [];
   const autoscalingBlockerSources = Array.isArray(autoscalingGovernanceLatest.blocker_sources) ? autoscalingGovernanceLatest.blocker_sources : [];
   const autoscalingRationale = autoscalingGovernanceLatest.recovery_rationale || {};
+  const backupRestoreGovernanceLatest = visibility.backupRestoreGovernanceLatest || {};
+  const backupRestoreGovernanceHistory = Array.isArray(visibility.backupRestoreGovernanceHistory) ? visibility.backupRestoreGovernanceHistory : [];
+  const backupRestoreGovernanceWarnings = Array.isArray(backupRestoreGovernanceLatest.warnings) ? backupRestoreGovernanceLatest.warnings : [];
+  const backupRestoreGovernanceStatus = getString(backupRestoreGovernanceLatest.backup_restore_governance_status, "watch");
+  const backupRestoreGovernanceAuthority = getString(backupRestoreGovernanceLatest.backup_restore_governance_authority, "WATCH");
+  const backupRestoreGovernanceScore = getNumber(backupRestoreGovernanceLatest.backup_restore_governance_score, 0);
+  const backupRestoreGovernanceGrade = getString(backupRestoreGovernanceLatest.backup_restore_governance_grade, "blocked");
+  const backupRestoreRecoveryState = getString(backupRestoreGovernanceLatest.recovery_state, "degraded-but-recovering");
+  const backupRestoreHistorySummary = backupRestoreGovernanceLatest.backup_governance_history_summary || {};
+  const backupPostgres = backupRestoreGovernanceLatest.postgres_backup_readiness || {};
+  const backupRedis = backupRestoreGovernanceLatest.redis_persistence_readiness || {};
+  const backupRestoreRehearsal = backupRestoreGovernanceLatest.restore_rehearsal_readiness || {};
+  const backupRetention = backupRestoreGovernanceLatest.backup_retention_governance || {};
+  const backupEncrypted = backupRestoreGovernanceLatest.encrypted_backup_placeholder_governance || {};
+  const backupTenant = backupRestoreGovernanceLatest.tenant_aware_backup_boundaries || {};
+  const backupRpo = backupRestoreGovernanceLatest.rpo_visibility || {};
+  const backupRto = backupRestoreGovernanceLatest.rto_visibility || {};
+  const backupDegradation = backupRestoreGovernanceLatest.backup_degradation_indicators || {};
+  const restoreBlockers = backupRestoreGovernanceLatest.restore_blocker_indicators || {};
+  const backupBlockers = Array.isArray(backupRestoreGovernanceLatest.unresolved_blockers) ? backupRestoreGovernanceLatest.unresolved_blockers : [];
+  const backupBlockerSources = Array.isArray(backupRestoreGovernanceLatest.blocker_sources) ? backupRestoreGovernanceLatest.blocker_sources : [];
+  const backupRationale = backupRestoreGovernanceLatest.recovery_rationale || {};
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -6819,6 +6859,166 @@ export default function Home() {
                 </div>
                 <div className="space-y-2">
                   {autoscalingBlockerSources.map((source: Record<string, any>) => (
+                    <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
+                      <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>
+                      <div className="text-slate-400">Blockers: {String(Array.isArray(source.blockers) ? source.blockers.length : 0)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre Backup, Restore &amp; Data Durability Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging visibility for PostgreSQL backups, Redis persistence, restore rehearsals, retention controls, backup encryption placeholders, RPO, and RTO boundaries.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only backup governance" : "Read-only backup governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {backupRestoreGovernanceWarnings.length ? (
+            <div className="space-y-3">
+              {backupRestoreGovernanceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Backup and restore governance remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Backup State"
+              tone={backupRestoreRecoveryState === "recovered" ? "ok" : backupRestoreRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${backupRestoreRecoveryState} • ${backupRestoreGovernanceScore.toFixed(2)}`}
+              items={[
+                ["Status", backupRestoreGovernanceStatus],
+                ["Authority", backupRestoreGovernanceAuthority],
+                ["Score", backupRestoreGovernanceScore.toFixed(2)],
+                ["Grade", backupRestoreGovernanceGrade],
+                ["History", String(backupRestoreGovernanceHistory.length)],
+                ["Trend", getString(backupRestoreHistorySummary.score_history?.trend, "stable")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Backup Readiness"
+              tone={backupPostgres.ready && backupRedis.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(backupPostgres.ready).label} Postgres / ${getBooleanBadge(backupRedis.ready).label} Redis`}
+              items={[
+                ["PostgreSQL backup", getBooleanBadge(backupPostgres.ready).label],
+                ["Redis persistence", getBooleanBadge(backupRedis.ready).label],
+                ["Restore rehearsal", getBooleanBadge(backupRestoreRehearsal.ready).label],
+                ["Retention governance", getBooleanBadge(backupRetention.ready).label],
+                ["Encrypted backup placeholder", getBooleanBadge(backupEncrypted.ready).label],
+                ["Tenant boundaries", getBooleanBadge(backupTenant.ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="RPO / RTO"
+              tone={getBooleanBadge(backupRpo.ready).tone === "ok" && getBooleanBadge(backupRto.ready).tone === "ok" ? "ok" : "neutral"}
+              summary={`${getNumber(backupRpo.rpo_minutes, 0).toFixed(0)}m RPO / ${getNumber(backupRto.rto_minutes, 0).toFixed(0)}m RTO`}
+              items={[
+                ["RPO visible", getBooleanBadge(backupRpo.ready).label],
+                ["RPO minutes", `${getNumber(backupRpo.rpo_minutes, 0).toFixed(0)}m`],
+                ["RTO visible", getBooleanBadge(backupRto.ready).label],
+                ["RTO minutes", `${getNumber(backupRto.rto_minutes, 0).toFixed(0)}m`],
+                ["Backup degradation", getBooleanBadge(Object.values(backupDegradation).some(Boolean)).label],
+                ["Restore blockers", String(Object.keys(restoreBlockers).length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Rationale"
+              tone={backupRestoreRecoveryState === "recovered" ? "ok" : backupRestoreRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${getNumber(backupRationale.score_impact?.final_score, backupRestoreGovernanceScore).toFixed(2)} final score`}
+              items={[
+                ["Base score", getNumber(backupRationale.score_impact?.base_score, 0).toFixed(2)],
+                ["Deductions", getNumber(backupRationale.score_impact?.deductions, 0).toFixed(2)],
+                ["Final score", getNumber(backupRationale.score_impact?.final_score, backupRestoreGovernanceScore).toFixed(2)],
+                ["Unresolved blockers", String(backupBlockers.length)],
+                ["Blocker sources", String(backupBlockerSources.length)],
+                ["Recovery state", backupRestoreRecoveryState],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Backup Governance History</h3>
+                <StatusBadge label={`${backupRestoreGovernanceHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">State</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {backupRestoreGovernanceHistory.length ? (
+                      backupRestoreGovernanceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.recovery_state, "degraded-but-recovering")}</td>
+                          <td className="p-3">{getString(item.backup_restore_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.backup_restore_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No backup governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Blockers and Boundaries</h3>
+                <StatusBadge label={backupRestoreRecoveryState} tone={backupRestoreRecoveryState === "recovered" ? "ok" : backupRestoreRecoveryState === "unresolved-blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div>Final recovery state: {backupRestoreRecoveryState}</div>
+                <div>Recovery rationale: {getString(backupRationale.summary, "n/a")}</div>
+                <div>Score impact: {getNumber(backupRationale.score_impact?.base_score, 0).toFixed(2)} {"->"} {getNumber(backupRationale.score_impact?.final_score, backupRestoreGovernanceScore).toFixed(2)}</div>
+                <div>Unresolved blockers: {String(backupBlockers.length)}</div>
+                <div>Blocker sources: {String(backupBlockerSources.length)}</div>
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  {backupBlockers.length ? (
+                    backupBlockers.map((blocker, index) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {getString(blocker, "n/a")}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved blockers remain in the staged backup evidence.</div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {backupBlockerSources.map((source: Record<string, any>) => (
                     <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                       <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
                       <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>

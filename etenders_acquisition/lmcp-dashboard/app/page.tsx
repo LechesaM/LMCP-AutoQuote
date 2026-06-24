@@ -118,6 +118,8 @@ type VisibilitySnapshot = {
   haTopologyHistory: Array<Record<string, any>>;
   ingressGovernanceLatest: Record<string, any> | null;
   ingressGovernanceHistory: Array<Record<string, any>>;
+  multiTenantGovernanceLatest: Record<string, any> | null;
+  multiTenantGovernanceHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -255,6 +257,8 @@ export default function Home() {
     haTopologyHistory: [],
     ingressGovernanceLatest: null,
     ingressGovernanceHistory: [],
+    multiTenantGovernanceLatest: null,
+    multiTenantGovernanceHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -360,6 +364,8 @@ export default function Home() {
       { key: "haTopologyHistory", path: "/rfq-lifecycle/ha-topology/history?limit=8" },
       { key: "ingressGovernanceLatest", path: "/rfq-lifecycle/ingress-governance/latest" },
       { key: "ingressGovernanceHistory", path: "/rfq-lifecycle/ingress-governance/history?limit=8" },
+      { key: "multiTenantGovernanceLatest", path: "/rfq-lifecycle/multi-tenant-governance/latest" },
+      { key: "multiTenantGovernanceHistory", path: "/rfq-lifecycle/multi-tenant-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -449,6 +455,8 @@ export default function Home() {
       haTopologyHistory: [],
       ingressGovernanceLatest: null,
       ingressGovernanceHistory: [],
+      multiTenantGovernanceLatest: null,
+      multiTenantGovernanceHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -631,6 +639,11 @@ export default function Home() {
       } else if (key === "ingressGovernanceHistory") {
         const items = data.ingress_governance_history;
         next.ingressGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "multiTenantGovernanceLatest") {
+        next.multiTenantGovernanceLatest = data;
+      } else if (key === "multiTenantGovernanceHistory") {
+        const items = data.multi_tenant_governance_history;
+        next.multiTenantGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -860,6 +873,28 @@ export default function Home() {
   const ingressGovernanceBlockers = Array.isArray(ingressGovernanceLatest.unresolved_blockers) ? ingressGovernanceLatest.unresolved_blockers : [];
   const ingressGovernanceBlockerSources = Array.isArray(ingressGovernanceLatest.blocker_sources) ? ingressGovernanceLatest.blocker_sources : [];
   const ingressGovernanceRationale = ingressGovernanceLatest.recovery_rationale || {};
+  const multiTenantGovernanceLatest = visibility.multiTenantGovernanceLatest || {};
+  const multiTenantGovernanceHistory = Array.isArray(visibility.multiTenantGovernanceHistory) ? visibility.multiTenantGovernanceHistory : [];
+  const multiTenantGovernanceWarnings = Array.isArray(multiTenantGovernanceLatest.warnings) ? multiTenantGovernanceLatest.warnings : [];
+  const multiTenantGovernanceStatus = getString(multiTenantGovernanceLatest.multi_tenant_governance_status, "watch");
+  const multiTenantGovernanceAuthority = getString(multiTenantGovernanceLatest.multi_tenant_governance_authority, "WATCH");
+  const multiTenantGovernanceScore = getNumber(multiTenantGovernanceLatest.multi_tenant_governance_score, 0);
+  const multiTenantGovernanceGrade = getString(multiTenantGovernanceLatest.multi_tenant_governance_grade, "blocked");
+  const multiTenantGovernanceRecoveryState = getString(multiTenantGovernanceLatest.recovery_state, "degraded-but-recovering");
+  const multiTenantGovernanceHistorySummary = multiTenantGovernanceLatest.multi_tenant_governance_history_summary || {};
+  const multiTenantIsolation = multiTenantGovernanceLatest.tenant_isolation_readiness || {};
+  const multiTenantNamespace = multiTenantGovernanceLatest.namespace_segregation_readiness || {};
+  const multiTenantWorkload = multiTenantGovernanceLatest.tenant_workload_separation || {};
+  const multiTenantRbac = multiTenantGovernanceLatest.rbac_tenant_boundaries || {};
+  const multiTenantStorage = multiTenantGovernanceLatest.storage_isolation_readiness || {};
+  const multiTenantIngress = multiTenantGovernanceLatest.ingress_tenancy_segregation || {};
+  const multiTenantSupervision = multiTenantGovernanceLatest.supervision_tenancy_coverage || {};
+  const multiTenantLeakage = multiTenantGovernanceLatest.cross_tenant_leakage_indicators || {};
+  const multiTenantDegradation = multiTenantGovernanceLatest.tenant_degradation_indicators || {};
+  const multiTenantBlockers = Array.isArray(multiTenantGovernanceLatest.unresolved_blockers) ? multiTenantGovernanceLatest.unresolved_blockers : [];
+  const multiTenantBlockerSources = Array.isArray(multiTenantGovernanceLatest.blocker_sources) ? multiTenantGovernanceLatest.blocker_sources : [];
+  const multiTenantGovernanceRationale = multiTenantGovernanceLatest.recovery_rationale || {};
+  const multiTenantRationale = multiTenantGovernanceLatest.recovery_rationale || {};
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -6238,6 +6273,166 @@ export default function Home() {
                 </div>
                 <div className="space-y-2">
                   {ingressGovernanceBlockerSources.map((source: Record<string, any>) => (
+                    <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
+                      <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>
+                      <div className="text-slate-400">Blockers: {String(Array.isArray(source.blockers) ? source.blockers.length : 0)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre Multi-Tenant Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging visibility for tenant isolation, namespace segregation, workload separation, RBAC boundaries, storage isolation, ingress tenancy segregation, and leakage prevention.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only tenant governance" : "Read-only tenant governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {multiTenantGovernanceWarnings.length ? (
+            <div className="space-y-3">
+              {multiTenantGovernanceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Multi-tenant governance remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Tenant State"
+              tone={multiTenantGovernanceRecoveryState === "recovered" ? "ok" : multiTenantGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${multiTenantGovernanceRecoveryState} • ${multiTenantGovernanceScore.toFixed(2)}`}
+              items={[
+                ["Status", multiTenantGovernanceStatus],
+                ["Authority", multiTenantGovernanceAuthority],
+                ["Score", multiTenantGovernanceScore.toFixed(2)],
+                ["Grade", multiTenantGovernanceGrade],
+                ["History", String(multiTenantGovernanceHistory.length)],
+                ["Trend", getString(multiTenantGovernanceHistorySummary.score_history?.trend, "stable")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Segregation"
+              tone={multiTenantIsolation.ready && multiTenantNamespace.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(multiTenantIsolation.ready).label} isolation / ${getBooleanBadge(multiTenantNamespace.ready).label} namespaces`}
+              items={[
+                ["Tenant isolation", getBooleanBadge(multiTenantIsolation.ready).label],
+                ["Namespace segregation", getBooleanBadge(multiTenantNamespace.ready).label],
+                ["Workload separation", getBooleanBadge(multiTenantWorkload.ready).label],
+                ["RBAC boundaries", getBooleanBadge(multiTenantRbac.ready).label],
+                ["Storage isolation", getBooleanBadge(multiTenantStorage.ready).label],
+                ["Ingress tenancy", getBooleanBadge(multiTenantIngress.ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Leakage & Coverage"
+              tone={multiTenantLeakage.cross_tenant_leakage_safe && multiTenantSupervision.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(multiTenantLeakage.cross_tenant_leakage_safe).label} leakage / ${getBooleanBadge(multiTenantSupervision.ready).label} supervision`}
+              items={[
+                ["Tenant onboarding", getBooleanBadge(multiTenantGovernanceLatest.safety_model?.tenant_onboarding_disabled).label],
+                ["Cross-tenant leakage", getBooleanBadge(multiTenantLeakage.cross_tenant_leakage_safe).label],
+                ["Supervision coverage", getBooleanBadge(multiTenantSupervision.ready).label],
+                ["Shared credentials", getBooleanBadge(!multiTenantGovernanceLatest.safety_model?.embedded_credentials_found).label],
+                ["Overlay separation", getBooleanBadge(multiTenantGovernanceLatest.safety_model?.production_overlay_separated_from_staging).label],
+                ["Degradation active", getBooleanBadge(Object.values(multiTenantDegradation || {}).some(Boolean)).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Rationale"
+              tone={multiTenantGovernanceRecoveryState === "recovered" ? "ok" : multiTenantGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${getNumber(multiTenantGovernanceRationale.score_impact?.final_score, multiTenantGovernanceScore).toFixed(2)} final score`}
+              items={[
+                ["Base score", getNumber(multiTenantGovernanceRationale.score_impact?.base_score, 0).toFixed(2)],
+                ["Deductions", getNumber(multiTenantGovernanceRationale.score_impact?.deductions, 0).toFixed(2)],
+                ["Final score", getNumber(multiTenantGovernanceRationale.score_impact?.final_score, multiTenantGovernanceScore).toFixed(2)],
+                ["Unresolved blockers", String(multiTenantBlockers.length)],
+                ["Blocker sources", String(multiTenantBlockerSources.length)],
+                ["Recovery state", multiTenantGovernanceRecoveryState],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Multi-Tenant Governance History</h3>
+                <StatusBadge label={`${multiTenantGovernanceHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">State</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {multiTenantGovernanceHistory.length ? (
+                      multiTenantGovernanceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.recovery_state, "degraded-but-recovering")}</td>
+                          <td className="p-3">{getString(item.multi_tenant_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.multi_tenant_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No multi-tenant governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Isolation and Leakage</h3>
+                <StatusBadge label={multiTenantGovernanceRecoveryState} tone={multiTenantGovernanceRecoveryState === "recovered" ? "ok" : multiTenantGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div>Final recovery state: {multiTenantGovernanceRecoveryState}</div>
+                <div>Recovery rationale: {getString(multiTenantGovernanceRationale.summary, "n/a")}</div>
+                <div>Score impact: {getNumber(multiTenantGovernanceRationale.score_impact?.base_score, 0).toFixed(2)} {"->"} {getNumber(multiTenantGovernanceRationale.score_impact?.final_score, multiTenantGovernanceScore).toFixed(2)}</div>
+                <div>Unresolved blockers: {String(multiTenantBlockers.length)}</div>
+                <div>Blocker sources: {String(multiTenantBlockerSources.length)}</div>
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  {multiTenantBlockers.length ? (
+                    multiTenantBlockers.map((blocker, index) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {getString(blocker, "n/a")}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved blockers remain in the staged tenant evidence.</div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {multiTenantBlockerSources.map((source: Record<string, any>) => (
                     <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                       <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
                       <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>

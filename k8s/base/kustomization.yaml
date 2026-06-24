@@ -23,6 +23,10 @@ resources:
   - grafana-service.yaml
   - network-policy.yaml
   - persistent-volume-claims.yaml
+  - tenant-namespace-template.yaml
+  - tenant-network-policy-template.yaml
+  - tenant-rbac-placeholder.yaml
+  - tenant-resource-quota-placeholder.yaml
   - ingress.yaml
   - tls-secret-placeholder.yaml
   - cert-manager-placeholder.yaml

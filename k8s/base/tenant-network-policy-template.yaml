@@ -1,0 +1,11 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tenant-network-policy-template-placeholder
+spec:
+  podSelector:
+    matchLabels:
+      lmcp.io/tenant-governance: "placeholder"
+  policyTypes:
+    - Ingress
+    - Egress

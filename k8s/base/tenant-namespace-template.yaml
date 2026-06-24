@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-namespace-template-placeholder
+  labels:
+    lmcp.io/tenant-governance: "placeholder"
+    lmcp.io/tenant-segregation: "enabled"
+    lmcp.io/tenant-onboarding: "disabled"

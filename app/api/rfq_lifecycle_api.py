@@ -31,6 +31,7 @@ from app.services.production_continuity_governance_service import ProductionCont
 from app.services.distributed_orchestration_governance_service import DistributedOrchestrationGovernanceService
 from app.services.ha_topology_governance_service import HaTopologyGovernanceService
 from app.services.ingress_governance_service import IngressGovernanceService
+from app.services.multi_tenant_governance_service import MultiTenantGovernanceService
 from app.services.runtime_remediation_governance_service import RuntimeRemediationGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
@@ -184,6 +185,10 @@ def ha_topology_governance_service() -> HaTopologyGovernanceService:
 
 def ingress_governance_service() -> IngressGovernanceService:
     return IngressGovernanceService()
+
+
+def multi_tenant_governance_service() -> MultiTenantGovernanceService:
+    return MultiTenantGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -825,6 +830,21 @@ def ingress_governance_latest() -> Dict[str, Any]:
 @router.get("/ingress-governance/history")
 def ingress_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return ingress_governance_service().ingress_governance_history(limit=limit)
+
+
+@router.get("/multi-tenant-governance")
+def multi_tenant_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return multi_tenant_governance_service().list_multi_tenant_governance(limit=limit)
+
+
+@router.get("/multi-tenant-governance/latest")
+def multi_tenant_governance_latest() -> Dict[str, Any]:
+    return multi_tenant_governance_service().latest_multi_tenant_governance()
+
+
+@router.get("/multi-tenant-governance/history")
+def multi_tenant_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return multi_tenant_governance_service().multi_tenant_governance_history(limit=limit)
 
 
 @router.get("/declaration")

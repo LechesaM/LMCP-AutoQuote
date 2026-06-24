@@ -50,3 +50,10 @@ resources:
   - tempo-placeholder.yaml
   - distributed-prometheus-placeholder.yaml
   - alertmanager-placeholder.yaml
+  - compliance-regulatory/regulatory-framework-placeholder.yaml
+  - compliance-regulatory/procurement-compliance-placeholder.yaml
+  - compliance-regulatory/audit-retention-placeholder.yaml
+  - compliance-regulatory/evidence-completeness-placeholder.yaml
+  - compliance-regulatory/policy-exception-escalation-placeholder.yaml
+  - compliance-regulatory/review-supervision-placeholder.yaml
+  - compliance-regulatory/regulatory-blocker-visibility-placeholder.yaml

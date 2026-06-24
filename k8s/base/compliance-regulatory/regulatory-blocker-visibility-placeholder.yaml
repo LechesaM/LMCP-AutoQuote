@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-regulatory-blocker-visibility-placeholder
+data:
+  status: placeholder
+  blockers: visible

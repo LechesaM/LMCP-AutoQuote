@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-regulatory-review-supervision-placeholder
+data:
+  status: placeholder
+  supervision: mandatory

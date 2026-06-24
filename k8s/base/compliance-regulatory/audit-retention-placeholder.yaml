@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-regulatory-audit-retention-placeholder
+data:
+  status: placeholder
+  retention: audit-evidence-preserved

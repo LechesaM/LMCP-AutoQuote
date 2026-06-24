@@ -142,6 +142,8 @@ type VisibilitySnapshot = {
   signatureHistory: Array<Record<string, any>>;
   complianceLatest: Record<string, any> | null;
   complianceHistory: Array<Record<string, any>>;
+  complianceRegulatoryLatest: Record<string, any> | null;
+  complianceRegulatoryHistory: Array<Record<string, any>>;
   returnableLatest: Record<string, any> | null;
   returnableHistory: Array<Record<string, any>>;
   packagingLatest: Record<string, any> | null;
@@ -291,6 +293,8 @@ export default function Home() {
     signatureHistory: [],
     complianceLatest: null,
     complianceHistory: [],
+    complianceRegulatoryLatest: null,
+    complianceRegulatoryHistory: [],
     returnableLatest: null,
     returnableHistory: [],
     packagingLatest: null,
@@ -408,6 +412,8 @@ export default function Home() {
       { key: "signatureHistory", path: "/rfq-lifecycle/signature-governance/history?limit=8" },
       { key: "complianceLatest", path: "/rfq-lifecycle/compliance-governance/latest" },
       { key: "complianceHistory", path: "/rfq-lifecycle/compliance-governance/history?limit=8" },
+      { key: "complianceRegulatoryLatest", path: "/rfq-lifecycle/compliance-regulatory-governance/latest" },
+      { key: "complianceRegulatoryHistory", path: "/rfq-lifecycle/compliance-regulatory-governance/history?limit=8" },
       { key: "returnableLatest", path: "/rfq-lifecycle/returnable-governance/latest" },
       { key: "returnableHistory", path: "/rfq-lifecycle/returnable-governance/history?limit=8" },
       { key: "packagingLatest", path: "/rfq-lifecycle/packaging-governance/latest" },
@@ -509,6 +515,8 @@ export default function Home() {
       signatureHistory: [],
       complianceLatest: null,
       complianceHistory: [],
+      complianceRegulatoryLatest: null,
+      complianceRegulatoryHistory: [],
       returnableLatest: null,
       returnableHistory: [],
       packagingLatest: null,
@@ -739,6 +747,11 @@ export default function Home() {
       } else if (key === "complianceHistory") {
         const items = data.compliance_governance_decision_history;
         next.complianceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "complianceRegulatoryLatest") {
+        next.complianceRegulatoryLatest = data;
+      } else if (key === "complianceRegulatoryHistory") {
+        const items = data.history;
+        next.complianceRegulatoryHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "returnableLatest") {
         next.returnableLatest = data;
       } else if (key === "returnableHistory") {
@@ -1203,6 +1216,11 @@ export default function Home() {
   const complianceLatest = visibility.complianceLatest || {};
   const complianceHistory = Array.isArray(visibility.complianceHistory) ? visibility.complianceHistory : [];
   const complianceWarnings = Array.isArray(complianceLatest.warnings) ? complianceLatest.warnings : [];
+  const complianceRegulatoryLatest = visibility.complianceRegulatoryLatest || {};
+  const complianceRegulatoryHistory = Array.isArray(visibility.complianceRegulatoryHistory) ? visibility.complianceRegulatoryHistory : [];
+  const complianceRegulatoryWarnings = Array.isArray(complianceRegulatoryLatest.warnings) ? complianceRegulatoryLatest.warnings : [];
+  const complianceRegulatoryBlockers = Array.isArray(complianceRegulatoryLatest.unresolved_blockers) ? complianceRegulatoryLatest.unresolved_blockers : [];
+  const complianceRegulatoryHistoryEvents = Array.isArray(complianceRegulatoryLatest.governance_history) ? complianceRegulatoryLatest.governance_history : [];
   const returnableLatest = visibility.returnableLatest || {};
   const returnableHistory = Array.isArray(visibility.returnableHistory) ? visibility.returnableHistory : [];
   const returnableWarnings = Array.isArray(returnableLatest.warnings) ? returnableLatest.warnings : [];
@@ -1241,6 +1259,7 @@ export default function Home() {
     ...modalityWarnings,
     ...signatureWarnings,
     ...complianceWarnings,
+    ...complianceRegulatoryWarnings,
     ...returnableWarnings,
     ...packagingWarnings,
     ...deadlineWarnings,
@@ -3216,6 +3235,145 @@ export default function Home() {
                       <tr>
                         <td className="p-4 text-slate-400" colSpan={4}>
                           No compliance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Compliance &amp; Regulatory Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only compliance and regulatory readiness with staging-only supervision and explicit blocker visibility.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only regulatory governance" : "Read-only regulatory governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {complianceRegulatoryWarnings.length ? (
+            <div className="space-y-3">
+              {complianceRegulatoryWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Compliance and regulatory governance remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Regulatory Readiness"
+              tone={complianceRegulatoryLatest.ready ? "ok" : complianceRegulatoryBlockers.length ? "error" : "neutral"}
+              summary={`${getNumber(complianceRegulatoryLatest.compliance_regulatory_governance_score, 0).toFixed(2)} governance score`}
+              items={[
+                ["Status", getString(complianceRegulatoryLatest.compliance_regulatory_governance_status, "watch")],
+                ["Framework", getBooleanBadge(complianceRegulatoryLatest.regulatory_framework_readiness).label],
+                ["Procurement", getBooleanBadge(complianceRegulatoryLatest.procurement_compliance_readiness).label],
+                ["Audit retention", getBooleanBadge(complianceRegulatoryLatest.audit_retention_readiness).label],
+                ["Evidence completeness", getBooleanBadge(complianceRegulatoryLatest.governance_evidence_completeness).label],
+                ["Policy escalation", getBooleanBadge(complianceRegulatoryLatest.policy_exception_escalation_readiness).label],
+                ["Review supervision", getBooleanBadge(complianceRegulatoryLatest.compliance_review_supervision).label],
+                ["Blocker visibility", getBooleanBadge(complianceRegulatoryLatest.regulatory_blocker_visibility).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Boundaries"
+              tone={getBooleanBadge(complianceRegulatoryLatest.ready).tone}
+              summary={getBooleanBadge(complianceRegulatoryLatest.ready).label}
+              items={[
+                ["Dry-run", getBooleanBadge(complianceRegulatoryLatest.dry_run_enforced).label],
+                ["Supervision", getBooleanBadge(complianceRegulatoryLatest.human_supervision_required).label],
+                ["No autonomous approvals", getBooleanBadge(!complianceRegulatoryLatest.autonomous_approvals_enabled).label],
+                ["No production authority", getBooleanBadge(!complianceRegulatoryLatest.production_authority_enabled).label],
+                ["No live regulator integrations", getBooleanBadge(!complianceRegulatoryLatest.live_regulator_integrations_present).label],
+                ["Recovery state", getString(complianceRegulatoryLatest.recovery_state, "degraded-but-recovering")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Blockers &amp; History"
+              tone={complianceRegulatoryBlockers.length ? "error" : "ok"}
+              summary={`${complianceRegulatoryBlockers.length} blocker(s) / ${complianceRegulatoryHistoryEvents.length} event(s)`}
+              items={[
+                ["Unresolved blockers", String(complianceRegulatoryBlockers.length)],
+                ["Recovery events", String(complianceRegulatoryHistoryEvents.length)],
+                ["History rows", String(complianceRegulatoryHistory.length)],
+                ["Authority", getString(complianceRegulatoryLatest.compliance_regulatory_governance_authority, "WATCH")],
+                ["Score", getNumber(complianceRegulatoryLatest.compliance_regulatory_governance_score, 0).toFixed(2)],
+                ["Grade", getString(complianceRegulatoryLatest.compliance_regulatory_governance_grade, "watch")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Regulatory Blockers</h3>
+                <StatusBadge label={`${complianceRegulatoryBlockers.length} blocker(s)`} tone={complianceRegulatoryBlockers.length ? "error" : "ok"} />
+              </div>
+              <div className="mt-4 space-y-3">
+                {complianceRegulatoryBlockers.length ? (
+                  complianceRegulatoryBlockers.map((blocker: string, index: number) => (
+                    <div key={`${blocker}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-3 text-sm text-amber-100">
+                      {blocker}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+                    No unresolved compliance or regulatory blockers are currently recorded.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Governance History</h3>
+                <StatusBadge label={`${complianceRegulatoryHistory.length} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Event</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-left">Mode</th>
+                      <th className="p-3 text-right">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {complianceRegulatoryHistory.length ? (
+                      complianceRegulatoryHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.event, "event")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.event, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge
+                              label={getString(item.status, "watch")}
+                              tone={item.status === "passed" || item.status === "ready" ? "ok" : item.status === "watch" ? "neutral" : "error"}
+                            />
+                          </td>
+                          <td className="p-3">{getString(item.mode, getString(item.environment, "staging"))}</td>
+                          <td className="p-3 text-right">{getString(item.timestamp, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No compliance regulatory governance history is available yet.
                         </td>
                       </tr>
                     )}

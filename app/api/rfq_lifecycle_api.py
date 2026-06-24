@@ -42,6 +42,7 @@ from app.services.physical_submission_governance_service import PhysicalSubmissi
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
 from app.services.signature_governance_service import SignatureGovernanceService
 from app.services.compliance_governance_service import ComplianceGovernanceService
+from app.services.compliance_regulatory_governance_service import ComplianceRegulatoryGovernanceService
 from app.services.returnable_governance_service import ReturnableGovernanceService
 from app.services.packaging_governance_service import PackagingGovernanceService
 from app.services.deadline_governance_service import DeadlineGovernanceService
@@ -109,6 +110,10 @@ def signature_governance_service() -> SignatureGovernanceService:
 
 def compliance_governance_service() -> ComplianceGovernanceService:
     return ComplianceGovernanceService()
+
+
+def compliance_regulatory_governance_service() -> ComplianceRegulatoryGovernanceService:
+    return ComplianceRegulatoryGovernanceService()
 
 
 def returnable_governance_service() -> ReturnableGovernanceService:
@@ -1030,6 +1035,21 @@ def compliance_governance_latest() -> Dict[str, Any]:
 @router.get("/compliance-governance/history")
 def compliance_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return compliance_governance_service().compliance_governance_history(limit=limit)
+
+
+@router.get("/compliance-regulatory-governance")
+def compliance_regulatory_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return compliance_regulatory_governance_service().list_compliance_regulatory_governance(limit=limit)
+
+
+@router.get("/compliance-regulatory-governance/latest")
+def compliance_regulatory_governance_latest() -> Dict[str, Any]:
+    return compliance_regulatory_governance_service().latest_compliance_regulatory_governance()
+
+
+@router.get("/compliance-regulatory-governance/history")
+def compliance_regulatory_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return compliance_regulatory_governance_service().compliance_regulatory_governance_history(limit=limit)
 
 
 @router.get("/returnable-governance")

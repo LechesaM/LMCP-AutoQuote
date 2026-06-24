@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-regulatory-framework-placeholder
+data:
+  status: placeholder
+  model: read-only-staging

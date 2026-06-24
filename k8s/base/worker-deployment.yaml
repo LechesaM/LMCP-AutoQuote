@@ -16,6 +16,13 @@ spec:
         - name: worker
           image: ghcr.io/lmcp/worker:placeholder
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           envFrom:
             - configMapRef:
                 name: lmcp-runtime-config

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: queue-depth-scaling-placeholder
+data:
+  queue_depth_metric: placeholder
+  queue_depth_target: placeholder
+  scale_up_threshold: placeholder
+  scale_down_threshold: placeholder
+  tenant_boundary_mode: placeholder

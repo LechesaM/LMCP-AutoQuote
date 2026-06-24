@@ -32,6 +32,7 @@ from app.services.distributed_orchestration_governance_service import Distribute
 from app.services.ha_topology_governance_service import HaTopologyGovernanceService
 from app.services.ingress_governance_service import IngressGovernanceService
 from app.services.distributed_observability_governance_service import DistributedObservabilityGovernanceService
+from app.services.autoscaling_governance_service import AutoscalingGovernanceService
 from app.services.multi_tenant_governance_service import MultiTenantGovernanceService
 from app.services.runtime_remediation_governance_service import RuntimeRemediationGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
@@ -190,6 +191,10 @@ def ingress_governance_service() -> IngressGovernanceService:
 
 def distributed_observability_governance_service() -> DistributedObservabilityGovernanceService:
     return DistributedObservabilityGovernanceService()
+
+
+def autoscaling_governance_service() -> AutoscalingGovernanceService:
+    return AutoscalingGovernanceService()
 
 
 def multi_tenant_governance_service() -> MultiTenantGovernanceService:
@@ -865,6 +870,21 @@ def distributed_observability_latest() -> Dict[str, Any]:
 @router.get("/distributed-observability/history")
 def distributed_observability_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return distributed_observability_governance_service().distributed_observability_history(limit=limit)
+
+
+@router.get("/autoscaling-governance")
+def autoscaling_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return autoscaling_governance_service().list_autoscaling_governance(limit=limit)
+
+
+@router.get("/autoscaling-governance/latest")
+def autoscaling_governance_latest() -> Dict[str, Any]:
+    return autoscaling_governance_service().latest_autoscaling_governance()
+
+
+@router.get("/autoscaling-governance/history")
+def autoscaling_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return autoscaling_governance_service().autoscaling_governance_history(limit=limit)
 
 
 @router.get("/declaration")

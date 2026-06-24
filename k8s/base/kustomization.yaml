@@ -27,6 +27,12 @@ resources:
   - tenant-network-policy-template.yaml
   - tenant-rbac-placeholder.yaml
   - tenant-resource-quota-placeholder.yaml
+  - backend-hpa-placeholder.yaml
+  - frontend-hpa-placeholder.yaml
+  - worker-hpa-placeholder.yaml
+  - resource-quota-placeholder.yaml
+  - limit-range-placeholder.yaml
+  - queue-depth-scaling-placeholder.yaml
   - ingress.yaml
   - tls-secret-placeholder.yaml
   - cert-manager-placeholder.yaml

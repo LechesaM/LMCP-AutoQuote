@@ -122,6 +122,8 @@ type VisibilitySnapshot = {
   multiTenantGovernanceHistory: Array<Record<string, any>>;
   distributedObservabilityLatest: Record<string, any> | null;
   distributedObservabilityHistory: Array<Record<string, any>>;
+  autoscalingGovernanceLatest: Record<string, any> | null;
+  autoscalingGovernanceHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -263,6 +265,8 @@ export default function Home() {
     multiTenantGovernanceHistory: [],
     distributedObservabilityLatest: null,
     distributedObservabilityHistory: [],
+    autoscalingGovernanceLatest: null,
+    autoscalingGovernanceHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -372,6 +376,8 @@ export default function Home() {
       { key: "multiTenantGovernanceHistory", path: "/rfq-lifecycle/multi-tenant-governance/history?limit=8" },
       { key: "distributedObservabilityLatest", path: "/rfq-lifecycle/distributed-observability/latest" },
       { key: "distributedObservabilityHistory", path: "/rfq-lifecycle/distributed-observability/history?limit=8" },
+      { key: "autoscalingGovernanceLatest", path: "/rfq-lifecycle/autoscaling-governance/latest" },
+      { key: "autoscalingGovernanceHistory", path: "/rfq-lifecycle/autoscaling-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -465,6 +471,8 @@ export default function Home() {
       multiTenantGovernanceHistory: [],
       distributedObservabilityLatest: null,
       distributedObservabilityHistory: [],
+      autoscalingGovernanceLatest: null,
+      autoscalingGovernanceHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -929,6 +937,30 @@ export default function Home() {
   const distributedObservabilityBlockers = Array.isArray(distributedObservabilityLatest.unresolved_blockers) ? distributedObservabilityLatest.unresolved_blockers : [];
   const distributedObservabilityBlockerSources = Array.isArray(distributedObservabilityLatest.blocker_sources) ? distributedObservabilityLatest.blocker_sources : [];
   const distributedObservabilityRationale = distributedObservabilityLatest.recovery_rationale || {};
+  const autoscalingGovernanceLatest = visibility.autoscalingGovernanceLatest || {};
+  const autoscalingGovernanceHistory = Array.isArray(visibility.autoscalingGovernanceHistory) ? visibility.autoscalingGovernanceHistory : [];
+  const autoscalingGovernanceWarnings = Array.isArray(autoscalingGovernanceLatest.warnings) ? autoscalingGovernanceLatest.warnings : [];
+  const autoscalingGovernanceStatus = getString(autoscalingGovernanceLatest.autoscaling_governance_status, "watch");
+  const autoscalingGovernanceAuthority = getString(autoscalingGovernanceLatest.autoscaling_governance_authority, "WATCH");
+  const autoscalingGovernanceScore = getNumber(autoscalingGovernanceLatest.autoscaling_governance_score, 0);
+  const autoscalingGovernanceGrade = getString(autoscalingGovernanceLatest.autoscaling_governance_grade, "blocked");
+  const autoscalingGovernanceRecoveryState = getString(autoscalingGovernanceLatest.recovery_state, "degraded-but-recovering");
+  const autoscalingGovernanceHistorySummary = autoscalingGovernanceLatest.autoscaling_governance_history_summary || {};
+  const autoscalingHpa = autoscalingGovernanceLatest.hpa_readiness || {};
+  const autoscalingWorker = autoscalingGovernanceLatest.worker_autoscaling_readiness || {};
+  const autoscalingBackend = autoscalingGovernanceLatest.backend_autoscaling_readiness || {};
+  const autoscalingFrontend = autoscalingGovernanceLatest.frontend_autoscaling_readiness || {};
+  const autoscalingRequests = autoscalingGovernanceLatest.cpu_memory_request_governance || {};
+  const autoscalingLimits = autoscalingGovernanceLatest.cpu_memory_limit_governance || {};
+  const autoscalingQueue = autoscalingGovernanceLatest.queue_depth_scaling_readiness || {};
+  const autoscalingTenant = autoscalingGovernanceLatest.tenant_aware_scaling_boundaries || {};
+  const autoscalingScaleUp = autoscalingGovernanceLatest.scale_up_governance || {};
+  const autoscalingScaleDown = autoscalingGovernanceLatest.scale_down_governance || {};
+  const autoscalingSaturation = autoscalingGovernanceLatest.autoscaling_saturation_indicators || {};
+  const autoscalingDegradation = autoscalingGovernanceLatest.autoscaling_degradation_indicators || {};
+  const autoscalingBlockers = Array.isArray(autoscalingGovernanceLatest.unresolved_blockers) ? autoscalingGovernanceLatest.unresolved_blockers : [];
+  const autoscalingBlockerSources = Array.isArray(autoscalingGovernanceLatest.blocker_sources) ? autoscalingGovernanceLatest.blocker_sources : [];
+  const autoscalingRationale = autoscalingGovernanceLatest.recovery_rationale || {};
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -6627,6 +6659,166 @@ export default function Home() {
                 </div>
                 <div className="space-y-2">
                   {distributedObservabilityBlockerSources.map((source: Record<string, any>) => (
+                    <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
+                      <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>
+                      <div className="text-slate-400">Blockers: {String(Array.isArray(source.blockers) ? source.blockers.length : 0)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre Autoscaling &amp; Resource Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging visibility for HPA readiness, resource governance, queue-depth scaling, tenant-aware boundaries, and scale-up or scale-down controls.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only autoscaling governance" : "Read-only autoscaling governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {autoscalingGovernanceWarnings.length ? (
+            <div className="space-y-3">
+              {autoscalingGovernanceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Autoscaling governance remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Autoscaling State"
+              tone={autoscalingGovernanceRecoveryState === "recovered" ? "ok" : autoscalingGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${autoscalingGovernanceRecoveryState} • ${autoscalingGovernanceScore.toFixed(2)}`}
+              items={[
+                ["Status", autoscalingGovernanceStatus],
+                ["Authority", autoscalingGovernanceAuthority],
+                ["Score", autoscalingGovernanceScore.toFixed(2)],
+                ["Grade", autoscalingGovernanceGrade],
+                ["History", String(autoscalingGovernanceHistory.length)],
+                ["Trend", getString(autoscalingGovernanceHistorySummary.score_history?.trend, "stable")],
+              ]}
+            />
+
+            <MetricPanel
+              title="HPA & Resources"
+              tone={autoscalingHpa.ready && autoscalingRequests.ready && autoscalingLimits.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(autoscalingHpa.ready).label} HPA / ${getBooleanBadge(autoscalingRequests.ready).label} requests`}
+              items={[
+                ["HPA readiness", getBooleanBadge(autoscalingHpa.ready).label],
+                ["Worker autoscaling", getBooleanBadge(autoscalingWorker.ready).label],
+                ["Backend autoscaling", getBooleanBadge(autoscalingBackend.ready).label],
+                ["Frontend autoscaling", getBooleanBadge(autoscalingFrontend.ready).label],
+                ["CPU requests", getBooleanBadge(autoscalingRequests.ready).label],
+                ["CPU limits", getBooleanBadge(autoscalingLimits.ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Scaling Boundaries"
+              tone={autoscalingTenant.ready && autoscalingQueue.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(autoscalingTenant.ready).label} tenant boundaries / ${getBooleanBadge(autoscalingQueue.ready).label} queue scaling`}
+              items={[
+                ["Queue-depth scaling", getBooleanBadge(autoscalingQueue.ready).label],
+                ["Tenant-aware boundaries", getBooleanBadge(autoscalingTenant.ready).label],
+                ["Scale-up governance", getBooleanBadge(autoscalingScaleUp.ready).label],
+                ["Scale-down governance", getBooleanBadge(autoscalingScaleDown.ready).label],
+                ["Saturation active", getBooleanBadge(Boolean(autoscalingSaturation.supervision_saturation_active)).label],
+                ["Workload pressure", getString(autoscalingSaturation.workload_pressure, "low")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Rationale"
+              tone={autoscalingGovernanceRecoveryState === "recovered" ? "ok" : autoscalingGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${getNumber(autoscalingRationale.score_impact?.final_score, autoscalingGovernanceScore).toFixed(2)} final score`}
+              items={[
+                ["Base score", getNumber(autoscalingRationale.score_impact?.base_score, 0).toFixed(2)],
+                ["Deductions", getNumber(autoscalingRationale.score_impact?.deductions, 0).toFixed(2)],
+                ["Final score", getNumber(autoscalingRationale.score_impact?.final_score, autoscalingGovernanceScore).toFixed(2)],
+                ["Unresolved blockers", String(autoscalingBlockers.length)],
+                ["Blocker sources", String(autoscalingBlockerSources.length)],
+                ["Recovery state", autoscalingGovernanceRecoveryState],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Autoscaling Governance History</h3>
+                <StatusBadge label={`${autoscalingGovernanceHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">State</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {autoscalingGovernanceHistory.length ? (
+                      autoscalingGovernanceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.recovery_state, "degraded-but-recovering")}</td>
+                          <td className="p-3">{getString(item.autoscaling_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.autoscaling_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No autoscaling governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Blockers and Boundaries</h3>
+                <StatusBadge label={autoscalingGovernanceRecoveryState} tone={autoscalingGovernanceRecoveryState === "recovered" ? "ok" : autoscalingGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div>Final recovery state: {autoscalingGovernanceRecoveryState}</div>
+                <div>Recovery rationale: {getString(autoscalingRationale.summary, "n/a")}</div>
+                <div>Score impact: {getNumber(autoscalingRationale.score_impact?.base_score, 0).toFixed(2)} {"->"} {getNumber(autoscalingRationale.score_impact?.final_score, autoscalingGovernanceScore).toFixed(2)}</div>
+                <div>Unresolved blockers: {String(autoscalingBlockers.length)}</div>
+                <div>Blocker sources: {String(autoscalingBlockerSources.length)}</div>
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  {autoscalingBlockers.length ? (
+                    autoscalingBlockers.map((blocker, index) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {getString(blocker, "n/a")}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved blockers remain in the staged autoscaling evidence.</div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {autoscalingBlockerSources.map((source: Record<string, any>) => (
                     <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                       <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
                       <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>

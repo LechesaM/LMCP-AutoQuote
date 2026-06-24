@@ -1,0 +1,11 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: lmcp-ingress-placeholder
+spec:
+  secretName: tls-secret-placeholder
+  issuerRef:
+    name: placeholder-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    - placeholder.lmcp.local

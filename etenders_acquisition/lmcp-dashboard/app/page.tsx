@@ -116,6 +116,8 @@ type VisibilitySnapshot = {
   distributedOrchestrationHistory: Array<Record<string, any>>;
   haTopologyLatest: Record<string, any> | null;
   haTopologyHistory: Array<Record<string, any>>;
+  ingressGovernanceLatest: Record<string, any> | null;
+  ingressGovernanceHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -251,6 +253,8 @@ export default function Home() {
     distributedOrchestrationHistory: [],
     haTopologyLatest: null,
     haTopologyHistory: [],
+    ingressGovernanceLatest: null,
+    ingressGovernanceHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -354,6 +358,8 @@ export default function Home() {
       { key: "distributedOrchestrationHistory", path: "/rfq-lifecycle/distributed-orchestration/history?limit=8" },
       { key: "haTopologyLatest", path: "/rfq-lifecycle/ha-topology/latest" },
       { key: "haTopologyHistory", path: "/rfq-lifecycle/ha-topology/history?limit=8" },
+      { key: "ingressGovernanceLatest", path: "/rfq-lifecycle/ingress-governance/latest" },
+      { key: "ingressGovernanceHistory", path: "/rfq-lifecycle/ingress-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -441,6 +447,8 @@ export default function Home() {
       distributedOrchestrationHistory: [],
       haTopologyLatest: null,
       haTopologyHistory: [],
+      ingressGovernanceLatest: null,
+      ingressGovernanceHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -618,6 +626,11 @@ export default function Home() {
       } else if (key === "haTopologyHistory") {
         const items = data.ha_topology_history;
         next.haTopologyHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "ingressGovernanceLatest") {
+        next.ingressGovernanceLatest = data;
+      } else if (key === "ingressGovernanceHistory") {
+        const items = data.ingress_governance_history;
+        next.ingressGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -826,6 +839,27 @@ export default function Home() {
   const haTopologySafety = haTopologyLatest.safety_model || {};
   const haTopologyRuntimeControls = haTopologyLatest.runtime_controls || {};
   const haTopologyHistorySummary = haTopologyLatest.ha_topology_history_summary || {};
+  const ingressGovernanceLatest = visibility.ingressGovernanceLatest || {};
+  const ingressGovernanceHistory = Array.isArray(visibility.ingressGovernanceHistory) ? visibility.ingressGovernanceHistory : [];
+  const ingressGovernanceWarnings = Array.isArray(ingressGovernanceLatest.warnings) ? ingressGovernanceLatest.warnings : [];
+  const ingressGovernanceStatus = getString(ingressGovernanceLatest.ingress_governance_status, "watch");
+  const ingressGovernanceAuthority = getString(ingressGovernanceLatest.ingress_governance_authority, "WATCH");
+  const ingressGovernanceScore = getNumber(ingressGovernanceLatest.ingress_governance_score, 0);
+  const ingressGovernanceGrade = getString(ingressGovernanceLatest.ingress_governance_grade, "blocked");
+  const ingressGovernanceRecoveryState = getString(ingressGovernanceLatest.recovery_state, "degraded-but-recovering");
+  const ingressGovernanceHistorySummary = ingressGovernanceLatest.ingress_governance_history_summary || {};
+  const ingressGovernanceTLS = ingressGovernanceLatest.tls_readiness || {};
+  const ingressGovernanceIsolation = ingressGovernanceLatest.ingress_isolation_readiness || {};
+  const ingressGovernanceRouting = ingressGovernanceLatest.internal_external_routing_segregation_readiness || {};
+  const ingressGovernanceCertificates = ingressGovernanceLatest.certificate_governance_readiness || {};
+  const ingressGovernanceApi = ingressGovernanceLatest.api_exposure_governance_readiness || {};
+  const ingressGovernanceObservability = ingressGovernanceLatest.observability_ingress_governance_readiness || {};
+  const ingressGovernanceAdmin = ingressGovernanceLatest.administrative_access_isolation_readiness || {};
+  const ingressGovernancePublicSurface = ingressGovernanceLatest.public_attack_surface_indicators || {};
+  const ingressGovernanceDegradation = ingressGovernanceLatest.ingress_degradation_indicators || {};
+  const ingressGovernanceBlockers = Array.isArray(ingressGovernanceLatest.unresolved_blockers) ? ingressGovernanceLatest.unresolved_blockers : [];
+  const ingressGovernanceBlockerSources = Array.isArray(ingressGovernanceLatest.blocker_sources) ? ingressGovernanceLatest.blocker_sources : [];
+  const ingressGovernanceRationale = ingressGovernanceLatest.recovery_rationale || {};
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -6051,6 +6085,166 @@ export default function Home() {
                 <div>Dry-run enforced: {getBooleanBadge(haTopologySafety.dry_run_mode_enabled).label}</div>
                 <div>Supervision mandatory: {getBooleanBadge(haTopologySafety.human_supervision_required).label}</div>
                 <div>Overlay separation: {getBooleanBadge(haTopologySafety.production_overlay_separated_from_staging).label}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre Ingress Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging visibility for TLS readiness, ingress isolation, routing segregation, certificate governance, API exposure, observability ingress, and administrative access boundaries.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only ingress governance" : "Read-only ingress governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {ingressGovernanceWarnings.length ? (
+            <div className="space-y-3">
+              {ingressGovernanceWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Ingress governance remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Ingress State"
+              tone={ingressGovernanceRecoveryState === "recovered" ? "ok" : ingressGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${ingressGovernanceRecoveryState} • ${ingressGovernanceScore.toFixed(2)}`}
+              items={[
+                ["Status", ingressGovernanceStatus],
+                ["Authority", ingressGovernanceAuthority],
+                ["Score", ingressGovernanceScore.toFixed(2)],
+                ["Grade", ingressGovernanceGrade],
+                ["History", String(ingressGovernanceHistory.length)],
+                ["Trend", getString(ingressGovernanceHistorySummary.score_history?.trend, "stable")],
+              ]}
+            />
+
+            <MetricPanel
+              title="TLS & Certificates"
+              tone={ingressGovernanceTLS.ready && ingressGovernanceCertificates.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(ingressGovernanceTLS.ready).label} TLS / ${getBooleanBadge(ingressGovernanceCertificates.ready).label} certificate governance`}
+              items={[
+                ["TLS readiness", getBooleanBadge(ingressGovernanceTLS.ready).label],
+                ["Certificate governance", getBooleanBadge(ingressGovernanceCertificates.ready).label],
+                ["TLS secret placeholder", getString(ingressGovernanceLatest.safety_model?.placeholder_tls_secret ? "Yes" : "No", "No")],
+                ["Placeholder host", getString(ingressGovernanceLatest.safety_model?.placeholder_host ? "Yes" : "No", "No")],
+                ["Live DNS", getBooleanBadge(!ingressGovernanceLatest.safety_model?.live_dns_found).label],
+                ["Live certs", getBooleanBadge(!ingressGovernanceLatest.safety_model?.live_certificate_found).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Routing & Exposure"
+              tone={ingressGovernanceIsolation.ready && ingressGovernanceRouting.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(ingressGovernanceIsolation.ready).label} isolation / ${getBooleanBadge(ingressGovernancePublicSurface.attack_surface_safe).label} public surface`}
+              items={[
+                ["Ingress isolation", getBooleanBadge(ingressGovernanceIsolation.ready).label],
+                ["Routing segregation", getBooleanBadge(ingressGovernanceRouting.ready).label],
+                ["API exposure", getBooleanBadge(ingressGovernanceApi.ready).label],
+                ["Observability ingress", getBooleanBadge(ingressGovernanceObservability.ready).label],
+                ["Administrative access", getBooleanBadge(ingressGovernanceAdmin.ready).label],
+                ["Public exposure disabled", getBooleanBadge(ingressGovernanceLatest.safety_model?.public_exposure_disabled).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Rationale"
+              tone={ingressGovernanceRecoveryState === "recovered" ? "ok" : ingressGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${getNumber(ingressGovernanceRationale.score_impact?.final_score, ingressGovernanceScore).toFixed(2)} final score`}
+              items={[
+                ["Base score", getNumber(ingressGovernanceRationale.score_impact?.base_score, 0).toFixed(2)],
+                ["Deductions", getNumber(ingressGovernanceRationale.score_impact?.deductions, 0).toFixed(2)],
+                ["Final score", getNumber(ingressGovernanceRationale.score_impact?.final_score, ingressGovernanceScore).toFixed(2)],
+                ["Unresolved blockers", String(ingressGovernanceBlockers.length)],
+                ["Recovery state", ingressGovernanceRecoveryState],
+                ["Public surface", getBooleanBadge(ingressGovernancePublicSurface.attack_surface_safe).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Ingress Governance History</h3>
+                <StatusBadge label={`${ingressGovernanceHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">State</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ingressGovernanceHistory.length ? (
+                      ingressGovernanceHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.recovery_state, "degraded-but-recovering")}</td>
+                          <td className="p-3">{getString(item.ingress_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.ingress_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No ingress governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Blockers and Boundaries</h3>
+                <StatusBadge label={ingressGovernanceRecoveryState} tone={ingressGovernanceRecoveryState === "recovered" ? "ok" : ingressGovernanceRecoveryState === "unresolved-blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div>Final recovery state: {ingressGovernanceRecoveryState}</div>
+                <div>Recovery rationale: {getString(ingressGovernanceRationale.summary, "n/a")}</div>
+                <div>Score impact: {getNumber(ingressGovernanceRationale.score_impact?.base_score, 0).toFixed(2)} {"->"} {getNumber(ingressGovernanceRationale.score_impact?.final_score, ingressGovernanceScore).toFixed(2)}</div>
+                <div>Unresolved blockers: {String(ingressGovernanceBlockers.length)}</div>
+                <div>Blocker sources: {String(ingressGovernanceBlockerSources.length)}</div>
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  {ingressGovernanceBlockers.length ? (
+                    ingressGovernanceBlockers.map((blocker, index) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {getString(blocker, "n/a")}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved blockers remain in the staged ingress evidence.</div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {ingressGovernanceBlockerSources.map((source: Record<string, any>) => (
+                    <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
+                      <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>
+                      <div className="text-slate-400">Blockers: {String(Array.isArray(source.blockers) ? source.blockers.length : 0)}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

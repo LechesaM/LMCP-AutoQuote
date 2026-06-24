@@ -23,3 +23,6 @@ resources:
   - grafana-service.yaml
   - network-policy.yaml
   - persistent-volume-claims.yaml
+  - ingress.yaml
+  - tls-secret-placeholder.yaml
+  - cert-manager-placeholder.yaml

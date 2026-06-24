@@ -30,6 +30,7 @@ from app.services.production_incident_governance_service import ProductionIncide
 from app.services.production_continuity_governance_service import ProductionContinuityGovernanceService
 from app.services.distributed_orchestration_governance_service import DistributedOrchestrationGovernanceService
 from app.services.ha_topology_governance_service import HaTopologyGovernanceService
+from app.services.ingress_governance_service import IngressGovernanceService
 from app.services.runtime_remediation_governance_service import RuntimeRemediationGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
@@ -179,6 +180,10 @@ def distributed_orchestration_governance_service() -> DistributedOrchestrationGo
 
 def ha_topology_governance_service() -> HaTopologyGovernanceService:
     return HaTopologyGovernanceService()
+
+
+def ingress_governance_service() -> IngressGovernanceService:
+    return IngressGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -805,6 +810,21 @@ def ha_topology_latest() -> Dict[str, Any]:
 @router.get("/ha-topology/history")
 def ha_topology_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return ha_topology_governance_service().ha_topology_history(limit=limit)
+
+
+@router.get("/ingress-governance")
+def ingress_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return ingress_governance_service().list_ingress_governance(limit=limit)
+
+
+@router.get("/ingress-governance/latest")
+def ingress_governance_latest() -> Dict[str, Any]:
+    return ingress_governance_service().latest_ingress_governance()
+
+
+@router.get("/ingress-governance/history")
+def ingress_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return ingress_governance_service().ingress_governance_history(limit=limit)
 
 
 @router.get("/declaration")

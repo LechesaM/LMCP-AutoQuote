@@ -110,6 +110,8 @@ type VisibilitySnapshot = {
   incidentGovernanceHistory: Array<Record<string, any>>;
   continuityGovernanceLatest: Record<string, any> | null;
   continuityGovernanceHistory: Array<Record<string, any>>;
+  runtimeRemediationLatest: Record<string, any> | null;
+  runtimeRemediationHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -239,6 +241,8 @@ export default function Home() {
     incidentGovernanceHistory: [],
     continuityGovernanceLatest: null,
     continuityGovernanceHistory: [],
+    runtimeRemediationLatest: null,
+    runtimeRemediationHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -336,6 +340,8 @@ export default function Home() {
       { key: "incidentGovernanceHistory", path: "/rfq-lifecycle/incident-governance/history?limit=8" },
       { key: "continuityGovernanceLatest", path: "/rfq-lifecycle/continuity-governance/latest" },
       { key: "continuityGovernanceHistory", path: "/rfq-lifecycle/continuity-governance/history?limit=8" },
+      { key: "runtimeRemediationLatest", path: "/rfq-lifecycle/runtime-remediation/latest" },
+      { key: "runtimeRemediationHistory", path: "/rfq-lifecycle/runtime-remediation/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -417,6 +423,8 @@ export default function Home() {
       incidentGovernanceHistory: [],
       continuityGovernanceLatest: null,
       continuityGovernanceHistory: [],
+      runtimeRemediationLatest: null,
+      runtimeRemediationHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -579,6 +587,11 @@ export default function Home() {
       } else if (key === "continuityGovernanceHistory") {
         const items = data.continuity_governance_history;
         next.continuityGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "runtimeRemediationLatest") {
+        next.runtimeRemediationLatest = data;
+      } else if (key === "runtimeRemediationHistory") {
+        const items = data.runtime_remediation_history;
+        next.runtimeRemediationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -856,6 +869,22 @@ export default function Home() {
   const continuityTiming = Array.isArray(continuityGovernanceLatest.recovery_timing_indicators) ? continuityGovernanceLatest.recovery_timing_indicators : [];
   const continuityRetention = continuityGovernanceLatest.audit_retention_indicators || {};
   const continuityCompleteness = continuityGovernanceLatest.audit_completeness_indicators || {};
+  const runtimeRemediationLatest = visibility.runtimeRemediationLatest || {};
+  const runtimeRemediationHistory = Array.isArray(visibility.runtimeRemediationHistory) ? visibility.runtimeRemediationHistory : [];
+  const runtimeRemediationWarnings = Array.isArray(runtimeRemediationLatest.warnings) ? runtimeRemediationLatest.warnings : [];
+  const runtimeRemediationStatus = getString(runtimeRemediationLatest.runtime_remediation_status, "watch");
+  const runtimeRemediationAuthority = getString(runtimeRemediationLatest.runtime_remediation_authority, "WATCH");
+  const runtimeRemediationScore = getNumber(runtimeRemediationLatest.remediation_readiness_score, 0);
+  const runtimeRemediationGrade = getString(runtimeRemediationLatest.runtime_remediation_grade, "blocked");
+  const runtimeRemediationClassifications = Array.isArray(runtimeRemediationLatest.remediation_classifications) ? runtimeRemediationLatest.remediation_classifications : [];
+  const runtimeRemediationFindings = Array.isArray(runtimeRemediationLatest.endurance_degradation_findings) ? runtimeRemediationLatest.endurance_degradation_findings : [];
+  const runtimeRemediationOpen = Array.isArray(runtimeRemediationLatest.open_remediation_tracking) ? runtimeRemediationLatest.open_remediation_tracking : [];
+  const runtimeRemediationResolved = Array.isArray(runtimeRemediationLatest.resolved_remediation_history) ? runtimeRemediationLatest.resolved_remediation_history : [];
+  const runtimeRemediationBlockers = Array.isArray(runtimeRemediationLatest.unresolved_remediation_blockers) ? runtimeRemediationLatest.unresolved_remediation_blockers : [];
+  const runtimeRemediationEscalation = runtimeRemediationLatest.remediation_escalation_indicators || {};
+  const runtimeRemediationRecovery = runtimeRemediationLatest.governance_recovery_tracking || {};
+  const runtimeRemediationHistorySummary = runtimeRemediationLatest.remediation_governance_history || {};
+  const runtimeRemediationRationale = Array.isArray(runtimeRemediationLatest.remediation_rationale_summary) ? runtimeRemediationLatest.remediation_rationale_summary : [];
   const operatorSessionsLatest = visibility.operatorSessionsLatest || {};
   const operatorSessionsHistory = Array.isArray(visibility.operatorSessionsHistory) ? visibility.operatorSessionsHistory : [];
   const operatorSessionWarnings = Array.isArray(operatorSessionsLatest.warnings) ? operatorSessionsLatest.warnings : [];
@@ -905,6 +934,7 @@ export default function Home() {
     ...operationsAuditWarnings,
     ...incidentGovernanceWarnings,
     ...continuityGovernanceWarnings,
+    ...runtimeRemediationWarnings,
     ...operatorSessionWarnings,
     ...intakeWarnings,
     ...physicalSubmissionWarnings,
@@ -1240,6 +1270,149 @@ export default function Home() {
                 ["Warnings", String(warnings.length)],
               ]}
             />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Runtime Remediation Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only remediation governance for endurance WARN findings, escalation gaps, continuity instability, and governance recovery tracking.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only runtime remediation" : "Read-only runtime remediation"}
+              tone="neutral"
+            />
+          </div>
+
+          {runtimeRemediationWarnings.length ? (
+            <div className="space-y-3">
+              {runtimeRemediationWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Runtime remediation governance remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Runtime Remediation"
+              tone={runtimeRemediationStatus === "ok" ? "ok" : runtimeRemediationStatus === "blocked" ? "error" : "neutral"}
+              summary={`${runtimeRemediationGrade} • ${runtimeRemediationScore.toFixed(2)}`}
+              items={[
+                ["Status", runtimeRemediationStatus],
+                ["Authority", runtimeRemediationAuthority],
+                ["Score", runtimeRemediationScore.toFixed(2)],
+                ["Grade", runtimeRemediationGrade],
+                ["History", String(runtimeRemediationHistory.length)],
+                ["Findings", String(runtimeRemediationClassifications.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Endurance Findings"
+              tone={runtimeRemediationFindings.length ? "error" : "ok"}
+              summary={`${runtimeRemediationFindings.length} endurance finding(s)`}
+              items={[
+                ["Degradation findings", String(runtimeRemediationFindings.length)],
+                ["Open remediation", String(runtimeRemediationOpen.length)],
+                ["Resolved remediation", String(runtimeRemediationResolved.length)],
+                ["Blockers", String(runtimeRemediationBlockers.length)],
+                ["Recovery ready", getBooleanBadge(runtimeRemediationRecovery.governance_recovery_ready).label],
+                ["Recovery status", getString(runtimeRemediationRecovery.latest_continuity_status, "watch")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Escalation & Recovery"
+              tone={Object.values(runtimeRemediationEscalation).some(Boolean) ? "error" : "ok"}
+              summary={`${Object.values(runtimeRemediationEscalation).filter(Boolean).length} escalation flag(s)`}
+              items={[
+                ["Endurance degradation", getBooleanBadge(runtimeRemediationEscalation.endurance_degradation_found).label],
+                ["Escalation gap", getBooleanBadge(runtimeRemediationEscalation.escalation_gap_found).label],
+                ["Continuity instability", getBooleanBadge(runtimeRemediationEscalation.continuity_instability_found).label],
+                ["Governance degradation", getBooleanBadge(runtimeRemediationEscalation.governance_degradation_found).label],
+                ["Supervision failure", getBooleanBadge(runtimeRemediationEscalation.supervision_failure_found).label],
+                ["Observability failure", getBooleanBadge(runtimeRemediationEscalation.observability_failure_found).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="History & Rationale"
+              tone={runtimeRemediationHistorySummary.status === "PASS" ? "ok" : runtimeRemediationHistorySummary.status === "WARN" ? "neutral" : "error"}
+              summary={`${getNumber(runtimeRemediationHistorySummary.score_history?.latest, runtimeRemediationScore).toFixed(2)} latest score`}
+              items={[
+                ["Latest analysis", getString(runtimeRemediationLatest.analysis_id, "n/a")],
+                ["Latest status", getString(runtimeRemediationHistorySummary.status, "WARN")],
+                ["Latest owner", getString(runtimeRemediationHistorySummary.latest_owner, "n/a")],
+                ["Blocking count", String(getNumber(runtimeRemediationHistorySummary.blocking_count, runtimeRemediationBlockers.length))],
+                ["Trend", getString(runtimeRemediationHistorySummary.score_history?.trend, "stable")],
+                ["Rationale items", String(runtimeRemediationRationale.length)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Runtime Remediation History</h3>
+                <StatusBadge label={`${runtimeRemediationHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runtimeRemediationHistory.length ? (
+                      runtimeRemediationHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.runtime_remediation_authority, "WATCH")}</td>
+                          <td className="p-3">{getString(item.runtime_remediation_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.remediation_readiness_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No runtime remediation history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Runtime Remediation Indicators</h3>
+                <StatusBadge label={runtimeRemediationAuthority} tone={runtimeRemediationAuthority === "GO" ? "ok" : runtimeRemediationAuthority === "NO_GO" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-2 text-sm text-slate-300 md:grid-cols-2">
+                <div>Endurance degradation: {String(runtimeRemediationEscalation.endurance_degradation_found)}</div>
+                <div>Escalation gap: {String(runtimeRemediationEscalation.escalation_gap_found)}</div>
+                <div>Continuity instability: {String(runtimeRemediationEscalation.continuity_instability_found)}</div>
+                <div>Governance degradation: {String(runtimeRemediationEscalation.governance_degradation_found)}</div>
+                <div>Supervision failure: {String(runtimeRemediationEscalation.supervision_failure_found)}</div>
+                <div>Observability failure: {String(runtimeRemediationEscalation.observability_failure_found)}</div>
+                <div>Open blockers: {String(runtimeRemediationBlockers.length)}</div>
+                <div>Recovered: {getBooleanBadge(runtimeRemediationRecovery.governance_recovery_ready).label}</div>
+              </div>
+            </div>
           </div>
         </section>
 

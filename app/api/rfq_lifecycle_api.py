@@ -28,6 +28,7 @@ from app.services.production_supervision_command_service import ProductionSuperv
 from app.services.production_audit_governance_service import ProductionAuditGovernanceService
 from app.services.production_incident_governance_service import ProductionIncidentGovernanceService
 from app.services.production_continuity_governance_service import ProductionContinuityGovernanceService
+from app.services.runtime_remediation_governance_service import RuntimeRemediationGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
 from app.services.submission_modality_governance_service import SubmissionModalityGovernanceService
@@ -164,6 +165,10 @@ def production_incident_governance_service() -> ProductionIncidentGovernanceServ
 
 def production_continuity_governance_service() -> ProductionContinuityGovernanceService:
     return ProductionContinuityGovernanceService()
+
+
+def runtime_remediation_governance_service() -> RuntimeRemediationGovernanceService:
+    return RuntimeRemediationGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -745,6 +750,21 @@ def continuity_governance_latest() -> Dict[str, Any]:
 @router.get("/continuity-governance/history")
 def continuity_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return production_continuity_governance_service().continuity_governance_history(limit=limit)
+
+
+@router.get("/runtime-remediation")
+def runtime_remediation(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return runtime_remediation_governance_service().list_runtime_remediation(limit=limit)
+
+
+@router.get("/runtime-remediation/latest")
+def runtime_remediation_latest() -> Dict[str, Any]:
+    return runtime_remediation_governance_service().latest_runtime_remediation()
+
+
+@router.get("/runtime-remediation/history")
+def runtime_remediation_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return runtime_remediation_governance_service().runtime_remediation_history(limit=limit)
 
 
 @router.get("/declaration")

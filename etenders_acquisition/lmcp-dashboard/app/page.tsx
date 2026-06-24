@@ -112,6 +112,8 @@ type VisibilitySnapshot = {
   continuityGovernanceHistory: Array<Record<string, any>>;
   runtimeRemediationLatest: Record<string, any> | null;
   runtimeRemediationHistory: Array<Record<string, any>>;
+  distributedOrchestrationLatest: Record<string, any> | null;
+  distributedOrchestrationHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -243,6 +245,8 @@ export default function Home() {
     continuityGovernanceHistory: [],
     runtimeRemediationLatest: null,
     runtimeRemediationHistory: [],
+    distributedOrchestrationLatest: null,
+    distributedOrchestrationHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -342,6 +346,8 @@ export default function Home() {
       { key: "continuityGovernanceHistory", path: "/rfq-lifecycle/continuity-governance/history?limit=8" },
       { key: "runtimeRemediationLatest", path: "/rfq-lifecycle/runtime-remediation/latest" },
       { key: "runtimeRemediationHistory", path: "/rfq-lifecycle/runtime-remediation/history?limit=8" },
+      { key: "distributedOrchestrationLatest", path: "/rfq-lifecycle/distributed-orchestration/latest" },
+      { key: "distributedOrchestrationHistory", path: "/rfq-lifecycle/distributed-orchestration/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -425,6 +431,8 @@ export default function Home() {
       continuityGovernanceHistory: [],
       runtimeRemediationLatest: null,
       runtimeRemediationHistory: [],
+      distributedOrchestrationLatest: null,
+      distributedOrchestrationHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -592,6 +600,11 @@ export default function Home() {
       } else if (key === "runtimeRemediationHistory") {
         const items = data.runtime_remediation_history;
         next.runtimeRemediationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "distributedOrchestrationLatest") {
+        next.distributedOrchestrationLatest = data;
+      } else if (key === "distributedOrchestrationHistory") {
+        const items = data.distributed_orchestration_history;
+        next.distributedOrchestrationHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -763,6 +776,25 @@ export default function Home() {
   const productionAccessRiskIndicators = productionOperationalizationLatest.operator_access_risk_indicators || {};
   const productionHAIndicators = productionOperationalizationLatest.ha_readiness_indicators || {};
   const productionRecoveryIndicators = productionOperationalizationLatest.recovery_readiness_indicators || {};
+  const distributedOrchestrationLatest = visibility.distributedOrchestrationLatest || {};
+  const distributedOrchestrationHistory = Array.isArray(visibility.distributedOrchestrationHistory) ? visibility.distributedOrchestrationHistory : [];
+  const distributedOrchestrationWarnings = Array.isArray(distributedOrchestrationLatest.warnings) ? distributedOrchestrationLatest.warnings : [];
+  const distributedOrchestrationStatus = getString(distributedOrchestrationLatest.distributed_orchestration_status, "watch");
+  const distributedOrchestrationAuthority = getString(distributedOrchestrationLatest.distributed_orchestration_authority, "WATCH");
+  const distributedOrchestrationScore = getNumber(distributedOrchestrationLatest.distributed_orchestration_score, 0);
+  const distributedOrchestrationGrade = getString(distributedOrchestrationLatest.distributed_orchestration_grade, "blocked");
+  const distributedOrchestrationRecoveryState = getString(distributedOrchestrationLatest.recovery_state, "unresolved-blocked");
+  const distributedOrchestrationBlockers = Array.isArray(distributedOrchestrationLatest.unresolved_blockers) ? distributedOrchestrationLatest.unresolved_blockers : [];
+  const distributedOrchestrationRationale = distributedOrchestrationLatest.recovery_rationale || {};
+  const distributedOrchestrationBlockerSources = Array.isArray(distributedOrchestrationLatest.blocker_sources) ? distributedOrchestrationLatest.blocker_sources : [];
+  const distributedOrchestrationQueue = distributedOrchestrationLatest.queue_partition_readiness || {};
+  const distributedOrchestrationWorker = distributedOrchestrationLatest.worker_shard_readiness || {};
+  const distributedOrchestrationAutoscaling = distributedOrchestrationLatest.autoscaling_readiness || {};
+  const distributedOrchestrationFailover = distributedOrchestrationLatest.failover_orchestration_readiness || {};
+  const distributedOrchestrationSupervision = distributedOrchestrationLatest.distributed_supervision_coverage || {};
+  const distributedOrchestrationWorkload = distributedOrchestrationLatest.workload_saturation_indicators || {};
+  const distributedOrchestrationDegradation = distributedOrchestrationLatest.orchestration_degradation_indicators || {};
+  const distributedOrchestrationRecoveryHistory = Array.isArray(distributedOrchestrationLatest.recovery_state_history) ? distributedOrchestrationLatest.recovery_state_history : [];
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -5677,6 +5709,172 @@ export default function Home() {
                 <div>Disaster recovery: {getString(productionDisasterRecovery?.disaster_recovery_governance_status, "watch")}</div>
                 <div>High availability: {getString(productionHighAvailability?.high_availability_governance_status, "watch")}</div>
                 <div>Audit retention: {getString(productionAuditRetention?.audit_retention_governance_status, "watch")}</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre Distributed Orchestration</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging orchestration visibility for queue partition readiness, worker shard readiness, autoscaling readiness, failover orchestration, supervision coverage, and saturation pressure.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only orchestration" : "Read-only orchestration"}
+              tone="neutral"
+            />
+          </div>
+
+          {distributedOrchestrationWarnings.length ? (
+            <div className="space-y-3">
+              {distributedOrchestrationWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Distributed orchestration recovery remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Orchestration State"
+              tone={distributedOrchestrationRecoveryState === "recovered" ? "ok" : distributedOrchestrationRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${distributedOrchestrationRecoveryState} • ${distributedOrchestrationScore.toFixed(2)}`}
+              items={[
+                ["Status", distributedOrchestrationStatus],
+                ["Authority", distributedOrchestrationAuthority],
+                ["Score", distributedOrchestrationScore.toFixed(2)],
+                ["Grade", distributedOrchestrationGrade],
+                ["History", String(distributedOrchestrationHistory.length)],
+                ["Recovery state", distributedOrchestrationRecoveryState],
+              ]}
+            />
+
+            <MetricPanel
+              title="Readiness Signals"
+              tone={getBooleanBadge(distributedOrchestrationRecoveryState === "recovered").tone}
+              summary={`${[
+                distributedOrchestrationQueue.queue_partition_ready,
+                distributedOrchestrationWorker.worker_shard_ready,
+                distributedOrchestrationAutoscaling.autoscaling_ready,
+                distributedOrchestrationFailover.failover_orchestration_ready,
+                distributedOrchestrationSupervision.distributed_supervision_coverage_ready,
+              ].filter(Boolean).length}/5 ready`}
+              items={[
+                ["Queue partition", getBooleanBadge(distributedOrchestrationQueue.queue_partition_ready).label],
+                ["Worker shard", getBooleanBadge(distributedOrchestrationWorker.worker_shard_ready).label],
+                ["Autoscaling", getBooleanBadge(distributedOrchestrationAutoscaling.autoscaling_ready).label],
+                ["Failover", getBooleanBadge(distributedOrchestrationFailover.failover_orchestration_ready).label],
+                ["Supervision coverage", getBooleanBadge(distributedOrchestrationSupervision.distributed_supervision_coverage_ready).label],
+                ["Workload pressure", getString(distributedOrchestrationWorkload.workload_pressure, "low")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Degradation Signals"
+              tone={Object.values(distributedOrchestrationDegradation || {}).some(Boolean) || Boolean(distributedOrchestrationWorkload.supervision_saturation_active) ? "error" : "ok"}
+              summary={`${distributedOrchestrationBlockers.length} blocker(s)`}
+              items={[
+                ["Queue degradation", getBooleanBadge(distributedOrchestrationDegradation.queue_partition_degradation).label],
+                ["Worker degradation", getBooleanBadge(distributedOrchestrationDegradation.worker_shard_degradation).label],
+                ["Autoscaling degradation", getBooleanBadge(distributedOrchestrationDegradation.autoscaling_degradation).label],
+                ["Failover degradation", getBooleanBadge(distributedOrchestrationDegradation.failover_orchestration_degradation).label],
+                ["Saturation active", getBooleanBadge(distributedOrchestrationWorkload.supervision_saturation_active).label],
+                ["Blocker sources", String(distributedOrchestrationBlockerSources.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Recovery Rationale"
+              tone={distributedOrchestrationRecoveryState === "recovered" ? "ok" : distributedOrchestrationRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${getNumber(distributedOrchestrationRationale.score_impact?.final_score, distributedOrchestrationScore).toFixed(2)} final score`}
+              items={[
+                ["Base score", getNumber(distributedOrchestrationRationale.score_impact?.base_score, 0).toFixed(2)],
+                ["Deductions", getNumber(distributedOrchestrationRationale.score_impact?.deductions, 0).toFixed(2)],
+                ["Final score", getNumber(distributedOrchestrationRationale.score_impact?.final_score, distributedOrchestrationScore).toFixed(2)],
+                ["Blockers", String(distributedOrchestrationBlockers.length)],
+                ["State basis", String(getNumber(distributedOrchestrationRationale.state_basis?.unresolved_blocker_count, 0))],
+                ["Summary", getString(distributedOrchestrationRationale.summary, "n/a")],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Orchestration Governance History</h3>
+                <StatusBadge label={`${distributedOrchestrationHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">State</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {distributedOrchestrationHistory.length ? (
+                      distributedOrchestrationHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.recovery_state, "degraded-but-recovering")}</td>
+                          <td className="p-3">{getString(item.distributed_orchestration_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.distributed_orchestration_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No distributed orchestration history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Blockers and Rationale</h3>
+                <StatusBadge label={distributedOrchestrationRecoveryState} tone={distributedOrchestrationRecoveryState === "recovered" ? "ok" : distributedOrchestrationRecoveryState === "unresolved-blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div>Final recovery state: {distributedOrchestrationRecoveryState}</div>
+                <div>Recovery rationale: {getString(distributedOrchestrationRationale.summary, "n/a")}</div>
+                <div>Score impact: {getNumber(distributedOrchestrationRationale.score_impact?.base_score, 0).toFixed(2)} {"->"} {getNumber(distributedOrchestrationRationale.score_impact?.final_score, distributedOrchestrationScore).toFixed(2)}</div>
+                <div>Blocker sources: {String(distributedOrchestrationBlockerSources.length)}</div>
+                <div>Unresolved blockers: {String(distributedOrchestrationBlockers.length)}</div>
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  {distributedOrchestrationBlockers.length ? (
+                    distributedOrchestrationBlockers.map((blocker, index) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {getString(blocker, "n/a")}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved blockers remain in the staged evidence.</div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {distributedOrchestrationBlockerSources.map((source: Record<string, any>) => (
+                    <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
+                      <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>
+                      <div className="text-slate-400">Blockers: {String(Array.isArray(source.blockers) ? source.blockers.length : 0)}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

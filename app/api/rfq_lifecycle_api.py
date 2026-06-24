@@ -28,6 +28,7 @@ from app.services.production_supervision_command_service import ProductionSuperv
 from app.services.production_audit_governance_service import ProductionAuditGovernanceService
 from app.services.production_incident_governance_service import ProductionIncidentGovernanceService
 from app.services.production_continuity_governance_service import ProductionContinuityGovernanceService
+from app.services.distributed_orchestration_governance_service import DistributedOrchestrationGovernanceService
 from app.services.runtime_remediation_governance_service import RuntimeRemediationGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
 from app.services.physical_submission_governance_service import PhysicalSubmissionGovernanceService
@@ -169,6 +170,10 @@ def production_continuity_governance_service() -> ProductionContinuityGovernance
 
 def runtime_remediation_governance_service() -> RuntimeRemediationGovernanceService:
     return RuntimeRemediationGovernanceService()
+
+
+def distributed_orchestration_governance_service() -> DistributedOrchestrationGovernanceService:
+    return DistributedOrchestrationGovernanceService()
 
 
 def operations_summary_service() -> PilotOperationsSummaryService:
@@ -765,6 +770,21 @@ def runtime_remediation_latest() -> Dict[str, Any]:
 @router.get("/runtime-remediation/history")
 def runtime_remediation_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return runtime_remediation_governance_service().runtime_remediation_history(limit=limit)
+
+
+@router.get("/distributed-orchestration")
+def distributed_orchestration(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return distributed_orchestration_governance_service().list_distributed_orchestration(limit=limit)
+
+
+@router.get("/distributed-orchestration/latest")
+def distributed_orchestration_latest() -> Dict[str, Any]:
+    return distributed_orchestration_governance_service().latest_distributed_orchestration()
+
+
+@router.get("/distributed-orchestration/history")
+def distributed_orchestration_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return distributed_orchestration_governance_service().distributed_orchestration_history(limit=limit)
 
 
 @router.get("/declaration")

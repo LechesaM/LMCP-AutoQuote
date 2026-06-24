@@ -152,6 +152,8 @@ type VisibilitySnapshot = {
   deadlineHistory: Array<Record<string, any>>;
   stabilityLatest: Record<string, any> | null;
   stabilityHistory: Array<Record<string, any>>;
+  finalGovernanceReleaseReadinessLatest: Record<string, any> | null;
+  finalGovernanceReleaseReadinessHistory: Array<Record<string, any>>;
   warnings: string[];
 };
 
@@ -303,6 +305,8 @@ export default function Home() {
     deadlineHistory: [],
     stabilityLatest: null,
     stabilityHistory: [],
+    finalGovernanceReleaseReadinessLatest: null,
+    finalGovernanceReleaseReadinessHistory: [],
     warnings: [],
   });
 
@@ -422,6 +426,8 @@ export default function Home() {
       { key: "deadlineHistory", path: "/rfq-lifecycle/deadline-governance/history?limit=8" },
       { key: "stabilityLatest", path: "/rfq-lifecycle/stability/latest" },
       { key: "stabilityHistory", path: "/rfq-lifecycle/stability/history?limit=8" },
+      { key: "finalGovernanceReleaseReadinessLatest", path: "/rfq-lifecycle/final-governance-release-readiness/latest" },
+      { key: "finalGovernanceReleaseReadinessHistory", path: "/rfq-lifecycle/final-governance-release-readiness/history?limit=8" },
     ] as const;
 
     const settled = await Promise.allSettled(
@@ -525,6 +531,8 @@ export default function Home() {
       deadlineHistory: [],
       stabilityLatest: null,
       stabilityHistory: [],
+      finalGovernanceReleaseReadinessLatest: null,
+      finalGovernanceReleaseReadinessHistory: [],
       warnings: [],
     };
 
@@ -772,6 +780,11 @@ export default function Home() {
       } else if (key === "stabilityHistory") {
         const cycles = data.cycles;
         next.stabilityHistory = Array.isArray(cycles) ? cycles.slice(0, 8) : [];
+      } else if (key === "finalGovernanceReleaseReadinessLatest") {
+        next.finalGovernanceReleaseReadinessLatest = data;
+      } else if (key === "finalGovernanceReleaseReadinessHistory") {
+        const items = data.final_governance_release_readiness_history;
+        next.finalGovernanceReleaseReadinessHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       }
     }
 
@@ -1231,6 +1244,9 @@ export default function Home() {
   const deadlineLatest = visibility.deadlineLatest || {};
   const deadlineHistory = Array.isArray(visibility.deadlineHistory) ? visibility.deadlineHistory : [];
   const deadlineWarnings = Array.isArray(deadlineLatest.warnings) ? deadlineLatest.warnings : [];
+  const finalGovernanceReleaseReadinessLatest = visibility.finalGovernanceReleaseReadinessLatest || {};
+  const finalGovernanceReleaseReadinessHistory = Array.isArray(visibility.finalGovernanceReleaseReadinessHistory) ? visibility.finalGovernanceReleaseReadinessHistory : [];
+  const finalGovernanceReleaseReadinessWarnings = Array.isArray(finalGovernanceReleaseReadinessLatest.warnings) ? finalGovernanceReleaseReadinessLatest.warnings : [];
   const warnings = [
     ...(Array.isArray(lifecycleTelemetry.warnings) ? lifecycleTelemetry.warnings : []),
     ...(visibility.warnings || []),
@@ -1263,6 +1279,7 @@ export default function Home() {
     ...returnableWarnings,
     ...packagingWarnings,
     ...deadlineWarnings,
+    ...finalGovernanceReleaseReadinessWarnings,
     ...reviewBoardWarnings,
   ];
 
@@ -5581,6 +5598,146 @@ export default function Home() {
                     No final readiness rationale has been recorded yet.
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Final Governance Release Readiness</h2>
+              <p className="text-sm text-slate-400">
+                Aggregated read-only release readiness across Phase 9D governance slices with staging-only supervision and non-autonomous safety controls.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only release readiness" : "Read-only release readiness"}
+              tone="neutral"
+            />
+          </div>
+
+          {finalGovernanceReleaseReadinessWarnings.length ? (
+            <div className="space-y-3">
+              {finalGovernanceReleaseReadinessWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Final governance release readiness is within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <MetricPanel
+              title="Release Readiness"
+              tone={getString(finalGovernanceReleaseReadinessLatest.final_governance_release_readiness_status, "watch") === "ok" ? "ok" : getString(finalGovernanceReleaseReadinessLatest.final_governance_release_readiness_status, "watch") === "blocked" ? "error" : "neutral"}
+              summary={`${getNumber(finalGovernanceReleaseReadinessLatest.final_governance_release_readiness_score, 0).toFixed(2)} readiness score`}
+              items={[
+                ["Status", getString(finalGovernanceReleaseReadinessLatest.final_governance_release_readiness_status, "watch")],
+                ["Authority", getString(finalGovernanceReleaseReadinessLatest.final_governance_release_readiness_authority, "WATCH")],
+                ["Grade", getString(finalGovernanceReleaseReadinessLatest.final_governance_release_readiness_grade, "watch")],
+                ["Recovery", getString(finalGovernanceReleaseReadinessLatest.recovery_state, "degraded-but-recovering")],
+                ["Blockers", String(Array.isArray(finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers) ? finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers.length : 0)],
+                ["History", String(finalGovernanceReleaseReadinessHistory.length)],
+              ]}
+            />
+
+            <MetricPanel
+              title="Safety Boundaries"
+              tone={Object.values(finalGovernanceReleaseReadinessLatest.safety_boundaries || {}).every(Boolean) ? "ok" : "error"}
+              summary={getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.dry_run_enforced).label}
+              items={[
+                ["Read-only", getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.read_only).label],
+                ["Staging-only", getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.staging_only).label],
+                ["Dry-run", getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.dry_run_enforced).label],
+                ["Supervision", getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.human_supervision_required).label],
+                ["Final automation", getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.final_automation_disabled).label],
+                ["No live credentials", getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.no_live_credentials).label],
+                ["No external alerts", getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.no_live_external_alerting).label],
+                ["No prod movement", getBooleanBadge(finalGovernanceReleaseReadinessLatest.safety_boundaries?.no_production_data_movement).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Aggregated Readiness"
+              tone={finalGovernanceReleaseReadinessLatest.final_governance_release_readiness_status === "ok" ? "ok" : "error"}
+              summary={`${Object.values(finalGovernanceReleaseReadinessLatest.safety_boundaries || {}).filter(Boolean).length} safety / ${Object.values(finalGovernanceReleaseReadinessLatest).filter((value) => value && typeof value === "object" && "ready" in value && value.ready).length} component(s) ready`}
+              items={[
+                ["Command centre", getBooleanBadge(finalGovernanceReleaseReadinessLatest.governance_command_centre_readiness?.ready).label],
+                ["Rollout", getBooleanBadge(finalGovernanceReleaseReadinessLatest.rollout_governance_readiness?.ready).label],
+                ["Supervision", getBooleanBadge(finalGovernanceReleaseReadinessLatest.supervision_governance_readiness?.ready).label],
+                ["Audit", getBooleanBadge(finalGovernanceReleaseReadinessLatest.audit_governance_readiness?.ready).label],
+                ["Incident", getBooleanBadge(finalGovernanceReleaseReadinessLatest.incident_governance_readiness?.ready).label],
+                ["Continuity", getBooleanBadge(finalGovernanceReleaseReadinessLatest.continuity_governance_readiness?.ready).label],
+                ["Executive index", getBooleanBadge(finalGovernanceReleaseReadinessLatest.executive_governance_index_readiness?.ready).label],
+                ["Deployment", getBooleanBadge(finalGovernanceReleaseReadinessLatest.production_deployment_governance_readiness?.ready).label],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Release Blockers</h3>
+                <StatusBadge label={`${Array.isArray(finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers) ? finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers.length : 0} blocker(s)`} tone={Array.isArray(finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers) && finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers.length ? "error" : "ok"} />
+              </div>
+              <div className="mt-4 space-y-3">
+                {Array.isArray(finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers) && finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers.length ? (
+                  finalGovernanceReleaseReadinessLatest.unresolved_final_release_blockers.map((blocker: string, index: number) => (
+                    <div key={`${blocker}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-3 text-sm text-amber-100">
+                      {blocker}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+                    No unresolved final governance release blockers are currently recorded.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Final Governance History</h3>
+                <StatusBadge label={`${finalGovernanceReleaseReadinessHistory.length} record(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Event</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-left">Authority</th>
+                      <th className="p-3 text-right">Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {finalGovernanceReleaseReadinessHistory.length ? (
+                      finalGovernanceReleaseReadinessHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.event, "event")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.event, "n/a")}</td>
+                          <td className="p-3">
+                            <StatusBadge label={getString(item.status, "watch")} tone={item.status === "ready" || item.status === "passed" ? "ok" : item.status === "watch" ? "neutral" : "error"} />
+                          </td>
+                          <td className="p-3 text-right">{getNumber(item.score, 0).toFixed(2)}</td>
+                          <td className="p-3">{getString(item.authority, "WATCH")}</td>
+                          <td className="p-3 text-right">{getString(item.timestamp, "n/a")}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={5}>
+                          No final governance release history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

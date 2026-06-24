@@ -43,6 +43,7 @@ from app.services.submission_modality_governance_service import SubmissionModali
 from app.services.signature_governance_service import SignatureGovernanceService
 from app.services.compliance_governance_service import ComplianceGovernanceService
 from app.services.compliance_regulatory_governance_service import ComplianceRegulatoryGovernanceService
+from app.services.final_governance_release_readiness_service import FinalGovernanceReleaseReadinessService
 from app.services.returnable_governance_service import ReturnableGovernanceService
 from app.services.packaging_governance_service import PackagingGovernanceService
 from app.services.deadline_governance_service import DeadlineGovernanceService
@@ -114,6 +115,10 @@ def compliance_governance_service() -> ComplianceGovernanceService:
 
 def compliance_regulatory_governance_service() -> ComplianceRegulatoryGovernanceService:
     return ComplianceRegulatoryGovernanceService()
+
+
+def final_governance_release_readiness_service() -> FinalGovernanceReleaseReadinessService:
+    return FinalGovernanceReleaseReadinessService()
 
 
 def returnable_governance_service() -> ReturnableGovernanceService:
@@ -1110,3 +1115,18 @@ def final_readiness_latest() -> Dict[str, Any]:
 @router.get("/final-readiness/history")
 def final_readiness_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return final_readiness_service().final_readiness_history(limit=limit)
+
+
+@router.get("/final-governance-release-readiness")
+def final_governance_release_readiness(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return final_governance_release_readiness_service().list_final_governance_release_readiness(limit=limit)
+
+
+@router.get("/final-governance-release-readiness/latest")
+def final_governance_release_readiness_latest() -> Dict[str, Any]:
+    return final_governance_release_readiness_service().latest_final_governance_release_readiness()
+
+
+@router.get("/final-governance-release-readiness/history")
+def final_governance_release_readiness_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return final_governance_release_readiness_service().final_governance_release_readiness_history(limit=limit)

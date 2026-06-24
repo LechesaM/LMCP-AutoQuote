@@ -96,6 +96,8 @@ type VisibilitySnapshot = {
   procurementIntelligenceHistory: Array<Record<string, any>>;
   supplierIntelligenceLatest: Record<string, any> | null;
   supplierIntelligenceHistory: Array<Record<string, any>>;
+  boqSemanticUnderstandingLatest: Record<string, any> | null;
+  boqSemanticUnderstandingHistory: Array<Record<string, any>>;
   executiveCommandLatest: Record<string, any> | null;
   executiveCommandHistory: Array<Record<string, any>>;
   governanceIndexLatest: Record<string, any> | null;
@@ -253,6 +255,8 @@ export default function Home() {
     procurementIntelligenceHistory: [],
     supplierIntelligenceLatest: null,
     supplierIntelligenceHistory: [],
+    boqSemanticUnderstandingLatest: null,
+    boqSemanticUnderstandingHistory: [],
     executiveCommandLatest: null,
     executiveCommandHistory: [],
     governanceIndexLatest: null,
@@ -378,6 +382,8 @@ export default function Home() {
       { key: "procurementIntelligenceHistory", path: "/rfq-lifecycle/procurement-intelligence/history?limit=8" },
       { key: "supplierIntelligenceLatest", path: "/rfq-lifecycle/supplier-intelligence/latest" },
       { key: "supplierIntelligenceHistory", path: "/rfq-lifecycle/supplier-intelligence/history?limit=8" },
+      { key: "boqSemanticUnderstandingLatest", path: "/rfq-lifecycle/boq-semantic-understanding/latest" },
+      { key: "boqSemanticUnderstandingHistory", path: "/rfq-lifecycle/boq-semantic-understanding/history?limit=8" },
       { key: "executiveCommandLatest", path: "/rfq-lifecycle/executive-command/latest" },
       { key: "executiveCommandHistory", path: "/rfq-lifecycle/executive-command/history?limit=8" },
       { key: "governanceIndexLatest", path: "/rfq-lifecycle/governance-index/latest" },
@@ -487,6 +493,8 @@ export default function Home() {
       procurementIntelligenceHistory: [],
       supplierIntelligenceLatest: null,
       supplierIntelligenceHistory: [],
+      boqSemanticUnderstandingLatest: null,
+      boqSemanticUnderstandingHistory: [],
       executiveCommandLatest: null,
       executiveCommandHistory: [],
       governanceIndexLatest: null,
@@ -656,6 +664,11 @@ export default function Home() {
       } else if (key === "supplierIntelligenceHistory") {
         const items = data.supplier_intelligence_history;
         next.supplierIntelligenceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "boqSemanticUnderstandingLatest") {
+        next.boqSemanticUnderstandingLatest = data;
+      } else if (key === "boqSemanticUnderstandingHistory") {
+        const items = data.boq_semantic_understanding_history;
+        next.boqSemanticUnderstandingHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "executiveCommandLatest") {
         next.executiveCommandLatest = data;
       } else if (key === "executiveCommandHistory") {
@@ -920,6 +933,23 @@ export default function Home() {
   const supplierIntelligenceHeatmap = supplierIntelligenceLatest.supplier_category_heatmap || {};
   const supplierIntelligenceHistorySummary = supplierIntelligenceLatest.supplier_intelligence_history_summary || {};
   const supplierIntelligenceUnlocks = Array.isArray(supplierIntelligenceLatest.what_this_unlocks) ? supplierIntelligenceLatest.what_this_unlocks : [];
+  const boqSemanticUnderstandingLatest = visibility.boqSemanticUnderstandingLatest || {};
+  const boqSemanticUnderstandingHistory = Array.isArray(visibility.boqSemanticUnderstandingHistory) ? visibility.boqSemanticUnderstandingHistory : [];
+  const boqSemanticUnderstandingWarnings = Array.isArray(boqSemanticUnderstandingLatest.warnings) ? boqSemanticUnderstandingLatest.warnings : [];
+  const boqSemanticUnderstandingStatus = getString(boqSemanticUnderstandingLatest.boq_semantic_understanding_status, "watch");
+  const boqSemanticUnderstandingScore = getNumber(boqSemanticUnderstandingLatest.boq_semantic_understanding_score, 0);
+  const boqSemanticUnderstandingGrade = getString(boqSemanticUnderstandingLatest.boq_semantic_understanding_grade, "blocked");
+  const boqSemanticClassification = boqSemanticUnderstandingLatest.boq_item_classification_readiness || {};
+  const boqSemanticTradeMapping = boqSemanticUnderstandingLatest.trade_package_mapping_readiness || {};
+  const boqSemanticUom = boqSemanticUnderstandingLatest.unit_of_measure_normalization_readiness || {};
+  const boqSemanticQuantity = boqSemanticUnderstandingLatest.quantity_interpretation_readiness || {};
+  const boqSemanticPricing = boqSemanticUnderstandingLatest.pricing_preparation_readiness || {};
+  const boqSemanticRiskScore = getNumber(boqSemanticUnderstandingLatest.measurement_risk_score, 0);
+  const boqSemanticAmbiguousFlags = Array.isArray(boqSemanticUnderstandingLatest.ambiguous_item_flags) ? boqSemanticUnderstandingLatest.ambiguous_item_flags : [];
+  const boqSemanticMissingFlags = Array.isArray(boqSemanticUnderstandingLatest.missing_specification_flags) ? boqSemanticUnderstandingLatest.missing_specification_flags : [];
+  const boqSemanticBlockers = Array.isArray(boqSemanticUnderstandingLatest.unresolved_boq_semantic_blockers) ? boqSemanticUnderstandingLatest.unresolved_boq_semantic_blockers : [];
+  const boqSemanticRowAnalyses = Array.isArray(boqSemanticUnderstandingLatest.boq_row_analyses) ? boqSemanticUnderstandingLatest.boq_row_analyses : [];
+  const boqSemanticHistorySummary = boqSemanticUnderstandingLatest.boq_semantic_understanding_history_summary || {};
   const executiveCommandLatest = visibility.executiveCommandLatest || {};
   const executiveCommandHistory = Array.isArray(visibility.executiveCommandHistory) ? visibility.executiveCommandHistory : [];
   const executiveCommandWarnings = Array.isArray(executiveCommandLatest.warnings) ? executiveCommandLatest.warnings : [];
@@ -6299,6 +6329,160 @@ export default function Home() {
               <div>Supplier document readiness: {supplierIntelligenceDocument.toFixed(2)}</div>
               <div>Geographic suitability: {supplierIntelligenceGeo.toFixed(2)}</div>
               <div>Capacity suitability: {supplierIntelligenceCapacity.toFixed(2)}</div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">BOQ Semantic Understanding</h2>
+              <p className="text-sm text-slate-400">
+                Read-only BOQ line-item understanding for classification, trade/package mapping, unit normalization, quantity interpretation, ambiguity detection, and pricing preparation.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only BOQ semantics" : "Read-only BOQ semantics"}
+              tone="neutral"
+            />
+          </div>
+
+          {boqSemanticUnderstandingWarnings.length ? (
+            <div className="space-y-3">
+              {boqSemanticUnderstandingWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              BOQ semantic understanding remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="BOQ Semantic State"
+              tone={boqSemanticUnderstandingStatus === "ok" ? "ok" : boqSemanticUnderstandingStatus === "blocked" ? "error" : "neutral"}
+              summary={`${boqSemanticUnderstandingGrade} • ${boqSemanticUnderstandingScore.toFixed(2)}`}
+              items={[
+                ["Status", boqSemanticUnderstandingStatus],
+                ["Score", boqSemanticUnderstandingScore.toFixed(2)],
+                ["Grade", boqSemanticUnderstandingGrade],
+                ["Rows", String(boqSemanticRowAnalyses.length)],
+                ["History", String(boqSemanticUnderstandingHistory.length)],
+                ["Latest", getString(boqSemanticUnderstandingLatest.analysis_id, "n/a")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Readiness Signals"
+              tone={boqSemanticClassification.ready && boqSemanticTradeMapping.ready ? "ok" : "neutral"}
+              summary={`${getNumber(boqSemanticClassification.score, 0).toFixed(2)} classification`}
+              items={[
+                ["Classification", getBooleanBadge(boqSemanticClassification.ready).label],
+                ["Trade mapping", getBooleanBadge(boqSemanticTradeMapping.ready).label],
+                ["UOM normalization", getBooleanBadge(boqSemanticUom.ready).label],
+                ["Quantity interpretation", getBooleanBadge(boqSemanticQuantity.ready).label],
+                ["Pricing prep", getBooleanBadge(boqSemanticPricing.ready).label],
+                ["Trade category", getString(boqSemanticUnderstandingLatest.trade_package_category, "general_goods")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Risk & Ambiguity"
+              tone={boqSemanticBlockers.length || boqSemanticRiskScore >= 50 ? "error" : "ok"}
+              summary={`${boqSemanticRiskScore.toFixed(2)} risk`}
+              items={[
+                ["Measurement risk", boqSemanticRiskScore.toFixed(2)],
+                ["Ambiguous flags", String(boqSemanticAmbiguousFlags.length)],
+                ["Missing spec flags", String(boqSemanticMissingFlags.length)],
+                ["Blockers", String(boqSemanticBlockers.length)],
+                ["Rows analysed", String(boqSemanticRowAnalyses.length)],
+                ["Package", getString(boqSemanticUnderstandingLatest.package_category, "goods")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Pricing Preparation"
+              tone={boqSemanticPricing.ready && !boqSemanticBlockers.length ? "ok" : "neutral"}
+              summary={`${getNumber(boqSemanticPricing.score, 0).toFixed(2)} prep score`}
+              items={[
+                ["Classification", getNumber(boqSemanticClassification.score, 0).toFixed(2)],
+                ["Trade mapping", getNumber(boqSemanticTradeMapping.score, 0).toFixed(2)],
+                ["UOM", getNumber(boqSemanticUom.score, 0).toFixed(2)],
+                ["Quantity", getNumber(boqSemanticQuantity.score, 0).toFixed(2)],
+                ["Blockers", String(boqSemanticBlockers.length)],
+                ["History", String(boqSemanticHistorySummary.analysis_count || boqSemanticUnderstandingHistory.length)],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">BOQ Semantic History</h3>
+                <StatusBadge label={`${boqSemanticUnderstandingHistory.length} analysis(es)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                      <th className="p-3 text-right">Risk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {boqSemanticUnderstandingHistory.length ? (
+                      boqSemanticUnderstandingHistory.map((item: Record<string, any>, index: number) => (
+                        <tr key={`${getString(item.analysis_id, "analysis")}-${index}`} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.boq_semantic_understanding_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.boq_semantic_understanding_score, 0).toFixed(2)}</td>
+                          <td className="p-3 text-right">{getNumber(item.measurement_risk_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No BOQ semantic history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Semantic Blockers</h3>
+                <StatusBadge label={`${boqSemanticBlockers.length} blocker(s)`} tone={boqSemanticBlockers.length ? "error" : "ok"} />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div>BOQ item classification readiness: {getBooleanBadge(boqSemanticClassification.ready).label}</div>
+                <div>Trade/package mapping readiness: {getBooleanBadge(boqSemanticTradeMapping.ready).label}</div>
+                <div>Unit-of-measure normalization: {getBooleanBadge(boqSemanticUom.ready).label}</div>
+                <div>Quantity interpretation readiness: {getBooleanBadge(boqSemanticQuantity.ready).label}</div>
+                <div>Pricing preparation readiness: {getBooleanBadge(boqSemanticPricing.ready).label}</div>
+                <div>Measurement risk score: {boqSemanticRiskScore.toFixed(2)}</div>
+                <div>Ambiguous item flags: {boqSemanticAmbiguousFlags.length ? boqSemanticAmbiguousFlags.join(", ") : "none"}</div>
+                <div>Missing specification flags: {boqSemanticMissingFlags.length ? boqSemanticMissingFlags.join(", ") : "none"}</div>
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  {boqSemanticBlockers.length ? (
+                    boqSemanticBlockers.map((blocker, index) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {getString(blocker, "n/a")}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved BOQ semantic blockers remain in the staged evidence.</div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         </section>

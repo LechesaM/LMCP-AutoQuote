@@ -21,6 +21,7 @@ from app.services.operational_stability_service import OperationalStabilityServi
 from app.services.operational_intelligence_service import OperationalIntelligenceService
 from app.services.procurement_intelligence_service import ProcurementIntelligenceService
 from app.services.supplier_intelligence_service import SupplierIntelligenceService
+from app.services.boq_semantic_understanding_service import BoqSemanticUnderstandingService
 from app.services.executive_command_service import ExecutiveCommandService
 from app.services.executive_governance_index_service import ExecutiveGovernanceIndexService
 from app.services.production_operationalization_service import ProductionOperationalizationService
@@ -157,6 +158,10 @@ def procurement_intelligence_service() -> ProcurementIntelligenceService:
 
 def supplier_intelligence_service() -> SupplierIntelligenceService:
     return SupplierIntelligenceService()
+
+
+def boq_semantic_understanding_service() -> BoqSemanticUnderstandingService:
+    return BoqSemanticUnderstandingService()
 
 
 def executive_command_service() -> ExecutiveCommandService:
@@ -705,6 +710,21 @@ def supplier_intelligence_latest() -> Dict[str, Any]:
 @router.get("/supplier-intelligence/history")
 def supplier_intelligence_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return supplier_intelligence_service().supplier_intelligence_history(limit=limit)
+
+
+@router.get("/boq-semantic-understanding")
+def boq_semantic_understanding(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return boq_semantic_understanding_service().list_boq_semantic_understanding(limit=limit)
+
+
+@router.get("/boq-semantic-understanding/latest")
+def boq_semantic_understanding_latest() -> Dict[str, Any]:
+    return boq_semantic_understanding_service().latest_boq_semantic_understanding()
+
+
+@router.get("/boq-semantic-understanding/history")
+def boq_semantic_understanding_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return boq_semantic_understanding_service().boq_semantic_understanding_history(limit=limit)
 
 
 @router.get("/executive-command")

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: regional-failover-placeholder
+data:
+  regional_failover: placeholder
+  primary_region: placeholder
+  failover_region: placeholder
+  failover_region_strategy: placeholder
+  rpo_minutes: "60"
+  rto_minutes: "120"

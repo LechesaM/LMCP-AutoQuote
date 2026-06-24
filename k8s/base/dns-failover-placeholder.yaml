@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dns-failover-placeholder
+data:
+  dns_failover: placeholder
+  primary_dns_record: placeholder
+  failover_dns_record: placeholder
+  dns_provider: placeholder
+  failover_strategy: placeholder
+  rto_minutes: "120"

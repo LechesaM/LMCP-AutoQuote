@@ -34,6 +34,7 @@ from app.services.ingress_governance_service import IngressGovernanceService
 from app.services.distributed_observability_governance_service import DistributedObservabilityGovernanceService
 from app.services.autoscaling_governance_service import AutoscalingGovernanceService
 from app.services.backup_restore_governance_service import BackupRestoreGovernanceService
+from app.services.disaster_recovery_governance_service import DisasterRecoveryGovernanceService
 from app.services.multi_tenant_governance_service import MultiTenantGovernanceService
 from app.services.runtime_remediation_governance_service import RuntimeRemediationGovernanceService
 from app.services.supervised_rfq_intake_service import SupervisedRfqIntakeService
@@ -200,6 +201,10 @@ def autoscaling_governance_service() -> AutoscalingGovernanceService:
 
 def backup_restore_governance_service() -> BackupRestoreGovernanceService:
     return BackupRestoreGovernanceService()
+
+
+def disaster_recovery_governance_service() -> DisasterRecoveryGovernanceService:
+    return DisasterRecoveryGovernanceService()
 
 
 def multi_tenant_governance_service() -> MultiTenantGovernanceService:
@@ -905,6 +910,21 @@ def backup_restore_governance_latest() -> Dict[str, Any]:
 @router.get("/backup-restore-governance/history")
 def backup_restore_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
     return backup_restore_governance_service().backup_restore_governance_history(limit=limit)
+
+
+@router.get("/disaster-recovery-governance")
+def disaster_recovery_governance(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return disaster_recovery_governance_service().list_disaster_recovery_governance(limit=limit)
+
+
+@router.get("/disaster-recovery-governance/latest")
+def disaster_recovery_governance_latest() -> Dict[str, Any]:
+    return disaster_recovery_governance_service().latest_disaster_recovery_governance()
+
+
+@router.get("/disaster-recovery-governance/history")
+def disaster_recovery_governance_history(limit: int = Query(default=20, ge=1, le=100)) -> Dict[str, Any]:
+    return disaster_recovery_governance_service().disaster_recovery_governance_history(limit=limit)
 
 
 @router.get("/declaration")

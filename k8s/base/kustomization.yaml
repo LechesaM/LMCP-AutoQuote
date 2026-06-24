@@ -38,6 +38,11 @@ resources:
   - backup-storage-secret-placeholder.yaml
   - restore-rehearsal-job-placeholder.yaml
   - backup-retention-policy-placeholder.yaml
+  - regional-failover-placeholder.yaml
+  - warm-standby-placeholder.yaml
+  - dns-failover-placeholder.yaml
+  - cross-region-backup-placeholder.yaml
+  - dr-rehearsal-job-placeholder.yaml
   - ingress.yaml
   - tls-secret-placeholder.yaml
   - cert-manager-placeholder.yaml

@@ -126,6 +126,8 @@ type VisibilitySnapshot = {
   autoscalingGovernanceHistory: Array<Record<string, any>>;
   backupRestoreGovernanceLatest: Record<string, any> | null;
   backupRestoreGovernanceHistory: Array<Record<string, any>>;
+  disasterRecoveryLatest: Record<string, any> | null;
+  disasterRecoveryHistory: Array<Record<string, any>>;
   operatorSessionsLatest: Record<string, any> | null;
   operatorSessionsHistory: Array<Record<string, any>>;
   intakeLatest: Record<string, any> | null;
@@ -271,6 +273,8 @@ export default function Home() {
     autoscalingGovernanceHistory: [],
     backupRestoreGovernanceLatest: null,
     backupRestoreGovernanceHistory: [],
+    disasterRecoveryLatest: null,
+    disasterRecoveryHistory: [],
     operatorSessionsLatest: null,
     operatorSessionsHistory: [],
     intakeLatest: null,
@@ -384,6 +388,8 @@ export default function Home() {
       { key: "autoscalingGovernanceHistory", path: "/rfq-lifecycle/autoscaling-governance/history?limit=8" },
       { key: "backupRestoreGovernanceLatest", path: "/rfq-lifecycle/backup-restore-governance/latest" },
       { key: "backupRestoreGovernanceHistory", path: "/rfq-lifecycle/backup-restore-governance/history?limit=8" },
+      { key: "disasterRecoveryLatest", path: "/rfq-lifecycle/disaster-recovery-governance/latest" },
+      { key: "disasterRecoveryHistory", path: "/rfq-lifecycle/disaster-recovery-governance/history?limit=8" },
       { key: "operatorSessionsLatest", path: "/rfq-lifecycle/operator-sessions/latest" },
       { key: "operatorSessionsHistory", path: "/rfq-lifecycle/operator-sessions/history?limit=8" },
       { key: "intakeLatest", path: "/rfq-lifecycle/intake/latest" },
@@ -481,6 +487,8 @@ export default function Home() {
       autoscalingGovernanceHistory: [],
       backupRestoreGovernanceLatest: null,
       backupRestoreGovernanceHistory: [],
+      disasterRecoveryLatest: null,
+      disasterRecoveryHistory: [],
       operatorSessionsLatest: null,
       operatorSessionsHistory: [],
       intakeLatest: null,
@@ -683,6 +691,11 @@ export default function Home() {
       } else if (key === "backupRestoreGovernanceHistory") {
         const items = data.backup_governance_history;
         next.backupRestoreGovernanceHistory = Array.isArray(items) ? items.slice(0, 8) : [];
+      } else if (key === "disasterRecoveryLatest") {
+        next.disasterRecoveryLatest = data;
+      } else if (key === "disasterRecoveryHistory") {
+        const items = data.disaster_recovery_governance_history;
+        next.disasterRecoveryHistory = Array.isArray(items) ? items.slice(0, 8) : [];
       } else if (key === "operatorSessionsLatest") {
         next.operatorSessionsLatest = data;
       } else if (key === "operatorSessionsHistory") {
@@ -1001,6 +1014,27 @@ export default function Home() {
   const backupBlockers = Array.isArray(backupRestoreGovernanceLatest.unresolved_blockers) ? backupRestoreGovernanceLatest.unresolved_blockers : [];
   const backupBlockerSources = Array.isArray(backupRestoreGovernanceLatest.blocker_sources) ? backupRestoreGovernanceLatest.blocker_sources : [];
   const backupRationale = backupRestoreGovernanceLatest.recovery_rationale || {};
+  const disasterRecoveryLatest = visibility.disasterRecoveryLatest || {};
+  const disasterRecoveryHistory = Array.isArray(visibility.disasterRecoveryHistory) ? visibility.disasterRecoveryHistory : [];
+  const disasterRecoveryWarnings = Array.isArray(disasterRecoveryLatest.warnings) ? disasterRecoveryLatest.warnings : [];
+  const disasterRecoveryStatus = getString(disasterRecoveryLatest.disaster_recovery_governance_status, "watch");
+  const disasterRecoveryAuthority = getString(disasterRecoveryLatest.disaster_recovery_governance_authority, "WATCH");
+  const disasterRecoveryScore = getNumber(disasterRecoveryLatest.disaster_recovery_governance_score, 0);
+  const disasterRecoveryGrade = getString(disasterRecoveryLatest.disaster_recovery_governance_grade, "blocked");
+  const disasterRecoveryRecoveryState = getString(disasterRecoveryLatest.recovery_state, "degraded-but-recovering");
+  const disasterRecoveryHistorySummary = disasterRecoveryLatest.disaster_recovery_governance_history_summary || {};
+  const disasterRecoveryRegional = disasterRecoveryLatest.regional_failover_readiness || {};
+  const disasterRecoveryWarmStandby = disasterRecoveryLatest.warm_standby_readiness || {};
+  const disasterRecoveryCrossRegionBackup = disasterRecoveryLatest.cross_region_backup_readiness || {};
+  const disasterRecoveryDnsFailover = disasterRecoveryLatest.dns_failover_placeholder_readiness || {};
+  const disasterRecoveryRunbook = disasterRecoveryLatest.dr_runbook_readiness || {};
+  const disasterRecoveryRehearsal = disasterRecoveryLatest.dr_rehearsal_readiness || {};
+  const disasterRecoveryEscalation = disasterRecoveryLatest.rpo_rto_escalation_readiness || {};
+  const disasterRecoveryTenantBoundary = disasterRecoveryLatest.tenant_recovery_boundary_readiness || {};
+  const disasterRecoveryDegradation = disasterRecoveryLatest.failover_degradation_indicators || {};
+  const disasterRecoveryBlockers = Array.isArray(disasterRecoveryLatest.unresolved_blockers) ? disasterRecoveryLatest.unresolved_blockers : [];
+  const disasterRecoveryBlockerSources = Array.isArray(disasterRecoveryLatest.blocker_sources) ? disasterRecoveryLatest.blocker_sources : [];
+  const disasterRecoveryRationale = disasterRecoveryLatest.recovery_rationale || {};
   const releaseGovernanceLatest = visibility.releaseGovernanceLatest || {};
   const releaseGovernanceHistory = Array.isArray(visibility.releaseGovernanceHistory) ? visibility.releaseGovernanceHistory : [];
   const releaseGovernanceWarnings = Array.isArray(releaseGovernanceLatest.warnings) ? releaseGovernanceLatest.warnings : [];
@@ -7019,6 +7053,166 @@ export default function Home() {
                 </div>
                 <div className="space-y-2">
                   {backupBlockerSources.map((source: Record<string, any>) => (
+                    <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
+                      <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
+                      <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>
+                      <div className="text-slate-400">Blockers: {String(Array.isArray(source.blockers) ? source.blockers.length : 0)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold">Command Centre Disaster Recovery &amp; Failover Governance</h2>
+              <p className="text-sm text-slate-400">
+                Read-only staging visibility for regional failover, warm standby, cross-region backup, DNS failover placeholders, DR runbooks, rehearsal readiness, and recovery boundaries.
+              </p>
+            </div>
+            <StatusBadge
+              label={APP_ENV === "staging" ? "Staging-only disaster recovery governance" : "Read-only disaster recovery governance"}
+              tone="neutral"
+            />
+          </div>
+
+          {disasterRecoveryWarnings.length ? (
+            <div className="space-y-3">
+              {disasterRecoveryWarnings.map((warning, index) => (
+                <div key={`${warning}-${index}`} className="rounded-xl border border-amber-700 bg-amber-950/50 p-4 text-amber-100">
+                  {warning}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-700 bg-emerald-950/40 p-4 text-emerald-100">
+              Disaster recovery governance remains within the current staging thresholds.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+            <MetricPanel
+              title="Disaster Recovery State"
+              tone={disasterRecoveryRecoveryState === "recovered" ? "ok" : disasterRecoveryRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${disasterRecoveryRecoveryState} • ${disasterRecoveryScore.toFixed(2)}`}
+              items={[
+                ["Status", disasterRecoveryStatus],
+                ["Authority", disasterRecoveryAuthority],
+                ["Score", disasterRecoveryScore.toFixed(2)],
+                ["Grade", disasterRecoveryGrade],
+                ["History", String(disasterRecoveryHistory.length)],
+                ["Trend", getString(disasterRecoveryHistorySummary.score_history?.trend, "stable")],
+              ]}
+            />
+
+            <MetricPanel
+              title="Failover Readiness"
+              tone={disasterRecoveryRegional.ready && disasterRecoveryWarmStandby.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(disasterRecoveryRegional.ready).label} failover / ${getBooleanBadge(disasterRecoveryWarmStandby.ready).label} standby`}
+              items={[
+                ["Regional failover", getBooleanBadge(disasterRecoveryRegional.ready).label],
+                ["Warm standby", getBooleanBadge(disasterRecoveryWarmStandby.ready).label],
+                ["Cross-region backup", getBooleanBadge(disasterRecoveryCrossRegionBackup.ready).label],
+                ["DNS failover", getBooleanBadge(disasterRecoveryDnsFailover.ready).label],
+                ["DR rehearsal", getBooleanBadge(disasterRecoveryRehearsal.ready).label],
+                ["RPO visible", getBooleanBadge(disasterRecoveryEscalation.ready).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Recovery Boundaries"
+              tone={disasterRecoveryTenantBoundary.ready ? "ok" : "neutral"}
+              summary={`${getBooleanBadge(disasterRecoveryTenantBoundary.ready).label} tenant recovery / ${getBooleanBadge(!disasterRecoveryDegradation.cloud_credentials_degradation).label} cloud safety`}
+              items={[
+                ["Tenant boundary", getBooleanBadge(disasterRecoveryTenantBoundary.ready).label],
+                ["Runbook", getBooleanBadge(disasterRecoveryRunbook.ready).label],
+                ["Cross-region backup", getBooleanBadge(disasterRecoveryCrossRegionBackup.ready).label],
+                ["DNS credentials", getBooleanBadge(!disasterRecoveryDegradation.dns_credentials_degradation).label],
+                ["Cloud credentials", getBooleanBadge(!disasterRecoveryDegradation.cloud_credentials_degradation).label],
+                ["Saturation", getBooleanBadge(!disasterRecoveryDegradation.supervision_saturation_degradation).label],
+              ]}
+            />
+
+            <MetricPanel
+              title="Rationale"
+              tone={disasterRecoveryRecoveryState === "recovered" ? "ok" : disasterRecoveryRecoveryState === "unresolved-blocked" ? "error" : "neutral"}
+              summary={`${getNumber(disasterRecoveryRationale.score_impact?.final_score, disasterRecoveryScore).toFixed(2)} final score`}
+              items={[
+                ["Base score", getNumber(disasterRecoveryRationale.score_impact?.base_score, 0).toFixed(2)],
+                ["Deductions", getNumber(disasterRecoveryRationale.score_impact?.deductions, 0).toFixed(2)],
+                ["Final score", getNumber(disasterRecoveryRationale.score_impact?.final_score, disasterRecoveryScore).toFixed(2)],
+                ["Unresolved blockers", String(disasterRecoveryBlockers.length)],
+                ["Blocker sources", String(disasterRecoveryBlockerSources.length)],
+                ["Recovery state", disasterRecoveryRecoveryState],
+              ]}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Disaster Recovery History</h3>
+                <StatusBadge label={`${disasterRecoveryHistory.length} checkpoint(s)`} tone="neutral" />
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-800 text-slate-300">
+                    <tr>
+                      <th className="p-3 text-left">Analysis</th>
+                      <th className="p-3 text-left">State</th>
+                      <th className="p-3 text-left">Status</th>
+                      <th className="p-3 text-right">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {disasterRecoveryHistory.length ? (
+                      disasterRecoveryHistory.map((item: Record<string, any>) => (
+                        <tr key={getString(item.analysis_id, Math.random().toString())} className="border-t border-slate-800">
+                          <td className="p-3 font-medium">{getString(item.analysis_id, "n/a")}</td>
+                          <td className="p-3">{getString(item.recovery_state, "degraded-but-recovering")}</td>
+                          <td className="p-3">{getString(item.disaster_recovery_governance_status, "watch")}</td>
+                          <td className="p-3 text-right">{getNumber(item.disaster_recovery_governance_score, 0).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="p-4 text-slate-400" colSpan={4}>
+                          No disaster recovery governance history is available yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold">Blockers and Boundaries</h3>
+                <StatusBadge label={disasterRecoveryRecoveryState} tone={disasterRecoveryRecoveryState === "recovered" ? "ok" : disasterRecoveryRecoveryState === "unresolved-blocked" ? "error" : "neutral"} />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div>Final recovery state: {disasterRecoveryRecoveryState}</div>
+                <div>Recovery rationale: {getString(disasterRecoveryRationale.summary, "n/a")}</div>
+                <div>Score impact: {getNumber(disasterRecoveryRationale.score_impact?.base_score, 0).toFixed(2)} {"->"} {getNumber(disasterRecoveryRationale.score_impact?.final_score, disasterRecoveryScore).toFixed(2)}</div>
+                <div>Unresolved blockers: {String(disasterRecoveryBlockers.length)}</div>
+                <div>Blocker sources: {String(disasterRecoveryBlockerSources.length)}</div>
+                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950 p-4">
+                  {disasterRecoveryBlockers.length ? (
+                    disasterRecoveryBlockers.map((blocker, index) => (
+                      <div key={`${blocker}-${index}`} className="rounded-lg border border-amber-700/60 bg-amber-950/50 p-3 text-amber-100">
+                        {getString(blocker, "n/a")}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-emerald-200">No unresolved blockers remain in the staged disaster recovery evidence.</div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {disasterRecoveryBlockerSources.map((source: Record<string, any>) => (
                     <div key={getString(source.source, Math.random().toString())} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
                       <div className="font-medium text-slate-100">{getString(source.source, "n/a")}</div>
                       <div className="text-slate-400">Ready: {getBooleanBadge(source.ready).label}</div>

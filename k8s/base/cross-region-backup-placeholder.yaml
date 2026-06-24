@@ -1,0 +1,27 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cross-region-backup-placeholder
+spec:
+  schedule: "15 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: cross-region-backup
+              image: ghcr.io/lmcp/cross-region-backup:placeholder
+              env:
+                - name: cross_region_backup
+                  value: placeholder
+                - name: backup_region
+                  value: placeholder
+                - name: backup_schedule
+                  value: daily
+                - name: rpo_minutes
+                  value: "60"
+              command:
+                - /bin/sh
+                - -c
+                - echo cross-region backup placeholder
+          restartPolicy: OnFailure

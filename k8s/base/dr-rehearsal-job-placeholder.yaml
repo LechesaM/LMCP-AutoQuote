@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dr-rehearsal-job-placeholder
+spec:
+  template:
+    spec:
+      containers:
+        - name: dr-rehearsal
+          image: ghcr.io/lmcp/dr-rehearsal:placeholder
+          env:
+            - name: dr_rehearsal
+              value: placeholder
+            - name: failover_drill
+              value: placeholder
+            - name: rto_minutes
+              value: "120"
+          command:
+            - /bin/sh
+            - -c
+            - echo disaster recovery rehearsal placeholder
+      restartPolicy: Never

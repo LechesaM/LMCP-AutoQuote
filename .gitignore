@@ -43,3 +43,4 @@ recovery_freeze/
 *.FINAL_PASS
 *.FINAL_LOCK_CLEAN
 *.FINAL_LOCK_OK
+*.zip

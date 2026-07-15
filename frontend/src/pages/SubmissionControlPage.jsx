@@ -1,4 +1,4 @@
-import SubmissionControlActions from "../components/dashboard/SubmissionControlActions";
+import SubmissionControlActions from "../components/SubmissionControlActions";
 
 export default function SubmissionControlPage() {
   return (

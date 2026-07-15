@@ -454,7 +454,40 @@ function ReturnablesChecklist({ items }) {
   );
 }
 
-function DetailDrawer({ rfq, activeTab, setActiveTab, onClose, operatorState, onOperatorAction }) {
+async function postEndpoint(path, payload) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail ||
+        data?.message ||
+        `${response.status} ${response.statusText}`
+      );
+    }
+
+    return { ok: true, data };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || "Request failed",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function DetailDrawer({ rfq, activeTab, setActiveTab, onClose, operatorState, onOperatorAction, onGenerateQuotePack, quotePackGeneration }) {
   if (!rfq) return null;
   const urgency = urgencyMeta(rfq.closing_date);
   const localDecision = operatorState[rfq.id];
@@ -484,9 +517,26 @@ function DetailDrawer({ rfq, activeTab, setActiveTab, onClose, operatorState, on
           <button type="button" onClick={() => onOperatorAction(rfq.id, "Marked for Review")}><AlertTriangle size={15} />Mark for Review</button>
           <button type="button" onClick={() => onOperatorAction(rfq.id, "On Hold")}><PauseCircle size={15} />Hold</button>
           <button type="button" onClick={() => onOperatorAction(rfq.id, "Approved for Quote Prep")}><ThumbsUp size={15} />Approve for Quote Prep</button>
+          <button
+            type="button"
+            disabled={quotePackGeneration?.loading}
+            onClick={() => onGenerateQuotePack(rfq)}
+          >
+            <FolderOpen size={15} />
+            {quotePackGeneration?.loading ? "Generating Quote Pack…" : "Generate Quote Pack"}
+          </button>
           <button type="button" onClick={() => onOperatorAction(rfq.id, "Rejected Opportunity")}><Ban size={15} />Reject Opportunity</button>
         </div>
         {localDecision ? <div className="rfq-local-state">Local operator state: {localDecision}</div> : null}
+        {quotePackGeneration?.error ? (
+          <div className="rfq-warning">
+            <AlertTriangle size={16} />
+            {quotePackGeneration.error}
+          </div>
+        ) : null}
+        {quotePackGeneration?.message ? (
+          <div className="rfq-local-state">{quotePackGeneration.message}</div>
+        ) : null}
 
         <div className="rfq-tabs" role="tablist">
           {DRAWER_TABS.map((tab) => (
@@ -566,6 +616,13 @@ export default function RfqOperationsWorkspace() {
   const [selectedId, setSelectedId] = useState("");
   const [activeTab, setActiveTab] = useState("Overview");
   const [operatorState, setOperatorState] = useState({});
+  const [quotePackGeneration, setQuotePackGeneration] = useState({
+    loading: false,
+    rfqId: "",
+    packId: "",
+    message: "",
+    error: "",
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -631,6 +688,80 @@ export default function RfqOperationsWorkspace() {
 
   function setLocalAction(id, action) {
     setOperatorState((prev) => ({ ...prev, [id]: action }));
+  }
+
+  async function generateQuotePackFromRfq(rfq) {
+    if (!rfq || rfq._demo) {
+      setQuotePackGeneration({
+        loading: false,
+        rfqId: rfq?.id || "",
+        packId: "",
+        message: "",
+        error: "Quote-pack generation requires a live RFQ record.",
+      });
+      return;
+    }
+
+    setQuotePackGeneration({
+      loading: true,
+      rfqId: rfq.id,
+      packId: "",
+      message: "",
+      error: "",
+    });
+
+    const response = await postEndpoint(
+      "/quote-compilation/generate-local-pack",
+      {
+        id: rfq.id,
+        rfq_id: rfq.id,
+        rfq_reference: rfq.reference,
+        reference: rfq.reference,
+        title: rfq.title,
+        buyer: rfq.buyer,
+      }
+    );
+
+    if (!response.ok) {
+      setQuotePackGeneration({
+        loading: false,
+        rfqId: rfq.id,
+        packId: "",
+        message: "",
+        error: response.error || "Quote-pack generation failed.",
+      });
+      return;
+    }
+
+    const packId =
+      response.data?.manifest?.pack_id ||
+      response.data?.pack_id ||
+      "";
+
+    setOperatorState((prev) => ({
+      ...prev,
+      [rfq.id]: "Local Quote Pack Generated",
+    }));
+
+    setQuotePackGeneration({
+      loading: false,
+      rfqId: rfq.id,
+      packId,
+      message: packId
+        ? `Quote pack ${packId} generated. Opening Quote Pack Engine.`
+        : "Quote pack generated. Opening Quote Pack Engine.",
+      error: "",
+    });
+
+    window.dispatchEvent(
+      new CustomEvent("lmcp-open-quote-pack", {
+        detail: {
+          packId,
+          rfqId: rfq.id,
+          rfqReference: rfq.reference,
+        },
+      })
+    );
   }
 
   const liveCount = endpointState.results.filter((result) => result.ok).length;
@@ -748,6 +879,12 @@ export default function RfqOperationsWorkspace() {
         onClose={() => setSelectedId("")}
         operatorState={operatorState}
         onOperatorAction={setLocalAction}
+        onGenerateQuotePack={generateQuotePackFromRfq}
+        quotePackGeneration={
+          quotePackGeneration.rfqId === selectedRfq?.id
+            ? quotePackGeneration
+            : null
+        }
       />
     </section>
   );

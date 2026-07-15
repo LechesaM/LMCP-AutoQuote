@@ -197,6 +197,33 @@ export default function App() {
     refreshOperatorSession();
   }, []);
 
+  useEffect(() => {
+    function openQuotePackWorkspace(event) {
+      const packId = String(event?.detail?.packId || "").trim();
+
+      if (packId) {
+        window.sessionStorage.setItem(
+          "lmcp-selected-quote-pack-id",
+          packId
+        );
+      }
+
+      setActiveWorkspace("quote-pack-engine");
+    }
+
+    window.addEventListener(
+      "lmcp-open-quote-pack",
+      openQuotePackWorkspace
+    );
+
+    return () => {
+      window.removeEventListener(
+        "lmcp-open-quote-pack",
+        openQuotePackWorkspace
+      );
+    };
+  }, []);
+
   const control = state.lifecycle?.safety?.system_control || {};
   const effectiveStatus = String(control.effective_system_status || state.policy?.policy?.mode || "controlled").toLowerCase();
   const systemOn = Boolean(

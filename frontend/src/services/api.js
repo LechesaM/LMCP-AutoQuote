@@ -109,6 +109,15 @@ export async function getHealth() {
   return safeJson("/health", {}, { status: "offline", loaded_routers: [] });
 }
 
+export async function getWorkflowHealth() {
+  return safeJson("/health/workflows", {}, {
+    status: "offline",
+    controlled_status: "controlled",
+    workflow_checks: {},
+    router_health: {},
+  });
+}
+
 export async function getAutonomousStatus() {
   return firstLive([
     "/v48-autonomous/status",

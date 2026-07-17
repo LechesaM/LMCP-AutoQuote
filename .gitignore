@@ -19,6 +19,11 @@ celerybeat-schedule
 
 # Environment files
 .env
+*gmail*client*secret*.json
+*gmail*credentials*.json
+*gmail*token*.json
+client_secret*.json
+token.json
 
 # Python cache
 __pycache__/
@@ -44,3 +49,10 @@ recovery_freeze/
 *.FINAL_LOCK_CLEAN
 *.FINAL_LOCK_OK
 *.zip
+
+# Gmail OAuth credentials and tokens
+secrets/gmail/credentials.json
+secrets/gmail/token.json
+credentials.json
+token.json
+client_secret_*.json

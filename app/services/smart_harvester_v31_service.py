@@ -12,20 +12,21 @@ Purpose:
 """
 
 import json
-import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
 from app.services.smart_rfq_detection_service import filter_smart_rfqs
 
 SERVICE_VERSION = "V31_SMART_HARVESTER_REAL_RFQ_DETECTION"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 RUNTIME_DIR = PROJECT_ROOT / "runtime"
 V31_DIR = RUNTIME_DIR / "v31_smart_harvester"
 LOG_DIR = V31_DIR / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_v31_runtime_dirs() -> None:
+    ensure_directories([LOG_DIR])
 
 
 def _now() -> str:
@@ -34,6 +35,7 @@ def _now() -> str:
 
 def _write_log(name: str, payload: Dict[str, Any]) -> str:
     try:
+        ensure_v31_runtime_dirs()
         stamp = datetime.now().strftime("%Y%m%d%H%M%S")
         path = LOG_DIR / f"{name}_{stamp}.json"
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
@@ -48,6 +50,7 @@ def run_smart_national_tender_radar(
     enable_auto_quote: bool = True,
     persist_to_live_store: bool = True,
 ) -> Dict[str, Any]:
+    ensure_v31_runtime_dirs()
     from app.services.tender_harvester import run_national_tender_radar
 
     # First harvest WITHOUT auto-quote. We classify first, then submit only clean accepted RFQs.

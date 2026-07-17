@@ -21,16 +21,18 @@ import json
 import os
 import re
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List
+
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
 
 SERVICE_VERSION = "V36_INTERACTIVE_PLAYWRIGHT_EXTRACTOR"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOG_DIR = PROJECT_ROOT / "runtime" / "v36_interactive_playwright" / "logs"
 PROOF_DIR = PROJECT_ROOT / "runtime" / "v36_interactive_playwright" / "proof"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-PROOF_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_v36_runtime_dirs() -> None:
+    ensure_directories([LOG_DIR, PROOF_DIR])
 
 HEADLESS = str(os.getenv("V36_HEADLESS", "true")).strip().lower() == "true"
 TIMEOUT_MS = int(str(os.getenv("V36_TIMEOUT_MS", "60000")).strip() or "60000")
@@ -116,6 +118,7 @@ def _lower(v: Any) -> str:
 
 def _write_log(prefix: str, payload: Dict[str, Any]) -> str:
     try:
+        ensure_v36_runtime_dirs()
         path = LOG_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return str(path)
@@ -418,6 +421,7 @@ def _interactive_steps(page, portal: Dict[str, Any]) -> List[str]:
 
 
 def extract_interactive_portal(portal: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_v36_runtime_dirs()
     url = _clean(portal.get("url"))
     if not url:
         return {"status": "error", "service_version": SERVICE_VERSION, "message": "Missing URL", "items": []}

@@ -29,6 +29,7 @@ from app.api.rfq_stable_api import router as rfq_stable_router
 from app.api.submission_history_proof_enrichment_api import router as submission_history_proof_enrichment_router
 from app.api.system_stable_api import router as system_stable_router
 from app.api import mission_control_compat_api
+from app.core.router_activation import is_router_family_enabled, log_router_activation, router_activation_reason
 from app.email_api import router as email_router
 from app.opportunities_api import router as opportunities_router
 from app.tasks_api import router as tasks_router
@@ -41,44 +42,48 @@ APP_VERSION = "2.5.3-v50.7-etenders-promotion-gate"
 app = FastAPI(title="LMCP AutoQuote System", version=APP_VERSION)
 
 RUNTIME_DIR = BASE_DIR / "runtime"
-RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 MONTHLY_QUOTES_DIR = BASE_DIR / "monthly_quotes"
-MONTHLY_QUOTES_DIR.mkdir(parents=True, exist_ok=True)
 
 HANDWRITING_RUNTIME_DIR = RUNTIME_DIR / "handwriting_simulation"
-HANDWRITING_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 TENDER_FORM_RUNTIME_DIR = RUNTIME_DIR / "tender_form_intelligence"
-TENDER_FORM_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 CLICKABLE_NAVIGATION_V40_RUNTIME_DIR = RUNTIME_DIR / "clickable_navigation_v40"
-CLICKABLE_NAVIGATION_V40_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 SUBMISSION_PROOFS_DIR = RUNTIME_DIR / "submission_proofs"
-SUBMISSION_PROOFS_DIR.mkdir(parents=True, exist_ok=True)
 
 PORTAL_SUBMISSION_DIR = RUNTIME_DIR / "portal_submission"
-PORTAL_SUBMISSION_DIR.mkdir(parents=True, exist_ok=True)
 
 FINAL_SUBMISSION_DIR = RUNTIME_DIR / "final_submission_v47_5"
-FINAL_SUBMISSION_DIR.mkdir(parents=True, exist_ok=True)
 
 PROOF_CENTER_DIR = RUNTIME_DIR / "proof_center"
-PROOF_CENTER_DIR.mkdir(parents=True, exist_ok=True)
 
-app.mount("/downloads", StaticFiles(directory=str(MONTHLY_QUOTES_DIR)), name="downloads")
-app.mount("/runtime", StaticFiles(directory=str(RUNTIME_DIR)), name="runtime")
-app.mount("/proofs", StaticFiles(directory=str(SUBMISSION_PROOFS_DIR)), name="proofs")
-app.mount("/portal-runtime", StaticFiles(directory=str(PORTAL_SUBMISSION_DIR)), name="portal-runtime")
-app.mount("/final-submission-runtime", StaticFiles(directory=str(FINAL_SUBMISSION_DIR)), name="final-submission-runtime")
-app.mount("/proof-center-runtime", StaticFiles(directory=str(PROOF_CENTER_DIR)), name="proof-center-runtime")
-app.mount("/handwriting-runtime", StaticFiles(directory=str(HANDWRITING_RUNTIME_DIR)), name="handwriting-runtime")
-app.mount("/tender-form-runtime", StaticFiles(directory=str(TENDER_FORM_RUNTIME_DIR)), name="tender-form-runtime")
-app.mount("/clickable-navigation-v40-runtime", StaticFiles(directory=str(CLICKABLE_NAVIGATION_V40_RUNTIME_DIR)), name="clickable-navigation-v40-runtime")
+RUNTIME_STATIC_DIRS = [
+    RUNTIME_DIR,
+    MONTHLY_QUOTES_DIR,
+    HANDWRITING_RUNTIME_DIR,
+    TENDER_FORM_RUNTIME_DIR,
+    CLICKABLE_NAVIGATION_V40_RUNTIME_DIR,
+    SUBMISSION_PROOFS_DIR,
+    PORTAL_SUBMISSION_DIR,
+    FINAL_SUBMISSION_DIR,
+    PROOF_CENTER_DIR,
+]
+
+app.mount("/downloads", StaticFiles(directory=str(MONTHLY_QUOTES_DIR), check_dir=False), name="downloads")
+app.mount("/runtime", StaticFiles(directory=str(RUNTIME_DIR), check_dir=False), name="runtime")
+app.mount("/proofs", StaticFiles(directory=str(SUBMISSION_PROOFS_DIR), check_dir=False), name="proofs")
+app.mount("/portal-runtime", StaticFiles(directory=str(PORTAL_SUBMISSION_DIR), check_dir=False), name="portal-runtime")
+app.mount("/final-submission-runtime", StaticFiles(directory=str(FINAL_SUBMISSION_DIR), check_dir=False), name="final-submission-runtime")
+app.mount("/proof-center-runtime", StaticFiles(directory=str(PROOF_CENTER_DIR), check_dir=False), name="proof-center-runtime")
+app.mount("/handwriting-runtime", StaticFiles(directory=str(HANDWRITING_RUNTIME_DIR), check_dir=False), name="handwriting-runtime")
+app.mount("/tender-form-runtime", StaticFiles(directory=str(TENDER_FORM_RUNTIME_DIR), check_dir=False), name="tender-form-runtime")
+app.mount("/clickable-navigation-v40-runtime", StaticFiles(directory=str(CLICKABLE_NAVIGATION_V40_RUNTIME_DIR), check_dir=False), name="clickable-navigation-v40-runtime")
 
 loaded_routers: List[str] = []
 failed_routers: List[Tuple[str, str]] = []
+disabled_routers: List[Tuple[str, str]] = []
 _registered_router_keys: Set[str] = set()
 
 
@@ -105,6 +110,11 @@ def _safe_include_router(router_name: str, router: Any) -> None:
 
 
 def _safe_include_optional_router(router_name: str, module_path: str, attribute_name: str = "router") -> None:
+    if not is_router_family_enabled(router_name):
+        reason = router_activation_reason(router_name) or "disabled by operational route baseline"
+        disabled_routers.append((router_name, reason))
+        log_router_activation(router_name, False)
+        return
     try:
         module = importlib.import_module(module_path)
         router = getattr(module, attribute_name)
@@ -245,15 +255,25 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event() -> None:
+    initialize_runtime_static_dirs()
     logger.info("LMCP AutoQuote API startup complete")
     logger.info("Loaded routers: %s", loaded_routers)
     logger.info("Failed routers: %s", failed_routers)
+    logger.info("Disabled routers: %s", disabled_routers)
     logger.info("Runtime static path: %s", RUNTIME_DIR)
     logger.info("Monthly quotes static path: %s", MONTHLY_QUOTES_DIR)
     logger.info("Submission proofs static path: %s", SUBMISSION_PROOFS_DIR)
     logger.info("Portal submission static path: %s", PORTAL_SUBMISSION_DIR)
     logger.info("Final submission static path: %s", FINAL_SUBMISSION_DIR)
     logger.info("Proof center static path: %s", PROOF_CENTER_DIR)
+
+
+def initialize_runtime_static_dirs() -> Dict[str, Any]:
+    created = []
+    for path in RUNTIME_STATIC_DIRS:
+        path.mkdir(parents=True, exist_ok=True)
+        created.append(str(path))
+    return {"status": "ok", "directories": created}
 
 
 def _base_status_payload() -> Dict[str, Any]:
@@ -263,6 +283,8 @@ def _base_status_payload() -> Dict[str, Any]:
         "loaded_routers_count": len(loaded_routers),
         "failed_routers": failed_routers,
         "failed_routers_count": len(failed_routers),
+        "disabled_routers": disabled_routers,
+        "disabled_routers_count": len(disabled_routers),
         "downloads_url": "/downloads",
         "runtime_url": "/runtime",
         "portal_runtime_url": "/portal-runtime",
@@ -363,6 +385,25 @@ def health() -> Dict[str, Any]:
         "v50_7_promotion_gate_evaluate_url": "/v50-7-promotion-gate/evaluate",
         "v50_7_promotion_gate_batch_evaluate_url": "/v50-7-promotion-gate/batch-evaluate",
         **_base_status_payload(),
+    }
+
+
+@app.get("/health/workflows")
+def workflow_health() -> Dict[str, Any]:
+    return {
+        "status": "ok" if not failed_routers else "degraded",
+        "service": "LMCP AutoQuote workflows",
+        "loaded_routers_count": len(loaded_routers),
+        "failed_routers_count": len(failed_routers),
+        "disabled_routers_count": len(disabled_routers),
+        "loaded_routers": loaded_routers,
+        "failed_routers": failed_routers,
+        "disabled_routers": disabled_routers,
+        "safety": {
+            "autonomous_default_disabled": True,
+            "high_risk_source_only_routers_default_disabled": True,
+            "read_only": True,
+        },
     }
 
 app.include_router(mission_control_compat_api.router)

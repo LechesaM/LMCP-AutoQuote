@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Tuple
 
 RUNTIME_DIR = Path(os.getenv("LMCP_RUNTIME_DIR", "runtime"))
 PRODUCTION_LOCK_DIR = RUNTIME_DIR / "production_lock"
-PRODUCTION_LOCK_DIR.mkdir(parents=True, exist_ok=True)
 
 LAST_DECISION_FILE = PRODUCTION_LOCK_DIR / "last_decision.json"
 DECISION_HISTORY_FILE = PRODUCTION_LOCK_DIR / "decision_history.json"

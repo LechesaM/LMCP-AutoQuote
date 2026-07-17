@@ -39,8 +39,7 @@ class SystemControlState:
 
 class SystemControlService:
     def __init__(self) -> None:
-        CONTROL_DIR.mkdir(parents=True, exist_ok=True)
-        RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        pass
 
     def _default_state(self) -> SystemControlState:
         return SystemControlState(updated_at=_utc_now_iso())
@@ -308,5 +307,4 @@ def clear_emergency_stop(reason: str = "emergency stop cleared") -> Dict[str, An
 
 def resume_all(reason: str = "all services resumed") -> Dict[str, Any]:
     return system_control_service.resume_all(reason=reason)
-
 

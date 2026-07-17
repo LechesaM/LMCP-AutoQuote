@@ -21,9 +21,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 SERVICE_VERSION = "V25_MONTHLY_CSD_REFRESH_ENGINE"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOCAL_PROJECT_ROOT = Path.cwd().resolve()
 
 COMPLIANCE_DIR = PROJECT_ROOT / "runtime" / "compliance"
@@ -31,8 +32,8 @@ CSD_RUNTIME_DIR = PROJECT_ROOT / "runtime" / "csd_monthly_refresh"
 DOWNLOAD_DIR = CSD_RUNTIME_DIR / "downloads"
 PROOF_DIR = CSD_RUNTIME_DIR / "proof"
 
-for folder in (COMPLIANCE_DIR, CSD_RUNTIME_DIR, DOWNLOAD_DIR, PROOF_DIR):
-    folder.mkdir(parents=True, exist_ok=True)
+def ensure_csd_monthly_runtime_dirs() -> None:
+    ensure_directories([COMPLIANCE_DIR, CSD_RUNTIME_DIR, DOWNLOAD_DIR, PROOF_DIR])
 
 CSD_STATUS_FILE = COMPLIANCE_DIR / "csd_refresh_status.json"
 CSD_REPORT_TARGET = COMPLIANCE_DIR / "CSD_Report.pdf"
@@ -61,6 +62,7 @@ def _safe_int(value: Any, default: int = 1) -> int:
 
 
 def _write_status(status: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_csd_monthly_runtime_dirs()
     status = dict(status or {})
     status.setdefault("service_version", SERVICE_VERSION)
     status.setdefault("checked_at", _utc_now_iso())
@@ -140,12 +142,13 @@ def _candidate_csd_files() -> List[Path]:
 
 
 def _copy_to_standard_csd_report(source: Path) -> str:
-    COMPLIANCE_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_directories([COMPLIANCE_DIR])
     shutil.copy2(source, CSD_REPORT_TARGET)
     return str(CSD_REPORT_TARGET)
 
 
 def _run_playwright_csd_download() -> Dict[str, Any]:
+    ensure_csd_monthly_runtime_dirs()
     login_url = _safe_str(os.getenv("CSD_LOGIN_URL"), "https://secure.csd.gov.za")
     username = _safe_str(os.getenv("CSD_USERNAME"))
     password = _safe_str(os.getenv("CSD_PASSWORD"))
@@ -306,6 +309,7 @@ def _run_playwright_csd_download() -> Dict[str, Any]:
 
 
 def refresh_csd_report(force: bool = False) -> Dict[str, Any]:
+    ensure_csd_monthly_runtime_dirs()
     now = datetime.now()
     schedule = should_run_monthly_csd_refresh(now)
 
@@ -372,6 +376,7 @@ def get_csd_refresh_status() -> Dict[str, Any]:
 
 
 def run_monthly_csd_refresh_if_due() -> Dict[str, Any]:
+    ensure_csd_monthly_runtime_dirs()
     return refresh_csd_report(force=False)
 
 
@@ -381,4 +386,3 @@ def run(force: bool = False) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     print(json.dumps(refresh_csd_report(force=True), indent=2, default=str))
-

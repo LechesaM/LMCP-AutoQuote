@@ -1,22 +1,22 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 SERVICE_VERSION = "V28_SELF_HEALING_FINAL_AUTOMATION_LAYER"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 RUNTIME_DIR = PROJECT_ROOT / "runtime"
 COMPLIANCE_DIR = RUNTIME_DIR / "compliance"
 FINAL_AUTOMATION_DIR = RUNTIME_DIR / "final_automation"
 FINAL_AUTOMATION_LOGS = FINAL_AUTOMATION_DIR / "logs"
 STANDARD_CSD_REPORT = COMPLIANCE_DIR / "CSD_Report.pdf"
 
-for folder in (COMPLIANCE_DIR, FINAL_AUTOMATION_DIR, FINAL_AUTOMATION_LOGS):
-    folder.mkdir(parents=True, exist_ok=True)
+def ensure_final_automation_runtime_dirs() -> None:
+    ensure_directories([COMPLIANCE_DIR, FINAL_AUTOMATION_DIR, FINAL_AUTOMATION_LOGS])
 
 
 def _now() -> str:
@@ -25,6 +25,7 @@ def _now() -> str:
 
 def _write_log(prefix: str, payload: Dict[str, Any]) -> str:
     try:
+        ensure_final_automation_runtime_dirs()
         stamp = datetime.now().strftime("%Y%m%d%H%M%S")
         path = FINAL_AUTOMATION_LOGS / f"{prefix}_{stamp}.json"
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
@@ -202,6 +203,7 @@ def final_go_live_check() -> Dict[str, Any]:
 
 
 def run_final_automation_once(payload: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    ensure_final_automation_runtime_dirs()
     payload = payload or {}
     go_live = final_go_live_check()
 

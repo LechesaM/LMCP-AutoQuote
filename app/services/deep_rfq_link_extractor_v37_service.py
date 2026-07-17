@@ -12,13 +12,16 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 SERVICE_VERSION = "V37_DEEP_RFQ_LINK_EXTRACTOR"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOG_DIR = PROJECT_ROOT / "runtime" / "v37_deep_rfq_link_extractor" / "logs"
 DOWNLOAD_DIR = PROJECT_ROOT / "runtime" / "v37_deep_rfq_link_extractor" / "downloads"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_v37_runtime_dirs() -> None:
+    ensure_directories([LOG_DIR, DOWNLOAD_DIR])
 
 TIMEOUT = int(str(os.getenv("V37_TIMEOUT", "35")).strip() or "35")
 MAX_DOC_LINKS = int(str(os.getenv("V37_MAX_DOC_LINKS", "20")).strip() or "20")
@@ -41,6 +44,7 @@ def _clean(value: Any) -> str:
 
 def _write_log(prefix: str, payload: Dict[str, Any]) -> str:
     try:
+        ensure_v37_runtime_dirs()
         path = LOG_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return str(path)
@@ -119,6 +123,7 @@ def _download_doc(url: str, rfq_ref: str = "") -> str:
     if not DOWNLOAD_DOCS:
         return ""
     try:
+        ensure_v37_runtime_dirs()
         data = _fetch(url)["bytes"]
         suffix = ".bin"
         low = url.lower().split("?")[0]

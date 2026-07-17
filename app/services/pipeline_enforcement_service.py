@@ -14,7 +14,6 @@ from app.services.go_live_guard_service import (
 
 RUNTIME_DIR = Path("runtime")
 ENFORCEMENT_DIR = RUNTIME_DIR / "pipeline_enforcement"
-ENFORCEMENT_DIR.mkdir(parents=True, exist_ok=True)
 ENFORCEMENT_EVENTS_FILE = ENFORCEMENT_DIR / "enforcement_events.json"
 
 

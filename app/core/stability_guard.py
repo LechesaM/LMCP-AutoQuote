@@ -30,16 +30,9 @@ class StabilityGuard:
 
     def __init__(self) -> None:
         self.base_dir = Path(os.getenv("LMCP_RUNTIME_DIR", "/tmp/lmcp_runtime"))
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-
         self.lock_dir = self.base_dir / "locks"
-        self.lock_dir.mkdir(parents=True, exist_ok=True)
-
         self.health_dir = self.base_dir / "health"
-        self.health_dir.mkdir(parents=True, exist_ok=True)
-
         self.log_dir = self.base_dir / "logs"
-        self.log_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------------
     # BASIC INFO
@@ -49,6 +42,7 @@ class StabilityGuard:
         return datetime.now(timezone.utc).isoformat()
 
     def write_json(self, path: Path, payload: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -200,6 +194,7 @@ class StabilityGuard:
                 do_work()
         """
         lock_path = self.lock_dir / f"{name}.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
 
         fd = None
         try:

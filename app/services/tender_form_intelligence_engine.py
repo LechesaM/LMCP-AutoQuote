@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 ENGINE_VERSION = "V22.7.4_COMPANY_NAME_RECOVERY_LOCK_ENGINE"
 
 try:
@@ -24,7 +26,6 @@ except Exception:
     ImageFont = None
 
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOCAL_PROJECT_ROOT = Path.cwd().resolve()
 
 RUNTIME_DIR = PROJECT_ROOT / "runtime" / "tender_form_intelligence"
@@ -32,8 +33,8 @@ COMPLETED_DIR = RUNTIME_DIR / "completed_forms"
 DEBUG_DIR = RUNTIME_DIR / "debug"
 PROFILE_DIR = RUNTIME_DIR / "stroke_profiles"
 
-for p in (RUNTIME_DIR, COMPLETED_DIR, DEBUG_DIR, PROFILE_DIR):
-    p.mkdir(parents=True, exist_ok=True)
+def ensure_tender_form_runtime_dirs() -> None:
+    ensure_directories([RUNTIME_DIR, COMPLETED_DIR, DEBUG_DIR, PROFILE_DIR])
 
 
 def _safe_filename(value: str, fallback: str = "FORM") -> str:
@@ -1397,6 +1398,7 @@ def _v22_7_3_limit_fields(fields: List[Dict[str, Any]], doc: Any) -> List[Dict[s
 
 
 def build_field_plan(input_pdf: Union[str, Path], payload: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Dict[str, Any]:
+    ensure_tender_form_runtime_dirs()
     payload = _coerce_payload(payload, **kwargs)
     pdf_path = _resolve_path(input_pdf or payload.get("input_pdf") or payload.get("pdf_path"))
 
@@ -1433,6 +1435,7 @@ def complete_pdf_with_stroke_flow(
     payload: Optional[Dict[str, Any]] = None,
     **kwargs: Any,
 ) -> Dict[str, Any]:
+    ensure_tender_form_runtime_dirs()
     payload = _coerce_payload(payload, **kwargs)
 
     if fitz is None:
@@ -1845,4 +1848,3 @@ def complete_with_handwriting(payload: Optional[Dict[str, Any]] = None, **kwargs
 
 def complete_with_stroke_flow(payload: Optional[Dict[str, Any]] = None, **kwargs: Any) -> Dict[str, Any]:
     return complete_tender_form(payload, **kwargs)
-

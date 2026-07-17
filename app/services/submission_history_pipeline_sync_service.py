@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 
 RUNTIME_DIR = Path("runtime")
 SUBMISSION_HISTORY_DIR = RUNTIME_DIR / "submission_history"
-SUBMISSION_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 SUBMISSION_HISTORY_FILE = SUBMISSION_HISTORY_DIR / "submission_history.json"
 MONTHLY_QUOTES_DIR = Path("monthly_quotes")

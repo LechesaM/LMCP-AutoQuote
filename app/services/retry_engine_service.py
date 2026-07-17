@@ -3,7 +3,6 @@ from pathlib import Path
 from datetime import datetime
 
 RETRY_FILE = Path("runtime/retry_engine/retry_queue.json")
-RETRY_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 def _load():
     if not RETRY_FILE.exists():
@@ -11,6 +10,7 @@ def _load():
     return json.loads(RETRY_FILE.read_text())
 
 def _save(data):
+    RETRY_FILE.parent.mkdir(parents=True, exist_ok=True)
     RETRY_FILE.write_text(json.dumps(data, indent=2))
 
 def add_retry(item):

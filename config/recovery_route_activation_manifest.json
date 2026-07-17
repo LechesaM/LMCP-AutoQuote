@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-07-16T01:49:26+02:00",
+  "branch": "recovery/rfq-quote-pack-bridge",
+  "commit": "c02c0d56",
+  "notes": [
+    "Operational startup gating is implemented in app/core/router_activation.py.",
+    "Authoritative route baseline is config/lmcp_v2_operational_route_baseline.json.",
+    "Autonomous API defaults were changed to disabled in source."
+  ],
+  "router_families": [
+    {
+      "family": "sbd_intelligence",
+      "paths": ["/sbd-intelligence/status", "/sbd-intelligence/complete"],
+      "action": "KEEP_CURRENT_BEHAVIOR",
+      "rationale": "Canonical owner matches running OpenAPI operation IDs.",
+      "evidence": "app.api.sbd_intelligence_api"
+    },
+    {
+      "family": "tender_form_intelligence",
+      "paths": ["/tender-form-intelligence/*"],
+      "action": "ENABLE_ON_RESTART",
+      "rationale": "Running API already exposes tender-form intelligence routes; source prefix was corrected.",
+      "evidence": "app.api.tender_form_intelligence_api"
+    },
+    {
+      "family": "rfq_lifecycle_manual_pricing_and_validation",
+      "paths": [
+        "/rfq-lifecycle/manual-pricing/{rfq_id}",
+        "/rfq-lifecycle/reject-terminal-review-items",
+        "/rfq-lifecycle/validate-visible-opportunities"
+      ],
+      "action": "KEEP_CURRENT_BEHAVIOR",
+      "rationale": "Compatibility routes are restored with matching operation IDs. Manual pricing avoids Live RFQ Store upserts and visible-opportunity validation is dry-run/read-only by default.",
+      "evidence": "docs/recovery/rfq_manual_pricing_route_matrix.md"
+    },
+    {
+      "family": "dashboard_manual_review",
+      "paths": ["/dashboard/manual-review/*"],
+      "action": "REQUIRES_OPERATOR_APPROVAL",
+      "rationale": "Historical routes are not restored in the final baseline because active frontend dependency is unproven.",
+      "evidence": "docs/recovery/final_running_route_disposition.md"
+    },
+    {
+      "family": "go_live_pilot",
+      "paths": ["/go-live/pilot-runs", "/go-live/pilot-runs/report", "/go-live/readiness"],
+      "action": "REQUIRES_OPERATOR_APPROVAL",
+      "rationale": "Historical routes are not restored in the final baseline because current go-live guard summary remains the supported surface.",
+      "evidence": "docs/recovery/final_running_route_disposition.md"
+    },
+    {
+      "family": "autonomous_current",
+      "paths": ["/autonomous/*"],
+      "action": "KEEP_CURRENT_BEHAVIOR",
+      "rationale": "Shared autonomous paths remain registered, operation IDs differ, and default state is disabled.",
+      "evidence": "app.autonomous_api"
+    },
+    {
+      "family": "v31_to_v40_acquisition_and_browser",
+      "paths": ["/v31-smart-harvester/*", "/v32-real-rfq-harvester/*", "/v33-real-portal-rfq/*", "/v34-structured-rfq/*", "/v35-playwright-rfq/*", "/v36-interactive-rfq/*", "/v37-deep-rfq/*", "/v38-click-deep-rfq/*", "/v39-true-navigation/*", "/v40-clickable-navigation/*"],
+      "action": "DISABLE_ON_RESTART",
+      "rationale": "Default-denied by app/core/router_activation.py; explicit environment opt-in required.",
+      "evidence": "config/lmcp_v2_operational_route_baseline.json"
+    },
+    {
+      "family": "v43_to_v45_local_artifact_generation",
+      "paths": ["/v43-auto-pricing/*", "/v44-quote-pack/*", "/v45-submission-pack/*"],
+      "action": "DISABLE_ON_RESTART",
+      "rationale": "Default-denied by app/core/router_activation.py; explicit environment opt-in required.",
+      "evidence": "config/lmcp_v2_operational_route_baseline.json"
+    },
+    {
+      "family": "submission_upload_autonomous",
+      "paths": ["/v46-auto-submission/*", "/v47-final-submit/*", "/v47-portal-submission/*", "/v47-smart-upload/*", "/v48-autonomous/*"],
+      "action": "DISABLE_ON_RESTART",
+      "rationale": "Default-denied by app/core/router_activation.py; explicit environment opt-in required.",
+      "evidence": "config/lmcp_v2_operational_route_baseline.json"
+    },
+    {
+      "family": "v50_etenders_acquisition",
+      "paths": ["/v50-*"],
+      "action": "DISABLE_ON_RESTART",
+      "rationale": "Default-denied by app/core/router_activation.py; explicit environment opt-in required.",
+      "evidence": "config/lmcp_v2_operational_route_baseline.json"
+    }
+  ]
+}

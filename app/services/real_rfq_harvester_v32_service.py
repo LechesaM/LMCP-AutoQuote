@@ -14,17 +14,19 @@ Purpose:
 import json
 import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
 from app.services.real_rfq_extractor_v32_service import extract_real_rfqs
 from app.services.smart_rfq_detection_service import filter_smart_rfqs
 
 SERVICE_VERSION = "V32_REAL_RFQ_HARVESTER_UPGRADE"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOG_DIR = PROJECT_ROOT / "runtime" / "v32_real_rfq_harvester" / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_v32_runtime_dirs() -> None:
+    ensure_directories([LOG_DIR])
 
 
 def _now() -> str:
@@ -33,6 +35,7 @@ def _now() -> str:
 
 def _write_log(prefix: str, payload: Dict[str, Any]) -> str:
     try:
+        ensure_v32_runtime_dirs()
         path = LOG_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return str(path)
@@ -57,6 +60,7 @@ def run_v32_real_rfq_harvest(
     persist_to_live_store: bool = True,
     include_review_in_pipeline: bool = False,
 ) -> Dict[str, Any]:
+    ensure_v32_runtime_dirs()
     from app.services.tender_harvester import run_national_tender_radar
 
     # Disable old auto-quote until V32 validates the candidates.

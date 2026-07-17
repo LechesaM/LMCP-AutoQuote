@@ -27,7 +27,6 @@ class AutonomousSupervisor:
     def __init__(self) -> None:
         self.runtime_dir = Path(os.getenv("LMCP_RUNTIME_DIR", "/tmp/lmcp_runtime"))
         self.supervisor_dir = self.runtime_dir / "supervisor"
-        self.supervisor_dir.mkdir(parents=True, exist_ok=True)
 
         self.status_file = self.supervisor_dir / "autonomous_supervisor_status.json"
         self.history_file = self.supervisor_dir / "autonomous_supervisor_history.json"
@@ -36,6 +35,7 @@ class AutonomousSupervisor:
         return datetime.now(timezone.utc).isoformat()
 
     def _write_json(self, path: Path, payload: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)

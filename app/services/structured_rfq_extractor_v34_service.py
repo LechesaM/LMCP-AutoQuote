@@ -29,11 +29,15 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 SERVICE_VERSION = "V34_STRUCTURED_RFQ_EXTRACTOR"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOG_DIR = PROJECT_ROOT / "runtime" / "v34_structured_rfq_extractor" / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_v34_runtime_dirs() -> None:
+    ensure_directories([LOG_DIR])
 
 TIMEOUT = int(str(os.getenv("V34_TIMEOUT", "35")).strip() or "35")
 MAX_ROWS = int(str(os.getenv("V34_MAX_ROWS", "250")).strip() or "250")
@@ -180,6 +184,7 @@ def _lower(value: Any) -> str:
 
 def _write_log(prefix: str, data: Dict[str, Any]) -> str:
     try:
+        ensure_v34_runtime_dirs()
         path = LOG_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
         return str(path)

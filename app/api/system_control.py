@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+from copy import deepcopy
 from typing import Optional
 
 from fastapi import APIRouter, Body
 
 from app.services.system_state_service import (
+    DEFAULT_STATE,
+    STATE_FILE,
     clear_emergency_stop,
     get_system_state,
     pause_harvest,
@@ -32,6 +36,36 @@ def _ok_response(state: dict, message: str) -> dict:
 def system_control_status() -> dict:
     state = get_system_state()
     return _ok_response(state, "system control status fetched")
+
+
+@router.get("/effective-status")
+def system_control_effective_status() -> dict:
+    state = deepcopy(DEFAULT_STATE)
+    source = "default"
+    if STATE_FILE.exists():
+        try:
+            data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                state.update(data)
+                source = str(STATE_FILE)
+        except Exception as exc:
+            state["read_error"] = f"{type(exc).__name__}: {exc}"
+            source = str(STATE_FILE)
+
+    effective = {
+        "system_enabled": bool(state.get("system_on")) and not bool(state.get("emergency_stop")),
+        "harvest_enabled": bool(state.get("system_on")) and not bool(state.get("emergency_stop")) and not bool(state.get("harvest_paused")),
+        "submission_enabled": bool(state.get("system_on")) and not bool(state.get("emergency_stop")) and not bool(state.get("submission_paused")),
+        "emergency_stop": bool(state.get("emergency_stop")),
+    }
+    return {
+        "status": "ok",
+        "message": "effective system control status fetched",
+        "state": state,
+        "effective": effective,
+        "source": source,
+        "read_only": True,
+    }
 
 
 @router.post("/on")
@@ -98,5 +132,4 @@ def system_control_clear_emergency_stop(reason: Optional[str] = Body(default=Non
 def system_control_resume_all(reason: Optional[str] = Body(default=None, embed=True)) -> dict:
     state = resume_all(reason=reason or "all services resumed", last_changed_by="api")
     return _ok_response(state, "all services resumed")
-
 

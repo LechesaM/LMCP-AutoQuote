@@ -22,17 +22,19 @@ import json
 import os
 import re
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urljoin
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 SERVICE_VERSION = "V35_PLAYWRIGHT_LIVE_DOM_EXTRACTOR"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOG_DIR = PROJECT_ROOT / "runtime" / "v35_playwright_live_dom" / "logs"
 PROOF_DIR = PROJECT_ROOT / "runtime" / "v35_playwright_live_dom" / "proof"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-PROOF_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_v35_runtime_dirs() -> None:
+    ensure_directories([LOG_DIR, PROOF_DIR])
 
 HEADLESS = str(os.getenv("V35_HEADLESS", "true")).strip().lower() == "true"
 TIMEOUT_MS = int(str(os.getenv("V35_TIMEOUT_MS", "45000")).strip() or "45000")
@@ -185,6 +187,7 @@ def _lower(value: Any) -> str:
 
 def _write_log(prefix: str, data: Dict[str, Any]) -> str:
     try:
+        ensure_v35_runtime_dirs()
         path = LOG_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
         return str(path)
@@ -497,6 +500,7 @@ def _dedupe(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def extract_live_dom_portal(portal: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_v35_runtime_dirs()
     url = _clean(portal.get("url"))
     if not url:
         return {"status": "error", "service_version": SERVICE_VERSION, "message": "Missing URL", "items": []}

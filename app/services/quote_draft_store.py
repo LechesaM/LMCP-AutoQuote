@@ -9,7 +9,6 @@ from typing import Any, Dict, List
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 RUNTIME_DIR = BASE_DIR / "runtime"
-RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 QUOTE_DRAFT_FILE = RUNTIME_DIR / "quote_drafts.json"
 
@@ -62,6 +61,7 @@ class QuoteDraftStore:
         }
 
         with cls._lock:
+            QUOTE_DRAFT_FILE.parent.mkdir(parents=True, exist_ok=True)
             QUOTE_DRAFT_FILE.write_text(
                 json.dumps(payload, indent=2, ensure_ascii=False),
                 encoding="utf-8",

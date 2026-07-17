@@ -10,7 +10,6 @@ from app.services.websocket_broker import publish_dashboard_event
 
 RUNTIME_DIR = Path("runtime")
 DECISION_DIR = RUNTIME_DIR / "decision_intelligence"
-DECISION_DIR.mkdir(parents=True, exist_ok=True)
 
 DECISION_HISTORY_FILE = DECISION_DIR / "decision_history.json"
 

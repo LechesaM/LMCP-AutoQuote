@@ -9,7 +9,6 @@ from fastapi import Header, HTTPException
 
 RUNTIME_DIR = Path("runtime")
 SECURITY_DIR = RUNTIME_DIR / "security"
-SECURITY_DIR.mkdir(parents=True, exist_ok=True)
 SECURITY_EVENTS_FILE = SECURITY_DIR / "security_events.log"
 
 

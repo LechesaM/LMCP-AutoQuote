@@ -37,7 +37,7 @@ except Exception:
 router = APIRouter(prefix="/autonomous", tags=["Autonomous"])
 
 _AUTONOMOUS_STATE: Dict[str, Any] = {
-    "enabled": True,
+    "enabled": False,
     "updated_at": None,
     "last_run_at": None,
     "last_status": None,

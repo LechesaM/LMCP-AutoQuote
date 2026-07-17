@@ -5,17 +5,19 @@ import json
 import os
 import re
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List
 from urllib.parse import urljoin
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 SERVICE_VERSION = "V38_INTERACTIVE_CLICK_DEEP_EXTRACTION"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOG_DIR = PROJECT_ROOT / "runtime" / "v38_interactive_click_deep_extraction" / "logs"
 PROOF_DIR = PROJECT_ROOT / "runtime" / "v38_interactive_click_deep_extraction" / "proof"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-PROOF_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_v38_runtime_dirs() -> None:
+    ensure_directories([LOG_DIR, PROOF_DIR])
 
 HEADLESS = str(os.getenv("V38_HEADLESS", "true")).strip().lower() == "true"
 TIMEOUT_MS = int(str(os.getenv("V38_TIMEOUT_MS", "60000")).strip() or "60000")
@@ -49,6 +51,7 @@ def _lower(v: Any) -> str:
 
 def _write_log(prefix: str, payload: Dict[str, Any]) -> str:
     try:
+        ensure_v38_runtime_dirs()
         path = LOG_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return str(path)
@@ -295,6 +298,7 @@ def _apply_enrichment(candidate: Dict[str, Any], intel: Dict[str, Any], actions:
 
 
 def deep_click_extract_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_v38_runtime_dirs()
     try:
         from playwright.sync_api import sync_playwright
     except Exception as exc:

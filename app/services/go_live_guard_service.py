@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 
 RUNTIME_DIR = Path("runtime")
 GUARD_DIR = RUNTIME_DIR / "go_live_guards"
-GUARD_DIR.mkdir(parents=True, exist_ok=True)
 
 DUPLICATE_SUBMISSION_FILE = GUARD_DIR / "submission_locks.json"
 GUARD_AUDIT_FILE = GUARD_DIR / "guard_events.json"

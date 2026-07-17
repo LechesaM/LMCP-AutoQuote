@@ -6,7 +6,7 @@ from app.services.tender_form_intelligence_engine import (
     build_glyph_library, complete_tender_form_intelligence, detect_sbd_pages,
     detect_training_template, get_tender_form_intelligence_status, locate_writable_fields,
 )
-router = APIRouter(prefix="/sbd-intelligence", tags=["SBD Intelligence"])
+router = APIRouter(prefix="/tender-form-intelligence", tags=["Tender Form Intelligence"])
 
 @router.get("/status")
 def status() -> Dict[str, Any]:

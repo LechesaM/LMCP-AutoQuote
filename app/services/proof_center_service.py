@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional
 
 RUNTIME_DIR = Path("runtime")
 PROOF_CENTER_DIR = RUNTIME_DIR / "proof_center"
-PROOF_CENTER_DIR.mkdir(parents=True, exist_ok=True)
 
 FINAL_PROOF_DIR = RUNTIME_DIR / "final_submission_v47_5" / "proofs"
 PORTAL_PROOF_DIR = RUNTIME_DIR / "portal_submission" / "proofs"

@@ -19,7 +19,7 @@ def _now_iso() -> str:
 
 
 AUTONOMOUS_STATE: Dict[str, Any] = {
-    "enabled": True,
+    "enabled": False,
     "last_run_at": None,
     "last_status": "idle",
     "last_message": "System not yet run",
@@ -282,5 +282,4 @@ def get_last_autonomous_result() -> Dict[str, Any]:
         "last_message": AUTONOMOUS_STATE.get("last_message"),
         "last_result": AUTONOMOUS_STATE.get("last_result"),
     }
-
 

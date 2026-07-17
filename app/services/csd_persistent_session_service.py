@@ -25,9 +25,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 SERVICE_VERSION = "V25_1_PERSISTENT_CSD_SESSION_ENGINE"
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 RUNTIME_DIR = PROJECT_ROOT / "runtime"
 COMPLIANCE_DIR = RUNTIME_DIR / "compliance"
 PLAYWRIGHT_DIR = RUNTIME_DIR / "playwright"
@@ -38,8 +39,8 @@ PROOF_DIR = CSD_RUNTIME_DIR / "proof"
 STATUS_FILE = COMPLIANCE_DIR / "csd_persistent_session_status.json"
 CSD_REPORT_TARGET = COMPLIANCE_DIR / "CSD_Report.pdf"
 
-for folder in (COMPLIANCE_DIR, PLAYWRIGHT_DIR, CSD_PROFILE_DIR, CSD_RUNTIME_DIR, DOWNLOAD_DIR, PROOF_DIR):
-    folder.mkdir(parents=True, exist_ok=True)
+def ensure_csd_persistent_runtime_dirs() -> None:
+    ensure_directories([COMPLIANCE_DIR, PLAYWRIGHT_DIR, CSD_PROFILE_DIR, CSD_RUNTIME_DIR, DOWNLOAD_DIR, PROOF_DIR])
 
 
 def _now() -> str:
@@ -58,6 +59,7 @@ def _safe_bool(value: Any, default: bool = False) -> bool:
 
 
 def _write_status(payload: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_csd_persistent_runtime_dirs()
     payload = dict(payload or {})
     payload.setdefault("service_version", SERVICE_VERSION)
     payload.setdefault("checked_at", _now())
@@ -98,7 +100,7 @@ def _find_downloaded_pdf() -> Optional[Path]:
 
 
 def _copy_to_standard_report(source: Path) -> str:
-    COMPLIANCE_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_directories([COMPLIANCE_DIR])
     shutil.copy2(source, CSD_REPORT_TARGET)
     return str(CSD_REPORT_TARGET)
 
@@ -119,6 +121,7 @@ def get_persistent_csd_session_status() -> Dict[str, Any]:
 
 
 def start_manual_csd_login_session(headless: Optional[bool] = None, wait_seconds: int = 180) -> Dict[str, Any]:
+    ensure_csd_persistent_runtime_dirs()
     """
     Opens persistent browser profile so the user can log in manually.
 
@@ -184,6 +187,7 @@ def start_manual_csd_login_session(headless: Optional[bool] = None, wait_seconds
 
 
 def refresh_csd_report_with_persistent_session() -> Dict[str, Any]:
+    ensure_csd_persistent_runtime_dirs()
     csd_url = _safe_str(os.getenv("CSD_LOGIN_URL"), "https://secure.csd.gov.za")
     headless = _safe_bool(os.getenv("CSD_HEADLESS"), True)
 
@@ -313,6 +317,7 @@ def refresh_csd_report_with_persistent_session() -> Dict[str, Any]:
 
 
 def clear_persistent_csd_session() -> Dict[str, Any]:
+    ensure_csd_persistent_runtime_dirs()
     try:
         if CSD_PROFILE_DIR.exists():
             shutil.rmtree(CSD_PROFILE_DIR)

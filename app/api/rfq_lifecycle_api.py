@@ -54,6 +54,22 @@ def item(rfq_id: str) -> Dict[str, Any]:
     return service().get_item(rfq_id)
 
 
+@router.get(
+    "/manual-pricing/{rfq_id}",
+    operation_id="manual_pricing_rfq_lifecycle_manual_pricing__rfq_id__get",
+)
+def manual_pricing(rfq_id: str) -> Dict[str, Any]:
+    return service().get_manual_pricing(rfq_id)
+
+
+@router.post(
+    "/manual-pricing/{rfq_id}",
+    operation_id="save_manual_pricing_rfq_lifecycle_manual_pricing__rfq_id__post",
+)
+def save_manual_pricing(rfq_id: str, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    return service().save_manual_pricing(rfq_id, payload)
+
+
 @router.post("/ingest")
 def ingest(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
     return service().ingest(payload)
@@ -105,6 +121,14 @@ def review_recovery(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dic
         max_concurrent_downloads=int(payload.get("max_concurrent_downloads") or 4),
         retry_backoff_seconds=float(payload.get("retry_backoff_seconds") or 0.75),
     )
+
+
+@router.post(
+    "/reject-terminal-review-items",
+    operation_id="reject_terminal_review_items_rfq_lifecycle_reject_terminal_review_items_post",
+)
+def reject_terminal_review_items(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    return service().reject_terminal_review_items(limit=int(payload.get("limit") or 100))
 
 
 @router.post("/retry-ready")
@@ -208,11 +232,26 @@ def run_discovery_cycle(payload: Dict[str, Any] = Body(default_factory=dict)) ->
     )
 
 
+@router.post(
+    "/validate-visible-opportunities",
+    operation_id="validate_visible_opportunities_rfq_lifecycle_validate_visible_opportunities_post",
+)
+def validate_visible_opportunities(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    return service().validate_visible_opportunities(
+        limit=int(payload.get("limit") or 250),
+        timeout_seconds=int(payload.get("timeout_seconds") or 8),
+        max_concurrent_downloads=int(payload.get("max_concurrent_downloads") or 4),
+        retry_backoff_seconds=float(payload.get("retry_backoff_seconds") or 0.75),
+        generate_local_pack=bool(payload.get("generate_local_pack", False)),
+        dry_run=bool(payload.get("dry_run", True)),
+    )
+
+
 # ---------------------------------------------------------------------
 # LMCP Upload Dry-Run Endpoint
 # ---------------------------------------------------------------------
 @router.post("/run-upload-dry-run")
-def run_upload_dry_run_endpoint(payload: dict | None = None):
+def run_upload_dry_run_endpoint(payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     from app.services.upload_dry_run_service import run_upload_dry_run
 
     payload = payload or {}
@@ -220,4 +259,3 @@ def run_upload_dry_run_endpoint(payload: dict | None = None):
         limit=int(payload.get("limit") or 5),
         dry_run=bool(payload.get("dry_run", True)),
     )
-

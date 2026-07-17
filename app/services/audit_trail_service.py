@@ -9,7 +9,6 @@ from app.services.websocket_broker import publish_dashboard_event
 
 RUNTIME_DIR = Path("runtime")
 AUDIT_DIR = RUNTIME_DIR / "audit_trail"
-AUDIT_DIR.mkdir(parents=True, exist_ok=True)
 AUDIT_FILE = AUDIT_DIR / "audit_events.json"
 
 def _now_iso() -> str:

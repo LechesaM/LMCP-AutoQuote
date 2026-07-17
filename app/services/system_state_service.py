@@ -224,8 +224,3 @@ def get_block_reason(scope: str = "system") -> Optional[str]:
         return "submission_paused"
 
     return None
-
-
-initialize_system_state()
-
-

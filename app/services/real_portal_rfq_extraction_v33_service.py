@@ -28,15 +28,19 @@ from urllib.parse import urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+from app.core.runtime_paths import PROJECT_ROOT, ensure_directories
+
 SERVICE_VERSION = "V33_REAL_PORTAL_RFQ_EXTRACTION_ENGINE"
 
 DEFAULT_TIMEOUT = int(str(os.getenv("V33_PORTAL_TIMEOUT", "30")).strip() or "30")
 MAX_LINKS_PER_PORTAL = int(str(os.getenv("V33_MAX_LINKS_PER_PORTAL", "80")).strip() or "80")
 MAX_ROWS_PER_PORTAL = int(str(os.getenv("V33_MAX_ROWS_PER_PORTAL", "80")).strip() or "80")
 
-PROJECT_ROOT = Path(os.getenv("LMCP_PROJECT_ROOT", "/app")).resolve()
 LOG_DIR = PROJECT_ROOT / "runtime" / "v33_real_portal_extraction" / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def ensure_v33_runtime_dirs() -> None:
+    ensure_directories([LOG_DIR])
 
 DEFAULT_PORTALS = [
     {
@@ -146,6 +150,7 @@ def _lower(value: Any) -> str:
 
 def _write_log(prefix: str, payload: Dict[str, Any]) -> str:
     try:
+        ensure_v33_runtime_dirs()
         path = LOG_DIR / f"{prefix}_{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return str(path)

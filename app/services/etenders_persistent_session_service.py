@@ -7,7 +7,6 @@ from typing import Any, Dict
 
 RUNTIME_DIR = Path("runtime")
 DIR = RUNTIME_DIR / "etenders_session"
-DIR.mkdir(parents=True, exist_ok=True)
 
 STATUS_FILE = DIR / "status.json"
 
@@ -17,6 +16,7 @@ def _now():
 
 
 def _save(data: Dict[str, Any]):
+    STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATUS_FILE.write_text(json.dumps(data, indent=2))
     return data
 

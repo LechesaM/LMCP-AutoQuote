@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RUNTIME_DIR = PROJECT_ROOT / "runtime"
-RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
 LIVE_RFQ_STORE_PATH = RUNTIME_DIR / "live_rfqs.json"
 
@@ -55,6 +54,7 @@ def _save_store(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         "count": len(items),
         "items": items,
     }
+    LIVE_RFQ_STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
     LIVE_RFQ_STORE_PATH.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return payload
 
@@ -301,6 +301,10 @@ class LiveRFQStore:
         if isinstance(result, dict):
             return result
         return {"status": "ok"}
+
+    @staticmethod
+    def upsert_rfq(item: Dict[str, Any]) -> Dict[str, Any]:
+        return LiveRFQStore.upsert(item)
 
     @staticmethod
     def promote(items: List[Dict[str, Any]]) -> Dict[str, Any]:

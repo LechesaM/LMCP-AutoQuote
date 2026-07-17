@@ -21,7 +21,6 @@ from reportlab.platypus import (
 RUNTIME_DIR = Path("runtime")
 SUBMISSION_HISTORY_FILE = RUNTIME_DIR / "submission_history" / "submission_history.json"
 PROOF_DIR = RUNTIME_DIR / "submission_proofs"
-PROOF_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _now() -> str:

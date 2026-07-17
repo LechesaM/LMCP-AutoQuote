@@ -18,10 +18,8 @@ logger = logging.getLogger(__name__)
 
 RUNTIME_DIR = Path("runtime")
 CYCLE_DIR = RUNTIME_DIR / "autonomous_cycle"
-CYCLE_DIR.mkdir(parents=True, exist_ok=True)
 
 SUBMISSION_HISTORY_DIR = RUNTIME_DIR / "submission_history"
-SUBMISSION_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 CYCLE_HISTORY_FILE = CYCLE_DIR / "cycle_history.json"
 LAST_CYCLE_FILE = CYCLE_DIR / "last_cycle.json"

@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 
 RUNTIME_DIR = Path("runtime")
 SBD_DIR = RUNTIME_DIR / "sbd_completion"
-SBD_DIR.mkdir(parents=True, exist_ok=True)
 
 SBD_STATUS_FILE = SBD_DIR / "sbd_completion_status.json"
 SBD_HISTORY_FILE = SBD_DIR / "sbd_completion_history.json"
@@ -59,6 +58,7 @@ def _load_list(path: Path) -> List[Dict[str, Any]]:
 
 
 def _save(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, default=str))
 
 

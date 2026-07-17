@@ -9,6 +9,7 @@ from copy import deepcopy
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from email.header import decode_header
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,8 @@ class SupplierQuoteEnvelope:
 class SupplierQuoteIngestionService:
     DEFAULT_IMAP_HOST = os.getenv("IMAP_HOST", "imap.gmail.com")
     DEFAULT_IMAP_PORT = int(os.getenv("IMAP_PORT", "993"))
+    DEFAULT_SAVE_ROOT = Path("runtime") / "supplier_quotes"
+    ENABLEMENT_ENV = "LMCP_SUPPLIER_QUOTE_INGESTION_ENABLED"
 
     SUPPLIER_HINT_FIELDS = (
         "supplier_name",
@@ -57,6 +60,65 @@ class SupplierQuoteIngestionService:
     )
 
     FILE_HINT_EXTENSIONS = {".pdf", ".xlsx", ".xls", ".csv", ".docx", ".doc", ".txt"}
+
+    def __init__(self, env: Optional[Dict[str, str]] = None, save_root: Optional[Path] = None):
+        self.env = env or os.environ
+        self.imap_host = self.env.get("IMAP_HOST", self.DEFAULT_IMAP_HOST)
+        self.imap_port = int(self.env.get("IMAP_PORT", str(self.DEFAULT_IMAP_PORT)))
+        self.email_address = (
+            self.env.get("SUPPLIER_QUOTES_EMAIL")
+            or self.env.get("EMAIL_USERNAME")
+            or self.env.get("IMAP_USERNAME")
+            or self.env.get("GMAIL_USERNAME")
+            or ""
+        )
+        self.save_root = Path(save_root) if save_root is not None else self.DEFAULT_SAVE_ROOT
+
+    @property
+    def enabled(self) -> bool:
+        return self._to_bool(self.env.get(self.ENABLEMENT_ENV), False)
+
+    def is_configured(self) -> bool:
+        return bool(
+            self.imap_host
+            and self.imap_port
+            and self.email_address
+            and (
+                self.env.get("EMAIL_PASSWORD")
+                or self.env.get("IMAP_PASSWORD")
+                or self.env.get("GMAIL_APP_PASSWORD")
+            )
+        )
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "configured": self.is_configured(),
+            "enablement_env": self.ENABLEMENT_ENV,
+            "imap_host": self.imap_host,
+            "imap_port": self.imap_port,
+            "email_address_configured": bool(self.email_address),
+            "credentials_configured": bool(
+                self.env.get("EMAIL_PASSWORD")
+                or self.env.get("IMAP_PASSWORD")
+                or self.env.get("GMAIL_APP_PASSWORD")
+            ),
+            "save_root": str(self.save_root),
+            "polling_started": False,
+            "external_connection_attempted": False,
+            "read_only": True,
+        }
+
+    def ingest_once(self) -> Dict[str, Any]:
+        if not self.enabled:
+            return {
+                "status": "disabled",
+                "reason": f"{self.ENABLEMENT_ENV} is not enabled",
+                "matched_count": 0,
+                "quotes": [],
+                "external_connection_attempted": False,
+            }
+        return self.ingest_supplier_quotes({})
 
     @classmethod
     def ingest_supplier_quotes(cls, payload: Dict[str, Any]) -> Dict[str, Any]:

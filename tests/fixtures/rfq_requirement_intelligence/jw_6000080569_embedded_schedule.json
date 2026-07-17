@@ -1,0 +1,56 @@
+{
+  "rfq_id": "6000080569",
+  "buyer_name": "Johannesburg Water",
+  "reference_number": "6000080569",
+  "title": "Supply and delivery of branded material",
+  "rows": [
+    {
+      "buyer_line_number": "10",
+      "description": "Supply branded replacement part, brand name compulsory, manufacturer datasheet required",
+      "quantity": 300,
+      "unit": "each",
+      "source_type": "embedded_pricing_schedule",
+      "source_document": "Main Document.pdf",
+      "source_page": 1,
+      "source_table": "pricing_table_1",
+      "source_row": 1,
+      "confidence": 0.92
+    },
+    {
+      "buyer_line_number": "20",
+      "description": "Supply branded replacement part, brand name compulsory, manufacturer datasheet required",
+      "quantity": 100,
+      "unit": "each",
+      "source_type": "embedded_pricing_schedule",
+      "source_document": "Main Document.pdf",
+      "source_page": 1,
+      "source_table": "pricing_table_1",
+      "source_row": 2,
+      "confidence": 0.92
+    },
+    {
+      "buyer_line_number": "30",
+      "description": "Supply branded replacement part, brand name compulsory, manufacturer datasheet required",
+      "quantity": 300,
+      "unit": "each",
+      "source_type": "embedded_pricing_schedule",
+      "source_document": "Main Document.pdf",
+      "source_page": 1,
+      "source_table": "pricing_table_1",
+      "source_row": 3,
+      "confidence": 0.92
+    },
+    {
+      "buyer_line_number": "40",
+      "description": "Supply branded replacement part, brand name compulsory, manufacturer datasheet required",
+      "quantity": 100,
+      "unit": "each",
+      "source_type": "embedded_pricing_schedule",
+      "source_document": "Main Document.pdf",
+      "source_page": 1,
+      "source_table": "pricing_table_1",
+      "source_row": 4,
+      "confidence": 0.92
+    }
+  ]
+}

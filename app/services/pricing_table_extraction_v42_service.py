@@ -9,6 +9,12 @@ import math
 import re
 import traceback
 
+from app.services.rfq_requirement_pack_service import (
+    attach_requirement_pack_fields,
+    build_requirement_pack,
+    normalize_requirement_rows,
+)
+
 SERVICE_VERSION = "V42_PRICING_TABLE_EXTRACTION_ENGINE"
 DEFAULT_OUTPUT_DIR = Path("runtime/pricing_table_extraction_v42")
 
@@ -380,6 +386,20 @@ def extract_pricing_tables_from_pdf(
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         out_path = out_root / f"{safe_rfq}__{SERVICE_VERSION}__{timestamp}.json"
 
+        line_item_rows = [asdict(x) for x in line_items]
+        requirement_rows = normalize_requirement_rows(
+            line_item_rows,
+            source_type="embedded_pricing_schedule",
+            source_document=str(input_path),
+            default_confidence=min_confidence,
+            evidence=["pricing_table_extraction_v42"],
+        )
+        requirement_pack = build_requirement_pack(
+            requirement_rows,
+            reference_number=buyer_rfq_number or "",
+            title=input_path.stem,
+        )
+
         result = {
             "status": "ok", "service_version": SERVICE_VERSION,
             "message": "Pricing table extraction completed.",
@@ -396,11 +416,12 @@ def extract_pricing_tables_from_pdf(
                 "has_line_items": len(line_items) > 0,
                 "used_v41_json": bool(v41_json_path),
             },
-            "line_items": [asdict(x) for x in line_items],
+            "line_items": line_item_rows,
             "raw_candidates": raw_candidates[:200],
             "output_json": str(out_path),
             "v41_json_path": v41_json_path,
         }
+        attach_requirement_pack_fields(result, requirement_pack)
         out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
         return result
 

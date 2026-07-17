@@ -67,6 +67,36 @@ def _build_live_store_item(result: Dict[str, Any]) -> Dict[str, Any]:
     return item
 
 
+def _has_live_store_identity(result: Dict[str, Any]) -> bool:
+    identity_keys = (
+        "rfq_id",
+        "buyer_rfq_number",
+        "rfq_number",
+        "reference_number",
+        "document_number",
+        "quote_number",
+        "title",
+        "description",
+        "source_url",
+    )
+    return any(str(result.get(key) or "").strip() for key in identity_keys)
+
+
+def _live_store_record_id(item: Dict[str, Any]) -> str:
+    for key in (
+        "buyer_rfq_number",
+        "rfq_number",
+        "reference_number",
+        "document_number",
+        "quote_number",
+        "title",
+    ):
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return "unknown"
+
+
 def _persist_result_to_live_store_if_requested(
     *,
     result_dict: Dict[str, Any],
@@ -74,33 +104,54 @@ def _persist_result_to_live_store_if_requested(
 ) -> Dict[str, Any]:
     if not persist_to_live_store:
         result_dict["live_store_persisted"] = False
+        result_dict["live_store_persisted_count"] = 0
         return result_dict
 
-    try:
-        if "results" in result_dict and isinstance(result_dict.get("results"), list):
-            items: List[Dict[str, Any]] = []
-            for row in result_dict["results"]:
-                if isinstance(row, dict):
-                    items.append(_build_live_store_item(row))
-            if items:
-                LiveRFQStore.upsert_rfq(item)
-                result_dict["live_store_persisted"] = True
-                result_dict["live_store_persisted_count"] = len(items)
-            else:
-                result_dict["live_store_persisted"] = False
-                result_dict["live_store_persisted_count"] = 0
-            return result_dict
+    rows: List[Any]
+    if "results" in result_dict and isinstance(result_dict.get("results"), list):
+        rows = result_dict["results"]
+    else:
+        rows = [result_dict]
 
-        live_item = _build_live_store_item(result_dict)
-        LiveRFQStore.upsert_rfq(live_item)
-        result_dict["live_store_persisted"] = True
-        result_dict["live_store_persisted_count"] = 1
-        return result_dict
+    persisted_rows: List[Dict[str, Any]] = []
+    skipped_rows: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
 
-    except Exception as exc:
-        result_dict["live_store_persisted"] = False
-        result_dict["live_store_persist_error"] = str(exc)
-        return result_dict
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or not _has_live_store_identity(row):
+            skipped_rows.append({
+                "index": index,
+                "reason": "invalid_or_empty_rfq_result",
+            })
+            continue
+
+        live_item = _build_live_store_item(row)
+        record_id = _live_store_record_id(live_item)
+        try:
+            LiveRFQStore.upsert_rfq(live_item)
+            persisted_rows.append({
+                "index": index,
+                "rfq_key": record_id,
+            })
+        except Exception as exc:
+            errors.append({
+                "index": index,
+                "rfq_key": record_id,
+                "error": str(exc),
+            })
+
+    result_dict["live_store_persisted_count"] = len(persisted_rows)
+    result_dict["live_store_skipped_count"] = len(skipped_rows)
+    if skipped_rows:
+        result_dict["live_store_skipped_rows"] = skipped_rows
+    if errors:
+        result_dict["live_store_persist_errors"] = errors
+        result_dict["live_store_persist_error"] = "; ".join(
+            f"{error['rfq_key']}: {error['error']}" for error in errors
+        )
+    result_dict["live_store_persisted"] = bool(persisted_rows) and not errors
+    result_dict["live_store_persisted_rows"] = persisted_rows
+    return result_dict
 
 
 @router.get("/health", operation_id="tp_health")

@@ -24,6 +24,7 @@ VERIFIED_QUANTITY_STATUSES = {
     "verified_buyer_pdf_quantities",
     "verified_boq_quantities",
     "verified_pricing_schedule_quantities",
+    "verified_requirement_pack_quantities",
 }
 
 BLOCKED_PIPELINE_STATUSES = {

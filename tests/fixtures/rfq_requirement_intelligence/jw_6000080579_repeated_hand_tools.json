@@ -1,0 +1,17 @@
+{
+  "rfq_id": "6000080579",
+  "buyer_name": "Johannesburg Water",
+  "reference_number": "6000080579",
+  "title": "Supply and delivery of hand tools",
+  "rows": [
+    {"buyer_line_number": "10", "material_number": "327", "description": "350 mm pipe wrench brand name required manufacturer datasheet required SANS 1022", "quantity": 40, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 1, "source_table": "pricing_table", "source_row": 1, "confidence": 0.93},
+    {"buyer_line_number": "20", "material_number": "327", "description": "350 mm pipe wrench brand name required manufacturer datasheet required SANS 1022", "quantity": 40, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 1, "source_table": "pricing_table", "source_row": 2, "confidence": 0.93},
+    {"buyer_line_number": "30", "material_number": "302", "description": "Club hammer brand name required manufacturer datasheet required ISO 9001", "quantity": 38, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 1, "source_table": "pricing_table", "source_row": 3, "confidence": 0.93},
+    {"buyer_line_number": "40", "material_number": "302", "description": "Club hammer brand name required manufacturer datasheet required ISO 9001", "quantity": 186, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 1, "source_table": "pricing_table", "source_row": 4, "confidence": 0.93},
+    {"buyer_line_number": "50", "material_number": "328", "description": "450 mm pipe wrench brand name required manufacturer datasheet required samples may be required SANS 1022", "quantity": 40, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 1, "source_table": "pricing_table", "source_row": 5, "confidence": 0.93},
+    {"buyer_line_number": "60", "material_number": "328", "description": "450 mm pipe wrench brand name required manufacturer datasheet required samples may be required SANS 1022", "quantity": 240, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 2, "source_table": "pricing_table", "source_row": 6, "confidence": 0.93},
+    {"buyer_line_number": "70", "material_number": "315", "description": "Combination pliers brand name required manufacturer datasheet required", "quantity": 12, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 2, "source_table": "pricing_table", "source_row": 7, "confidence": 0.93},
+    {"buyer_line_number": "80", "material_number": "1304", "description": "Toolbox brand name required manufacturer datasheet required", "quantity": 6, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 2, "source_table": "pricing_table", "source_row": 8, "confidence": 0.93},
+    {"buyer_line_number": "90", "material_number": "316", "description": "Side cutter brand name required manufacturer datasheet required", "quantity": 18, "unit": "each", "source_type": "embedded_pricing_schedule", "source_document": "RFQ Document.pdf", "source_page": 2, "source_table": "pricing_table", "source_row": 9, "confidence": 0.93}
+  ]
+}

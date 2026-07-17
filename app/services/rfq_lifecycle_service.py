@@ -64,6 +64,7 @@ EXCLUDED_KEYWORDS = {
 SUPPLY_TERMS = {"supply", "delivery", "deliver", "goods", "consumables", "stationery", "ppe", "office"}
 MIN_MARGIN = 25.0
 MIN_PROFIT = 30000.0
+MANUAL_PRICING_DIR = PROJECT_ROOT / "runtime" / "manual_pricing"
 
 DISCOVERY_STORE_CANDIDATES = [
     PROJECT_ROOT / "runtime" / "live_rfqs.json",
@@ -448,6 +449,436 @@ class RfqLifecycleService:
         enriched["buyer_name"] = item.get("buyer_name")
         enriched["title"] = item.get("title")
         return enriched
+
+    def _manual_pricing_path(self, rfq_id: str, create: bool = False) -> Path:
+        if create:
+            MANUAL_PRICING_DIR.mkdir(parents=True, exist_ok=True)
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", str(rfq_id or "").strip()).strip("-") or "rfq"
+        path = (MANUAL_PRICING_DIR / f"{safe_name}.json").resolve()
+        root = MANUAL_PRICING_DIR.resolve()
+        if root not in path.parents and path != root:
+            raise ValueError("Unsafe manual pricing path")
+        if create:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _manual_pricing_file(self, rfq_id: str) -> Dict[str, Any]:
+        try:
+            path = self._manual_pricing_path(rfq_id)
+            if path.exists() and path.is_file():
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {}
+
+    def _manual_pricing_line_item(self, row: Dict[str, Any], index: int, vat_rate: float = 15.0) -> Tuple[Dict[str, Any], List[str]]:
+        issues: List[str] = []
+        description = str(row.get("description") or row.get("item_description") or row.get("name") or "").strip()
+        if not description:
+            issues.append(f"line_{index}_missing_description")
+            description = f"Line {index}"
+
+        quantity = _safe_float(row.get("quantity") or row.get("qty") or row.get("line_quantity"), 0.0)
+        if quantity <= 0:
+            issues.append(f"line_{index}_invalid_quantity")
+            quantity = 0.0
+
+        unit = str(row.get("unit") or row.get("uom") or "each").strip() or "each"
+        unit_cost = _safe_float(row.get("unit_cost") or row.get("cost") or row.get("buy_cost"), 0.0)
+        if unit_cost < 0:
+            issues.append(f"line_{index}_invalid_unit_cost")
+            unit_cost = 0.0
+
+        markup_percent = _safe_float(row.get("markup_percent") or row.get("markup") or row.get("markup_pct"), 0.0)
+        selling_price = _safe_float(
+            row.get("selling_price")
+            or row.get("selling_price_ex_vat")
+            or row.get("unit_price")
+            or row.get("unit_price_ex_vat"),
+            0.0,
+        )
+        if selling_price <= 0 and unit_cost > 0:
+            selling_price = round(unit_cost * (1 + max(0.0, markup_percent) / 100.0), 2)
+        if selling_price <= 0:
+            issues.append(f"line_{index}_invalid_selling_price")
+            selling_price = 0.0
+
+        total_ex_vat = _safe_float(row.get("total") or row.get("total_ex_vat") or row.get("line_total"), 0.0)
+        if total_ex_vat <= 0 and quantity > 0 and selling_price > 0:
+            total_ex_vat = round(quantity * selling_price, 2)
+        vat_rate_value = _safe_float(row.get("vat_rate"), vat_rate)
+        vat_value = _safe_float(row.get("vat") or row.get("vat_amount"), 0.0)
+        if vat_value <= 0 and total_ex_vat > 0:
+            vat_value = round(total_ex_vat * max(0.0, vat_rate_value) / 100.0, 2)
+        total_incl_vat = _safe_float(row.get("total_incl_vat"), 0.0)
+        if total_incl_vat <= 0 and total_ex_vat > 0:
+            total_incl_vat = round(total_ex_vat + vat_value, 2)
+
+        unit_cost_total = round(unit_cost * quantity, 2)
+        profit = round(total_ex_vat - unit_cost_total, 2)
+        line_margin = round((profit / total_ex_vat) * 100.0, 2) if total_ex_vat > 0 else 0.0
+
+        return (
+            {
+                "item_no": row.get("item_no") or row.get("line_no") or index,
+                "description": description,
+                "quantity": quantity,
+                "unit": unit,
+                "unit_cost": round(unit_cost, 2),
+                "markup_percent": round(markup_percent, 2),
+                "selling_price": round(selling_price, 2),
+                "selling_price_ex_vat": round(selling_price, 2),
+                "vat_rate": round(vat_rate_value, 2),
+                "vat": round(vat_value, 2),
+                "vat_amount": round(vat_value, 2),
+                "total": round(total_ex_vat, 2),
+                "total_ex_vat": round(total_ex_vat, 2),
+                "total_incl_vat": round(total_incl_vat, 2),
+                "supplier_source_note": str(row.get("supplier_source_note") or row.get("source_note") or row.get("note") or "").strip(),
+                "unit_cost_total": unit_cost_total,
+                "profit": round(profit, 2),
+                "margin_percent": line_margin,
+            },
+            issues,
+        )
+
+    def _manual_pricing_totals(self, line_items: List[Dict[str, Any]], validation_issues: Optional[List[str]] = None) -> Dict[str, Any]:
+        subtotal_ex_vat = round(sum(_safe_float(item.get("total_ex_vat") or item.get("total"), 0.0) for item in line_items), 2)
+        vat_total = round(sum(_safe_float(item.get("vat_amount") or item.get("vat"), 0.0) for item in line_items), 2)
+        grand_total_inc_vat = round(sum(_safe_float(item.get("total_incl_vat"), 0.0) for item in line_items), 2)
+        total_cost = round(sum(_safe_float(item.get("unit_cost_total"), 0.0) for item in line_items), 2)
+        estimated_profit = round(subtotal_ex_vat - total_cost, 2)
+        margin_percent = round((estimated_profit / subtotal_ex_vat) * 100.0, 2) if subtotal_ex_vat > 0 else 0.0
+        blockers: List[str] = list(validation_issues or [])
+        if subtotal_ex_vat <= 0:
+            blockers.append("missing_manual_pricing_total")
+        if estimated_profit < MIN_PROFIT:
+            blockers.append("below_minimum_profit")
+        if margin_percent < MIN_MARGIN:
+            blockers.append("below_minimum_margin")
+        return {
+            "subtotal_ex_vat": subtotal_ex_vat,
+            "vat_total": vat_total,
+            "grand_total_inc_vat": grand_total_inc_vat,
+            "total_cost": total_cost,
+            "estimated_profit": estimated_profit,
+            "margin_percent": margin_percent,
+            "minimum_profit_required": MIN_PROFIT,
+            "minimum_margin_required": MIN_MARGIN,
+            "verified": not blockers,
+            "blockers": list(blockers),
+        }
+
+    def _manual_pricing_validation(self, payload: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[str]]:
+        vat_rate = _safe_float(payload.get("vat_rate"), 15.0)
+        raw_items = payload.get("line_items") or payload.get("items") or []
+        if isinstance(raw_items, dict):
+            raw_items = [raw_items]
+        if not isinstance(raw_items, list):
+            raw_items = []
+        line_items: List[Dict[str, Any]] = []
+        issues: List[str] = []
+        for index, row in enumerate(raw_items, start=1):
+            if not isinstance(row, dict):
+                issues.append(f"line_{index}_invalid_structure")
+                continue
+            normalized, row_issues = self._manual_pricing_line_item(row, index, vat_rate=vat_rate)
+            line_items.append(normalized)
+            issues.extend(row_issues)
+
+        totals = self._manual_pricing_totals(line_items, issues)
+        deduped: List[str] = []
+        for reason in list(totals.get("blockers") or []) + issues:
+            clean = str(reason or "").strip()
+            if clean and clean not in deduped:
+                deduped.append(clean)
+        totals["blockers"] = deduped
+        totals["verified"] = not deduped
+        return line_items, totals, deduped
+
+    def _resolve_manual_pricing_item(self, rfq_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        item = self.store.get_item(rfq_id)
+        if item:
+            return item, "lifecycle"
+
+        selector = str(rfq_id or "").strip().upper()
+        for row in self._live_store_index().values():
+            values = {
+                str(row.get("rfq_id") or ""),
+                str(row.get("rfq_number") or ""),
+                str(row.get("buyer_rfq_number") or ""),
+                str(row.get("reference_number") or ""),
+                str(row.get("id") or ""),
+                str(row.get("title") or ""),
+            }
+            if any(selector == str(value).strip().upper() for value in values if value):
+                return self._normalize_item(row, source="live_rfq_store"), "live"
+
+        return None, ""
+
+    def get_manual_pricing(self, rfq_id: str) -> Dict[str, Any]:
+        item, _ = self._resolve_manual_pricing_item(rfq_id)
+        if not item:
+            return {"status": "not_found", "rfq_id": rfq_id}
+        saved = self._manual_pricing_file(rfq_id)
+        if not saved:
+            return {
+                "status": "ok",
+                "rfq_id": rfq_id,
+                "manual_pricing": {},
+                "saved": False,
+                "pricing_review_status": item.get("pricing_review_status", ""),
+                "pricing_verification_status": item.get("pricing_verification_status", ""),
+            }
+        return {
+            "status": "ok",
+            "rfq_id": rfq_id,
+            "manual_pricing": saved,
+            "saved": True,
+            "pricing_review_status": saved.get("pricing_review_status") or item.get("pricing_review_status", ""),
+            "pricing_verification_status": saved.get("pricing_verification_status") or item.get("pricing_verification_status", ""),
+        }
+
+    def save_manual_pricing(self, rfq_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        item, item_source = self._resolve_manual_pricing_item(rfq_id)
+        if not item:
+            return {"status": "not_found", "rfq_id": rfq_id}
+
+        line_items, totals, blockers = self._manual_pricing_validation(payload)
+        now = utc_now_iso()
+        manual_pricing_path = self._manual_pricing_path(rfq_id, create=True)
+        record = {
+            "version": "manual_pricing_v1",
+            "rfq_id": rfq_id,
+            "reference_number": item.get("rfq_id") or rfq_id,
+            "buyer_name": item.get("buyer_name", ""),
+            "title": item.get("title", ""),
+            "pricing_review_status": "PRICING_VERIFIED" if totals.get("verified") else "REVIEW_REQUIRED_PRICING",
+            "pricing_verification_status": "verified" if totals.get("verified") else "needs_review",
+            "manual_pricing_required": not totals.get("verified"),
+            "manual_pricing_required_reason": "" if totals.get("verified") else "pricing schedule requires manual completion",
+            "pricing_action": "prepare manual pricing schedule" if not totals.get("verified") else "manual pricing verified",
+            "pricing_review_action": "prepare manual pricing schedule" if not totals.get("verified") else "manual pricing verified",
+            "pricing_verified_at": now if totals.get("verified") else "",
+            "saved_at": now,
+            "updated_at": now,
+            "operator_note": str(payload.get("operator_note") or payload.get("note") or "").strip(),
+            "line_items": line_items,
+            "totals": totals,
+            "validation": {
+                "verified": bool(totals.get("verified")),
+                "blockers": blockers,
+                "minimum_margin_required": MIN_MARGIN,
+                "minimum_profit_required": MIN_PROFIT,
+            },
+            "buyer_pack_path": item.get("buyer_pack_path", item.get("live_buyer_pack_path", "")),
+            "technical_spec_files": item.get("technical_spec_files", []),
+            "returnable_files": item.get("returnable_files", []),
+            "safety": {
+                "local_only": True,
+                "not_submitted": True,
+                "not_uploaded": True,
+                "not_emailed": True,
+                "final_submit_locked": True,
+                "manual_only": True,
+                "live_rfq_store_modified": False,
+            },
+        }
+        manual_pricing_path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
+
+        try:
+            item["manual_pricing_path"] = str(manual_pricing_path.relative_to(PROJECT_ROOT))
+        except ValueError:
+            item["manual_pricing_path"] = str(manual_pricing_path)
+        item["manual_pricing_line_items"] = line_items
+        item["manual_pricing_totals"] = totals
+        item["manual_pricing_validation"] = record["validation"]
+        item["pricing_totals"] = totals
+        item["pricing_line_items"] = line_items
+        item["pricing_verification_status"] = record["pricing_verification_status"]
+        item["pricing_review_status"] = record["pricing_review_status"]
+        item["manual_pricing_required"] = not totals.get("verified")
+        item["manual_pricing_required_reason"] = record["manual_pricing_required_reason"]
+        item["pricing_action"] = record["pricing_action"]
+        item["pricing_review_action"] = record["pricing_review_action"]
+        item["pricing_verified_at"] = record["pricing_verified_at"]
+        item["quote_candidate_status"] = "quote_candidate" if totals.get("verified") else "manual_pricing_required"
+        item["updated_at"] = now
+        if item_source != "lifecycle":
+            item.setdefault("source", "live_rfq_store")
+            item.setdefault("created_at", now)
+        if totals.get("verified"):
+            self._transition(item, "PRICING_VERIFIED", reason="manual pricing validated and verified", event="manual_pricing_verified")
+        else:
+            self._append_audit(item, "manual_pricing_saved", reason="manual pricing requires review", blockers=blockers, success=False)
+
+        self.store.upsert_item(item)
+        return {
+            "status": "ok" if totals.get("verified") else "needs_review",
+            "rfq_id": rfq_id,
+            "manual_pricing_path": item.get("manual_pricing_path", ""),
+            "pricing_review_status": item.get("pricing_review_status", ""),
+            "pricing_verification_status": item.get("pricing_verification_status", ""),
+            "manual_pricing_required": bool(item.get("manual_pricing_required")),
+            "manual_pricing_required_reason": item.get("manual_pricing_required_reason", ""),
+            "pricing_action": item.get("pricing_action", ""),
+            "pricing_review_action": item.get("pricing_review_action", ""),
+            "verified": bool(totals.get("verified")),
+            "line_items": line_items,
+            "totals": totals,
+            "blockers": blockers,
+            "item": item,
+            "safety": record["safety"],
+        }
+
+    def _split_reason_codes(self, value: Any) -> List[str]:
+        if not value:
+            return []
+        if isinstance(value, list):
+            return [str(row).strip() for row in value if str(row).strip()]
+        return [part.strip() for part in str(value).split(";") if part.strip()]
+
+    def _terminal_review_blocker_codes(self, item: Dict[str, Any], enriched: Dict[str, Any]) -> List[str]:
+        reasons = set(self._split_reason_codes(item.get("failure_reason")))
+        reasons.update(self._split_reason_codes(item.get("validation_terminal_reason")))
+        decision = item.get("review_recovery_decision") if isinstance(item.get("review_recovery_decision"), dict) else {}
+        reasons.update(self._split_reason_codes(decision.get("reason")))
+
+        closing_ok, closing_reason = self._closing_date_status(enriched)
+        if not closing_ok and closing_reason in {"missing_closing_date", "closing_date_passed"}:
+            reasons.add(closing_reason)
+
+        terminal: List[str] = []
+        for code in ("not_supply_and_delivery", "closing_date_passed", "missing_closing_date"):
+            if code in reasons:
+                terminal.append(code)
+        if "missing_documents" in reasons and "closing_date_passed" in reasons:
+            terminal.append("expired_with_missing_documents")
+        return terminal
+
+    def reject_terminal_review_items(self, limit: int = 100) -> Dict[str, Any]:
+        review_items = [item for item in self.store.list_items() if str(item.get("current_state") or "").upper() == "REVIEW_REQUIRED"]
+        review_items = review_items[: max(1, int(limit))]
+        live_index = self._live_store_index()
+        processed: List[Dict[str, Any]] = []
+        changed_items: List[Dict[str, Any]] = []
+        rejected_count = 0
+        skipped_count = 0
+
+        for item in review_items:
+            rfq_id = str(item.get("rfq_id") or "")
+            enriched = self._enrich_lifecycle_item(item, live_index)
+            blocker_reasons = self._terminal_review_blocker_codes(item, enriched)
+            if not blocker_reasons:
+                skipped_count += 1
+                processed.append({"rfq_id": rfq_id, "state": item.get("current_state"), "result": "skipped", "blocker_reasons": self._split_reason_codes(item.get("failure_reason"))})
+                continue
+
+            item["terminal_review_cleanup"] = {"action": "rejected", "blocker_reasons": blocker_reasons, "reviewed_at": utc_now_iso()}
+            item["validation_terminal_reason"] = ";".join(blocker_reasons)
+            self._transition(item, "REJECTED", ";".join(blocker_reasons), event="terminal_review_cleanup")
+            rejected_count += 1
+            changed_items.append(item)
+            processed.append({"rfq_id": rfq_id, "state": item.get("current_state"), "result": "rejected", "blocker_reasons": blocker_reasons})
+
+        if changed_items:
+            self.store.update_many(changed_items, {"failed": 0})
+
+        return {
+            "status": "ok",
+            "processed_count": len(processed),
+            "rejected_count": rejected_count,
+            "skipped_count": skipped_count,
+            "items": processed,
+            "safety": self.submission_safety_guard(),
+        }
+
+    def validate_visible_opportunities(
+        self,
+        limit: int = 250,
+        timeout_seconds: int = 8,
+        max_concurrent_downloads: int = 4,
+        retry_backoff_seconds: float = 0.75,
+        generate_local_pack: bool = False,
+        dry_run: bool = True,
+    ) -> Dict[str, Any]:
+        live_items = list(self._live_store_index().values())[: max(1, int(limit))]
+        lifecycle_items = self.store.list_items()
+        lifecycle_index: Dict[str, Dict[str, Any]] = {}
+        for current in lifecycle_items:
+            for key in {
+                str(current.get("rfq_id") or ""),
+                str(current.get("title") or ""),
+                str((current.get("source_payload") or {}).get("rfq_number") or ""),
+                str((current.get("source_payload") or {}).get("buyer_rfq_number") or ""),
+                str((current.get("source_payload") or {}).get("reference_number") or ""),
+            }:
+                clean = key.strip().upper()
+                if clean:
+                    lifecycle_index[clean] = current
+
+        processed: List[Dict[str, Any]] = []
+        promoted_count = 0
+        blocked_count = 0
+        for live_row in live_items:
+            keys = [
+                str(live_row.get("rfq_id") or ""),
+                str(live_row.get("rfq_number") or ""),
+                str(live_row.get("buyer_rfq_number") or ""),
+                str(live_row.get("reference_number") or ""),
+                str(live_row.get("title") or ""),
+            ]
+            lifecycle_item: Dict[str, Any] = {}
+            for key in keys:
+                lifecycle_item = lifecycle_index.get(key.strip().upper()) or {}
+                if lifecycle_item:
+                    break
+            item = dict(lifecycle_item or self._normalize_item(live_row, source="visible_bulk_validation"))
+            enriched = self._enrich_lifecycle_item(item, self._live_store_index())
+            accepted, policy_reasons = self._policy_check(enriched)
+            has_documents = bool(enriched.get("document_paths") or enriched.get("downloaded_documents") or _http_urls_from_payload(enriched))
+            has_pricing = bool(
+                enriched.get("manual_pricing_totals")
+                or enriched.get("pricing_totals")
+                or enriched.get("line_items")
+                or enriched.get("items")
+                or str(enriched.get("pricing_verification_status") or "").lower() == "verified"
+            )
+            promoted = bool(accepted and has_documents and has_pricing)
+            promoted_count += 1 if promoted else 0
+            blocked_count += 0 if promoted else 1
+            processed.append(
+                {
+                    "rfq_id": item.get("rfq_id") or _stable_id(enriched),
+                    "title": item.get("title") or enriched.get("title", ""),
+                    "accepted_by_policy": accepted,
+                    "policy_reasons": policy_reasons,
+                    "document_present": has_documents,
+                    "pricing_present": has_pricing,
+                    "promoted_quote_ready": promoted,
+                    "dry_run": bool(dry_run),
+                    "recommended_action": "quote_ready_review" if promoted else "manual_review_required",
+                }
+            )
+
+        return {
+            "status": "ok",
+            "compatibility_route": True,
+            "dry_run": bool(dry_run),
+            "generate_local_pack_requested": bool(generate_local_pack),
+            "external_validation_executed": False,
+            "live_rfq_store_modified": False,
+            "lifecycle_store_modified": False,
+            "requested_limit": int(limit),
+            "processed_count": len(processed),
+            "promoted_count": promoted_count,
+            "blocked_count": blocked_count,
+            "items": processed,
+            "safety": self.submission_safety_guard(),
+            "compatibility_note": "Recovered route is read-only by default and does not perform historical live-store upserts.",
+        }
 
     def _document_acquisition_step(
         self,

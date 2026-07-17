@@ -9,6 +9,12 @@ import hashlib
 import json
 import re
 
+from app.services.rfq_requirement_pack_service import (
+    attach_requirement_pack_fields,
+    build_requirement_pack,
+    normalize_requirement_rows,
+)
+
 try:
     import requests
 except Exception:  # pragma: no cover
@@ -435,8 +441,12 @@ def _column_indexes(header: List[str]) -> Dict[str, int]:
     indexes: Dict[str, int] = {}
     for i, cell in enumerate(header):
         c = _safe_lower(cell)
+        if "material number" in c or "material no" in c or c == "material":
+            indexes.setdefault("material_number", i)
         if "item code" in c or c in {"code", "item no", "item number", "no"}:
             indexes.setdefault("item_code", i)
+        if "part number" in c or "part no" in c:
+            indexes.setdefault("part_number", i)
         if "description" in c or "specification" in c or "goods" in c or "service" in c:
             indexes.setdefault("description", i)
         if "qty" in c or "quantity" in c:
@@ -445,6 +455,10 @@ def _column_indexes(header: List[str]) -> Dict[str, int]:
             indexes.setdefault("unit", i)
         if "specification" in c:
             indexes.setdefault("specification", i)
+        if "unit price" in c or "unit rate" in c or c == "rate" or "price quoted" in c:
+            indexes.setdefault("buyer_rate", i)
+        if "total price" in c or "total amount" in c or c == "amount":
+            indexes.setdefault("buyer_amount", i)
     return indexes
 
 
@@ -458,8 +472,12 @@ def _row_to_line_item(row: List[str], indexes: Dict[str, int], source: str) -> O
     description = get("description")
     specification = get("specification")
     item_code = get("item_code")
+    material_number = get("material_number")
+    part_number = get("part_number")
     quantity_raw = get("quantity")
     unit = get("unit")
+    buyer_rate = _to_float(get("buyer_rate"))
+    buyer_amount = _to_float(get("buyer_amount"))
 
     if not description and specification:
         description = specification
@@ -502,7 +520,11 @@ def _row_to_line_item(row: List[str], indexes: Dict[str, int], source: str) -> O
         "quantity": quantity,
         "unit": unit,
         "item_code": item_code,
+        "material_number": material_number,
+        "part_number": part_number,
         "specification": specification if specification != description else "",
+        "buyer_rate": buyer_rate,
+        "buyer_amount": buyer_amount,
         "confidence": min(confidence, 0.95),
         "evidence": evidence,
         "source": source,
@@ -531,9 +553,11 @@ def extract_line_items_from_tables(tables: List[List[List[str]]]) -> List[Dict[s
         if "description" not in indexes:
             continue
 
-        for row in table[header_index + 1:]:
+        for row_index, row in enumerate(table[header_index + 1:], start=header_index + 1):
             item = _row_to_line_item(row, indexes, source=f"table_{table_index}")
             if item:
+                item["source_table"] = f"table_{table_index}"
+                item["source_row"] = row_index
                 items.append(item)
 
     return items
@@ -659,6 +683,17 @@ def _normalise_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return normalised
 
 
+def _requirement_source_type(context: Dict[str, Any]) -> str:
+    keywords = " ".join(context.get("boq_keywords_detected") or []).lower()
+    if "bill of quantities" in keywords or re.search(r"\bboq\b", keywords):
+        return "standalone_boq"
+    if "pricing schedule" in keywords or "price schedule" in keywords or "schedule of prices" in keywords:
+        return "embedded_pricing_schedule"
+    if context.get("boq_like_table_count"):
+        return "embedded_pricing_schedule"
+    return "unknown_buyer_table"
+
+
 def _overall_confidence(items: List[Dict[str, Any]], context: Dict[str, Any]) -> float:
     if not items:
         return 0.0
@@ -735,6 +770,20 @@ def extract_rfq_boq(item: Dict[str, Any], timeout_seconds: int = DEFAULT_TIMEOUT
     boq_context = _detect_boq_context(combined_text, all_tables)
     returnables = _detect_returnables(combined_text)
     confidence = _overall_confidence(normalised_items, boq_context)
+    source_type = _requirement_source_type(boq_context)
+    requirement_rows = normalize_requirement_rows(
+        extracted_items,
+        source_type=source_type,
+        default_confidence=confidence,
+        evidence=["rfq_boq_extraction_engine"],
+    )
+    requirement_pack = build_requirement_pack(
+        requirement_rows,
+        rfq_id=_safe_str(item.get("rfq_id") or item.get("id")),
+        reference_number=_safe_str(item.get("reference_number") or item.get("buyer_rfq_number") or item.get("rfq_number")),
+        buyer_name=_safe_str(item.get("buyer_name")),
+        title=title,
+    )
 
     status = "ok"
     if not downloads:
@@ -759,6 +808,7 @@ def extract_rfq_boq(item: Dict[str, Any], timeout_seconds: int = DEFAULT_TIMEOUT
         "reject_fake_quantities": True,
         "line_items": normalised_items,
     }
+    attach_requirement_pack_fields(report, requirement_pack)
 
     extracted_line_items_path = run_dir / "extracted_line_items.json"
     normalised_boq_path = run_dir / "normalized_boq.json"
@@ -771,6 +821,12 @@ def extract_rfq_boq(item: Dict[str, Any], timeout_seconds: int = DEFAULT_TIMEOUT
         "line_items": normalised_items,
         "confidence": confidence,
         "boq_context": boq_context,
+        "rfq_requirement_rows": requirement_rows,
+        "rfq_requirement_rows_count": len(requirement_rows),
+        "verified_requirement_rows_count": int(requirement_pack.get("verified_row_count") or 0),
+        "requirement_rows_review_count": int(requirement_pack.get("review_row_count") or 0),
+        "requirement_pack_status": str(requirement_pack.get("status") or ""),
+        "requirement_pack_version": str(requirement_pack.get("requirement_pack_version") or ""),
     })
     _write_json(report_path, report)
 

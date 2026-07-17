@@ -1,0 +1,98 @@
+{
+  "rfq_id": "RFQJW004NS26-27",
+  "buyer_name": "Johannesburg Water",
+  "reference_number": "RFQJW004NS26-27",
+  "title": "Supply of Hy-Tran oil and filters",
+  "rows": [
+    {
+      "buyer_line_number": "S1",
+      "material_number": "B5509440",
+      "description": "Hy-Tran Oil B5509440",
+      "quantity": 4,
+      "unit": "each",
+      "source_type": "specification_table",
+      "source_document": "Specification Table.pdf",
+      "source_page": 2,
+      "source_table": "specification_table",
+      "source_row": 1,
+      "confidence": 0.86
+    },
+    {
+      "buyer_line_number": "S2",
+      "material_number": "47835564",
+      "description": "Transmission Filter 47835564",
+      "quantity": 1,
+      "unit": "each",
+      "source_type": "specification_table",
+      "source_document": "Specification Table.pdf",
+      "source_page": 2,
+      "source_table": "specification_table",
+      "source_row": 2,
+      "confidence": 0.86
+    },
+    {
+      "buyer_line_number": "S3",
+      "material_number": "51508555",
+      "description": "Hydraulic Filter 51508555",
+      "quantity": 1,
+      "unit": "each",
+      "source_type": "specification_table",
+      "source_document": "Specification Table.pdf",
+      "source_page": 2,
+      "source_table": "specification_table",
+      "source_row": 3,
+      "confidence": 0.86
+    },
+    {
+      "buyer_line_number": "P1",
+      "material_number": "B5509440",
+      "description": "Hy-Tran Oil B5509440",
+      "quantity": 4,
+      "unit": "each",
+      "source_type": "formal_buyer_pricing_schedule",
+      "source_document": "MBD 3.1 Pricing Schedule.pdf",
+      "source_page": 8,
+      "source_table": "mbd_3_1_pricing_schedule",
+      "source_row": 1,
+      "confidence": 0.95
+    },
+    {
+      "buyer_line_number": "P2",
+      "material_number": "47835564",
+      "description": "Transmission Filter 47835564",
+      "quantity": 5,
+      "unit": "each",
+      "source_type": "formal_buyer_pricing_schedule",
+      "source_document": "MBD 3.1 Pricing Schedule.pdf",
+      "source_page": 8,
+      "source_table": "mbd_3_1_pricing_schedule",
+      "source_row": 2,
+      "confidence": 0.95
+    },
+    {
+      "buyer_line_number": "P3",
+      "material_number": "51508555",
+      "description": "Hydraulic Filter 51508555",
+      "quantity": 5,
+      "unit": "each",
+      "source_type": "formal_buyer_pricing_schedule",
+      "source_document": "MBD 3.1 Pricing Schedule.pdf",
+      "source_page": 8,
+      "source_table": "mbd_3_1_pricing_schedule",
+      "source_row": 3,
+      "confidence": 0.95
+    },
+    {
+      "buyer_line_number": "P4",
+      "description": "Transport",
+      "quantity": 1,
+      "unit": "lot",
+      "source_type": "formal_buyer_pricing_schedule",
+      "source_document": "MBD 3.1 Pricing Schedule.pdf",
+      "source_page": 8,
+      "source_table": "mbd_3_1_pricing_schedule",
+      "source_row": 4,
+      "confidence": 0.95
+    }
+  ]
+}

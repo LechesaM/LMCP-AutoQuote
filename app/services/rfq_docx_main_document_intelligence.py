@@ -31,6 +31,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import json
 import re
 
+from app.services.rfq_requirement_pack_service import (
+    attach_requirement_pack_fields,
+    build_requirement_pack,
+    normalize_requirement_rows,
+)
+
 
 ENGINE_VERSION = "RFQ_DOCX_MAIN_DOCUMENT_INTELLIGENCE_V1"
 
@@ -392,8 +398,14 @@ def _column_indexes(header: List[str]) -> Dict[str, int]:
     for idx, cell in enumerate(header):
         c = _safe_lower(cell)
 
+        if "material number" in c or "material no" in c or c == "material":
+            indexes.setdefault("material_number", idx)
+
         if "item code" in c or c in {"code", "item no", "item number", "no"}:
             indexes.setdefault("item_code", idx)
+
+        if "part number" in c or "part no" in c:
+            indexes.setdefault("part_number", idx)
 
         if "description" in c or "specification" in c or "goods" in c or "service" in c or "item" == c:
             indexes.setdefault("description", idx)
@@ -406,6 +418,12 @@ def _column_indexes(header: List[str]) -> Dict[str, int]:
 
         if "specification" in c:
             indexes.setdefault("specification", idx)
+
+        if "unit price" in c or "unit rate" in c or c == "rate" or "price quoted" in c:
+            indexes.setdefault("buyer_rate", idx)
+
+        if "total price" in c or "total amount" in c or c == "amount":
+            indexes.setdefault("buyer_amount", idx)
 
     return indexes
 
@@ -437,9 +455,11 @@ def _extract_table_line_items(tables: List[List[List[str]]]) -> List[Dict[str, A
             else:
                 continue
 
-        for row in table[header_index + 1:]:
+        for row_index, row in enumerate(table[header_index + 1:], start=header_index + 1):
             item = _row_to_item(row, indexes, source=f"docx_table_{table_index}")
             if item:
+                item["source_table"] = f"docx_table_{table_index}"
+                item["source_row"] = row_index
                 items.append(item)
 
     return _dedupe_items(items)
@@ -463,8 +483,12 @@ def _row_to_item(row: List[str], indexes: Dict[str, int], source: str) -> Option
     description = get("description")
     specification = get("specification")
     item_code = get("item_code")
+    material_number = get("material_number")
+    part_number = get("part_number")
     quantity_raw = get("quantity")
     unit = get("unit")
+    buyer_rate = _to_float(get("buyer_rate"))
+    buyer_amount = _to_float(get("buyer_amount"))
 
     if not description and specification:
         description = specification
@@ -502,12 +526,7 @@ def _row_to_item(row: List[str], indexes: Dict[str, int], source: str) -> Option
     if _is_returnable_or_compliance_line_item(description):
         return None
 
-    # Verified line item requires either a quantity or a pricing table row with
-    # description. If no quantity exists, it is not a verified quantity line item.
-    if quantity is None:
-        return None
-
-    if not unit:
+    if quantity is not None and not unit:
         unit = "Each"
 
     confidence = 0.65
@@ -528,10 +547,14 @@ def _row_to_item(row: List[str], indexes: Dict[str, int], source: str) -> Option
 
     return {
         "description": description,
-        "quantity": float(quantity),
+        "quantity": float(quantity) if quantity is not None else None,
         "unit": unit,
         "item_code": item_code,
+        "material_number": material_number,
+        "part_number": part_number,
         "specification": specification if specification != description else "",
+        "buyer_rate": buyer_rate,
+        "buyer_amount": buyer_amount,
         "confidence": round(min(confidence, 0.95), 4),
         "evidence": evidence,
         "source": source,
@@ -739,6 +762,28 @@ def analyse_docx_main_document(main_document_path: str | Path) -> Dict[str, Any]
         "confidence": _overall_confidence(text, tables, line_items, has_pricing_schedule, has_boq_table),
         "reject_hallucinated_quantities": True,
     }
+    if has_boq_table and not has_pricing_schedule and re.search(r"\b(?:boq|bill of quantities)\b", text, flags=re.I):
+        requirement_source_type = "standalone_boq"
+    elif has_pricing_schedule:
+        requirement_source_type = "embedded_pricing_schedule"
+    elif scope_or_spec_sections := result.get("scope_specification_sections"):
+        requirement_source_type = "specification_schedule" if scope_or_spec_sections else "main_document_table"
+    else:
+        requirement_source_type = "main_document_table"
+
+    requirement_rows = normalize_requirement_rows(
+        line_items,
+        source_type=requirement_source_type,
+        source_document=str(path),
+        default_confidence=float(result.get("confidence") or 0.0),
+        evidence=["rfq_docx_main_document_intelligence"],
+    )
+    requirement_pack = build_requirement_pack(
+        requirement_rows,
+        reference_number=str(result.get("bid_reference") or ""),
+        title=str(result.get("bid_description") or title),
+    )
+    attach_requirement_pack_fields(result, requirement_pack)
 
     report_path = REPORT_DIR / f"{_slug(title)}__docx_main_document_intelligence_report.json"
     report_path.write_text(json.dumps(result, indent=2, default=str))

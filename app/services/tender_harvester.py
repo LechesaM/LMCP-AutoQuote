@@ -14,6 +14,7 @@ from urllib.parse import unquote, urljoin, urlparse
 import requests
 
 from app.services.system_control_service import get_system_control_state
+from app.services.rfq_requirement_pack_service import build_requirement_pack, normalize_requirement_rows
 
 try:
     from app.services.rfq_document_intelligence import analyse_rfq_documents
@@ -4663,7 +4664,14 @@ def _v66_review_reasons(document: Dict[str, Any]) -> List[str]:
         reasons.append("missing_quantity")
     if item_table.get("item_table_detected") and not item_table.get("quantity_detected"):
         reasons.append("unclear_item_table")
-    if doc_types.get("pricing_schedule") and not structures.get("bill_of_quantities_structure"):
+    has_requirement_structure = bool(
+        structures.get("bill_of_quantities_structure")
+        or structures.get("pricing_schedule_detected")
+        or structures.get("item_table_detected")
+        or item_table.get("item_table_detected")
+        or item_table.get("quantity_detected")
+    )
+    if doc_types.get("pricing_schedule") and not has_requirement_structure:
         reasons.append("pricing_schedule_partial")
     if not doc_types.get("pricing_schedule") and not doc_types.get("boq") and doc_types.get("rfq_form"):
         reasons.append("specification_only")
@@ -4685,7 +4693,19 @@ def _v66_missing_fields(document: Dict[str, Any]) -> List[str]:
         missing.append("verified_quantity")
     if not item_table.get("inferred_quantity_count"):
         missing.append("buyer_item_quantities")
-    if not (document.get("extracted_table_hints") or {}).get("bill_of_quantities"):
+    structures = document.get("structures") if isinstance(document.get("structures"), dict) else {}
+    doc_types = document.get("document_types") if isinstance(document.get("document_types"), dict) else {}
+    table_hints = document.get("extracted_table_hints") if isinstance(document.get("extracted_table_hints"), dict) else {}
+    has_requirement_structure = bool(
+        table_hints.get("bill_of_quantities")
+        or table_hints.get("item_tables")
+        or table_hints.get("pricing_columns")
+        or structures.get("pricing_schedule_detected")
+        or structures.get("item_table_detected")
+        or doc_types.get("pricing_schedule")
+        or item_table.get("item_table_detected")
+    )
+    if not has_requirement_structure:
         missing.append("bill_of_quantities_structure")
     return missing
 
@@ -5969,6 +5989,79 @@ def _lmcp_apply_document_intelligence_gate(item: Dict[str, Any]) -> Dict[str, An
         return item
 
 
+def _lmcp_attach_requirement_pack_from_rows(
+    item: Dict[str, Any],
+    rows: List[Dict[str, Any]],
+    source_type: str,
+    source_document: str = "",
+    default_confidence: float = 0.0,
+) -> Dict[str, Any]:
+    requirement_rows = normalize_requirement_rows(
+        rows,
+        source_type=source_type,
+        source_document=source_document,
+        default_confidence=default_confidence,
+        evidence=["tender_harvester_requirement_pack_bridge"],
+    )
+    pack = build_requirement_pack(
+        requirement_rows,
+        rfq_id=str(item.get("rfq_id") or item.get("id") or ""),
+        reference_number=str(item.get("reference_number") or item.get("buyer_rfq_number") or item.get("rfq_number") or ""),
+        buyer_name=str(item.get("buyer_name") or ""),
+        title=str(item.get("title") or ""),
+    )
+    item["rfq_requirement_pack"] = pack
+    item["rfq_requirement_rows"] = pack.get("rows") if isinstance(pack.get("rows"), list) else []
+    item["rfq_requirement_rows_count"] = int(pack.get("row_count") or 0)
+    item["verified_requirement_rows_count"] = int(pack.get("verified_row_count") or 0)
+    item["requirement_rows_review_count"] = int(pack.get("review_row_count") or 0)
+    item["pricing_ready_from_requirements"] = bool(pack.get("pricing_ready_from_requirements"))
+    item["requirement_pack_status"] = str(pack.get("status") or "")
+    item["requirement_pack_version"] = str(pack.get("requirement_pack_version") or "")
+    return item
+
+
+def _lmcp_has_verified_requirement_rows(item: Dict[str, Any]) -> bool:
+    if not isinstance(item, dict) or not item.get("pricing_ready_from_requirements"):
+        return False
+    try:
+        verified_count = int(item.get("verified_requirement_rows_count") or 0)
+    except Exception:
+        verified_count = 0
+    return verified_count > 0
+
+
+def _lmcp_requirement_rows_as_legacy_items(item: Dict[str, Any]) -> List[Dict[str, Any]]:
+    rows = item.get("rfq_requirement_rows") if isinstance(item.get("rfq_requirement_rows"), list) else []
+    items: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("review_required"):
+            continue
+        description = str(row.get("description") or "").strip()
+        if not description:
+            continue
+        evidence = row.get("evidence") if isinstance(row.get("evidence"), list) else []
+        try:
+            quantity = float(row.get("quantity"))
+        except Exception:
+            if "lump_sum_basis" not in evidence:
+                continue
+            quantity = 1.0
+        unit = str(row.get("unit") or ("Lot" if "lump_sum_basis" in evidence else "")).strip()
+        items.append({
+            "line_number": str(row.get("line_number") or len(items) + 1),
+            "description": description,
+            "quantity": quantity,
+            "unit": unit,
+            "item_code": str(row.get("item_code") or "").strip(),
+            "specification": str(row.get("specification") or "").strip(),
+            "source": str(row.get("source_type") or "rfq_requirement_rows"),
+            "requirement_confidence": float(row.get("confidence") or 0.0),
+            "evidence": evidence,
+        })
+    return items
+
+
 
 
 def _lmcp_apply_boq_extraction_gate(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -6023,9 +6116,19 @@ def _lmcp_apply_boq_extraction_gate(item: Dict[str, Any]) -> Dict[str, Any]:
         item["boq_confidence"] = confidence
         item["buyer_extracted_line_items"] = line_items
         item["normalized_boq_path"] = str(paths.get("normalized_boq") or "")
+        requirement_rows = result.get("rfq_requirement_rows") if isinstance(result.get("rfq_requirement_rows"), list) else []
+        if requirement_rows:
+            item["rfq_requirement_rows"] = requirement_rows
+            item["rfq_requirement_pack"] = result.get("rfq_requirement_pack") if isinstance(result.get("rfq_requirement_pack"), dict) else {}
+            item["rfq_requirement_rows_count"] = int(result.get("rfq_requirement_rows_count") or len(requirement_rows))
+            item["verified_requirement_rows_count"] = int(result.get("verified_requirement_rows_count") or 0)
+            item["requirement_rows_review_count"] = int(result.get("requirement_rows_review_count") or 0)
+            item["pricing_ready_from_requirements"] = bool(result.get("pricing_ready_from_requirements"))
+            item["requirement_pack_status"] = str(result.get("requirement_pack_status") or "")
+            item["requirement_pack_version"] = str(result.get("requirement_pack_version") or "")
 
-        if line_item_count > 0 and confidence >= 0.65:
-            normalized_items = []
+        if (line_item_count > 0 and confidence >= 0.65) or _lmcp_has_verified_requirement_rows(item):
+            normalized_items = _lmcp_requirement_rows_as_legacy_items(item)
             for row in line_items:
                 if not isinstance(row, dict):
                     continue
@@ -6036,7 +6139,7 @@ def _lmcp_apply_boq_extraction_gate(item: Dict[str, Any]) -> Dict[str, Any]:
                 description = str(row.get("description") or "").strip()
                 if not description:
                     continue
-                normalized_items.append({
+                legacy_row = {
                     "line_number": str(len(normalized_items) + 1),
                     "description": description,
                     "quantity": quantity,
@@ -6045,13 +6148,20 @@ def _lmcp_apply_boq_extraction_gate(item: Dict[str, Any]) -> Dict[str, Any]:
                     "specification": str(row.get("specification") or "").strip(),
                     "source": "buyer_boq_extraction",
                     "boq_confidence": confidence,
-                })
+                }
+                if not any(
+                    existing.get("description") == legacy_row["description"]
+                    and existing.get("quantity") == legacy_row["quantity"]
+                    and existing.get("unit") == legacy_row["unit"]
+                    for existing in normalized_items
+                ):
+                    normalized_items.append(legacy_row)
 
             if normalized_items:
                 item["items"] = normalized_items
                 item["line_items"] = normalized_items
                 item["boq_extraction_used_for_pricing"] = True
-                item["pricing_item_source"] = "buyer_boq_extraction"
+                item["pricing_item_source"] = "rfq_requirement_rows" if _lmcp_has_verified_requirement_rows(item) else "buyer_boq_extraction"
             else:
                 item["boq_extraction_used_for_pricing"] = False
                 item["pricing_item_source"] = item.get("pricing_item_source") or "strategic_profit_floor_fallback"
@@ -6102,11 +6212,20 @@ def _lmcp_apply_quantity_safety_gate(item: Dict[str, Any]) -> Dict[str, Any]:
 
     boq_status = str(item.get("boq_extraction_status") or "").strip()
 
+    requirement_verified = _lmcp_has_verified_requirement_rows(item)
+
     # Verified buyer quantities: allow existing quote_ready/profit logic to stand.
-    if boq_count > 0 and boq_confidence >= 0.65:
-        item["quantity_source"] = "buyer_boq_extraction"
+    if requirement_verified or (boq_count > 0 and boq_confidence >= 0.65):
+        item["quantity_source"] = "rfq_requirement_rows" if requirement_verified else "buyer_boq_extraction"
         item["requires_quantity_verification"] = False
-        item["quantity_safety_status"] = "verified_buyer_quantities"
+        item["quantity_safety_status"] = (
+            "verified_requirement_pack_quantities" if requirement_verified else "verified_buyer_quantities"
+        )
+        if requirement_verified and not item.get("line_items"):
+            legacy_items = _lmcp_requirement_rows_as_legacy_items(item)
+            if legacy_items:
+                item["items"] = legacy_items
+                item["line_items"] = legacy_items
         return item
 
     # No BOQ/pricing schedule or no trusted buyer line items means any existing
@@ -6814,11 +6933,21 @@ def _lmcp_apply_docx_verified_quantity_gate(item: Dict[str, Any]) -> Dict[str, A
         item["docx_main_document_intelligence_result"] = docx_result
 
         extracted = docx_result.get("extracted_line_items") if isinstance(docx_result.get("extracted_line_items"), list) else []
+        requirement_rows = docx_result.get("rfq_requirement_rows") if isinstance(docx_result.get("rfq_requirement_rows"), list) else []
+        if requirement_rows:
+            item["rfq_requirement_rows"] = requirement_rows
+            item["rfq_requirement_pack"] = docx_result.get("rfq_requirement_pack") if isinstance(docx_result.get("rfq_requirement_pack"), dict) else {}
+            item["rfq_requirement_rows_count"] = int(docx_result.get("rfq_requirement_rows_count") or len(requirement_rows))
+            item["verified_requirement_rows_count"] = int(docx_result.get("verified_requirement_rows_count") or 0)
+            item["requirement_rows_review_count"] = int(docx_result.get("requirement_rows_review_count") or 0)
+            item["pricing_ready_from_requirements"] = bool(docx_result.get("pricing_ready_from_requirements"))
+            item["requirement_pack_status"] = str(docx_result.get("requirement_pack_status") or "")
+            item["requirement_pack_version"] = str(docx_result.get("requirement_pack_version") or "")
         quantity_verified = bool(docx_result.get("quantity_verified"))
         confidence = float(docx_result.get("confidence") or 0.0)
 
-        if quantity_verified and extracted and confidence >= 0.65:
-            normalized_items = []
+        if (quantity_verified and extracted and confidence >= 0.65) or _lmcp_has_verified_requirement_rows(item):
+            normalized_items = _lmcp_requirement_rows_as_legacy_items(item)
             for row in extracted:
                 if not isinstance(row, dict):
                     continue
@@ -6830,7 +6959,7 @@ def _lmcp_apply_docx_verified_quantity_gate(item: Dict[str, Any]) -> Dict[str, A
                 except Exception:
                     continue
 
-                normalized_items.append({
+                legacy_row = {
                     "line_number": str(len(normalized_items) + 1),
                     "description": description,
                     "quantity": quantity,
@@ -6840,16 +6969,27 @@ def _lmcp_apply_docx_verified_quantity_gate(item: Dict[str, Any]) -> Dict[str, A
                     "source": "buyer_docx_main_document",
                     "docx_confidence": confidence,
                     "evidence": row.get("evidence") if isinstance(row.get("evidence"), list) else [],
-                })
+                }
+                if not any(
+                    existing.get("description") == legacy_row["description"]
+                    and existing.get("quantity") == legacy_row["quantity"]
+                    and existing.get("unit") == legacy_row["unit"]
+                    for existing in normalized_items
+                ):
+                    normalized_items.append(legacy_row)
 
             if normalized_items:
                 item["items"] = normalized_items
                 item["line_items"] = normalized_items
                 item["buyer_extracted_line_items"] = normalized_items
 
-                item["quantity_source"] = "buyer_docx_main_document"
+                item["quantity_source"] = "rfq_requirement_rows" if _lmcp_has_verified_requirement_rows(item) else "buyer_docx_main_document"
                 item["requires_quantity_verification"] = False
-                item["quantity_safety_status"] = "verified_buyer_docx_quantities"
+                item["quantity_safety_status"] = (
+                    "verified_requirement_pack_quantities"
+                    if _lmcp_has_verified_requirement_rows(item)
+                    else "verified_buyer_docx_quantities"
+                )
                 item["boq_line_item_count"] = len(normalized_items)
                 item["boq_confidence"] = confidence
                 item["boq_extraction_status"] = "verified_from_docx_main_document"
@@ -6909,14 +7049,14 @@ def _lmcp_apply_real_buyer_pricing_gate(item: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         boq_count = 0
 
-    if quantity_source not in {"buyer_docx_main_document", "buyer_boq_extraction"}:
+    if quantity_source not in {"buyer_docx_main_document", "buyer_boq_extraction", "rfq_requirement_rows"}:
         item["real_buyer_pricing_result"] = {
             "status": "skipped",
             "reason": f"unsupported_quantity_source:{quantity_source or 'missing'}",
         }
         return item
 
-    if requires_quantity_verification or boq_count <= 0:
+    if requires_quantity_verification or (boq_count <= 0 and not _lmcp_has_verified_requirement_rows(item)):
         item["real_buyer_pricing_result"] = {
             "status": "skipped",
             "reason": "quantities_not_verified",
@@ -6990,6 +7130,9 @@ def _lmcp_is_quantity_unsafe_for_auto_quote(item: Dict[str, Any]) -> bool:
 
     if str(item.get("quantity_source") or "").strip().lower() == "unverified":
         return True
+
+    if _lmcp_has_verified_requirement_rows(item):
+        return False
 
     try:
         boq_count = int(item.get("boq_line_item_count") or 0)

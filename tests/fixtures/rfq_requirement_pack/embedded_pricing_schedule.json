@@ -1,0 +1,28 @@
+{
+  "filename": "Main Document.pdf",
+  "source_type": "embedded_pricing_schedule",
+  "rows": [
+    {
+      "item_no": "1",
+      "description": "Supply of A4 copy paper",
+      "qty": "20",
+      "uom": "reams",
+      "unit_price": "",
+      "total_price": "",
+      "source_page": 4,
+      "source_table": "pricing_table_1",
+      "confidence": 0.86
+    },
+    {
+      "item_no": "2",
+      "description": "Supply of blue ballpoint pens",
+      "qty": "100",
+      "uom": "each",
+      "unit_price": "",
+      "total_price": "",
+      "source_page": 4,
+      "source_table": "pricing_table_1",
+      "confidence": 0.86
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "validation_name": "supplier_outreach_draft_integration",
+  "validation_date": "2026-07-17",
+  "repository": "/Users/Shared/LMCP-AutoQuote-Server",
+  "branch": "recovery/rfq-quote-pack-bridge",
+  "starting_head": "bad4aaa496ad6b8709b0057810c07d939edd48e7",
+  "transport_mode": "DRAFT_ONLY",
+  "real_gmail_executed": false,
+  "email_sent": false,
+  "smtp_used": false,
+  "imap_used": false,
+  "scheduler_dispatch_used": false,
+  "buyer_submission_used": false,
+  "supplier_contacted": false,
+  "protected_runtime_hashes_before": {
+    "runtime/live_rfqs.json": "7d04a98c923a841cc129a7ffe87a32343a14aae2adb66f48c0e4ca55e1bb3cbc",
+    "runtime/rfq_lifecycle/rfqs.json": "2b4b34146f1ac834ee2339ab01e97576a3c54a203961249731101eeb8dc2ac51"
+  },
+  "focused_tests": {
+    "command": "PYTHONPYCACHEPREFIX=/tmp/lmcp_pycache .venv/bin/python -m pytest tests/test_rfq_requirement_pack_service.py tests/test_supplier_sourcing_grouping.py tests/test_supplier_outreach_service.py tests/test_supplier_mailbox_sandbox_service.py tests/test_gmail_draft_transport_service.py tests/test_gmail_draft_idempotency_ledger.py -q",
+    "result": "63 passed"
+  },
+  "compile_validation": {
+    "command": "PYTHONPYCACHEPREFIX=/tmp/lmcp_pycache .venv/bin/python -m compileall app/services scripts tests",
+    "result": "passed"
+  },
+  "offline_scripts": {
+    "supplier_outreach_dry_run_6000080579.py": {
+      "result": "PASS",
+      "request_id": "LMCP-SRFQ-6000080579-341E812698",
+      "supplier_count": 3,
+      "email_models": 3,
+      "followup_schedules": 3,
+      "emails_sent": 0
+    },
+    "supplier_mailbox_sandbox_validation_6000080579.py": {
+      "result": "PASS",
+      "checks_passed": 22,
+      "checks_total": 22,
+      "emails_sent": 0
+    },
+    "gmail_draft_transport_mock_validation_6000080579.py": {
+      "result": "PASS",
+      "draft_count": 3,
+      "new_drafts_created": 0,
+      "canonical_drafts_reused": 3,
+      "emails_sent": 0,
+      "second_process_result": "PASS"
+    }
+  },
+  "route_validation": {
+    "verify_operational_route_baseline": {
+      "result": "PASS",
+      "loaded_routers": 54,
+      "disabled_routers": 56,
+      "failed_routers": 0,
+      "duplicate_routes": 0
+    },
+    "audit_router_parity": {
+      "loaded_routers": 54,
+      "failed_routers": 0,
+      "duplicate_routes": 0
+    }
+  },
+  "controls": {
+    "mandatory_mailbox": "lmcpaqsystem@gmail.com",
+    "mandatory_cc": "lechesam@me.com",
+    "bcc_allowed": false,
+    "internal_pricing_disclosure_allowed": false,
+    "draft_creation_marks_sent": false,
+    "draft_creation_marks_contacted": false,
+    "draft_creation_schedules_followup": false,
+    "pricing_blocked_by_zero_supplier_quotes": false
+  }
+}

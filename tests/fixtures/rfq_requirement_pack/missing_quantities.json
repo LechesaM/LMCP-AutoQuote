@@ -1,0 +1,13 @@
+{
+  "filename": "RFQ Document.docx",
+  "source_type": "main_document_table",
+  "rows": [
+    {
+      "line_number": "1",
+      "description": "Supply branded safety jackets",
+      "quantity": "",
+      "unit": "",
+      "confidence": 0.72
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "filename": "Quotation Schedule.pdf",
+  "source_type": "embedded_pricing_schedule",
+  "rows": [
+    {
+      "line_number": "1",
+      "description": "Lump sum delivery and installation",
+      "quantity": "",
+      "unit": "lump sum",
+      "confidence": 0.8
+    },
+    {
+      "line_number": "2",
+      "description": "Optional extended warranty",
+      "quantity": "1",
+      "unit": "each",
+      "confidence": 0.75
+    },
+    {
+      "line_number": "",
+      "description": "Total Price Including VAT",
+      "amount": "1150.00",
+      "confidence": 0.9
+    }
+  ]
+}

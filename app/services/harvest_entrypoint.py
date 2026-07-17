@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-import json
 import logging
 from copy import deepcopy
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from app.services.tender_harvester import harvest_tenders
+from app.services.tender_harvester import run_national_tender_radar
 
 logger = logging.getLogger(__name__)
 
-SNAPSHOT_DIR = Path("/app/runtime")
-SNAPSHOT_FILE = SNAPSHOT_DIR / "last_harvest_result.json"
+ENTRYPOINT_IDENTITY = (
+    "app.services.harvest_entrypoint.run_canonical_harvest"
+)
+HARVESTER_IDENTITY = (
+    "app.services.tender_harvester.run_national_tender_radar"
+)
 
 
 def utc_now_iso() -> str:
@@ -35,7 +37,9 @@ def _default_result(message: str = "No harvest data available.") -> Dict[str, An
     }
 
 
-def _normalize_result(result: Dict[str, Any] | None) -> Dict[str, Any]:
+def _normalize_result(
+    result: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
     if not isinstance(result, dict):
         return _default_result("Harvester returned a non-dict result.")
 
@@ -68,32 +72,13 @@ def _normalize_result(result: Dict[str, Any] | None) -> Dict[str, Any]:
     return normalized
 
 
-def _write_snapshot(result: Dict[str, Any]) -> None:
-    try:
-        SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-        SNAPSHOT_FILE.write_text(
-            json.dumps(result, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-    except Exception as exc:
-        logger.warning("Could not write harvest snapshot: %s", exc)
-
-
-def _read_snapshot() -> Dict[str, Any] | None:
-    try:
-        if not SNAPSHOT_FILE.exists():
-            return None
-
-        data = json.loads(SNAPSHOT_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return _normalize_result(data)
-    except Exception as exc:
-        logger.warning("Could not read harvest snapshot: %s", exc)
-
-    return None
-
-
-def run_canonical_harvest() -> Dict[str, Any]:
+def run_canonical_harvest(
+    *,
+    max_total: int = 20,
+    max_per_source: int = 3,
+    persist_to_live_store: bool = False,
+    persist_source_health: bool = False,
+) -> Dict[str, Any]:
     """
     Single source of truth for harvesting.
 
@@ -101,26 +86,53 @@ def run_canonical_harvest() -> Dict[str, Any]:
     modules directly.
 
     Behaviour:
-    - calls app.services.tender_harvester.harvest_tenders()
+    - calls app.services.tender_harvester.run_national_tender_radar()
     - normalizes output shape
-    - writes a last-good snapshot
-    - falls back to snapshot if live harvesting fails
+    - keeps auto-quote and autonomous downstream execution disabled
+    - does not write runtime snapshots
     """
     try:
-        result = _normalize_result(harvest_tenders())
-        _write_snapshot(result)
-        return result
+        raw_result = run_national_tender_radar(
+            max_total=max_total,
+            max_per_source=max_per_source,
+            enable_auto_quote=False,
+            persist_to_live_store=persist_to_live_store,
+            persist_source_health=persist_source_health,
+            headless=True,
+            true_autonomous=False,
+        )
+        result = _normalize_result(raw_result)
+
+        return {
+            "status": "completed",
+            "entrypoint": ENTRYPOINT_IDENTITY,
+            "harvester": HARVESTER_IDENTITY,
+            "max_total": max_total,
+            "max_per_source": max_per_source,
+            "persist_to_live_store": persist_to_live_store,
+            "persist_source_health": persist_source_health,
+            "auto_quote_enabled": False,
+            "autonomous_downstream_enabled": False,
+            "result": result,
+        }
 
     except Exception as exc:
-        logger.exception("Canonical harvest failed: %s", exc)
+        logger.exception(
+            "[HARVEST_ENTRYPOINT] Canonical harvest failed"
+        )
 
-        snapshot = _read_snapshot()
-        if snapshot:
-            snapshot["message"] = (
-                f"Using last good harvest snapshot because live harvest failed: {exc}"
-            )
-            snapshot["timestamp"] = utc_now_iso()
-            snapshot["snapshot_fallback"] = True
-            return snapshot
+        return {
+            "status": "failed",
+            "entrypoint": ENTRYPOINT_IDENTITY,
+            "harvester": HARVESTER_IDENTITY,
+            "max_total": max_total,
+            "max_per_source": max_per_source,
+            "persist_to_live_store": False,
+            "persist_source_health": False,
+            "auto_quote_enabled": False,
+            "autonomous_downstream_enabled": False,
+            "error": str(exc),
+        }
 
-        return _default_result(f"Live harvest failed and no snapshot exists: {exc}")
+
+canonical_harvest = run_canonical_harvest

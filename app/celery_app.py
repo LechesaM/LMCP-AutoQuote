@@ -10,6 +10,15 @@ CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://redis:6379/0"))
 SUBMISSION_RETRY_SCHEDULE_MINUTES = int(str(os.getenv("SUBMISSION_RETRY_SCHEDULE_MINUTES", "15")).strip() or "15")
 SUBMISSION_RETRY_BATCH_LIMIT = int(str(os.getenv("SUBMISSION_RETRY_BATCH_LIMIT", "10")).strip() or "10")
+
+AUTO_HARVEST_SCHEDULE_ENABLED = (
+    str(os.getenv("AUTO_HARVEST_SCHEDULE_ENABLED", "false")).strip().lower()
+    in {"1", "true", "yes", "on"}
+)
+AUTO_HARVEST_SCHEDULE_MINUTES = int(
+    str(os.getenv("AUTO_HARVEST_SCHEDULE_MINUTES", "30")).strip() or "30"
+)
+
 WORKER_CONCURRENCY = int(str(os.getenv("WORKER_CONCURRENCY", "2")).strip() or "2")
 MAX_TASKS_PER_CHILD = int(str(os.getenv("MAX_TASKS_PER_CHILD", "100")).strip() or "100")
 PREFETCH_MULTIPLIER = int(str(os.getenv("PREFETCH_MULTIPLIER", "1")).strip() or "1")
@@ -25,7 +34,30 @@ celery_app = Celery(
     backend=CELERY_RESULT_BACKEND,
 )
 
+beat_schedule = {
+    "submission-retry-cycle": {
+        "task": "app.tasks.submission_scheduler_tasks.run_submission_retry_cycle_task",
+        "schedule": crontab(
+            minute=f"*/{max(1, SUBMISSION_RETRY_SCHEDULE_MINUTES)}"
+        ),
+        "kwargs": {"limit": SUBMISSION_RETRY_BATCH_LIMIT},
+    },
+}
+
+if AUTO_HARVEST_SCHEDULE_ENABLED:
+    beat_schedule["rfq-harvest-cycle"] = {
+        "task": "app.tasks.run_harvest_only",
+        "schedule": crontab(
+            minute=f"*/{max(1, AUTO_HARVEST_SCHEDULE_MINUTES)}"
+        ),
+        "options": {"queue": "acquisition_queue"},
+    }
+
 celery_app.conf.update(
+    imports=(
+        "app.tasks.harvest_tasks",
+        "app.tasks.submission_scheduler_tasks",
+    ),
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
@@ -50,6 +82,9 @@ celery_app.conf.update(
         Queue("retry_queue"),
     ),
     task_routes={
+        "app.tasks.run_harvest_only": {
+            "queue": "acquisition_queue"
+        },
         "app.tasks.rfq_lifecycle_acquisition_task": {"queue": "acquisition_queue"},
         "app.tasks.rfq_lifecycle_parsing_task": {"queue": "parsing_queue"},
         "app.tasks.rfq_lifecycle_pricing_task": {"queue": "pricing_queue"},
@@ -58,13 +93,7 @@ celery_app.conf.update(
         "app.tasks.run_rfq_lifecycle_golden_cycle": {"queue": "retry_queue"},
     },
     result_expires=int(str(os.getenv("CELERY_RESULT_EXPIRES", "86400")).strip() or "86400"),
-    beat_schedule={
-        "submission-retry-cycle": {
-            "task": "app.tasks.submission_scheduler_tasks.run_submission_retry_cycle_task",
-            "schedule": crontab(minute=f"*/{max(1, SUBMISSION_RETRY_SCHEDULE_MINUTES)}"),
-            "kwargs": {"limit": SUBMISSION_RETRY_BATCH_LIMIT},
-        },
-    },
+    beat_schedule=beat_schedule,
 )
 
 celery_app.conf.lifecycle_worker_concurrency = {

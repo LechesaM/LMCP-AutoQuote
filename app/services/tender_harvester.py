@@ -382,8 +382,16 @@ def _load_source_health() -> Dict[str, Any]:
         return {}
 
 
-def _save_source_health(data: Dict[str, Any]) -> None:
+def _save_source_health(
+    data: Dict[str, Any],
+    *,
+    persist: bool = True,
+) -> None:
+    if not persist:
+        return
+
     try:
+        SOURCE_HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
         SOURCE_HEALTH_FILE.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     except Exception as exc:
         logger.warning("Failed to save source health: %s", exc)
@@ -393,7 +401,14 @@ def _source_key(source: Dict[str, Any]) -> str:
     return _clean(source.get("name") or source.get("source_name") or source.get("url") or "unknown")
 
 
-def _record_source_result(source: Dict[str, Any], ok: bool, harvested: int = 0, error: str = "") -> None:
+def _record_source_result(
+    source: Dict[str, Any],
+    ok: bool,
+    harvested: int = 0,
+    error: str = "",
+    *,
+    persist_source_health: bool = True,
+) -> None:
     health = _load_source_health()
     key = _source_key(source)
     row = health.get(key, {}) if isinstance(health.get(key), dict) else {}
@@ -408,7 +423,7 @@ def _record_source_result(source: Dict[str, Any], ok: bool, harvested: int = 0, 
         row["failure_count"] = int(row.get("failure_count") or 0) + 1
         row["last_error"] = _truncate(error, 240)
     health[key] = row
-    _save_source_health(health)
+    _save_source_health(health, persist=persist_source_health)
 
 
 def _v52_source_priority(source: Dict[str, Any]) -> Tuple[int, int, int, str]:
@@ -2410,6 +2425,8 @@ def _v53_update_source_health_after_scan(
     extracted_count: int = 0,
     qualified_count: int = 0,
     document_count: int = 0,
+    *,
+    persist_source_health: bool = True,
 ) -> Dict[str, Any]:
     health = _load_source_health()
     key = _source_key(source)
@@ -2447,7 +2464,7 @@ def _v53_update_source_health_after_scan(
     else:
         row["consecutive_empty_runs"] = int(row.get("consecutive_empty_runs") or 0) + 1
     health[key] = row
-    _save_source_health(health)
+    _save_source_health(health, persist=persist_source_health)
     return _v53_source_health_row(source, health)
 
 
@@ -3251,6 +3268,7 @@ def run_multi_portal_discovery(
     source_file: Optional[str] = None,
     include_bad_sources: bool = False,
     dry_run: bool = True,
+    persist_source_health: bool = True,
     source_pack_mode: Any = None,
     buyer_intelligence: bool = True,
     opportunity_forecasting: bool = True,
@@ -3308,11 +3326,24 @@ def run_multi_portal_discovery(
         error = ""
         response_started = time.perf_counter()
         try:
-            harvested = _dedupe_keep_order(_harvest_from_source(source, max_per_source=max_per_source, headless=headless))
+            harvested = _dedupe_keep_order(
+                _harvest_from_source(
+                    source,
+                    max_per_source=max_per_source,
+                    headless=headless,
+                    persist_source_health=persist_source_health,
+                )
+            )
             pages_scanned_count += 1
         except Exception as exc:
             error = str(exc)
-            _record_source_result(source, ok=False, harvested=0, error=error)
+            _record_source_result(
+                source,
+                ok=False,
+                harvested=0,
+                error=error,
+                persist_source_health=persist_source_health,
+            )
         document_discovery: Dict[str, Any] = {"document_links": [], "downloads": [], "parsed_documents": [], "skipped_links": [], "built_items": []}
         if not error:
             try:
@@ -3437,6 +3468,7 @@ def run_multi_portal_discovery(
                 extracted_count=source_extracted_count,
                 qualified_count=source_qualified_count,
                 document_count=source_document_count,
+                persist_source_health=persist_source_health,
             )
         )
 
@@ -5320,7 +5352,13 @@ def _direct_etenders(source: Dict[str, Any], max_items: int, headless: bool) -> 
         return []
 
 
-def run_generic_scraper(source: Dict[str, Any], timeout: int = 8, max_items: int = 20) -> List[Dict[str, Any]]:
+def run_generic_scraper(
+    source: Dict[str, Any],
+    timeout: int = 8,
+    max_items: int = 20,
+    *,
+    persist_source_health: bool = True,
+) -> List[Dict[str, Any]]:
     url = _clean(source.get("url") or source.get("list_url"))
     max_items = _safe_positive_int(max_items, 20)
     if not url:
@@ -5330,7 +5368,13 @@ def run_generic_scraper(source: Dict[str, Any], timeout: int = 8, max_items: int
         response.raise_for_status()
         html = response.text
     except Exception as exc:
-        _record_source_result(source, ok=False, harvested=0, error=str(exc))
+        _record_source_result(
+            source,
+            ok=False,
+            harvested=0,
+            error=str(exc),
+            persist_source_health=persist_source_health,
+        )
         logger.warning("Static scrape failed for %s: %s", source.get("name"), exc)
         return []
     candidates = re.findall(r">([^<>]{20,800})<", html)
@@ -5342,11 +5386,22 @@ def run_generic_scraper(source: Dict[str, Any], timeout: int = 8, max_items: int
         results.append(_base_item(source, text, url))
         if len(results) >= max_items:
             break
-    _record_source_result(source, ok=True, harvested=len(results))
+    _record_source_result(
+        source,
+        ok=True,
+        harvested=len(results),
+        persist_source_health=persist_source_health,
+    )
     return _dedupe_keep_order(results)
 
 
-def run_playwright_generic_scraper(source: Dict[str, Any], max_items: int = 20, headless: bool = True) -> List[Dict[str, Any]]:
+def run_playwright_generic_scraper(
+    source: Dict[str, Any],
+    max_items: int = 20,
+    headless: bool = True,
+    *,
+    persist_source_health: bool = True,
+) -> List[Dict[str, Any]]:
     url = _clean(source.get("url") or source.get("list_url"))
     max_items = _safe_positive_int(max_items, 20)
     if not url:
@@ -5355,7 +5410,11 @@ def run_playwright_generic_scraper(source: Dict[str, Any], max_items: int = 20, 
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception as exc:
         logger.warning("Playwright unavailable, using static fallback for %s: %s", source.get("name"), exc)
-        return run_generic_scraper(source, max_items=max_items)
+        return run_generic_scraper(
+            source,
+            max_items=max_items,
+            persist_source_health=persist_source_health,
+        )
     results: List[Dict[str, Any]] = []
     try:
         with sync_playwright() as p:
@@ -5394,14 +5453,35 @@ def run_playwright_generic_scraper(source: Dict[str, Any], max_items: int = 20, 
                     continue
             browser.close()
     except Exception as exc:
-        _record_source_result(source, ok=False, harvested=0, error=str(exc))
+        _record_source_result(
+            source,
+            ok=False,
+            harvested=0,
+            error=str(exc),
+            persist_source_health=persist_source_health,
+        )
         logger.warning("Playwright scrape failed for %s: %s", source.get("name"), exc)
-        return run_generic_scraper(source, max_items=max_items)
-    _record_source_result(source, ok=True, harvested=len(results))
+        return run_generic_scraper(
+            source,
+            max_items=max_items,
+            persist_source_health=persist_source_health,
+        )
+    _record_source_result(
+        source,
+        ok=True,
+        harvested=len(results),
+        persist_source_health=persist_source_health,
+    )
     return _dedupe_keep_order(results)[:max_items]
 
 
-def run_ocds_api_harvester(source: Dict[str, Any], max_items: int = 20, timeout: int = 8) -> List[Dict[str, Any]]:
+def run_ocds_api_harvester(
+    source: Dict[str, Any],
+    max_items: int = 20,
+    timeout: int = 8,
+    *,
+    persist_source_health: bool = True,
+) -> List[Dict[str, Any]]:
     url = _clean(source.get("url") or source.get("list_url"))
     max_items = _safe_positive_int(max_items, 20)
     if not url:
@@ -5411,7 +5491,13 @@ def run_ocds_api_harvester(source: Dict[str, Any], max_items: int = 20, timeout:
         response.raise_for_status()
         data = response.json()
     except Exception as exc:
-        _record_source_result(source, ok=False, harvested=0, error=str(exc))
+        _record_source_result(
+            source,
+            ok=False,
+            harvested=0,
+            error=str(exc),
+            persist_source_health=persist_source_health,
+        )
         logger.warning("OCDS/API harvest failed for %s: %s", source.get("name"), exc)
         return []
     records: List[Dict[str, Any]] = []
@@ -5440,7 +5526,12 @@ def run_ocds_api_harvester(source: Dict[str, Any], max_items: int = 20, timeout:
         results.append(item)
         if len(results) >= max_items:
             break
-    _record_source_result(source, ok=True, harvested=len(results))
+    _record_source_result(
+        source,
+        ok=True,
+        harvested=len(results),
+        persist_source_health=persist_source_health,
+    )
     return _dedupe_keep_order(results)
 
 
@@ -7235,24 +7326,49 @@ def _trigger_auto_quote(items: List[Dict[str, Any]], enable_auto_quote: bool) ->
     return results
 
 
-def _harvest_from_source(source: Dict[str, Any], max_per_source: int, headless: bool) -> List[Dict[str, Any]]:
+def _harvest_from_source(
+    source: Dict[str, Any],
+    max_per_source: int,
+    headless: bool,
+    *,
+    persist_source_health: bool = True,
+) -> List[Dict[str, Any]]:
     source_type = _safe_lower(source.get("type"))
     source_name = _safe_lower(source.get("name") or source.get("source_name"))
     source_group = _safe_lower(source.get("source_group") or source.get("category_group"))
     if "etenders" in source_name or source_group == "etenders":
         direct = _direct_etenders(source, max_items=max_per_source, headless=headless)
         if direct:
-            _record_source_result(source, ok=True, harvested=len(direct))
+            _record_source_result(
+                source,
+                ok=True,
+                harvested=len(direct),
+                persist_source_health=persist_source_health,
+            )
             return direct
-        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless)
+        return run_playwright_generic_scraper(
+            source,
+            max_items=max_per_source,
+            headless=headless,
+            persist_source_health=persist_source_health,
+        )
     if source_type in {"web", "generic_portal", "portal", "website"}:
-        return run_playwright_generic_scraper(source, max_items=max_per_source, headless=headless)
+        return run_playwright_generic_scraper(
+            source,
+            max_items=max_per_source,
+            headless=headless,
+            persist_source_health=persist_source_health,
+        )
     if source_type in {"ocds", "api", "json_api"}:
-        return run_ocds_api_harvester(source, max_items=max_per_source)
+        return run_ocds_api_harvester(
+            source,
+            max_items=max_per_source,
+            persist_source_health=persist_source_health,
+        )
     return []
 
 
-def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enable_auto_quote: bool = False, persist_to_live_store: bool = False, headless: bool = True, minimum_margin_pct: float = DEFAULT_MINIMUM_MARGIN_PCT, minimum_profit: float = DEFAULT_MINIMUM_PROFIT, source_file: Optional[str] = None, max_sources_per_cycle: Optional[int] = None, true_autonomous: bool = False, include_bad_sources: bool = False, **kwargs: Any) -> Dict[str, Any]:
+def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enable_auto_quote: bool = False, persist_to_live_store: bool = False, persist_source_health: bool = True, headless: bool = True, minimum_margin_pct: float = DEFAULT_MINIMUM_MARGIN_PCT, minimum_profit: float = DEFAULT_MINIMUM_PROFIT, source_file: Optional[str] = None, max_sources_per_cycle: Optional[int] = None, true_autonomous: bool = False, include_bad_sources: bool = False, **kwargs: Any) -> Dict[str, Any]:
     max_total = _safe_positive_int(max_total, 20)
     max_per_source = _safe_positive_int(max_per_source, 3)
     minimum_margin_pct = _safe_float(minimum_margin_pct, DEFAULT_MINIMUM_MARGIN_PCT)
@@ -7279,17 +7395,24 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
     try:
         control_state = get_system_control_state()
         if not control_state.get("system_on", True):
-            return {"status": "skipped", "reason": "system_off", "message": "Tender harvester blocked by master system OFF switch.", "run_started_at": run_started_at, "system_control_state": control_state, "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "source_runs": [], "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
+            return {"status": "skipped", "reason": "system_off", "message": "Tender harvester blocked by master system OFF switch.", "run_started_at": run_started_at, "system_control_state": control_state, "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "persist_source_health": persist_source_health, "source_runs": [], "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
     except Exception as exc:
         logger.warning("System control check failed, continuing safe default: %s", exc)
     if PAUSE_FILE.exists():
-        return {"status": "paused", "run_started_at": run_started_at, "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)), "source_count": len(sources), "selected_source_count": len(selected_sources), "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "auto_quote_enabled": enable_auto_quote, "true_autonomous": true_autonomous, "auto_quote_results": [], "persist_to_live_store": persist_to_live_store, "live_store_result": None, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": [], "blocked_items": [], "screened_out_items": [], "eligible_items": [], "critical_priority_total": 0, "downloaded_document_total": 0, "form_document_total": 0, "ai_agent_profile": AI_AGENT_PROFILE}
+        return {"status": "paused", "run_started_at": run_started_at, "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)), "source_count": len(sources), "selected_source_count": len(selected_sources), "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "auto_quote_enabled": enable_auto_quote, "true_autonomous": true_autonomous, "auto_quote_results": [], "persist_to_live_store": persist_to_live_store, "persist_source_health": persist_source_health, "live_store_result": None, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": [], "blocked_items": [], "screened_out_items": [], "eligible_items": [], "critical_priority_total": 0, "downloaded_document_total": 0, "form_document_total": 0, "ai_agent_profile": AI_AGENT_PROFILE}
     for source in selected_sources:
         if len(all_items) >= max_total:
             break
         if not source.get("enabled", True):
             continue
-        harvested = _dedupe_keep_order(_harvest_from_source(source, max_per_source=max_per_source, headless=headless))
+        harvested = _dedupe_keep_order(
+            _harvest_from_source(
+                source,
+                max_per_source=max_per_source,
+                headless=headless,
+                persist_source_health=persist_source_health,
+            )
+        )
         processed_for_source: List[Dict[str, Any]] = []
         for item in harvested:
             item["auto_quote_enabled"] = enable_auto_quote or true_autonomous
@@ -7354,7 +7477,7 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
     except Exception as exc:
         lifecycle_ingestion = {"status": "warning", "error": _truncate(str(exc), 240)}
     source_pack_diagnostics = source_pack_strategy.get("diagnostics", {}) if isinstance(source_pack_strategy, dict) else {}
-    return {"status": "ok", "run_started_at": run_started_at, "source_count": len(sources), "selected_source_count": len(selected_sources), "items": all_items, "harvested_total": len(all_items), "blocked_total": len(blocked_items), "screened_out_total": len(screened_out_items), "eligible_total": len(eligible_items), "quote_ready_total": quote_ready_total, "auto_quote_enabled": enable_auto_quote or true_autonomous, "true_autonomous": bool(true_autonomous), "auto_submission_policy": policy, "auto_quote_results": auto_quote_results, "persist_to_live_store": persist_to_live_store, "live_store_result": live_store_result, "lifecycle_ingestion": lifecycle_ingestion, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": source_runs, "blocked_items": blocked_items, "screened_out_items": screened_out_items, "eligible_items": eligible_items, "critical_priority_total": len(eligible_items), "downloaded_document_total": len(eligible_items), "form_document_total": 0, "source_pack_strategy": source_pack_strategy, **source_pack_diagnostics, "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
+    return {"status": "ok", "run_started_at": run_started_at, "source_count": len(sources), "selected_source_count": len(selected_sources), "items": all_items, "harvested_total": len(all_items), "blocked_total": len(blocked_items), "screened_out_total": len(screened_out_items), "eligible_total": len(eligible_items), "quote_ready_total": quote_ready_total, "auto_quote_enabled": enable_auto_quote or true_autonomous, "true_autonomous": bool(true_autonomous), "auto_submission_policy": policy, "auto_quote_results": auto_quote_results, "persist_to_live_store": persist_to_live_store, "persist_source_health": persist_source_health, "live_store_result": live_store_result, "lifecycle_ingestion": lifecycle_ingestion, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": source_runs, "blocked_items": blocked_items, "screened_out_items": screened_out_items, "eligible_items": eligible_items, "critical_priority_total": len(eligible_items), "downloaded_document_total": len(eligible_items), "form_document_total": 0, "source_pack_strategy": source_pack_strategy, **source_pack_diagnostics, "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
 
 
 def run_continuous_tender_radar(sleep_seconds: int = 600, **kwargs: Any) -> None:

@@ -1,0 +1,189 @@
+LMCP AutoQuote Independent System Completion Audit Evidence
+Audit date: 2026-07-16
+Repository: /Users/Shared/LMCP-AutoQuote-Server
+Requested branch: integration/v1.2
+Actual branch checked: recovery/rfq-quote-pack-bridge
+Commit: c02c0d56 Connect RFQ operations to local quote pack generation
+
+Safety notes:
+- No POST, PUT, PATCH, or DELETE endpoint was invoked for audit validation.
+- No Docker destructive commands were run.
+- No runtime store was intentionally modified.
+- Full pytest was not run because root-level tests execute code at import time, write under runtime, open Preview, or set skip_email_submission=False.
+- Frontend build commands write dist build artifacts as normal build output.
+
+Commands executed:
+
+1. git status --short
+Exit code: 0
+Output:
+?? docs/recovery/live_rfq_store_audit.md
+?? docs/recovery/phase31_32_capability_matrix.md
+?? docs/recovery/phase31_32_evidence_inventory.md
+?? docs/recovery/phase31_32_minimal_recovery_plan.md
+?? scripts/audit_live_rfq_store.py
+
+2. git branch --show-current
+Exit code: 0
+Output:
+recovery/rfq-quote-pack-bridge
+
+3. git log -1 --oneline
+Exit code: 0
+Output:
+c02c0d56 Connect RFQ operations to local quote pack generation
+
+4. find . -maxdepth 3 -type f -print > /tmp/lmcp_file_inventory.txt
+Exit code: 0
+
+5. sort -o /tmp/lmcp_file_inventory.txt /tmp/lmcp_file_inventory.txt
+Exit code: 0
+
+6. wc -l /tmp/lmcp_file_inventory.txt
+Exit code: 0
+Output:
+2311 /tmp/lmcp_file_inventory.txt
+
+7. .venv/bin/python -m compileall app etenders_acquisition scripts
+Exit code: 1
+Concise output:
+- app listed successfully.
+- etenders_acquisition could not be listed; package/directory is absent.
+- scripts compile attempted but Python tried to write bytecode under /Users/lechesamanaba/Library/Caches/com.apple.python and sandbox blocked it with PermissionError.
+
+8. PYTHONPYCACHEPREFIX=/tmp/lmcp_pycache .venv/bin/python -m compileall app scripts
+Exit code: 0
+Concise output:
+- app and scripts compiled successfully with bytecode redirected to /tmp.
+
+9. .venv/bin/python -m pytest -q
+Exit code: not run
+Reason:
+- Safety review found root-level tests with import-time execution and runtime writes.
+- test_live_email.py sets pipeline_test_mode=False, skip_external_calls=False, skip_email_submission=False, and recipient emails.
+- test_tender_submission_pipeline.py writes runtime/test_tender_pack and calls os.system('open -a Preview ...').
+- Several tests write runtime/generated_forms, runtime/test_outputs, or generated quote artifacts.
+
+10. Source import smoke test:
+PYTHONPYCACHEPREFIX=/tmp/lmcp_pycache .venv/bin/python -c 'import app.main ...'
+Exit code: 0
+Concise output:
+- source_version: 2.5.3-v50.7-etenders-promotion-gate
+- loaded_routers_count: 95
+- failed_routers_count: 15
+- failures include smart_harvester_v31_router, real_rfq_harvester_v32_router, real_portal_rfq_extraction_v33_router, structured_rfq_extractor_v34_router, playwright_live_dom_extractor_v35_router, interactive_playwright_extractor_v36_router, deep_rfq_link_extractor_v37_router, interactive_click_deep_extraction_v38_router, true_navigation_extraction_v39_router, tender_form_intelligence_router, csd_persistent_session_router, csd_monthly_refresh_router, final_automation_router, sbd_intelligence_router due /app permission errors.
+- rfq_lifecycle_router failed because Python 3.9/FastAPI could not evaluate annotation 'dict | None'.
+
+11. Localhost safe GET probe to http://127.0.0.1:8000
+Exit code: 0 after approval for read-only localhost network access.
+Concise output:
+- /health: healthy, service LMCP AutoQuote System, version 2.6.0-manual-production, loaded_routers_count=67, failed_routers_count=0.
+- /openapi.json: 351 paths.
+- /api/system/health: ok.
+- /api/rfq/recent: count=50.
+- /rfq-lifecycle/status: ok.
+- /rfq-lifecycle/items: count=955, returned items_count=250 due default limit.
+- /rfq-lifecycle/mission-control: ok.
+- /supply-command/live-rfqs: count=11.
+- /tender-pipeline/live-rfqs: count=11.
+- /tender-pipeline/filtered-live-rfqs: count=0.
+- /tender-pipeline/recommended-live-rfqs: count=0.
+- /tender-pipeline/scored-live-rfqs: count=0.
+- /revenue-dashboard/live-rfqs: count=0.
+- /quote-compilation/status: timeout.
+- /quote-compilation/candidates: timeout.
+- /quote-compilation/packs: count=8.
+- /quote-compilation/submission-binders: count=3.
+- /submission-history: count=3.
+- /submission-history/summary: total=3.
+- /submission-history/recent: count=3.
+- /submission-proof/status: ok.
+- /portal-submission/status: ok.
+- /v47-final-submit/status: 404.
+- /operator-actions/summary: ok.
+- /audit-trail/summary: ok.
+- /dashboard/summary: ok.
+- /decision-intelligence/summary: ok.
+- /supplier-quotes/health: 404.
+- /smart-harvester-v31/status: 404.
+- /real-rfq-harvester-v32/status: 404.
+- /v50-9-document-download/status: 404.
+- /sbd-intelligence/status: ok.
+
+12. OpenAPI route extraction
+Exit code: 0
+Concise output:
+- path_count=351.
+- No path contains work-item or work-items.
+- RFQ paths include /api/rfq/recent, /rfq-lifecycle/items, /rfq-lifecycle/manual-pricing/{rfq_id}, /supply-command/live-rfqs, and tender-pipeline live queue routes.
+- Quote compilation paths include candidates, packs, pricing, formal-quote, returnables, submission-binder, submission-gate, evidence, audit, manual-completion, and submission-proof routes.
+- Supplier paths include /supplier-quotes/status and /supplier-quotes/run-once.
+- Approval literal paths: none found.
+
+13. Runtime/persistence read-only inspection
+Exit code: 0
+Concise output:
+- runtime/live_rfqs.json exists, count=11, modified_at=2026-07-08T18:57:20.195774+00:00.
+- runtime/manual_production/approvals.jsonl: 1 line.
+- runtime/manual_production/submission_reviews.jsonl: 2 lines.
+- runtime/manual_production/submission_proofs.jsonl: 1 line.
+- runtime/operator_auth/operator_auth.sqlite3 tables: operators=1, sessions=2.
+- runtime/document_intelligence/document_intelligence_summary.json documents_count=4.
+- runtime/document_intelligence/pricing_schedules.json documents_count=2.
+- runtime/document_intelligence/item_tables.json documents_count=4.
+- runtime/rfq_document_intelligence/reports: 47 document intelligence reports.
+- runtime/manual_review/pilot_rfqs: 89 PDFs.
+- output/quotes: 1056 PDFs.
+- runtime/tender_submission_pipeline: 35 quote_pack.pdf files and 35 submission_pack_manifest.txt files.
+- supplier_quotes recursive file count: 39.
+
+14. frontend npm run build
+Working directory: frontend
+Exit code: 0
+Concise output:
+- vite v8.0.12 built production assets successfully.
+- Built chunks include RfqOperationsWorkspace, DashboardWorkspace, QuotePackEngineWorkspace, and SubmissionCentreWorkspace.
+
+15. frontend npm run lint
+Working directory: frontend
+Exit code: 1
+Concise output:
+- 58 problems total: 44 errors and 14 warnings.
+- Representative errors: react-hooks/set-state-in-effect in App.jsx, LiveMissionMetricsPanel.jsx, SubmissionControlActions.jsx, DashboardWorkspace.jsx, SubmissionCentreWorkspace.jsx; no-unused-vars; no-empty.
+
+16. lmcp-preview npm run build
+Exit code: 2
+Concise output:
+- TypeScript errors in src/App.tsx lines 394-397: string | boolean not assignable to string.
+
+17. lmcp-preview npm run lint
+Exit code: 1
+Concise output:
+- 18 errors, mostly @typescript-eslint/no-explicit-any and react-hooks/set-state-in-effect.
+
+18. lmcp-frontend npm run build
+Exit code: 0
+Concise output:
+- vite v8.0.10 built production assets successfully.
+
+19. lmcp-frontend npm run lint
+Exit code: 1
+Concise output:
+- 269 problems: 257 errors and 12 warnings.
+- Lint includes generated .vite/deps files and project source issues.
+
+20. LMCP_Command_Centre_UI_Stabilized npm run build
+Exit code: 127
+Concise output:
+- sh: vite: command not found.
+
+21. LMCP_Command_Centre_UI_Stabilized npm run lint
+Exit code: 127
+Concise output:
+- sh: eslint: command not found.
+
+Skipped checks:
+- Full pytest: skipped for safety because tests are not isolated and may write runtime or attempt live email behavior.
+- Mutating API tests: skipped by instruction.
+- Persistence across restart: not performed because restarting the production backend/container could disrupt the environment.
+- Docker/container inspection: not performed because the available evidence was sufficient and no destructive Docker action was needed.

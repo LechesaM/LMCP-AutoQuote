@@ -1,0 +1,378 @@
+{
+  "audit_date": "2026-07-16",
+  "branch": "recovery/rfq-quote-pack-bridge",
+  "requested_branch": "integration/v1.2",
+  "commit": "c02c0d56",
+  "overall_assessment": "Partially operational recovery system. The running backend is healthy, but the checked-out Python 3.9 source has router import failures, live RFQs are stale, acquisition evidence is not current, frontend lint/build results are mixed, and several enterprise capabilities are present as source or historical artifacts rather than verified current end-to-end operations.",
+  "overall_revised_completion_percent": 79,
+  "areas": [
+    {
+      "area": "Core Backend",
+      "earlier_status": "Production Stable",
+      "earlier_completion_percent": 99,
+      "revised_status": "Runtime healthy but source/runtime mismatch and Python 3.9 router import failures",
+      "revised_completion_percent": 82,
+      "confidence": "high",
+      "evidence": [
+        "GET /health on localhost returned service LMCP AutoQuote System, version 2.6.0-manual-production, loaded_routers_count=67, failed_routers_count=0.",
+        "GET /openapi.json returned 351 paths.",
+        "Checked-out app/main.py declares APP_VERSION 2.5.3-v50.7-etenders-promotion-gate.",
+        "Direct import of checked-out app.main under .venv Python 3.9 loaded 95 routers but recorded 15 failed routers.",
+        "rfq_lifecycle_router failed during source import: unable to evaluate type annotation 'dict | None'."
+      ],
+      "gaps": [
+        "Runtime server does not exactly match checked-out source.",
+        "Python 3.9 compatibility is broken for at least app/api/rfq_lifecycle_api.py.",
+        "Several optional routers fail in the sandbox due absolute /app access."
+      ],
+      "critical_blockers": [
+        "Current source cannot be credited as fully production stable until router import failures are resolved in the target Python 3.9 environment."
+      ],
+      "recommended_actions": [
+        "Align running backend image/source with repository checkout.",
+        "Replace Python 3.10 union syntax in FastAPI annotations or add a supported type-evaluation backport.",
+        "Add a source import smoke test to CI."
+      ]
+    },
+    {
+      "area": "RFQ Harvesting",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 98,
+      "revised_status": "Partially operational; current acquisition freshness unverified",
+      "revised_completion_percent": 70,
+      "confidence": "high",
+      "evidence": [
+        "Source files exist: app/services/tender_harvester.py, smart_harvester_v31_service.py, real_rfq_harvester_v32_service.py, direct_portal_harvesters.py, harvester_adapter.py.",
+        "GET /supply-command/live-rfqs returned count=11.",
+        "runtime/live_rfqs.json exists with count=11 and modified_at 2026-07-08T18:57:20Z.",
+        "GET /tender-pipeline/filtered-live-rfqs, /recommended-live-rfqs, /scored-live-rfqs, and /revenue-dashboard/live-rfqs returned count=0.",
+        "Running OpenAPI did not include /smart-harvester-v31/status or /real-rfq-harvester-v32/status, despite source files existing."
+      ],
+      "gaps": [
+        "No evidence of RFQ acquisition in the last 24 hours or 7 days.",
+        "Live RFQ store is stale relative to audit date.",
+        "Source presence and runtime registration diverge for V31/V32 harvester routes."
+      ],
+      "critical_blockers": [
+        "Current live acquisition path cannot be considered operational end to end."
+      ],
+      "recommended_actions": [
+        "Run a controlled read-only/acquisition dry-run in a reviewed maintenance window.",
+        "Repair route registration for current harvester APIs.",
+        "Add freshness telemetry to /health or /rfq-lifecycle/status."
+      ]
+    },
+    {
+      "area": "Document Acquisition",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 98,
+      "revised_status": "Implemented with historical artifacts, but current path not fully verified",
+      "revised_completion_percent": 78,
+      "confidence": "medium",
+      "evidence": [
+        "Source files exist: app/services/rfq_document_acquisition_engine.py, rfq_document_intelligence.py, etenders_document_download_v50_9_service.py, rfq_zip_content_extraction_engine.py.",
+        "runtime/rfq_document_intelligence/reports contains 47 document intelligence reports.",
+        "runtime/manual_review/pilot_rfqs contains 89 PDF files.",
+        "runtime/document_intelligence/document_intelligence_summary.json exists with documents_count=4.",
+        "GET /v50-9-document-download/status returned 404 from the running API."
+      ],
+      "gaps": [
+        "Document acquisition artifacts are historical and not tied to fresh live RFQ records.",
+        "Running route evidence for V50.9 document download was absent at the probed path.",
+        "Current live RFQs generally do not expose document/BOQ/pricing fields."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Verify current document download route names from OpenAPI before using the engine.",
+        "Bind acquisition output into canonical RFQ lifecycle records.",
+        "Add read-only document manifest counts to RFQ detail endpoints."
+      ]
+    },
+    {
+      "area": "BOQ Extraction",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 96,
+      "revised_status": "Implemented but not proven current end to end",
+      "revised_completion_percent": 74,
+      "confidence": "medium",
+      "evidence": [
+        "Source files exist: app/services/rfq_boq_extraction_engine.py, pricing_table_extraction_v42_service.py, final_boq_row_normalization_engine.py, boq_ambiguity_detection_service.py.",
+        "runtime/document_intelligence/item_tables.json exists with documents_count=4.",
+        "runtime/document_intelligence/pricing_schedules.json exists with documents_count=2.",
+        "Frontend RfqOperationsWorkspace build artifact was produced in the active frontend build."
+      ],
+      "gaps": [
+        "No safe endpoint evidence showed current live RFQs with editable BOQ rows.",
+        "Current live RFQ records are stale and not populated with pricing rows.",
+        "No pytest evidence was safely runnable for BOQ edge cases."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Expose read-only BOQ counts per canonical RFQ item.",
+        "Add tests for scanned PDFs, empty BOQs, malformed quantities, and review-required flags."
+      ]
+    },
+    {
+      "area": "Buyer Form Intelligence",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 99,
+      "revised_status": "Implemented with evidence, but route/source mismatch lowers confidence",
+      "revised_completion_percent": 78,
+      "confidence": "medium",
+      "evidence": [
+        "Source files exist: tender_form_intelligence_engine.py, buyer_form_population_service.py, sbd_completion_engine.py, sbd_auto_detection_engine.py.",
+        "app/data/form_profiles contains many SBD/MBD/pricing schedule profile JSON files.",
+        "GET /sbd-intelligence/status returned status ok on the running API.",
+        "Direct source import of app.main failed to load tender_form_intelligence_router and sbd_intelligence_router due /app permission errors."
+      ],
+      "gaps": [
+        "Runtime and source route registration differ.",
+        "No safe test run verified actual completion/review/approval gates.",
+        "Some tests that exercise forms write runtime outputs."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Add non-mutating fixture tests for form detection/completion.",
+        "Resolve /app absolute path assumptions."
+      ]
+    },
+    {
+      "area": "Pricing Workspace",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 97,
+      "revised_status": "Operational pieces present; incomplete current data binding",
+      "revised_completion_percent": 82,
+      "confidence": "medium",
+      "evidence": [
+        "Source files exist: pricing_schedule_service.py, quote_pricing_engine_service.py, real_profit_pricing_service.py, quote_compilation_service.py.",
+        "pricing_schedule_service.py defines default markup 25 and VAT 15.",
+        "OpenAPI includes /quote-compilation/packs/{pack_id}/pricing, pricing dry-run, save-local, and /real-profit-pricing/status.",
+        "GET /quote-compilation/packs returned count=8; /submission-binders returned count=3."
+      ],
+      "gaps": [
+        "Live RFQ records are not populated with current pricing rows.",
+        "GET /quote-compilation/status and /quote-compilation/candidates timed out in the read-only probe.",
+        "No safe persistence-across-restart test was run."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Investigate quote-compilation status/candidates timeout.",
+        "Bind editable pricing rows to canonical RFQ lifecycle data."
+      ]
+    },
+    {
+      "area": "Supplier Management",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 95,
+      "revised_status": "Fragmented; supplier ingestion exists but runtime API is thin",
+      "revised_completion_percent": 68,
+      "confidence": "medium",
+      "evidence": [
+        "Source files exist for supplier_catalog_service.py, supplier_quote_ingestion_service.py, supplier_fit_scoring_service.py, supplier_risk_scoring_service.py, supplier_performance_memory_service.py.",
+        "supplier_quotes directory contains 39 files under recursive scan.",
+        "OpenAPI includes /supplier-quotes/status and /supplier-quotes/run-once.",
+        "GET /supplier-quotes/health returned 404.",
+        "supplier_fit_scoring_service.py and supplier_risk_scoring_service.py import supplier_catalog_service and call _load_suppliers, which is not defined in supplier_catalog_service.py."
+      ],
+      "gaps": [
+        "Unresolved stale private helper dependency on supplier_catalog_service._load_suppliers.",
+        "No read-only endpoint confirms supplier catalogue matching, risk, and performance memory as an integrated workflow.",
+        "Supplier quote ingestion may require IMAP credentials and was not run."
+      ],
+      "critical_blockers": [
+        "Imported enterprise supplier scoring services are not cleanly integrated."
+      ],
+      "recommended_actions": [
+        "Replace stale _load_suppliers calls with public supplier catalog APIs.",
+        "Add GET health/summary endpoint for supplier management.",
+        "Add fixture-based supplier quote parsing tests."
+      ]
+    },
+    {
+      "area": "Commercial Decision Engine",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 95,
+      "revised_status": "Implemented but not fully policy-aligned or verified",
+      "revised_completion_percent": 76,
+      "confidence": "medium",
+      "evidence": [
+        "Source files exist: decision_intelligence_service.py, decision_intelligence_engine.py, bid_no_bid_scoring_service.py, tender_classification_service.py.",
+        "GET /decision-intelligence/summary returned status ok.",
+        "rfq_lifecycle_service.py defines MIN_MARGIN=25.0 and MIN_PROFIT=30000.0.",
+        "User policy requires R25000 minimum projected net profit; current lifecycle source uses R30000."
+      ],
+      "gaps": [
+        "Policy mismatch between requested R25000 and source R30000.",
+        "No read-only evidence verified 35% markup escalation.",
+        "No test evidence for construction-heavy rejection and human override persistence."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Confirm authoritative commercial policy values.",
+        "Add decision-engine tests for supply/delivery scope, construction-heavy review, 25% floor, 35% escalation, and profit threshold."
+      ]
+    },
+    {
+      "area": "Quote Generation",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 99,
+      "revised_status": "Operational with historical artifacts; current candidate endpoint timeout",
+      "revised_completion_percent": 88,
+      "confidence": "high",
+      "evidence": [
+        "output/quotes contains 1056 PDF files.",
+        "runtime/tender_submission_pipeline contains 35 quote_pack.pdf files.",
+        "Source files exist: quote_engine_service.py, pdf_quote_generator.py, quote_pack_builder_service.py, quote_compilation_service.py.",
+        "frontend production build includes QuotePackEngineWorkspace bundle.",
+        "GET /quote-compilation/packs returned count=8."
+      ],
+      "gaps": [
+        "GET /quote-compilation/candidates timed out.",
+        "Quote artifacts are mostly historical and not proven against current live RFQs.",
+        "No safe regeneration test was run because generation writes output artifacts."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Diagnose quote-compilation candidate scan timeout.",
+        "Add read-only artifact association checks by RFQ id."
+      ]
+    },
+    {
+      "area": "Submission Pack Generation",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 99,
+      "revised_status": "Operational for local/read-only pack evidence; final execution guarded",
+      "revised_completion_percent": 86,
+      "confidence": "high",
+      "evidence": [
+        "runtime/tender_submission_pipeline contains 35 submission_pack_manifest.txt files.",
+        "GET /quote-compilation/submission-binders returned count=3.",
+        "OpenAPI includes extensive quote-compilation submission-gate, checklist, evidence, audit, printable report, manual-completion, and submission-proof GET routes.",
+        "quote_compilation_service.py defines local-only/no-email/no-upload/no-final-submit safety flags."
+      ],
+      "gaps": [
+        "No write/generation endpoint was invoked due safety constraints.",
+        "Current live RFQs are not feeding fresh pack generation.",
+        "Some pack generation routes are POST and were not tested."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Add safe fixture-based pack generation tests using temp directories.",
+        "Connect current canonical RFQ records to pack candidates."
+      ]
+    },
+    {
+      "area": "Approval Workflow",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 100,
+      "revised_status": "Implemented but not exceptional/complete",
+      "revised_completion_percent": 78,
+      "confidence": "medium",
+      "evidence": [
+        "runtime/manual_production/approvals.jsonl exists with 1 line.",
+        "runtime/operator_auth/operator_auth.sqlite3 has operators=1 and sessions=2.",
+        "OpenAPI includes /operator-auth/session, /operator-auth/status, and quote-compilation manual-completion/submission-proof routes.",
+        "frontend SubmissionCentreWorkspace checks operatorBlockedReason before proof/archive actions."
+      ],
+      "gaps": [
+        "No safe runtime test proved role restrictions cannot be bypassed.",
+        "Approval route naming is indirect; OpenAPI has no route containing literal approval.",
+        "Current source import failure affects lifecycle routes that approval workflow may depend on."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Add backend authorization tests for manual completion, proof save, archive creation, and final readiness locks.",
+        "Expose read-only approval summary endpoint."
+      ]
+    },
+    {
+      "area": "Dashboard",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 96,
+      "revised_status": "Builds and reads real APIs, but lint and data freshness gaps remain",
+      "revised_completion_percent": 80,
+      "confidence": "high",
+      "evidence": [
+        "frontend npm run build passed.",
+        "GET /dashboard/summary returned status ok.",
+        "OpenAPI includes dashboard, revenue-dashboard, rfq-lifecycle mission-control, and submission analytics routes.",
+        "frontend lint failed with 44 errors.",
+        "lmcp-preview build failed TypeScript checks; LMCP_Command_Centre_UI_Stabilized lacks vite/eslint dependencies."
+      ],
+      "gaps": [
+        "Dashboard displays stale/empty live RFQ queues.",
+        "Lint failures reduce production confidence.",
+        "Some frontend service files still call stale paths such as /submission_history."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Fix frontend lint errors and stale endpoint paths.",
+        "Verify dashboard against fresh canonical RFQ lifecycle data."
+      ]
+    },
+    {
+      "area": "Governance and Audit Trail",
+      "earlier_status": "Operational",
+      "earlier_completion_percent": 100,
+      "revised_status": "Strong local evidence, not fully immutable/proven",
+      "revised_completion_percent": 84,
+      "confidence": "high",
+      "evidence": [
+        "GET /audit-trail/summary returned status ok.",
+        "OpenAPI includes /audit-trail/events, /audit/logs, /rfq-lifecycle/audit/{rfq_id}, and quote-compilation audit-log/audit-trail routes.",
+        "quote_compilation_service.py redacts sensitive audit keys and appends pack audit events.",
+        "runtime/manual_production logs and submission pack audit JSON files exist."
+      ],
+      "gaps": [
+        "Append-only/immutability guarantees were not proven.",
+        "Actor identity enforcement was not runtime-tested.",
+        "Full disaster recovery restore test was not run."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Add append-only audit tests and actor identity assertions.",
+        "Add recovery drill documentation tied to current runtime paths."
+      ]
+    },
+    {
+      "area": "Human Approval Controls",
+      "earlier_status": "Enforced",
+      "earlier_completion_percent": 100,
+      "revised_status": "Enforced by default but not fully tested",
+      "revised_completion_percent": 88,
+      "confidence": "medium",
+      "evidence": [
+        "quote_compilation_service.py sets final_submit_locked=True in readiness and evidence payloads.",
+        "quote_compilation_service.py requires manual completion and submission proof records before readiness.",
+        "final_submission_v47_5_service.py blocks final submission when manual completion gate is not allowed.",
+        "operator_auth_service.py defines protected actions for proof save/load/export and archive operations."
+      ],
+      "gaps": [
+        "Backend bypass tests were not run.",
+        "Some POST routes exist for guarded final submit and portal submit aliases, requiring stronger automated regression coverage.",
+        "Frontend commandWallApi has a default policy snippet with allow_portal_final_submit true, which conflicts with conservative backend defaults."
+      ],
+      "critical_blockers": [],
+      "recommended_actions": [
+        "Add explicit no-bypass tests for approval gates.",
+        "Normalize frontend default safety policy to final-submit false."
+      ]
+    }
+  ],
+  "autonomous_submission": {
+    "earlier_assessment": "Intentionally Disabled - By Design",
+    "revised_assessment": "Partially disabled. Default portal submission path is blocked and quote-compilation is local-only, but guarded final-submit code paths and policy flags still exist and require stronger tests/config review.",
+    "evidence": [
+      "portal_submission_service.auto_submit_portal returns auto_submit_attempted=false and final_submit_blocked=true.",
+      "quote_compilation_service safety flags include no_email_send, no_portal_upload, no_final_submit.",
+      "final_submission_v47_5_service blocks final submit by policy unless allow_portal_final_submit/execute_final_submit and manual completion conditions are satisfied.",
+      "OpenAPI exposes /portal-submission/auto-submit and /portal-submission/submit aliases, but the service currently routes them to blocked review results.",
+      "frontend/src/services/v48AutonomousPolicy.js defaults allow_portal_final_submit=false, but frontend/src/services/commandWallApi.js contains an allow_portal_final_submit=true policy snippet."
+    ],
+    "bypass_risks": [
+      "Guarded final submission route can be configured to execute under explicit flags/policy.",
+      "Frontend policy defaults are inconsistent across service files.",
+      "No safe automated test was run to prove unauthorized autonomous submission is rejected."
+    ]
+  }
+}

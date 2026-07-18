@@ -563,26 +563,42 @@ function ReturnablesReviewPanel({ rfq }) {
 
   const items = asArray(state.data?.returnables);
   const categories = state.data?.category_counts || {};
+  const readiness = state.data?.readiness_counts || {};
   if (!items.length) {
     return <div className="rfq-empty-inline">No extracted returnables review model is available.</div>;
   }
+  const grouped = items.reduce((acc, item) => {
+    const category = item.category || "REQUIRES_MANUAL_CLASSIFICATION";
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(item);
+    return acc;
+  }, {});
   return (
     <div className="rfq-tab-panel">
       <div className="rfq-pricing-summary">
         <span>Returnables <b>{items.length}</b></span>
-        <span>Unverified <b>{state.data?.missing_or_unverified_count || 0}</b></span>
-        <span>Required docs <b>{categories.REQUIRED_UPLOADED_RETURNABLE || 0}</b></span>
+        <span>Documents missing <b>{readiness.documents_missing || state.data?.documents_missing || 0}</b></span>
+        <span>Buyer forms <b>{readiness.buyer_forms_incomplete || state.data?.buyer_forms_incomplete || 0}</b></span>
+        <span>Pricing rules <b>{readiness.pricing_rules_unconfirmed || state.data?.pricing_rules_unconfirmed || 0}</b></span>
         <span>Declarations <b>{categories.ELIGIBILITY_DECLARATION || 0}</b></span>
       </div>
-      <div className="rfq-checklist">
-        {items.map((item) => (
-          <div className={`rfq-check-row ${item.unresolved ? "missing" : "complete"}`} key={item.returnable_id}>
-            {item.unresolved ? <ShieldAlert size={17} /> : <CheckCircle2 size={17} />}
-            <span>{item.requirement_text}</span>
-            <small>{item.category.replaceAll("_", " ")} · {item.review_status}{item.source_page ? ` · p.${item.source_page}` : ""}</small>
-          </div>
-        ))}
-      </div>
+      {Object.entries(grouped).map(([category, group]) => (
+        <div className="rfq-checklist" key={category}>
+          <h3 className="rfq-section-title">{category.replaceAll("_", " ")}</h3>
+          {group.map((item) => (
+            <div className={`rfq-check-row ${item.unresolved ? "missing" : "complete"}`} key={item.returnable_id}>
+              {item.unresolved ? <ShieldAlert size={17} /> : <CheckCircle2 size={17} />}
+              <span>{item.requirement_text}</span>
+              <small>
+                {item.review_status}
+                {item.source_page ? ` · p.${item.source_page}` : ""}
+                {item.requires_evidence ? " · evidence required" : " · no upload required"}
+                {item.action_required ? ` · ${item.action_required}` : ""}
+              </small>
+            </div>
+          ))}
+        </div>
+      ))}
       {state.data?.submission_blocked ? (
         <div className="rfq-warning"><AlertTriangle size={16} />Submission remains blocked until supplier validation, returnables review and human approval are complete.</div>
       ) : null}

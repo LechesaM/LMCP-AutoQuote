@@ -10,9 +10,12 @@ from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.rfq_state_store import RfqStateStore
 from app.services.rfq_supplier_validation_service import (
     RETURNABLE_CONDITIONAL,
+    RETURNABLE_BUYER_FORM_COMPLETION,
+    RETURNABLE_DEADLINE_RULE,
     RETURNABLE_ELIGIBILITY_DECLARATION,
+    RETURNABLE_REQUIRED_COMPANY_DOCUMENT,
     RETURNABLE_PRICING_RULE,
-    RETURNABLE_REQUIRED_UPLOAD,
+    RETURNABLE_TECHNICAL_EVIDENCE,
     RETURNABLE_SUBMISSION_FORMAT,
     RfqSupplierValidationService,
 )
@@ -67,12 +70,20 @@ def _write_fixture_live_store(tmp_path, monkeypatch):
                     },
                 ],
                 "mandatory_returnables": [
-                    {"name": "Attach a valid tax compliance PIN", "source_page": 4},
-                    {"name": "Quotation must be on company letterhead", "source_page": 4},
-                    {"name": "Total value must include taxes", "source_page": 4},
-                    {"name": "No bidder may be in the service of the state", "source_page": 5},
-                    {"name": "Manufacturer datasheet must be attached", "source_page": 5},
-                    {"name": "Where applicable provide authorization letter", "source_page": 5},
+                    {"name": "QUOTATIONS MUST BE ON COMPANY LETTERHEADS", "source_page": 4},
+                    {"name": "QUOTATIONS RECEIVED AFTER CLOSIND DATE AND TIME WILL NOT BE ACCEPTED", "source_page": 4},
+                    {"name": "QUOTATIONS WITHOUT BRAND NAMES WHERE REQUIRED WILL NOT BE ACCEPTED", "source_page": 4},
+                    {"name": "TOTAL QUOTATION VALUE TO INCLUDE ALL APPLICABLE TAXES", "source_page": 4},
+                    {"name": "SUBMIT A COPY OF A VALID BBBEE CERTIFICATE OR SWORN AFFIDAVIT", "source_page": 4},
+                    {"name": "ENSURE THAT ALL ATTACHED MBD'S ARE DULY COMPLETED AND SIGNED", "source_page": 4},
+                    {"name": "SUBMIT A COPY OF VALID LEASE AGREEMENT OR MUNICIPAL ACCOUNT STATEMENT", "source_page": 4},
+                    {"name": "Full Completion of the Bill of Quantities (BOQ)/ Specification (where applicable)", "source_page": 5},
+                    {"name": "Attendance of compulsory site briefing (where applicable)", "source_page": 5},
+                    {"name": "Attachment of datasheet, reference letter, proof of certification", "source_page": 5},
+                    {"name": "No RFQ will be considered from persons in the service of the state", "source_page": 5},
+                    {"name": "No Bidder who is blacklisted by National Treasury", "source_page": 5},
+                    {"name": "All Quotes should be on PDF (MS WORD, MS EXCEL, PICTURES ARE NOT ALLOWED)", "source_page": 5},
+                    {"name": "Submission of a Joint Venture Agreement, where applicable", "source_page": 5},
                 ],
                 "submission_pack_status": "blocked_pending_returnables_review",
             },
@@ -240,14 +251,55 @@ def test_returnables_are_classified_and_submission_remains_blocked(tmp_path, mon
     result = service.get_returnables_review_workspace("6000080601")
 
     assert result["status"] == "ok"
-    assert result["returnable_count"] == 6
+    assert result["returnable_count"] == 14
+    assert result["category_counts"][RETURNABLE_SUBMISSION_FORMAT] == 2
+    assert result["category_counts"][RETURNABLE_DEADLINE_RULE] == 1
+    assert result["category_counts"][RETURNABLE_PRICING_RULE] == 2
+    assert result["category_counts"][RETURNABLE_REQUIRED_COMPANY_DOCUMENT] == 2
+    assert result["category_counts"][RETURNABLE_BUYER_FORM_COMPLETION] == 2
     assert result["category_counts"][RETURNABLE_ELIGIBILITY_DECLARATION] == 2
-    assert result["category_counts"][RETURNABLE_SUBMISSION_FORMAT] == 1
-    assert result["category_counts"][RETURNABLE_PRICING_RULE] == 1
-    assert result["category_counts"][RETURNABLE_REQUIRED_UPLOAD] == 1
-    assert result["category_counts"][RETURNABLE_CONDITIONAL] == 1
+    assert result["category_counts"][RETURNABLE_CONDITIONAL] == 2
+    assert result["category_counts"][RETURNABLE_TECHNICAL_EVIDENCE] == 1
     assert result["submission_blocked"] is True
-    assert result["missing_or_unverified_count"] == 6
+    assert result["documents_missing"] == 2
+    assert result["buyer_forms_incomplete"] == 2
+    assert result["declarations_unreviewed"] == 2
+    assert result["pricing_rules_unconfirmed"] == 2
+    assert result["submission_rules_unconfirmed"] == 2
+    assert result["deadline_rules_active"] == 1
+    assert result["conditional_requirements_unresolved"] == 2
+    assert result["technical_evidence_missing"] == 1
+    assert result["manual_classification_required"] == 0
+    assert result["missing_or_unverified_count"] == 13
+
+
+def test_required_6000080601_returnable_mapping_by_text(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+    result = service.get_returnables_review_workspace("6000080601")
+    by_text = {item["requirement_text"]: item for item in result["returnables"]}
+
+    assert by_text["QUOTATIONS MUST BE ON COMPANY LETTERHEADS"]["category"] == RETURNABLE_SUBMISSION_FORMAT
+    assert by_text["QUOTATIONS RECEIVED AFTER CLOSIND DATE AND TIME WILL NOT BE ACCEPTED"]["category"] == RETURNABLE_DEADLINE_RULE
+    assert by_text["QUOTATIONS WITHOUT BRAND NAMES WHERE REQUIRED WILL NOT BE ACCEPTED"]["category"] == RETURNABLE_PRICING_RULE
+    assert by_text["TOTAL QUOTATION VALUE TO INCLUDE ALL APPLICABLE TAXES"]["category"] == RETURNABLE_PRICING_RULE
+    assert by_text["SUBMIT A COPY OF A VALID BBBEE CERTIFICATE OR SWORN AFFIDAVIT"]["category"] == RETURNABLE_REQUIRED_COMPANY_DOCUMENT
+    assert by_text["ENSURE THAT ALL ATTACHED MBD'S ARE DULY COMPLETED AND SIGNED"]["category"] == RETURNABLE_BUYER_FORM_COMPLETION
+    assert by_text["SUBMIT A COPY OF VALID LEASE AGREEMENT OR MUNICIPAL ACCOUNT STATEMENT"]["category"] == RETURNABLE_REQUIRED_COMPANY_DOCUMENT
+    assert by_text["Full Completion of the Bill of Quantities (BOQ)/ Specification (where applicable)"]["category"] == RETURNABLE_BUYER_FORM_COMPLETION
+    assert by_text["Attendance of compulsory site briefing (where applicable)"]["category"] == RETURNABLE_CONDITIONAL
+    assert by_text["Attachment of datasheet, reference letter, proof of certification"]["category"] == RETURNABLE_TECHNICAL_EVIDENCE
+    assert by_text["No RFQ will be considered from persons in the service of the state"]["category"] == RETURNABLE_ELIGIBILITY_DECLARATION
+    assert by_text["No Bidder who is blacklisted by National Treasury"]["category"] == RETURNABLE_ELIGIBILITY_DECLARATION
+    assert by_text["All Quotes should be on PDF (MS WORD, MS EXCEL, PICTURES ARE NOT ALLOWED)"]["category"] == RETURNABLE_SUBMISSION_FORMAT
+    assert by_text["Submission of a Joint Venture Agreement, where applicable"]["category"] == RETURNABLE_CONDITIONAL
+
+    assert by_text["QUOTATIONS RECEIVED AFTER CLOSIND DATE AND TIME WILL NOT BE ACCEPTED"]["requires_evidence"] is False
+    assert by_text["TOTAL QUOTATION VALUE TO INCLUDE ALL APPLICABLE TAXES"]["requires_evidence"] is False
+    assert by_text["All Quotes should be on PDF (MS WORD, MS EXCEL, PICTURES ARE NOT ALLOWED)"]["requires_evidence"] is False
+    assert by_text["SUBMIT A COPY OF A VALID BBBEE CERTIFICATE OR SWORN AFFIDAVIT"]["requires_evidence"] is True
+    assert by_text["Attachment of datasheet, reference letter, proof of certification"]["requires_evidence"] is True
 
 
 def test_mandatory_evidence_cannot_be_completed_without_proof_and_conditional_needs_reason(tmp_path, monkeypatch):
@@ -255,7 +307,7 @@ def test_mandatory_evidence_cannot_be_completed_without_proof_and_conditional_ne
     _write_fixture_live_store(tmp_path, monkeypatch)
     service = _service(tmp_path)
     workspace = service.get_returnables_review_workspace("6000080601")
-    required = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_REQUIRED_UPLOAD)
+    required = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_REQUIRED_COMPANY_DOCUMENT)
     conditional = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_CONDITIONAL)
 
     blocked = service.save_returnables_review(
@@ -279,7 +331,7 @@ def test_returnables_review_save_is_idempotent_with_evidence_and_does_not_comple
     _write_fixture_live_store(tmp_path, monkeypatch)
     service = _service(tmp_path)
     workspace = service.get_returnables_review_workspace("6000080601")
-    required = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_REQUIRED_UPLOAD)
+    required = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_REQUIRED_COMPANY_DOCUMENT)
     payload = {
         "reviews": [
             {
@@ -302,6 +354,56 @@ def test_returnables_review_save_is_idempotent_with_evidence_and_does_not_comple
     assert stored["safety"]["quote_pack_generated"] is False
     assert stored["safety"]["submission_pack_generated"] is False
     assert second["submission_blocked"] is True
+
+
+def test_rules_can_be_confirmed_without_evidence_and_buyer_form_requires_workflow_reference(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+    workspace = service.get_returnables_review_workspace("6000080601")
+    pricing_rule = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_PRICING_RULE)
+    format_rule = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_SUBMISSION_FORMAT)
+    declaration = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_ELIGIBILITY_DECLARATION)
+    buyer_form = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_BUYER_FORM_COMPLETION)
+
+    blocked = service.save_returnables_review(
+        "6000080601",
+        {
+            "reviews": [
+                {"returnable_id": pricing_rule["returnable_id"], "review_status": "CONFIRMED", "approval_state": "REVIEWED"},
+                {"returnable_id": format_rule["returnable_id"], "review_status": "ACKNOWLEDGED", "approval_state": "REVIEWED"},
+                {"returnable_id": declaration["returnable_id"], "review_status": "ACKNOWLEDGED", "approval_state": "REVIEWED"},
+                {"returnable_id": buyer_form["returnable_id"], "review_status": "COMPLETED", "approval_state": "REVIEWED"},
+            ]
+        },
+    )
+    assert blocked["status"] == "blocked"
+    assert any("buyer_form_workflow_reference_required" in item for item in blocked["errors"])
+
+    saved = service.save_returnables_review(
+        "6000080601",
+        {
+            "reviews": [
+                {"returnable_id": pricing_rule["returnable_id"], "review_status": "CONFIRMED", "approval_state": "REVIEWED"},
+                {"returnable_id": format_rule["returnable_id"], "review_status": "ACKNOWLEDGED", "approval_state": "REVIEWED"},
+                {"returnable_id": declaration["returnable_id"], "review_status": "ACKNOWLEDGED", "approval_state": "REVIEWED"},
+                {
+                    "returnable_id": buyer_form["returnable_id"],
+                    "review_status": "COMPLETED",
+                    "approval_state": "REVIEWED",
+                    "buyer_form_reference": "buyer-forms/6000080601/mbd-completion",
+                },
+            ]
+        },
+    )
+
+    assert saved["saved"] is True
+    assert saved["pricing_rules_unconfirmed"] == 1
+    assert saved["submission_rules_unconfirmed"] == 1
+    assert saved["declarations_unreviewed"] == 1
+    assert saved["buyer_forms_incomplete"] == 1
+    assert saved["documents_missing"] == 2
+    assert saved["submission_blocked"] is True
 
 
 def test_phase33_counts_and_unrelated_rfq_remain_unchanged(tmp_path, monkeypatch):

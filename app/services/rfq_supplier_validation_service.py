@@ -20,12 +20,20 @@ RETURNABLES_REVIEW_DIR = RUNTIME_DIR / "returnables_review"
 SCHEMA_VERSION = "rfq_supplier_validation_v1"
 RETURNABLES_SCHEMA_VERSION = "rfq_returnables_review_v1"
 
-RETURNABLE_REQUIRED_UPLOAD = "REQUIRED_UPLOADED_RETURNABLE"
+RETURNABLE_REQUIRED_COMPANY_DOCUMENT = "REQUIRED_COMPANY_DOCUMENT"
+RETURNABLE_BUYER_FORM_COMPLETION = "BUYER_FORM_COMPLETION"
 RETURNABLE_PRICING_RULE = "PRICING_COMMERCIAL_RULE"
 RETURNABLE_ELIGIBILITY_DECLARATION = "ELIGIBILITY_DECLARATION"
 RETURNABLE_SUBMISSION_FORMAT = "SUBMISSION_FORMAT_REQUIREMENT"
+RETURNABLE_DEADLINE_RULE = "DEADLINE_SUBMISSION_RULE"
 RETURNABLE_CONDITIONAL = "CONDITIONAL_REQUIREMENT"
+RETURNABLE_TECHNICAL_EVIDENCE = "SUPPORTING_TECHNICAL_EVIDENCE"
 RETURNABLE_GENERAL_INSTRUCTION = "GENERAL_BUYER_INSTRUCTION"
+RETURNABLE_MANUAL_CLASSIFICATION = "REQUIRES_MANUAL_CLASSIFICATION"
+
+# Backwards-compatible alias for older tests/imports. New code should use
+# REQUIRED_COMPANY_DOCUMENT because not every returnable is an uploaded file.
+RETURNABLE_REQUIRED_UPLOAD = RETURNABLE_REQUIRED_COMPANY_DOCUMENT
 
 
 def _now_iso() -> str:
@@ -498,17 +506,131 @@ class RfqSupplierValidationService:
     def classify_returnable(self, text: str, mandatory_status: str = "") -> str:
         lower = _safe_text(text).lower()
         status = _safe_text(mandatory_status).lower()
-        if "if " in lower or "where applicable" in lower or "conditional" in status:
+        if not lower:
+            return RETURNABLE_MANUAL_CLASSIFICATION
+        if "joint venture" in lower or "jv agreement" in lower:
             return RETURNABLE_CONDITIONAL
-        if any(term in lower for term in ("not be in the service of the state", "service of the state", "blacklisted", "declaration", "declare", "sbd", "tax compliance", "pin")):
+        if any(term in lower for term in ("mbd", "bill of quantities", "boq", "specification")):
+            return RETURNABLE_BUYER_FORM_COMPLETION
+        if any(term in lower for term in ("briefing", "site briefing", "where applicable", "if applicable", "conditional")) or "conditional" in status:
+            return RETURNABLE_CONDITIONAL
+        if any(term in lower for term in ("datasheet", "data sheet", "reference letter", "proof of certification", "technical", "certification")):
+            return RETURNABLE_TECHNICAL_EVIDENCE
+        if any(term in lower for term in ("after closing", "closing date", "closing time", "closind date", "late quotation", "late submission")):
+            return RETURNABLE_DEADLINE_RULE
+        if any(term in lower for term in ("letterhead", "pdf", "ms word", "ms excel", "pictures are not allowed", "quotation must be on", "quotes should be on")):
+            return RETURNABLE_SUBMISSION_FORMAT
+        if any(term in lower for term in ("brand name", "brand names", "include all applicable taxes", "include taxes", "applicable taxes", "total quotation value", "vat")):
+            return RETURNABLE_PRICING_RULE
+        if any(term in lower for term in ("not be in the service of the state", "service of the state", "blacklisted", "national treasury", "declaration", "declare", "tax compliance", "pin")):
             return RETURNABLE_ELIGIBILITY_DECLARATION
-        if any(term in lower for term in ("after closing", "closing date", "letterhead", "brand names", "include taxes", "vat", "quotation must", "total value")):
-            return RETURNABLE_SUBMISSION_FORMAT if "letterhead" in lower or "quotation must" in lower or "after closing" in lower else RETURNABLE_PRICING_RULE
-        if any(term in lower for term in ("certificate", "certified", "copy", "attached", "attach", "proof", "document", "registration", "datasheet", "brochure")):
-            return RETURNABLE_REQUIRED_UPLOAD
+        if any(term in lower for term in ("b-bbee", "bbbee", "bee", "sworn affidavit", "lease agreement", "municipal account", "company registration", "valid certificate", "copy of valid")):
+            return RETURNABLE_REQUIRED_COMPANY_DOCUMENT
+        if any(term in lower for term in ("certificate", "certified", "copy", "attached", "attach", "proof", "document", "registration", "brochure")):
+            return RETURNABLE_REQUIRED_COMPANY_DOCUMENT
         if any(term in lower for term in ("must", "shall", "required")):
             return RETURNABLE_GENERAL_INSTRUCTION
-        return RETURNABLE_REQUIRED_UPLOAD
+        return RETURNABLE_MANUAL_CLASSIFICATION
+
+    def _category_policy(self, category: str, closing_date: Any = None) -> Dict[str, Any]:
+        if category == RETURNABLE_REQUIRED_COMPANY_DOCUMENT:
+            return {
+                "requires_evidence": True,
+                "action_required": "Attach or reference company document evidence.",
+                "blocker_key": "documents_missing",
+            }
+        if category == RETURNABLE_BUYER_FORM_COMPLETION:
+            return {
+                "requires_evidence": False,
+                "requires_buyer_form_workflow": True,
+                "action_required": "Complete or link the buyer form, MBD or BOQ workflow.",
+                "blocker_key": "buyer_forms_incomplete",
+            }
+        if category == RETURNABLE_ELIGIBILITY_DECLARATION:
+            return {
+                "requires_evidence": False,
+                "action_required": "Acknowledge or link the relevant declaration/MBD evidence.",
+                "blocker_key": "declarations_unreviewed",
+            }
+        if category == RETURNABLE_PRICING_RULE:
+            return {
+                "requires_evidence": False,
+                "action_required": "Confirm pricing complies with this buyer rule.",
+                "blocker_key": "pricing_rules_unconfirmed",
+            }
+        if category == RETURNABLE_SUBMISSION_FORMAT:
+            return {
+                "requires_evidence": False,
+                "action_required": "Acknowledge and validate package format before submission.",
+                "blocker_key": "submission_rules_unconfirmed",
+            }
+        if category == RETURNABLE_DEADLINE_RULE:
+            return {
+                "requires_evidence": False,
+                "action_required": "Monitor against RFQ closing date; no upload required.",
+                "blocker_key": "deadline_rules_active",
+                "auto_acknowledged": True,
+                "evaluated_against_closing_date": _safe_text(closing_date),
+            }
+        if category == RETURNABLE_CONDITIONAL:
+            return {
+                "requires_evidence": False,
+                "action_required": "Mark applicable, not applicable with reason, or requires clarification.",
+                "blocker_key": "conditional_requirements_unresolved",
+            }
+        if category == RETURNABLE_TECHNICAL_EVIDENCE:
+            return {
+                "requires_evidence": True,
+                "action_required": "Attach or reference datasheets, certifications or technical evidence.",
+                "blocker_key": "technical_evidence_missing",
+            }
+        if category == RETURNABLE_GENERAL_INSTRUCTION:
+            return {
+                "requires_evidence": False,
+                "action_required": "Operator acknowledgement required.",
+                "blocker_key": "submission_rules_unconfirmed",
+            }
+        return {
+            "requires_evidence": False,
+            "action_required": "Manual category assignment required.",
+            "blocker_key": "manual_classification_required",
+        }
+
+    def _review_resolved(self, category: str, review: Dict[str, Any], policy: Dict[str, Any]) -> bool:
+        status = _safe_text(review.get("review_status") or review.get("status")).upper()
+        approval = _safe_text(review.get("approval_state")).upper()
+        evidence = _safe_text(review.get("evidence_file") or review.get("evidence_location"))
+        override = _safe_text(review.get("operator_override_justification"))
+        note = _safe_text(review.get("review_note"))
+
+        if policy.get("auto_acknowledged"):
+            return True
+        if category == RETURNABLE_CONDITIONAL:
+            if status == "NOT_APPLICABLE":
+                return bool(note)
+            return status in {"APPLICABLE", "PRESENT", "REVIEWED", "APPROVED"} and approval not in {"", "UNREVIEWED", "REJECTED"}
+        if category == RETURNABLE_MANUAL_CLASSIFICATION:
+            return False
+        if policy.get("requires_evidence"):
+            return status in {"PRESENT", "REVIEWED", "APPROVED"} and bool(evidence or override) and approval not in {"", "UNREVIEWED", "REJECTED"}
+        if policy.get("requires_buyer_form_workflow"):
+            return status in {"COMPLETED", "REVIEWED", "APPROVED"} and bool(
+                review.get("buyer_form_reference") or review.get("workflow_reference") or evidence or override
+            )
+        return status in {"ACKNOWLEDGED", "CONFIRMED", "REVIEWED", "APPROVED"} and approval not in {"REJECTED"}
+
+    def _empty_readiness_counts(self) -> Dict[str, int]:
+        return {
+            "documents_missing": 0,
+            "buyer_forms_incomplete": 0,
+            "declarations_unreviewed": 0,
+            "pricing_rules_unconfirmed": 0,
+            "submission_rules_unconfirmed": 0,
+            "deadline_rules_active": 0,
+            "conditional_requirements_unresolved": 0,
+            "technical_evidence_missing": 0,
+            "manual_classification_required": 0,
+        }
 
     def get_returnables_review_workspace(self, rfq_id: str) -> Dict[str, Any]:
         rfq = self._find_active_rfq(rfq_id)
@@ -522,6 +644,7 @@ class RfqSupplierValidationService:
         }
         items = []
         category_counts: Dict[str, int] = {}
+        readiness_counts = self._empty_readiness_counts()
         blockers: List[str] = []
         for raw in self._raw_returnables(rfq):
             category = self.classify_returnable(raw["requirement_text"], raw.get("mandatory_status", ""))
@@ -529,12 +652,13 @@ class RfqSupplierValidationService:
             status = _safe_text(review.get("review_status") or "MISSING")
             approval = _safe_text(review.get("approval_state") or "UNREVIEWED")
             evidence = _safe_text(review.get("evidence_file") or review.get("evidence_location"))
-            is_uploaded_required = category in {RETURNABLE_REQUIRED_UPLOAD, RETURNABLE_ELIGIBILITY_DECLARATION}
-            unresolved = (
-                status in {"", "MISSING", "REQUIRES_CLARIFICATION"}
-                or approval in {"", "UNREVIEWED", "REJECTED"}
-                or (is_uploaded_required and status in {"PRESENT", "APPROVED"} and not evidence and not review.get("operator_override_justification"))
-            )
+            policy = self._category_policy(category, closing_date=rfq.get("closing_date") or rfq.get("closing_datetime"))
+            resolved = self._review_resolved(category, review, policy)
+            unresolved = not resolved
+            blocker_key = policy.get("blocker_key")
+            if blocker_key:
+                if blocker_key == "deadline_rules_active" or unresolved:
+                    readiness_counts[blocker_key] = readiness_counts.get(blocker_key, 0) + 1
             if unresolved:
                 blockers.append(raw["returnable_id"])
             category_counts[category] = category_counts.get(category, 0) + 1
@@ -545,10 +669,14 @@ class RfqSupplierValidationService:
                 "approval_state": approval,
                 "evidence_file": evidence,
                 "evidence_location": _safe_text(review.get("evidence_location")),
+                "buyer_form_reference": _safe_text(review.get("buyer_form_reference") or review.get("workflow_reference")),
                 "review_note": _safe_text(review.get("review_note")),
                 "reviewer": _safe_text(review.get("reviewer")),
                 "reviewed_at": _safe_text(review.get("reviewed_at")),
-                "requires_evidence": is_uploaded_required,
+                "requires_evidence": bool(policy.get("requires_evidence")),
+                "requires_buyer_form_workflow": bool(policy.get("requires_buyer_form_workflow")),
+                "action_required": policy.get("action_required"),
+                "blocker_key": blocker_key,
                 "unresolved": unresolved,
             })
         return {
@@ -559,7 +687,17 @@ class RfqSupplierValidationService:
             "returnables": items,
             "returnable_count": len(items),
             "category_counts": category_counts,
+            "readiness_counts": readiness_counts,
             "missing_or_unverified_count": len(blockers),
+            "documents_missing": readiness_counts["documents_missing"],
+            "buyer_forms_incomplete": readiness_counts["buyer_forms_incomplete"],
+            "declarations_unreviewed": readiness_counts["declarations_unreviewed"],
+            "pricing_rules_unconfirmed": readiness_counts["pricing_rules_unconfirmed"],
+            "submission_rules_unconfirmed": readiness_counts["submission_rules_unconfirmed"],
+            "deadline_rules_active": readiness_counts["deadline_rules_active"],
+            "conditional_requirements_unresolved": readiness_counts["conditional_requirements_unresolved"],
+            "technical_evidence_missing": readiness_counts["technical_evidence_missing"],
+            "manual_classification_required": readiness_counts["manual_classification_required"],
             "submission_blocked": bool(blockers),
             "blockers": blockers,
             "quote_pack_generated": False,
@@ -591,12 +729,18 @@ class RfqSupplierValidationService:
             if current.get("category") == RETURNABLE_CONDITIONAL and status == "NOT_APPLICABLE" and not _safe_text(review.get("review_note")):
                 errors.append(f"{returnable_id}:not_applicable_reason_required")
                 continue
+            if current.get("requires_buyer_form_workflow") and status in {"COMPLETED", "APPROVED", "REVIEWED"} and not (
+                _safe_text(review.get("buyer_form_reference") or review.get("workflow_reference") or evidence or override)
+            ):
+                errors.append(f"{returnable_id}:buyer_form_workflow_reference_required")
+                continue
             reviews[returnable_id] = {
                 "returnable_id": returnable_id,
                 "review_status": status,
                 "approval_state": approval,
                 "evidence_file": evidence,
                 "evidence_location": _safe_text(review.get("evidence_location")),
+                "buyer_form_reference": _safe_text(review.get("buyer_form_reference") or review.get("workflow_reference")),
                 "review_note": _safe_text(review.get("review_note")),
                 "reviewer": _safe_text(review.get("reviewer") or "operator"),
                 "reviewed_at": _now_iso(),

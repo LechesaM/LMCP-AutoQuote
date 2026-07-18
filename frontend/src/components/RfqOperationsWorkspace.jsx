@@ -460,6 +460,173 @@ function ReturnablesChecklist({ items }) {
   );
 }
 
+function sourcePricingRows(rfq) {
+  const raw = rfq?._raw || {};
+  const candidates = [
+    raw.pricing_rows,
+    raw.pricing_schedule_rows,
+    raw.buyer_pricing_schedule_rows,
+    raw.line_items,
+    raw.boq_items,
+    raw.rfq_requirement_rows,
+    raw.pricing_schedule?.rows,
+  ];
+  const rows = [];
+  const seen = new Set();
+  candidates.forEach((candidate) => {
+    asArray(candidate).forEach((row, index) => {
+      if (!row || typeof row !== "object") return;
+      const key = safeText(pick(row, ["row_id", "item_number", "material_number", "buyer_line_number", "line_number"]), String(index + 1));
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({
+        row_id: key,
+        item_number: safeText(pick(row, ["item_number", "material_number", "buyer_line_number", "line_number"]), key),
+        description: safeText(pick(row, ["description", "item_description", "name"]), "Line item"),
+        specification: safeText(pick(row, ["specification", "technical_specification"])),
+        quantity: normalizeNumber(pick(row, ["quantity", "qty"]), 0),
+        unit: safeText(pick(row, ["unit", "uom"]), "each"),
+        unit_cost: pick(row, ["unit_cost", "cost_price", "supplier_rate", "supplier_unit_price"], ""),
+        selling_price: pick(row, ["selling_price", "selling_rate", "unit_price"], ""),
+        markup_percent: pick(row, ["markup_percent", "markup_pct", "markup"], 25),
+        manual_override: Boolean(pick(row, ["manual_override", "selling_rate_manual_override"], false)),
+        source_page: pick(row, ["source_page"], ""),
+      });
+    });
+  });
+  return rows;
+}
+
+function calculatePricingRows(rows, vatRate = 15) {
+  return rows.map((row) => {
+    const quantity = normalizeNumber(row.quantity, 0);
+    const unitCost = normalizeNumber(row.unit_cost, 0);
+    const markup = normalizeNumber(row.markup_percent, 25);
+    const suppliedSelling = normalizeNumber(row.selling_price, 0);
+    const selling = suppliedSelling > 0 ? suppliedSelling : unitCost > 0 ? Math.round(unitCost * (1 + markup / 100) * 100) / 100 : 0;
+    const total = Math.round(quantity * selling * 100) / 100;
+    const vat = Math.round(total * vatRate) / 100;
+    return {
+      ...row,
+      quantity,
+      unit_cost: unitCost || "",
+      markup_percent: markup,
+      selling_price: selling || "",
+      total_ex_vat: total,
+      vat_amount: vat,
+      total_incl_vat: Math.round((total + vat) * 100) / 100,
+      pricing_source: "operator_provisional_estimate",
+      supplier_quote_received: false,
+      requires_supplier_validation: true,
+      pricing_status: "provisional",
+      review_required: true,
+    };
+  });
+}
+
+function ManualPricingPanel({ rfq }) {
+  const [rows, setRows] = useState(() => sourcePricingRows(rfq));
+  const [status, setStatus] = useState({ loading: false, message: "", error: "" });
+  const pricedRows = useMemo(() => calculatePricingRows(rows), [rows]);
+  const subtotal = pricedRows.reduce((sum, row) => sum + normalizeNumber(row.total_ex_vat, 0), 0);
+  const vat = pricedRows.reduce((sum, row) => sum + normalizeNumber(row.vat_amount, 0), 0);
+  const cost = pricedRows.reduce((sum, row) => sum + normalizeNumber(row.quantity, 0) * normalizeNumber(row.unit_cost, 0), 0);
+  const profit = subtotal - cost;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadManualPricing() {
+      if (!rfq?.reference) return;
+      setStatus({ loading: true, message: "", error: "" });
+      const result = await fetchEndpoint(`/rfq-lifecycle/manual-pricing/${encodeURIComponent(rfq.reference)}`);
+      if (cancelled) return;
+      if (result.ok) {
+        const incoming = asArray(result.data?.line_items || result.data?.pricing_rows);
+        if (incoming.length) setRows(incoming);
+        setStatus({
+          loading: false,
+          message: result.data?.saved ? "Saved provisional pricing loaded." : "Extracted rows loaded for provisional pricing.",
+          error: "",
+        });
+      } else {
+        setStatus({ loading: false, message: "", error: result.error });
+      }
+    }
+    loadManualPricing();
+    return () => {
+      cancelled = true;
+    };
+  }, [rfq?.reference]);
+
+  function updateRow(index, field, value) {
+    setRows((current) => current.map((row, rowIndex) => rowIndex === index ? { ...row, [field]: value, manual_override: field === "selling_price" ? true : row.manual_override } : row));
+  }
+
+  async function savePricing() {
+    setStatus({ loading: true, message: "", error: "" });
+    const result = await postEndpoint(`/rfq-lifecycle/manual-pricing/${encodeURIComponent(rfq.reference)}`, {
+      line_items: pricedRows,
+      pricing_source: "operator_provisional_estimate",
+      supplier_quote_received: false,
+      requires_supplier_validation: true,
+      pricing_status: "provisional",
+      operator_note: "Phase 34.1 controlled provisional pricing validation",
+      vat_rate: 15,
+    });
+    if (!result.ok) {
+      setStatus({ loading: false, message: "", error: result.error });
+      return;
+    }
+    setRows(asArray(result.data?.line_items || pricedRows));
+    setStatus({ loading: false, message: "Provisional pricing saved for operator review.", error: "" });
+  }
+
+  if (!pricedRows.length) {
+    return <div className="rfq-empty-inline">No extracted pricing rows available for manual pricing.</div>;
+  }
+
+  return (
+    <div className="rfq-pricing-workspace">
+      <div className="rfq-pricing-summary">
+        <span>Rows <b>{pricedRows.length}</b></span>
+        <span>Subtotal <b>{formatMoney(subtotal)}</b></span>
+        <span>VAT <b>{formatMoney(vat)}</b></span>
+        <span>Profit <b>{formatMoney(profit)}</b></span>
+      </div>
+      <div className="rfq-pricing-table">
+        {pricedRows.map((row, index) => (
+          <div className="rfq-pricing-row" key={`${row.row_id || row.item_number}-${index}`}>
+            <div>
+              <b>{row.item_number}</b>
+              <span>{row.description}</span>
+              <small>{row.quantity} {row.unit}{row.source_page ? ` · p.${row.source_page}` : ""}</small>
+            </div>
+            <label>
+              Cost
+              <input type="number" min="0" step="0.01" value={row.unit_cost} onChange={(event) => updateRow(index, "unit_cost", event.target.value)} />
+            </label>
+            <label>
+              Markup
+              <input type="number" min="0" step="0.01" value={row.markup_percent} onChange={(event) => updateRow(index, "markup_percent", event.target.value)} />
+            </label>
+            <label>
+              Selling
+              <input type="number" min="0" step="0.01" value={row.selling_price} onChange={(event) => updateRow(index, "selling_price", event.target.value)} />
+            </label>
+            <strong>{formatMoney(row.total_ex_vat)}</strong>
+          </div>
+        ))}
+      </div>
+      <div className="rfq-pricing-footer">
+        <span>Provisional estimate · supplier validation required · manual approval required</span>
+        <button type="button" onClick={savePricing} disabled={status.loading}>{status.loading ? "Saving..." : "Save Provisional Pricing"}</button>
+      </div>
+      {status.message ? <div className="rfq-local-state">{status.message}</div> : null}
+      {status.error ? <div className="rfq-warning"><AlertTriangle size={16} />{status.error}</div> : null}
+    </div>
+  );
+}
+
 async function postEndpoint(path, payload) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -587,6 +754,8 @@ function DetailDrawer({ rfq, activeTab, setActiveTab, onClose, operatorState, on
               <ArtifactList items={rfq.boqs} empty="No BOQ detected." />
               <h3 className="rfq-section-title">Pricing Schedules</h3>
               <ArtifactList items={rfq.pricing_schedules} empty="No pricing schedule detected." />
+              <h3 className="rfq-section-title">Manual Pricing</h3>
+              <ManualPricingPanel rfq={rfq} />
             </>
           ) : null}
           {activeTab === "Qualification" ? (

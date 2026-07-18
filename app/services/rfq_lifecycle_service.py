@@ -63,7 +63,7 @@ EXCLUDED_KEYWORDS = {
 }
 SUPPLY_TERMS = {"supply", "delivery", "deliver", "goods", "consumables", "stationery", "ppe", "office"}
 MIN_MARGIN = 25.0
-MIN_PROFIT = 30000.0
+MIN_PROFIT = 25000.0
 MANUAL_PRICING_DIR = PROJECT_ROOT / "runtime" / "manual_pricing"
 
 DISCOVERY_STORE_CANDIDATES = [
@@ -478,6 +478,49 @@ class RfqLifecycleService:
             pass
         return {}
 
+    def _manual_pricing_row_key(self, row: Dict[str, Any], index: int) -> str:
+        for key in ("row_id", "item_id", "line_id", "item_number", "material_number", "buyer_line_number", "line_number", "item_no", "line_no"):
+            value = str(row.get(key) or "").strip()
+            if value:
+                return value
+        return str(index)
+
+    def _source_pricing_rows(self, item: Dict[str, Any]) -> List[Dict[str, Any]]:
+        candidates: List[Any] = []
+        sources = [item]
+        source_payload = item.get("source_payload")
+        if isinstance(source_payload, dict):
+            sources.append(source_payload)
+        for source in sources:
+            for key in (
+                "pricing_rows",
+                "pricing_schedule_rows",
+                "buyer_pricing_schedule_rows",
+                "line_items",
+                "boq_items",
+                "rfq_requirement_rows",
+                "items",
+            ):
+                value = source.get(key)
+                if isinstance(value, list) and value:
+                    candidates.append(value)
+            pricing_schedule = source.get("pricing_schedule")
+            if isinstance(pricing_schedule, dict) and isinstance(pricing_schedule.get("rows"), list):
+                candidates.append(pricing_schedule.get("rows"))
+
+        rows: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            for index, row in enumerate(candidate or [], start=1):
+                if not isinstance(row, dict):
+                    continue
+                key = self._manual_pricing_row_key(row, index)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(dict(row))
+        return rows
+
     def _manual_pricing_line_item(self, row: Dict[str, Any], index: int, vat_rate: float = 15.0) -> Tuple[Dict[str, Any], List[str]]:
         issues: List[str] = []
         description = str(row.get("description") or row.get("item_description") or row.get("name") or "").strip()
@@ -491,19 +534,39 @@ class RfqLifecycleService:
             quantity = 0.0
 
         unit = str(row.get("unit") or row.get("uom") or "each").strip() or "each"
-        unit_cost = _safe_float(row.get("unit_cost") or row.get("cost") or row.get("buy_cost"), 0.0)
+        unit_cost = _safe_float(
+            row.get("unit_cost")
+            or row.get("cost_price")
+            or row.get("supplier_rate")
+            or row.get("supplier_unit_price")
+            or row.get("estimated_unit_cost")
+            or row.get("cost")
+            or row.get("buy_cost"),
+            0.0,
+        )
         if unit_cost < 0:
             issues.append(f"line_{index}_invalid_unit_cost")
             unit_cost = 0.0
 
         markup_percent = _safe_float(row.get("markup_percent") or row.get("markup") or row.get("markup_pct"), 0.0)
+        if markup_percent <= 0 and unit_cost > 0:
+            markup_percent = MIN_MARGIN
         selling_price = _safe_float(
             row.get("selling_price")
+            or row.get("selling_rate")
             or row.get("selling_price_ex_vat")
             or row.get("unit_price")
             or row.get("unit_price_ex_vat"),
             0.0,
         )
+        manual_override = bool(
+            row.get("manual_override")
+            or row.get("manual_override_applied")
+            or row.get("selling_rate_manual_override")
+            or row.get("operator_override")
+        )
+        if selling_price > 0 and unit_cost > 0 and not row.get("markup_percent") and not row.get("markup") and not row.get("markup_pct"):
+            markup_percent = round(((selling_price / unit_cost) - 1.0) * 100.0, 4)
         if selling_price <= 0 and unit_cost > 0:
             selling_price = round(unit_cost * (1 + max(0.0, markup_percent) / 100.0), 2)
         if selling_price <= 0:
@@ -527,24 +590,44 @@ class RfqLifecycleService:
 
         return (
             {
-                "item_no": row.get("item_no") or row.get("line_no") or index,
+                "row_id": self._manual_pricing_row_key(row, index),
+                "item_no": row.get("item_no") or row.get("line_no") or row.get("item_number") or row.get("material_number") or index,
+                "item_number": row.get("item_number") or row.get("material_number") or row.get("buyer_line_number") or row.get("line_number") or row.get("item_no") or index,
+                "material_number": row.get("material_number") or row.get("item_number") or "",
                 "description": description,
+                "specification": row.get("specification") or "",
                 "quantity": quantity,
                 "unit": unit,
                 "unit_cost": round(unit_cost, 2),
+                "cost_price": round(unit_cost, 2),
+                "supplier_rate": round(unit_cost, 2) if unit_cost > 0 else None,
                 "markup_percent": round(markup_percent, 2),
+                "markup_pct": round(markup_percent, 2),
                 "selling_price": round(selling_price, 2),
+                "selling_rate": round(selling_price, 2) if selling_price > 0 else None,
                 "selling_price_ex_vat": round(selling_price, 2),
                 "vat_rate": round(vat_rate_value, 2),
                 "vat": round(vat_value, 2),
                 "vat_amount": round(vat_value, 2),
                 "total": round(total_ex_vat, 2),
                 "total_ex_vat": round(total_ex_vat, 2),
+                "line_total": round(total_ex_vat, 2) if total_ex_vat > 0 else None,
                 "total_incl_vat": round(total_incl_vat, 2),
                 "supplier_source_note": str(row.get("supplier_source_note") or row.get("source_note") or row.get("note") or "").strip(),
                 "unit_cost_total": unit_cost_total,
                 "profit": round(profit, 2),
+                "gross_profit": round(profit, 2),
                 "margin_percent": line_margin,
+                "manual_override": manual_override,
+                "pricing_source": row.get("pricing_source") or row.get("source") or "operator_provisional_estimate",
+                "supplier_quote_received": bool(row.get("supplier_quote_received", False)),
+                "requires_supplier_validation": bool(row.get("requires_supplier_validation", True)),
+                "pricing_status": row.get("pricing_status") or "provisional",
+                "review_required": bool(row.get("review_required", True)),
+                "source_document": row.get("source_document") or "",
+                "source_page": row.get("source_page"),
+                "source_row": row.get("source_row"),
+                "extraction_confidence": row.get("extraction_confidence", row.get("confidence")),
             },
             issues,
         )
@@ -563,17 +646,35 @@ class RfqLifecycleService:
             blockers.append("below_minimum_profit")
         if margin_percent < MIN_MARGIN:
             blockers.append("below_minimum_margin")
+        if any(bool(item.get("requires_supplier_validation")) for item in line_items):
+            blockers.append("supplier_validation_required")
+        blockers.append("operator_approval_required")
+        deduped_blockers: List[str] = []
+        for blocker in blockers:
+            if blocker not in deduped_blockers:
+                deduped_blockers.append(blocker)
         return {
             "subtotal_ex_vat": subtotal_ex_vat,
             "vat_total": vat_total,
             "grand_total_inc_vat": grand_total_inc_vat,
             "total_cost": total_cost,
+            "total_cost_ex_vat": total_cost,
+            "total_selling_ex_vat": subtotal_ex_vat,
             "estimated_profit": estimated_profit,
+            "projected_net_profit": estimated_profit,
+            "gross_profit": estimated_profit,
             "margin_percent": margin_percent,
+            "gross_margin_percent": margin_percent,
             "minimum_profit_required": MIN_PROFIT,
             "minimum_margin_required": MIN_MARGIN,
-            "verified": not blockers,
-            "blockers": list(blockers),
+            "recommended_markup_scenario": 35.0 if estimated_profit < MIN_PROFIT else MIN_MARGIN,
+            "commercial_policy_result": "PASS" if not deduped_blockers else "REVIEW_REQUIRED",
+            "supplier_validation_required": any(bool(item.get("requires_supplier_validation")) for item in line_items),
+            "operator_approval_required": True,
+            "quote_pack_generated": False,
+            "submission_pack_generated": False,
+            "verified": False,
+            "blockers": deduped_blockers,
         }
 
     def _manual_pricing_validation(self, payload: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[str]]:
@@ -603,6 +704,29 @@ class RfqLifecycleService:
         totals["verified"] = not deduped
         return line_items, totals, deduped
 
+    def _merge_manual_pricing_rows(self, source_rows: List[Dict[str, Any]], saved_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        merged: List[Dict[str, Any]] = []
+        saved_by_key = {
+            self._manual_pricing_row_key(row, index): row
+            for index, row in enumerate(saved_rows or [], start=1)
+            if isinstance(row, dict)
+        }
+        for index, source in enumerate(source_rows or [], start=1):
+            key = self._manual_pricing_row_key(source, index)
+            saved = saved_by_key.get(key, {})
+            row = dict(source)
+            row.update({k: v for k, v in saved.items() if v not in (None, "", [])})
+            row.setdefault("row_id", key)
+            row.setdefault("pricing_source", "operator_provisional_estimate")
+            row.setdefault("supplier_quote_received", False)
+            row.setdefault("requires_supplier_validation", True)
+            row.setdefault("pricing_status", "provisional")
+            row.setdefault("review_required", True)
+            merged.append(row)
+        if not merged:
+            merged = [dict(row) for row in saved_rows or [] if isinstance(row, dict)]
+        return merged
+
     def _resolve_manual_pricing_item(self, rfq_id: str) -> Tuple[Optional[Dict[str, Any]], str]:
         item = self.store.get_item(rfq_id)
         if item:
@@ -628,12 +752,30 @@ class RfqLifecycleService:
         if not item:
             return {"status": "not_found", "rfq_id": rfq_id}
         saved = self._manual_pricing_file(rfq_id)
+        source_rows = self._source_pricing_rows(item)
+        saved_rows = saved.get("line_items") if isinstance(saved.get("line_items"), list) else []
+        workspace_rows = self._merge_manual_pricing_rows(source_rows, saved_rows)
+        _, scenario_25, _ = self._manual_pricing_validation({"line_items": [{**row, "markup_percent": 25.0} for row in workspace_rows]})
+        _, scenario_35, _ = self._manual_pricing_validation({"line_items": [{**row, "markup_percent": 35.0} for row in workspace_rows]})
         if not saved:
             return {
                 "status": "ok",
                 "rfq_id": rfq_id,
                 "manual_pricing": {},
                 "saved": False,
+                "line_items": workspace_rows,
+                "pricing_rows": workspace_rows,
+                "source_pricing_row_count": len(source_rows),
+                "supplier_quotes_required_for_pricing": False,
+                "pricing_policy": {
+                    "minimum_markup_percent": MIN_MARGIN,
+                    "minimum_projected_net_profit": MIN_PROFIT,
+                    "scenario_25": scenario_25,
+                    "scenario_35": scenario_35,
+                    "supplier_quotes_optional_for_provisional_pricing": True,
+                    "manual_approval_required": True,
+                    "manual_submission_required": True,
+                },
                 "pricing_review_status": item.get("pricing_review_status", ""),
                 "pricing_verification_status": item.get("pricing_verification_status", ""),
             }
@@ -642,6 +784,19 @@ class RfqLifecycleService:
             "rfq_id": rfq_id,
             "manual_pricing": saved,
             "saved": True,
+            "line_items": workspace_rows,
+            "pricing_rows": workspace_rows,
+            "source_pricing_row_count": len(source_rows),
+            "supplier_quotes_required_for_pricing": False,
+            "pricing_policy": {
+                "minimum_markup_percent": MIN_MARGIN,
+                "minimum_projected_net_profit": MIN_PROFIT,
+                "scenario_25": scenario_25,
+                "scenario_35": scenario_35,
+                "supplier_quotes_optional_for_provisional_pricing": True,
+                "manual_approval_required": True,
+                "manual_submission_required": True,
+            },
             "pricing_review_status": saved.get("pricing_review_status") or item.get("pricing_review_status", ""),
             "pricing_verification_status": saved.get("pricing_verification_status") or item.get("pricing_verification_status", ""),
         }
@@ -686,12 +841,33 @@ class RfqLifecycleService:
                 "not_submitted": True,
                 "not_uploaded": True,
                 "not_emailed": True,
+                "quote_pack_generated": False,
+                "submission_pack_generated": False,
                 "final_submit_locked": True,
                 "manual_only": True,
                 "live_rfq_store_modified": False,
+                "lifecycle_store_modified": item_source == "lifecycle",
             },
         }
         manual_pricing_path.write_text(json.dumps(record, indent=2, sort_keys=True), encoding="utf-8")
+
+        if item_source != "lifecycle":
+            return {
+                "status": "ok" if totals.get("verified") else "needs_review",
+                "rfq_id": rfq_id,
+                "manual_pricing_path": item.get("manual_pricing_path", str(manual_pricing_path)),
+                "pricing_review_status": record["pricing_review_status"],
+                "pricing_verification_status": record["pricing_verification_status"],
+                "manual_pricing_required": record["manual_pricing_required"],
+                "manual_pricing_required_reason": record["manual_pricing_required_reason"],
+                "pricing_action": record["pricing_action"],
+                "pricing_review_action": record["pricing_review_action"],
+                "verified": bool(totals.get("verified")),
+                "line_items": line_items,
+                "totals": totals,
+                "blockers": blockers,
+                "safety": record["safety"],
+            }
 
         try:
             item["manual_pricing_path"] = str(manual_pricing_path.relative_to(PROJECT_ROOT))

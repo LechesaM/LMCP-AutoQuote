@@ -122,6 +122,21 @@
 .rfq-artifact b{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rfq-artifact span,.rfq-audit-list small{display:block;color:#8fa6bd;font-size:10px;margin-top:3px}
 .rfq-artifact a{color:#061018;background:#eaf6ff;text-decoration:none;border-radius:9px;padding:6px 8px;font-size:10px;font-weight:900}
+.rfq-pricing-workspace{display:grid;gap:10px}
+.rfq-pricing-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.rfq-pricing-summary span{border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.045);border-radius:10px;padding:8px;color:#9fb2c8;font-size:10px}
+.rfq-pricing-summary b{display:block;color:#eef7ff;font-size:13px;margin-top:3px}
+.rfq-pricing-table{display:grid;gap:8px;max-height:380px;overflow:auto}
+.rfq-pricing-row{display:grid;grid-template-columns:minmax(180px,1fr) 78px 78px 78px 92px;gap:8px;align-items:end;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.045);border-radius:12px;padding:10px}
+.rfq-pricing-row b,.rfq-pricing-row span,.rfq-pricing-row small{display:block}
+.rfq-pricing-row span{font-size:12px;color:#d7e7f5;line-height:1.35}
+.rfq-pricing-row small{font-size:10px;color:#8fa6bd;margin-top:4px}
+.rfq-pricing-row label{display:grid;gap:4px;color:#9fb2c8;font-size:10px}
+.rfq-pricing-row input{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.12);background:#07131f;color:#eef7ff;border-radius:8px;padding:7px 6px;font:inherit;font-size:12px}
+.rfq-pricing-row strong{font-size:12px;text-align:right;color:#eef7ff}
+.rfq-pricing-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#9fb2c8;font-size:11px}
+.rfq-pricing-footer button{border:0;border-radius:10px;background:#dff3ff;color:#061018;font-weight:900;padding:9px 12px}
+.rfq-pricing-footer button:disabled{opacity:.6}
 .rfq-check-row{font-size:12px;color:#c9d8e7}
 .rfq-check-row.complete{border-color:rgba(24,230,166,.24);background:rgba(24,230,166,.08);color:#8dffd8}
 .rfq-check-row.missing{border-color:rgba(255,112,112,.24);background:rgba(255,112,112,.08);color:#ffb0b0}
@@ -138,7 +153,7 @@
 @media(max-width:720px){
   .rfq-ops-hero{align-items:flex-start;flex-direction:column}
   .rfq-endpoint-status{justify-items:start}
-  .rfq-toolbar,.rfq-summary-grid,.rfq-detail-grid{grid-template-columns:1fr}
+  .rfq-toolbar,.rfq-summary-grid,.rfq-detail-grid,.rfq-pricing-summary,.rfq-pricing-row{grid-template-columns:1fr}
   .rfq-drawer{width:100vw}
   .rfq-operator-actions button{width:100%;justify-content:center}
 }

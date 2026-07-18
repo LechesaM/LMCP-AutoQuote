@@ -4,6 +4,15 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Query
 
+from app.services.live_rfq_store import (
+    get_active_counts,
+    get_archive_counts,
+    get_classification_review_counts,
+    list_active_rfqs,
+    list_historical_rfqs,
+    list_review_required_rfqs,
+)
+from app.services.rfq_archive_service import RfqArchiveService
 from app.services.rfq_lifecycle_service import RfqLifecycleService
 
 
@@ -52,6 +61,94 @@ def items(state: Optional[str] = Query(default=None), limit: int = Query(default
 @router.get("/items/{rfq_id}")
 def item(rfq_id: str) -> Dict[str, Any]:
     return service().get_item(rfq_id)
+
+
+def _apply_limit(items: list, limit: Any) -> list:
+    if isinstance(limit, int):
+        return items[:limit]
+    return items
+
+
+@router.get("/live-rfqs")
+def live_rfqs(limit: Optional[int] = Query(default=None, ge=1)) -> Dict[str, Any]:
+    data = list_active_rfqs()
+    items = data.get("items", [])
+    items = _apply_limit(items, limit)
+    counts = get_active_counts()
+    return {
+        "status": "ok",
+        "updated_at": data.get("updated_at"),
+        "count": len(items),
+        "items": items,
+        "metrics": counts,
+        "active_total": counts.get("active_total", len(items)),
+        "classification": "ACTIVE",
+        "read_only": True,
+    }
+
+
+@router.get("/historical-rfqs")
+def historical_rfqs(limit: Optional[int] = Query(default=None, ge=1)) -> Dict[str, Any]:
+    data = list_historical_rfqs()
+    items = data.get("items", [])
+    items = _apply_limit(items, limit)
+    return {
+        "status": "ok",
+        "count": len(items),
+        "items": items,
+        "summary": get_archive_counts(),
+        "classification": "HISTORICAL",
+        "read_only": True,
+    }
+
+
+@router.get("/historical-rfqs/summary")
+def historical_rfqs_summary() -> Dict[str, Any]:
+    summary = RfqArchiveService().get_archive_summary()
+    summary.update(get_archive_counts())
+    summary["read_only"] = True
+    return summary
+
+
+@router.get("/historical-rfqs/{rfq_id}")
+def historical_rfq_detail(rfq_id: str) -> Dict[str, Any]:
+    archived = RfqArchiveService().get_archived_rfq(rfq_id)
+    if archived.get("status") == "ok":
+        archived["read_only"] = True
+        return archived
+    for item in list_historical_rfqs().get("items", []):
+        values = {
+            str(item.get("rfq_id") or ""),
+            str(item.get("rfq_number") or ""),
+            str(item.get("buyer_rfq_number") or ""),
+            str(item.get("reference_number") or ""),
+            str(item.get("id") or ""),
+        }
+        if str(rfq_id) in values:
+            return {"status": "ok", "item": item, "read_only": True}
+    return {"status": "not_found", "rfq_id": rfq_id, "read_only": True}
+
+
+@router.get("/review-required-rfqs")
+def review_required_rfqs(limit: Optional[int] = Query(default=None, ge=1)) -> Dict[str, Any]:
+    data = list_review_required_rfqs()
+    items = data.get("items", [])
+    items = _apply_limit(items, limit)
+    return {
+        "status": "ok",
+        "count": len(items),
+        "items": items,
+        "summary": get_classification_review_counts(),
+        "classification": "REVIEW_REQUIRED",
+        "read_only": True,
+    }
+
+
+@router.get("/review-required-rfqs/summary")
+def review_required_rfqs_summary() -> Dict[str, Any]:
+    summary = get_classification_review_counts()
+    summary["read_only"] = True
+    return summary
 
 
 @router.get(

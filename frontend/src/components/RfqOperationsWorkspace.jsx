@@ -20,14 +20,17 @@ import { API_BASE } from "../services/api";
 const REQUEST_TIMEOUT_MS = 8000;
 
 const RFQ_ENDPOINTS = [
-  "/rfq-lifecycle/status",
-  "/rfq-lifecycle/recent",
-  "/rfq-lifecycle/report",
-  "/opportunities",
-  "/submission-history/recent",
-  "/submission-proof/latest",
-  "/portal-submission/status",
-  "/health",
+  "/rfq-lifecycle/live-rfqs",
+  "/supply-command/live-rfqs",
+  "/tender-pipeline/live-rfqs",
+];
+
+const HISTORICAL_ENDPOINTS = [
+  "/rfq-lifecycle/historical-rfqs",
+];
+
+const CLASSIFICATION_REVIEW_ENDPOINTS = [
+  "/rfq-lifecycle/review-required-rfqs",
 ];
 
 const PROVINCES = ["All", "GP", "FS", "KZN", "WC", "EC", "NC", "NW", "MP", "LP", "Unknown"];
@@ -187,7 +190,8 @@ function inferArtifacts(allDocuments, pattern, type) {
 function isRfqLike(record) {
   if (!record || typeof record !== "object" || Array.isArray(record)) return false;
   const keys = Object.keys(record).join(" ").toLowerCase();
-  return /(rfq|tender|opportunit|buyer|closing|quote|submission|boq|pricing|document|reference|title|description)/.test(keys);
+  const identity = pick(record, ["id", "rfq_id", "canonical_rfq_id", "reference", "rfq_reference", "rfq_number", "buyer_rfq_number", "reference_number", "title", "description"]);
+  return Boolean(identity) && /(rfq|tender|opportunit|buyer|closing|quote|submission|boq|pricing|document|reference|title|description)/.test(keys);
 }
 
 function collectObjectRecords(payload, sourcePath) {
@@ -316,6 +320,8 @@ function normalizeRfqRecord(record, sourcePath) {
     recommended_action: recommendedAction,
     proofs: collectArtifacts(record, ["proofs", "submission_proofs", "proof_files", "receipts"], "Proof"),
     audit: asArray(pick(record, ["audit", "events", "history", "timeline"])).filter((item) => item && typeof item === "object").slice(0, 8),
+    operational_classification: safeText(pick(record, ["operational_classification"]), "ACTIVE"),
+    operational_classification_reason: safeText(pick(record, ["operational_classification_reason", "archive_reason", "reason"])),
     _sources: [sourcePath],
     _raw: record,
   };
@@ -491,6 +497,7 @@ function DetailDrawer({ rfq, activeTab, setActiveTab, onClose, operatorState, on
   if (!rfq) return null;
   const urgency = urgencyMeta(rfq.closing_date);
   const localDecision = operatorState[rfq.id];
+  const readOnlyRecord = rfq.operational_classification !== "ACTIVE";
 
   return (
     <div className="rfq-drawer-backdrop" role="presentation" onMouseDown={onClose}>
@@ -513,20 +520,29 @@ function DetailDrawer({ rfq, activeTab, setActiveTab, onClose, operatorState, on
           <span className={`rfq-urgency ${urgency.tone}`}><Clock3 size={14} />{urgency.label}</span>
         </div>
 
-        <div className="rfq-operator-actions">
-          <button type="button" onClick={() => onOperatorAction(rfq.id, "Marked for Review")}><AlertTriangle size={15} />Mark for Review</button>
-          <button type="button" onClick={() => onOperatorAction(rfq.id, "On Hold")}><PauseCircle size={15} />Hold</button>
-          <button type="button" onClick={() => onOperatorAction(rfq.id, "Approved for Quote Prep")}><ThumbsUp size={15} />Approve for Quote Prep</button>
-          <button
-            type="button"
-            disabled={quotePackGeneration?.loading}
-            onClick={() => onGenerateQuotePack(rfq)}
-          >
-            <FolderOpen size={15} />
-            {quotePackGeneration?.loading ? "Generating Quote Pack…" : "Generate Quote Pack"}
-          </button>
-          <button type="button" onClick={() => onOperatorAction(rfq.id, "Rejected Opportunity")}><Ban size={15} />Reject Opportunity</button>
-        </div>
+        {readOnlyRecord ? (
+          <div className="rfq-warning">
+            <History size={16} />
+            {rfq.operational_classification === "HISTORICAL"
+              ? "Historical RFQ records are read-only and excluded from active pricing, quote and submission queues."
+              : "This RFQ requires classification review before it can enter active operations."}
+          </div>
+        ) : (
+          <div className="rfq-operator-actions">
+            <button type="button" onClick={() => onOperatorAction(rfq.id, "Marked for Review")}><AlertTriangle size={15} />Mark for Review</button>
+            <button type="button" onClick={() => onOperatorAction(rfq.id, "On Hold")}><PauseCircle size={15} />Hold</button>
+            <button type="button" onClick={() => onOperatorAction(rfq.id, "Approved for Quote Prep")}><ThumbsUp size={15} />Approve for Quote Prep</button>
+            <button
+              type="button"
+              disabled={quotePackGeneration?.loading}
+              onClick={() => onGenerateQuotePack(rfq)}
+            >
+              <FolderOpen size={15} />
+              {quotePackGeneration?.loading ? "Generating Quote Pack…" : "Generate Quote Pack"}
+            </button>
+            <button type="button" onClick={() => onOperatorAction(rfq.id, "Rejected Opportunity")}><Ban size={15} />Reject Opportunity</button>
+          </div>
+        )}
         {localDecision ? <div className="rfq-local-state">Local operator state: {localDecision}</div> : null}
         {quotePackGeneration?.error ? (
           <div className="rfq-warning">
@@ -609,6 +625,9 @@ function DetailDrawer({ rfq, activeTab, setActiveTab, onClose, operatorState, on
 export default function RfqOperationsWorkspace() {
   const [endpointState, setEndpointState] = useState({ loading: true, results: [], error: "" });
   const [rfqs, setRfqs] = useState([]);
+  const [historicalRfqs, setHistoricalRfqs] = useState([]);
+  const [reviewRfqs, setReviewRfqs] = useState([]);
+  const [workspaceMode, setWorkspaceMode] = useState("ACTIVE");
   const [query, setQuery] = useState("");
   const [province, setProvince] = useState("All");
   const [status, setStatus] = useState("All");
@@ -629,18 +648,30 @@ export default function RfqOperationsWorkspace() {
     async function loadRfqs() {
       setEndpointState((prev) => ({ ...prev, loading: true, error: "" }));
       const results = await Promise.all(RFQ_ENDPOINTS.map((path) => fetchEndpoint(path)));
+      const archiveResults = await Promise.all(HISTORICAL_ENDPOINTS.map((path) => fetchEndpoint(path)));
+      const reviewResults = await Promise.all(CLASSIFICATION_REVIEW_ENDPOINTS.map((path) => fetchEndpoint(path)));
       if (cancelled) return;
 
       const records = results
         .filter((result) => result.ok)
         .flatMap((result) => collectObjectRecords(result.data, result.path))
-        .map((record) => normalizeRfqRecord(record, record._sourcePath));
+        .map((record) => normalizeRfqRecord({ ...record, operational_classification: "ACTIVE" }, record._sourcePath));
+      const archivedRecords = archiveResults
+        .filter((result) => result.ok)
+        .flatMap((result) => collectObjectRecords(result.data, result.path))
+        .map((record) => normalizeRfqRecord({ ...record, operational_classification: "HISTORICAL" }, record._sourcePath));
+      const reviewRecords = reviewResults
+        .filter((result) => result.ok)
+        .flatMap((result) => collectObjectRecords(result.data, result.path))
+        .map((record) => normalizeRfqRecord({ ...record, operational_classification: "REVIEW_REQUIRED" }, record._sourcePath));
 
       const merged = mergeRfqs(records).filter((rfq) => rfq.reference !== "RFQ" || rfq.title !== "RFQ");
-      setRfqs(merged.length ? merged : DEMO_RFQS);
+      setRfqs(merged.length ? merged : []);
+      setHistoricalRfqs(mergeRfqs(archivedRecords));
+      setReviewRfqs(mergeRfqs(reviewRecords));
       setEndpointState({
         loading: false,
-        results,
+        results: [...results, ...archiveResults, ...reviewResults],
         error: results.some((result) => result.ok) ? "" : "No RFQ endpoints responded with usable data.",
       });
     }
@@ -651,12 +682,13 @@ export default function RfqOperationsWorkspace() {
     };
   }, []);
 
-  const statuses = useMemo(() => ["All", ...uniqueBy(rfqs.map((rfq) => rfq.status), (item) => item).filter(Boolean)], [rfqs]);
-  const selectedRfq = useMemo(() => rfqs.find((rfq) => rfq.id === selectedId), [rfqs, selectedId]);
+  const visibleSource = workspaceMode === "HISTORICAL" ? historicalRfqs : workspaceMode === "REVIEW_REQUIRED" ? reviewRfqs : rfqs;
+  const statuses = useMemo(() => ["All", ...uniqueBy(visibleSource.map((rfq) => rfq.status), (item) => item).filter(Boolean)], [visibleSource]);
+  const selectedRfq = useMemo(() => visibleSource.find((rfq) => rfq.id === selectedId), [selectedId, visibleSource]);
 
   const filteredRfqs = useMemo(() => {
     const term = query.trim().toLowerCase();
-    return rfqs.filter((rfq) => {
+    return visibleSource.filter((rfq) => {
       const haystack = `${rfq.reference} ${rfq.title} ${rfq.buyer} ${rfq.source}`.toLowerCase();
       const readinessMatch =
         readiness === "All" ||
@@ -672,14 +704,16 @@ export default function RfqOperationsWorkspace() {
         readinessMatch
       );
     });
-  }, [province, query, readiness, rfqs, status]);
+  }, [province, query, readiness, status, visibleSource]);
 
   const summary = useMemo(() => ({
     total: rfqs.length,
     quoteReady: rfqs.filter((rfq) => rfq.quote_readiness_score >= 80).length,
     submissionReady: rfqs.filter((rfq) => rfq.submission_readiness_score >= 80).length,
     review: rfqs.filter((rfq) => rfq.missing_returnables.length || rfq.risks.length).length,
-  }), [rfqs]);
+    archived: historicalRfqs.length,
+    classificationReview: reviewRfqs.length,
+  }), [historicalRfqs.length, reviewRfqs.length, rfqs]);
 
   function openRfq(rfq) {
     setSelectedId(rfq.id);
@@ -765,7 +799,7 @@ export default function RfqOperationsWorkspace() {
   }
 
   const liveCount = endpointState.results.filter((result) => result.ok).length;
-  const usingDemo = rfqs.some((rfq) => rfq._demo);
+  const usingDemo = false;
 
   return (
     <section className="rfq-ops-workspace" id="rfq-operations">
@@ -776,16 +810,38 @@ export default function RfqOperationsWorkspace() {
           <p className="muted">Read-only workspace probing {API_BASE}. Operator decisions stay local unless a safe review endpoint is added later.</p>
         </div>
         <div className="rfq-endpoint-status">
-          <span>{endpointState.loading ? "Loading" : `${liveCount}/${RFQ_ENDPOINTS.length} endpoints live`}</span>
+          <span>{endpointState.loading ? "Loading" : `${liveCount}/${RFQ_ENDPOINTS.length + HISTORICAL_ENDPOINTS.length + CLASSIFICATION_REVIEW_ENDPOINTS.length} endpoints live`}</span>
           {usingDemo ? <b>Fallback data</b> : <b>Live data</b>}
         </div>
       </div>
 
       <div className="rfq-summary-grid">
-        <div className="rfq-summary-card"><span>Total RFQs</span><b>{summary.total}</b></div>
+        <div className="rfq-summary-card"><span>Active RFQs</span><b>{summary.total}</b></div>
         <div className="rfq-summary-card good"><span>Quote Ready</span><b>{summary.quoteReady}</b></div>
         <div className="rfq-summary-card blue"><span>Submission Ready</span><b>{summary.submissionReady}</b></div>
-        <div className="rfq-summary-card amber"><span>Needs Review</span><b>{summary.review}</b></div>
+        <div className="rfq-summary-card amber"><span>Operational Review</span><b>{summary.review}</b></div>
+        <div className="rfq-summary-card"><span>Historical Archive</span><b>{summary.archived}</b></div>
+        <div className="rfq-summary-card amber"><span>Classification Review</span><b>{summary.classificationReview}</b></div>
+      </div>
+
+      <div className="rfq-toolbar card">
+        {[
+          ["ACTIVE", "Active RFQs"],
+          ["HISTORICAL", "Historical RFQs"],
+          ["REVIEW_REQUIRED", "Classification Review"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={workspaceMode === key ? "rfq-row-button active" : "rfq-row-button"}
+            onClick={() => {
+              setWorkspaceMode(key);
+              setSelectedId("");
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <div className="rfq-toolbar card">
@@ -814,11 +870,16 @@ export default function RfqOperationsWorkspace() {
       </div>
 
       {endpointState.error ? <div className="rfq-warning"><AlertTriangle size={16} />{endpointState.error}</div> : null}
-      {usingDemo ? <div className="rfq-warning"><FolderOpen size={16} />No live RFQ rows were found. Showing a non-destructive workspace preview row.</div> : null}
+      {workspaceMode === "ACTIVE" && !endpointState.loading && !rfqs.length ? (
+        <div className="rfq-warning">
+          <FolderOpen size={16} />
+          No active RFQs are currently available. Historical RFQs have been moved to the archive. Run a controlled manual harvest to discover current opportunities.
+        </div>
+      ) : null}
 
       <div className="rfq-table-card card">
         <div className="card-head">
-          <h2>RFQ Queue</h2>
+          <h2>{workspaceMode === "HISTORICAL" ? "Historical RFQ Archive" : workspaceMode === "REVIEW_REQUIRED" ? "Classification Review Queue" : "Active RFQ Queue"}</h2>
           <span>{filteredRfqs.length} visible</span>
         </div>
         <div className="rfq-table-scroll">
@@ -863,7 +924,11 @@ export default function RfqOperationsWorkspace() {
               {!filteredRfqs.length ? (
                 <tr>
                   <td colSpan="8">
-                    <div className="rfq-empty-inline">No RFQs match the current filters.</div>
+                    <div className="rfq-empty-inline">
+                      {workspaceMode === "ACTIVE"
+                        ? "No active RFQs are currently available."
+                        : "No RFQs match the current filters."}
+                    </div>
                   </td>
                 </tr>
               ) : null}

@@ -406,12 +406,17 @@ class RfqLifecycleService:
 
     def _live_store_index(self) -> Dict[str, Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
-        live_store = PROJECT_ROOT / "runtime" / "live_rfqs.json"
-        if live_store.exists():
-            try:
-                rows.extend(_extract_items(json.loads(live_store.read_text(encoding="utf-8"))))
-            except Exception:
-                pass
+        try:
+            from app.services.live_rfq_store import read_live_rfqs
+
+            rows.extend(_extract_items(read_live_rfqs()))
+        except Exception:
+            live_store = PROJECT_ROOT / "runtime" / "live_rfqs.json"
+            if live_store.exists():
+                try:
+                    rows.extend(_extract_items(json.loads(live_store.read_text(encoding="utf-8"))))
+                except Exception:
+                    pass
         index: Dict[str, Dict[str, Any]] = {}
         for row in rows:
             if not isinstance(row, dict):

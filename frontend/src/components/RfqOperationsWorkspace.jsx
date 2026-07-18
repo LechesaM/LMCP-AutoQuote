@@ -34,7 +34,7 @@ const CLASSIFICATION_REVIEW_ENDPOINTS = [
 ];
 
 const PROVINCES = ["All", "GP", "FS", "KZN", "WC", "EC", "NC", "NW", "MP", "LP", "Unknown"];
-const DRAWER_TABS = ["Overview", "Documents", "BOQ / Pricing", "Qualification", "Submission Readiness", "Proofs / Audit"];
+const DRAWER_TABS = ["Overview", "Documents", "BOQ / Pricing", "Supplier Validation", "Qualification", "Submission Readiness", "Proofs / Audit"];
 
 const DEMO_RFQS = [
   {
@@ -460,6 +460,136 @@ function ReturnablesChecklist({ items }) {
   );
 }
 
+function SupplierValidationPanel({ rfq }) {
+  const [state, setState] = useState({ loading: true, data: null, error: "" });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!rfq?.reference) return;
+      setState({ loading: true, data: null, error: "" });
+      const result = await fetchEndpoint(`/rfq-lifecycle/supplier-validation/${encodeURIComponent(rfq.reference)}`);
+      if (cancelled) return;
+      if (result.ok) {
+        setState({ loading: false, data: result.data, error: "" });
+      } else {
+        setState({ loading: false, data: null, error: result.error });
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [rfq?.reference]);
+
+  if (state.loading) return <div className="rfq-empty-inline">Loading supplier validation...</div>;
+  if (state.error) return <div className="rfq-warning"><AlertTriangle size={16} />{state.error}</div>;
+
+  const rows = asArray(state.data?.comparison_rows);
+  const policy = state.data?.supplier_quote_requests_policy || {};
+  return (
+    <div className="rfq-pricing-workspace">
+      <div className="rfq-pricing-summary">
+        <span>Rows <b>{rows.length}</b></span>
+        <span>Supplier quote lines <b>{state.data?.supplier_quote_line_count || 0}</b></span>
+        <span>Target suppliers <b>{policy.target_supplier_quote_count || 3}</b></span>
+        <span>Status <b>{state.data?.supplier_validation_required ? "Required" : "Validated"}</b></span>
+      </div>
+      <div className="rfq-safety-note">
+        Internal validation only. Supplier outreach, Gmail drafts and external sending are disabled for this workspace.
+      </div>
+      <div className="rfq-pricing-table">
+        {rows.map((row) => (
+          <div className="rfq-pricing-row" key={row.row_id}>
+            <div>
+              <b>{row.item_number}</b>
+              <span>{row.description}</span>
+              <small>{row.quantity} {row.unit} · provisional {formatMoney(row.provisional_estimate?.unit_cost)}</small>
+            </div>
+            <label>
+              Supplier quotes
+              <strong>{row.supplier_quote_count || 0}</strong>
+            </label>
+            <label>
+              Lowest compliant
+              <strong>{row.lowest_compliant_cost ? formatMoney(row.lowest_compliant_cost) : "Pending"}</strong>
+            </label>
+            <label>
+              Preferred
+              <strong>{row.preferred_supplier?.supplier_name || "Operator selection required"}</strong>
+            </label>
+            <strong>{row.supplier_validation_status === "SUPPLIER_VALIDATED" ? "Validated" : "Review"}</strong>
+            {asArray(row.supplier_quotes).length ? (
+              <div className="rfq-detail-wide">
+                {asArray(row.supplier_quotes).map((quote, index) => (
+                  <p className={quote.eligible_for_preference ? "rfq-local-state" : "rfq-risk"} key={`${quote.supplier_name}-${index}`}>
+                    {quote.supplier_name || "Supplier"} · {formatMoney(quote.unit_cost)} · {quote.stock_availability || "stock pending"} · {quote.lead_time || "lead time pending"}
+                    {asArray(quote.missing_documents).length ? ` · blockers: ${asArray(quote.missing_documents).join(", ")}` : ""}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReturnablesReviewPanel({ rfq }) {
+  const [state, setState] = useState({ loading: true, data: null, error: "" });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!rfq?.reference) return;
+      setState({ loading: true, data: null, error: "" });
+      const result = await fetchEndpoint(`/rfq-lifecycle/returnables-review/${encodeURIComponent(rfq.reference)}`);
+      if (cancelled) return;
+      if (result.ok) {
+        setState({ loading: false, data: result.data, error: "" });
+      } else {
+        setState({ loading: false, data: null, error: result.error });
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [rfq?.reference]);
+
+  if (state.loading) return <div className="rfq-empty-inline">Loading returnables review...</div>;
+  if (state.error) return <div className="rfq-warning"><AlertTriangle size={16} />{state.error}</div>;
+
+  const items = asArray(state.data?.returnables);
+  const categories = state.data?.category_counts || {};
+  if (!items.length) {
+    return <div className="rfq-empty-inline">No extracted returnables review model is available.</div>;
+  }
+  return (
+    <div className="rfq-tab-panel">
+      <div className="rfq-pricing-summary">
+        <span>Returnables <b>{items.length}</b></span>
+        <span>Unverified <b>{state.data?.missing_or_unverified_count || 0}</b></span>
+        <span>Required docs <b>{categories.REQUIRED_UPLOADED_RETURNABLE || 0}</b></span>
+        <span>Declarations <b>{categories.ELIGIBILITY_DECLARATION || 0}</b></span>
+      </div>
+      <div className="rfq-checklist">
+        {items.map((item) => (
+          <div className={`rfq-check-row ${item.unresolved ? "missing" : "complete"}`} key={item.returnable_id}>
+            {item.unresolved ? <ShieldAlert size={17} /> : <CheckCircle2 size={17} />}
+            <span>{item.requirement_text}</span>
+            <small>{item.category.replaceAll("_", " ")} · {item.review_status}{item.source_page ? ` · p.${item.source_page}` : ""}</small>
+          </div>
+        ))}
+      </div>
+      {state.data?.submission_blocked ? (
+        <div className="rfq-warning"><AlertTriangle size={16} />Submission remains blocked until supplier validation, returnables review and human approval are complete.</div>
+      ) : null}
+    </div>
+  );
+}
+
 function sourcePricingRows(rfq) {
   const raw = rfq?._raw || {};
   const candidates = [
@@ -758,16 +888,17 @@ function DetailDrawer({ rfq, activeTab, setActiveTab, onClose, operatorState, on
               <ManualPricingPanel rfq={rfq} />
             </>
           ) : null}
+          {activeTab === "Supplier Validation" ? <SupplierValidationPanel rfq={rfq} /> : null}
           {activeTab === "Qualification" ? (
             <div className="rfq-tab-panel">
               <ScoreChip label="Qualification" score={rfq.qualification_score} />
-              <ReturnablesChecklist items={rfq.missing_returnables} />
+              <ReturnablesReviewPanel rfq={rfq} />
             </div>
           ) : null}
           {activeTab === "Submission Readiness" ? (
             <div className="rfq-tab-panel">
               <ScoreChip label="Submission" score={rfq.submission_readiness_score} />
-              <ReturnablesChecklist items={rfq.missing_returnables} />
+              <ReturnablesReviewPanel rfq={rfq} />
               <p className="rfq-safety-note">Dry-run controls remain frontend read-only here. Final submit is not exposed.</p>
             </div>
           ) : null}

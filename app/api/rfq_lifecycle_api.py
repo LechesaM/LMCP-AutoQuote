@@ -14,6 +14,7 @@ from app.services.live_rfq_store import (
 )
 from app.services.rfq_archive_service import RfqArchiveService
 from app.services.rfq_lifecycle_service import RfqLifecycleService
+from app.services.rfq_supplier_validation_service import RfqSupplierValidationService
 
 
 router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
@@ -21,6 +22,10 @@ router = APIRouter(prefix="/rfq-lifecycle", tags=["RFQ Lifecycle"])
 
 def service() -> RfqLifecycleService:
     return RfqLifecycleService()
+
+
+def supplier_validation_service() -> RfqSupplierValidationService:
+    return RfqSupplierValidationService()
 
 
 @router.get("/status")
@@ -165,6 +170,31 @@ def manual_pricing(rfq_id: str) -> Dict[str, Any]:
 )
 def save_manual_pricing(rfq_id: str, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
     return service().save_manual_pricing(rfq_id, payload)
+
+
+@router.get("/supplier-validation/{rfq_id}")
+def supplier_validation_workspace(rfq_id: str) -> Dict[str, Any]:
+    return supplier_validation_service().get_supplier_validation_workspace(rfq_id)
+
+
+@router.post("/supplier-validation/{rfq_id}/quotes")
+def save_supplier_validation_quotes(rfq_id: str, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    return supplier_validation_service().save_supplier_quotes(rfq_id, payload)
+
+
+@router.post("/supplier-validation/{rfq_id}/preferred")
+def save_preferred_supplier_selection(rfq_id: str, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    return supplier_validation_service().select_preferred_supplier(rfq_id, payload)
+
+
+@router.get("/returnables-review/{rfq_id}")
+def returnables_review_workspace(rfq_id: str) -> Dict[str, Any]:
+    return supplier_validation_service().get_returnables_review_workspace(rfq_id)
+
+
+@router.post("/returnables-review/{rfq_id}")
+def save_returnables_review(rfq_id: str, payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
+    return supplier_validation_service().save_returnables_review(rfq_id, payload)
 
 
 @router.post("/ingest")

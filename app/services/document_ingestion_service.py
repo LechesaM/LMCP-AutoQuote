@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 from html import unescape
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from tempfile import NamedTemporaryFile
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urljoin
 
 logger = logging.getLogger(__name__)
@@ -37,6 +40,8 @@ from app.services.actual_email_send_service import attach_email_send_result_to_r
 from app.services.smtp_preflight_service import attach_smtp_preflight_to_record
 from app.services.submission_proof_artifact_service import attach_submission_proof_artifacts_to_record
 from app.services.submission_log_dashboard_service import attach_submission_log_and_dashboard_to_record
+from app.services.rfq_requirement_pack_service import attach_requirement_pack_fields, build_requirement_pack, normalize_requirement_rows
+from app.services.rfq_operational_classification_service import RfqOperationalClassification, RfqOperationalClassificationService, canonical_rfq_id
 
 
 @dataclass
@@ -50,6 +55,17 @@ class ExtractedLineItem:
     line_total: Optional[float] = None
     source_line: str = ""
     confidence: str = "low"
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RUNTIME_DIR = PROJECT_ROOT / "runtime"
+LIVE_RFQ_STORE_PATH = RUNTIME_DIR / "live_rfqs.json"
+
+PROCUREMENT_EXTRACTION_SCHEMA_VERSION = "jw-procurement-extraction-v1"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 RFQ_NUMBER_PATTERNS = [
@@ -237,6 +253,43 @@ def _read_pdf_text_with_pypdf(path: Path) -> str:
         return "\n".join(parts)
     except Exception:
         return ""
+
+
+def extract_pdf_pages_text(path: str | Path) -> List[Dict[str, Any]]:
+    pdf_path = Path(path)
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
+
+    if PdfReader is not None:
+        try:
+            reader = PdfReader(str(pdf_path))
+            pages: List[Dict[str, Any]] = []
+            for index, page in enumerate(reader.pages, start=1):
+                try:
+                    text = page.extract_text() or ""
+                except Exception:
+                    text = ""
+                pages.append({"page": index, "text": text})
+            if any(_clean(page.get("text")) for page in pages):
+                return pages
+        except Exception:
+            pass
+
+    if PyPDF2 is not None:
+        try:
+            reader = PyPDF2.PdfReader(str(pdf_path))
+            pages = []
+            for index, page in enumerate(reader.pages, start=1):
+                try:
+                    text = page.extract_text() or ""
+                except Exception:
+                    text = ""
+                pages.append({"page": index, "text": text})
+            return pages
+        except Exception:
+            pass
+
+    return []
 
 
 def _read_pdf_text_with_pypdf2(path: Path) -> str:
@@ -680,6 +733,511 @@ def extract_line_items_from_pricing_section(section_text: str) -> Tuple[List[Dic
     return items, removed_page_break_lines
 
 
+JW_HEADER_PATTERN = re.compile(r"\bMATERIAL\s+NUMBER\s+DESCRIPTION\b.*\bUOM\b.*\bQTY\b", re.I)
+JW_MATERIAL_LINE_PATTERN = re.compile(r"^\s*(?P<material>\d{3,5})\s+(?P<body>[A-Z0-9].*)$")
+JW_UNIT_QTY_PATTERN = re.compile(
+    r"\b(?P<unit>EA|EACH|BOX|SET|PAIR|PACK|PKT|ROLL|UNIT|UNITS|KG|L|LT|M|METER|METRE|MM)\s+(?P<qty>\d+(?:[.,]\d+)?)\s*$",
+    re.I,
+)
+JW_PRICING_STOP_PATTERNS = [
+    re.compile(r"^Mthetho\b", re.I),
+    re.compile(r"^Notes?:$", re.I),
+    re.compile(r"^Specific Goals:", re.I),
+    re.compile(r"^Southdale\b", re.I),
+    re.compile(r"^Guide:", re.I),
+    re.compile(r"^JW CONTACT PERSON", re.I),
+]
+JW_RETURNABLE_START_PATTERNS = [
+    re.compile(r"ALL SUPPLIERS RESPONDING TO QUOTATIONS SHOULD BE", re.I),
+    re.compile(r"MANDATORY REQUIREMENTS", re.I),
+]
+JW_RETURNABLE_LINE_PATTERN = re.compile(r"^\s*(?P<number>\d+(?:\.\d+)?\.?)\s+(?P<body>.+)$")
+JW_RETURNABLE_STOP_PATTERNS = [
+    re.compile(r"^Directors:", re.I),
+    re.compile(r"^City of Johannesburg$", re.I),
+    re.compile(r"^Johannesburg Water SOC Ltd$", re.I),
+]
+
+
+def _source_page_texts_from_pdf(path: Path) -> List[Dict[str, Any]]:
+    pages = extract_pdf_pages_text(path)
+    if pages:
+        return pages
+    text = extract_text_from_pdf(path)
+    return [{"page": None, "text": text}]
+
+
+def _is_jw_pricing_stop(line: str) -> bool:
+    return any(pattern.search(line) for pattern in JW_PRICING_STOP_PATTERNS)
+
+
+def _parse_jw_material_block(
+    block_lines: List[str],
+    *,
+    source_page: Any,
+    source_document: str,
+    reference_number: str,
+    row_index: int,
+) -> Optional[Dict[str, Any]]:
+    if not block_lines:
+        return None
+
+    match = JW_MATERIAL_LINE_PATTERN.match(block_lines[0])
+    if not match:
+        return None
+
+    material_number = match.group("material")
+    payload_lines = [match.group("body").strip()]
+    payload_lines.extend(line.strip() for line in block_lines[1:] if line.strip())
+    combined = re.sub(r"\s+", " ", " ".join(payload_lines)).strip()
+
+    unit = ""
+    quantity: Optional[float] = None
+    qty_match = JW_UNIT_QTY_PATTERN.search(combined)
+    if qty_match:
+        unit = qty_match.group("unit").upper()
+        if unit == "EACH":
+            unit = "EA"
+        quantity = _coerce_float(qty_match.group("qty"))
+        combined = combined[:qty_match.start()].strip()
+
+    description = combined
+    specification = ""
+    continuation_text = " ".join(line.strip() for line in block_lines[1:] if line.strip())
+    if continuation_text:
+        first_line_core = re.sub(r"\s+", " ", payload_lines[0]).strip()
+        first_qty = JW_UNIT_QTY_PATTERN.search(first_line_core)
+        if first_qty:
+            first_line_core = first_line_core[:first_qty.start()].strip()
+        if first_line_core:
+            description = first_line_core
+            spec_core = combined[len(first_line_core):].strip(" -")
+            specification = spec_core
+
+    if not description:
+        return None
+    if unit == "" and quantity is None and description.lower() in {"approved", "12413 approved"}:
+        return None
+
+    confidence = 0.88 if unit and quantity is not None else 0.62
+    return {
+        "item_number": material_number,
+        "buyer_line_number": material_number,
+        "line_number": material_number,
+        "material_number": material_number,
+        "description": description,
+        "specification": specification,
+        "unit": unit,
+        "quantity": quantity,
+        "supplier_rate": None,
+        "selling_rate": None,
+        "unit_price": None,
+        "line_total": None,
+        "buyer_rate": None,
+        "buyer_amount": None,
+        "vat_treatment": "exclusive_of_vat_column_present",
+        "source_document": source_document,
+        "source_page": source_page,
+        "source_row": row_index,
+        "source_line": "\n".join(block_lines),
+        "source_type": "embedded_pricing_schedule",
+        "confidence": confidence,
+        "review_required": not bool(unit and quantity is not None),
+        "manual_review_required": not bool(unit and quantity is not None),
+        "review_reasons": [] if unit and quantity is not None else ["quantity_or_unit_requires_review"],
+        "evidence": ["johannesburg_water_material_schedule", "source_pdf_text_layer"],
+        "reference_number": reference_number,
+    }
+
+
+def extract_johannesburg_water_pricing_rows_from_pages(
+    pages: Iterable[Dict[str, Any]],
+    *,
+    source_document: str,
+    reference_number: str = "",
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+
+    for page in pages:
+        page_no = page.get("page")
+        lines = _split_lines(_clean(page.get("text")))
+        in_table = False
+        block: List[str] = []
+
+        def flush() -> None:
+            nonlocal block
+            if not block:
+                return
+            row = _parse_jw_material_block(
+                block,
+                source_page=page_no,
+                source_document=source_document,
+                reference_number=reference_number,
+                row_index=len(rows) + 1,
+            )
+            if row:
+                rows.append(row)
+            block = []
+
+        for line in lines:
+            if not in_table:
+                if JW_HEADER_PATTERN.search(line):
+                    in_table = True
+                continue
+
+            if _is_jw_pricing_stop(line):
+                flush()
+                break
+
+            if JW_HEADER_PATTERN.search(line):
+                flush()
+                continue
+
+            if JW_MATERIAL_LINE_PATTERN.match(line):
+                flush()
+                block = [line]
+                continue
+
+            if block:
+                block.append(line)
+
+        flush()
+
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for row in rows:
+        key = (_clean(row.get("material_number")), _clean(row.get("description")).lower(), row.get("source_page"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
+
+
+def _is_returnable_noise(line: str) -> bool:
+    lowered = line.lower()
+    if not line or len(line) < 4:
+        return True
+    if lowered.startswith(("fax ", "tel ", "www.", "ms ", "registration number")):
+        return True
+    if lowered in {"newtown", "johannesburg", "2107", "turbine hall"}:
+        return True
+    return False
+
+
+def _returnable_name(text: str) -> str:
+    cleaned = _clean(text).rstrip(".")
+    if len(cleaned) <= 80:
+        return cleaned
+    return cleaned[:77].rstrip() + "..."
+
+
+def extract_johannesburg_water_returnables_from_pages(
+    pages: Iterable[Dict[str, Any]],
+    *,
+    source_document: str,
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for page in pages:
+        page_no = page.get("page")
+        lines = _split_lines(_clean(page.get("text")))
+        in_section = False
+        block_number = ""
+        block_lines: List[str] = []
+
+        def flush() -> None:
+            nonlocal block_number, block_lines
+            if not block_number or not block_lines:
+                block_number = ""
+                block_lines = []
+                return
+            body = re.sub(r"\s+", " ", " ".join(block_lines)).strip()
+            if _is_returnable_noise(body):
+                block_number = ""
+                block_lines = []
+                return
+            conditional = "where applicable" in body.lower()
+            rows.append({
+                "returnable_id": f"JW-RET-{block_number.replace('.', '-').strip('-')}-{_slug_for_record(body)}",
+                "name": _returnable_name(body),
+                "requirement_description": body,
+                "requirement_number": block_number,
+                "mandatory": not conditional,
+                "conditional": conditional,
+                "source_document": source_document,
+                "source_page": page_no,
+                "evidence_attached": False,
+                "status": "unknown",
+                "assessment_status": "unassessed",
+                "manual_review_required": True,
+                "confidence": 0.86,
+                "evidence": ["johannesburg_water_returnables_section", "source_pdf_text_layer"],
+            })
+            block_number = ""
+            block_lines = []
+
+        for line in lines:
+            if any(pattern.search(line) for pattern in JW_RETURNABLE_START_PATTERNS):
+                in_section = True
+                continue
+            if not in_section:
+                continue
+            if any(pattern.search(line) for pattern in JW_RETURNABLE_STOP_PATTERNS):
+                flush()
+                break
+            match = JW_RETURNABLE_LINE_PATTERN.match(line)
+            if match:
+                flush()
+                block_number = match.group("number")
+                block_lines = [_clean(match.group("body"))]
+                continue
+            if block_lines and not _is_returnable_noise(line):
+                block_lines.append(line)
+        flush()
+
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for row in rows:
+        key = (_clean(row.get("requirement_number")), _clean(row.get("requirement_description")).lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
+
+
+def _slug_for_record(value: Any, limit: int = 48) -> str:
+    text = re.sub(r"[^a-z0-9]+", "-", _safe_lower(value)).strip("-")
+    return (text or "item")[:limit].strip("-") or "item"
+
+
+def _artifact(name: str, artifact_type: str, status: str, source_url: str = "") -> Dict[str, Any]:
+    item = {"name": name, "type": artifact_type, "status": status}
+    if source_url:
+        item["url"] = source_url
+    return item
+
+
+def _preserve_operator_pricing(new_rows: List[Dict[str, Any]], existing_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    existing_by_material = {
+        _clean(row.get("material_number") or row.get("item_number") or row.get("line_number")): row
+        for row in existing_rows
+        if isinstance(row, dict)
+    }
+    pricing_keys = [
+        "supplier_rate",
+        "selling_rate",
+        "unit_price",
+        "line_total",
+        "operator_rate",
+        "operator_markup",
+        "operator_notes",
+        "manual_price_override",
+        "priced_by",
+        "priced_at",
+    ]
+    merged: List[Dict[str, Any]] = []
+    for row in new_rows:
+        output = dict(row)
+        existing = existing_by_material.get(_clean(row.get("material_number") or row.get("item_number") or row.get("line_number"))) or {}
+        for key in pricing_keys:
+            if existing.get(key) not in (None, ""):
+                output[key] = existing.get(key)
+        merged.append(output)
+    return merged
+
+
+def build_johannesburg_water_procurement_extraction(
+    pdf_path: str | Path,
+    *,
+    rfq: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    doc_path = Path(pdf_path)
+    rfq = dict(rfq or {})
+    reference_number = _clean(
+        rfq.get("rfq_number")
+        or rfq.get("buyer_rfq_number")
+        or rfq.get("reference_number")
+        or rfq.get("source_reference")
+    )
+    source_document = doc_path.name
+    pages = _source_page_texts_from_pdf(doc_path)
+    pricing_rows = extract_johannesburg_water_pricing_rows_from_pages(
+        pages,
+        source_document=source_document,
+        reference_number=reference_number,
+    )
+    returnables = extract_johannesburg_water_returnables_from_pages(
+        pages,
+        source_document=source_document,
+    )
+    existing_rows = []
+    for key in ("line_items", "items", "rfq_requirement_rows", "buyer_pricing_schedule_rows"):
+        value = rfq.get(key)
+        if isinstance(value, list):
+            existing_rows = [item for item in value if isinstance(item, dict)]
+            if existing_rows:
+                break
+    pricing_rows = _preserve_operator_pricing(pricing_rows, existing_rows)
+    requirement_rows = normalize_requirement_rows(
+        pricing_rows,
+        source_type="embedded_pricing_schedule",
+        source_document=source_document,
+        default_confidence=0.86,
+        evidence=["johannesburg_water_procurement_extraction"],
+    )
+    requirement_pack = build_requirement_pack(
+        requirement_rows,
+        rfq_id=canonical_rfq_id(rfq),
+        reference_number=reference_number,
+        buyer_name=_clean(rfq.get("buyer_name") or rfq.get("buyer")),
+        title=_clean(rfq.get("title")),
+        metadata={"mandatory_returnables": returnables},
+    )
+
+    missing_returnables = [
+        item.get("name")
+        for item in returnables
+        if isinstance(item, dict) and item.get("manual_review_required") and item.get("name")
+    ]
+    document_url = _clean((rfq.get("documents") or [{}])[0].get("download_url") if isinstance(rfq.get("documents"), list) and rfq.get("documents") else rfq.get("document_url"))
+    boqs = [_artifact(source_document, "BOQ", "Detected", document_url)] if pricing_rows else []
+    pricing_schedules = [_artifact(source_document, "Pricing Schedule", "Detected", document_url)] if pricing_rows else []
+
+    payload: Dict[str, Any] = {
+        "procurement_extraction": {
+            "status": "ok" if pricing_rows or returnables else "no_procurement_content_extracted",
+            "extractor": "document_ingestion_service.build_johannesburg_water_procurement_extraction",
+            "schema_version": PROCUREMENT_EXTRACTION_SCHEMA_VERSION,
+            "source_document": source_document,
+            "source_path": str(doc_path),
+            "extracted_at": _now_iso(),
+            "pricing_row_count": len(pricing_rows),
+            "mandatory_returnable_count": len(returnables),
+            "page_count": len(pages),
+        },
+        "items": pricing_rows,
+        "line_items": pricing_rows,
+        "boq_items": pricing_rows,
+        "pricing_schedule_rows": pricing_rows,
+        "buyer_pricing_schedule_rows": requirement_rows,
+        "pricing_schedule": {
+            "status": "extracted",
+            "source_document": source_document,
+            "row_count": len(pricing_rows),
+            "rows": pricing_rows,
+        },
+        "boq": {
+            "status": "extracted",
+            "source_document": source_document,
+            "row_count": len(pricing_rows),
+            "items": pricing_rows,
+        },
+        "boqs": boqs,
+        "pricing_schedules": pricing_schedules,
+        "boq_status": "extracted_from_buyer_pdf" if pricing_rows else "not_detected",
+        "pricing_schedule_status": "extracted_from_buyer_pdf" if pricing_rows else "not_detected",
+        "pricing_readiness": "provisional_pricing_ready" if requirement_rows else "requires_manual_extraction",
+        "manual_pricing_ready": bool(requirement_rows),
+        "supplier_quotes_required_for_pricing": False,
+        "returnables": returnables,
+        "mandatory_returnables": returnables,
+        "missing_returnables": missing_returnables,
+        "returnables_status": "review_required" if returnables else "not_assessed",
+        "returnables_assessment_status": "unassessed" if returnables else "not_assessed",
+        "returnables_review_required": bool(returnables),
+        "qualification_status": "returnables_review_required" if returnables else rfq.get("qualification_status"),
+        "submission_readiness_status": "blocked_pending_returnables_review" if returnables else rfq.get("submission_readiness_status"),
+        "quote_pack_status": rfq.get("quote_pack_status") or "not_ready_manual_pricing_required",
+        "submission_pack_status": "blocked_pending_returnables_review" if returnables else rfq.get("submission_pack_status"),
+        "operator_approval_required": True,
+        "manual_submission_required": True,
+        "extraction_provenance": {
+            "rfq_id": canonical_rfq_id(rfq),
+            "source_filename": source_document,
+            "source_path": str(doc_path),
+            "source_pages": sorted({row.get("source_page") for row in pricing_rows + returnables if row.get("source_page")}),
+            "extractor": "document_ingestion_service",
+            "extracted_at": _now_iso(),
+            "confidence": 0.86 if pricing_rows and returnables else 0.6,
+            "schema_version": PROCUREMENT_EXTRACTION_SCHEMA_VERSION,
+            "manual_review_required": bool(missing_returnables or any(row.get("manual_review_required") for row in pricing_rows)),
+        },
+    }
+    attach_requirement_pack_fields(payload, requirement_pack)
+    return payload
+
+
+def attach_procurement_extraction_to_rfq(rfq: Dict[str, Any], extraction: Dict[str, Any]) -> Dict[str, Any]:
+    output = dict(rfq or {})
+    for key, value in extraction.items():
+        if key in {"quote_pack_status"} and output.get(key) not in (None, ""):
+            continue
+        output[key] = value
+    output["updated_at"] = _now_iso()
+    return output
+
+
+def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    with NamedTemporaryFile("w", encoding="utf-8", dir=str(path.parent), delete=False) as handle:
+        handle.write(text)
+        handle.write("\n")
+        temp_name = handle.name
+    os.replace(temp_name, path)
+
+
+def apply_procurement_extraction_to_live_rfq(
+    rfq_id: str,
+    pdf_path: str | Path,
+    *,
+    store_path: str | Path = LIVE_RFQ_STORE_PATH,
+) -> Dict[str, Any]:
+    store = Path(store_path)
+    data = json.loads(store.read_text(encoding="utf-8"))
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        raise ValueError("Live RFQ store must contain an items list.")
+
+    classifier = RfqOperationalClassificationService()
+    matches = []
+    for index, item in enumerate(items):
+        if isinstance(item, dict) and canonical_rfq_id(item) == rfq_id:
+            matches.append((index, item))
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one active RFQ record for {rfq_id}; found {len(matches)}.")
+
+    index, current = matches[0]
+    classification = classifier.classify(current)
+    if classification.classification != RfqOperationalClassification.ACTIVE:
+        raise ValueError(f"RFQ {rfq_id} is not active: {classification.classification.value}/{classification.reason}")
+
+    extraction = build_johannesburg_water_procurement_extraction(pdf_path, rfq=current)
+    updated = attach_procurement_extraction_to_rfq(current, extraction)
+    updated_classification = classifier.classify(updated)
+    if updated_classification.classification != RfqOperationalClassification.ACTIVE:
+        raise ValueError(f"Extraction would move RFQ {rfq_id} out of ACTIVE classification.")
+
+    output_items = list(items)
+    output_items[index] = updated
+    output = dict(data)
+    output["items"] = output_items
+    output["count"] = len(output_items)
+    _atomic_write_json(store, output)
+
+    return {
+        "status": "ok",
+        "rfq_id": rfq_id,
+        "store_path": str(store),
+        "record_index": index,
+        "pricing_row_count": int((extraction.get("procurement_extraction") or {}).get("pricing_row_count") or 0),
+        "mandatory_returnable_count": int((extraction.get("procurement_extraction") or {}).get("mandatory_returnable_count") or 0),
+        "classification": updated_classification.classification.value,
+        "classification_reason": updated_classification.reason,
+    }
+
+
 def ingest_document(path: str | Path, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     doc_path = Path(path)
     metadata = metadata or {}
@@ -834,7 +1392,3 @@ if __name__ == "__main__":
 
     result = ingest_document(sys.argv[1])
     print(json.dumps(result, indent=2, ensure_ascii=False))
-
-
-
-

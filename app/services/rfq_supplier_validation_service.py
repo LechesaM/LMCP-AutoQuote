@@ -104,6 +104,19 @@ def _atomic_write_json(path: Path, payload: Dict[str, Any]) -> None:
     os.replace(str(tmp), str(path))
 
 
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    text = _safe_text(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
 class RfqSupplierValidationService:
     """RFQ-level supplier comparison and returnables review without external contact."""
 
@@ -567,9 +580,8 @@ class RfqSupplierValidationService:
         if category == RETURNABLE_DEADLINE_RULE:
             return {
                 "requires_evidence": False,
-                "action_required": "Monitor against RFQ closing date; no upload required.",
+                "action_required": "Acknowledge deadline and verify against the RFQ closing date.",
                 "blocker_key": "deadline_rules_active",
-                "auto_acknowledged": True,
                 "evaluated_against_closing_date": _safe_text(closing_date),
             }
         if category == RETURNABLE_CONDITIONAL:
@@ -596,6 +608,15 @@ class RfqSupplierValidationService:
             "blocker_key": "manual_classification_required",
         }
 
+    def _deadline_is_open(self, closing_date: Any, *, now: Optional[datetime] = None) -> bool:
+        parsed = _parse_datetime(closing_date)
+        if parsed is None:
+            return False
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        return parsed > current.astimezone(timezone.utc)
+
     def _review_resolved(self, category: str, review: Dict[str, Any], policy: Dict[str, Any]) -> bool:
         status = _safe_text(review.get("review_status") or review.get("status")).upper()
         approval = _safe_text(review.get("approval_state")).upper()
@@ -603,8 +624,12 @@ class RfqSupplierValidationService:
         override = _safe_text(review.get("operator_override_justification"))
         note = _safe_text(review.get("review_note"))
 
-        if policy.get("auto_acknowledged"):
-            return True
+        if category == RETURNABLE_DEADLINE_RULE:
+            if _safe_bool(review.get("deadline_discrepancy")):
+                return False
+            if not self._deadline_is_open(policy.get("evaluated_against_closing_date")):
+                return False
+            return status in {"ACKNOWLEDGED", "CLOSING_DATE_VERIFIED", "REVIEWED", "APPROVED"} and approval not in {"REJECTED"}
         if category == RETURNABLE_CONDITIONAL:
             if status == "NOT_APPLICABLE":
                 return bool(note)
@@ -632,6 +657,36 @@ class RfqSupplierValidationService:
             "manual_classification_required": 0,
         }
 
+    def _progress_bucket(self, category: str) -> str:
+        return {
+            RETURNABLE_REQUIRED_COMPANY_DOCUMENT: "company_documents",
+            RETURNABLE_BUYER_FORM_COMPLETION: "buyer_forms",
+            RETURNABLE_ELIGIBILITY_DECLARATION: "declarations",
+            RETURNABLE_PRICING_RULE: "pricing_rules",
+            RETURNABLE_SUBMISSION_FORMAT: "submission_rules",
+            RETURNABLE_DEADLINE_RULE: "deadline_rules",
+            RETURNABLE_CONDITIONAL: "conditional_requirements",
+            RETURNABLE_TECHNICAL_EVIDENCE: "technical_evidence",
+            RETURNABLE_MANUAL_CLASSIFICATION: "manual_classification",
+            RETURNABLE_GENERAL_INSTRUCTION: "submission_rules",
+        }.get(category, "manual_classification")
+
+    def _empty_progress(self) -> Dict[str, Dict[str, int]]:
+        return {
+            key: {"complete": 0, "total": 0}
+            for key in (
+                "company_documents",
+                "buyer_forms",
+                "declarations",
+                "pricing_rules",
+                "submission_rules",
+                "deadline_rules",
+                "conditional_requirements",
+                "technical_evidence",
+                "manual_classification",
+            )
+        }
+
     def get_returnables_review_workspace(self, rfq_id: str) -> Dict[str, Any]:
         rfq = self._find_active_rfq(rfq_id)
         if not rfq:
@@ -645,6 +700,7 @@ class RfqSupplierValidationService:
         items = []
         category_counts: Dict[str, int] = {}
         readiness_counts = self._empty_readiness_counts()
+        progress = self._empty_progress()
         blockers: List[str] = []
         for raw in self._raw_returnables(rfq):
             category = self.classify_returnable(raw["requirement_text"], raw.get("mandatory_status", ""))
@@ -655,9 +711,16 @@ class RfqSupplierValidationService:
             policy = self._category_policy(category, closing_date=rfq.get("closing_date") or rfq.get("closing_datetime"))
             resolved = self._review_resolved(category, review, policy)
             unresolved = not resolved
+            progress_key = self._progress_bucket(category)
+            progress[progress_key]["total"] += 1
+            if resolved:
+                progress[progress_key]["complete"] += 1
             blocker_key = policy.get("blocker_key")
             if blocker_key:
-                if blocker_key == "deadline_rules_active" or unresolved:
+                if blocker_key == "deadline_rules_active":
+                    if not resolved:
+                        readiness_counts[blocker_key] = readiness_counts.get(blocker_key, 0) + 1
+                elif unresolved:
                     readiness_counts[blocker_key] = readiness_counts.get(blocker_key, 0) + 1
             if unresolved:
                 blockers.append(raw["returnable_id"])
@@ -665,20 +728,51 @@ class RfqSupplierValidationService:
             items.append({
                 **raw,
                 "category": category,
+                "closing_date": rfq.get("closing_date") or rfq.get("closing_datetime"),
                 "review_status": status,
                 "approval_state": approval,
                 "evidence_file": evidence,
                 "evidence_location": _safe_text(review.get("evidence_location")),
                 "buyer_form_reference": _safe_text(review.get("buyer_form_reference") or review.get("workflow_reference")),
+                "evidence_references": _as_list(review.get("evidence_references")),
                 "review_note": _safe_text(review.get("review_note")),
                 "reviewer": _safe_text(review.get("reviewer")),
                 "reviewed_at": _safe_text(review.get("reviewed_at")),
+                "override_used": bool(_safe_text(review.get("operator_override_justification"))),
+                "override_reason": _safe_text(review.get("operator_override_justification")),
+                "applicable_state": _safe_text(review.get("applicable_state") or review.get("review_status") or status),
+                "action_history": _as_list(review.get("action_history")),
                 "requires_evidence": bool(policy.get("requires_evidence")),
                 "requires_buyer_form_workflow": bool(policy.get("requires_buyer_form_workflow")),
                 "action_required": policy.get("action_required"),
                 "blocker_key": blocker_key,
                 "unresolved": unresolved,
             })
+        total_requirements = len(items)
+        total_unresolved = len(blockers)
+        total_resolved = max(0, total_requirements - total_unresolved)
+        supplier_workspace = self.get_supplier_validation_workspace(rfq_id)
+        supplier_validation_complete = not bool(supplier_workspace.get("supplier_validation_required", True))
+        manual_pricing = self.lifecycle_service.get_manual_pricing(rfq_id)
+        manual_pricing_complete = bool(manual_pricing.get("saved")) and not bool(
+            (manual_pricing.get("manual_pricing") or {}).get("totals", {}).get("supplier_validation_required")
+        )
+        human_approval_complete = False
+        quote_prep_ready = (
+            total_unresolved == 0
+            and supplier_validation_complete
+            and manual_pricing_complete
+            and human_approval_complete
+        )
+        blocker_reasons = [
+            key for key, value in readiness_counts.items() if int(value or 0) > 0
+        ]
+        if not supplier_validation_complete:
+            blocker_reasons.append("supplier_validation_incomplete")
+        if not manual_pricing_complete:
+            blocker_reasons.append("manual_pricing_or_supplier_validation_incomplete")
+        if not human_approval_complete:
+            blocker_reasons.append("human_approval_pending")
         return {
             "status": "ok",
             "rfq_id": rfq_id,
@@ -688,6 +782,34 @@ class RfqSupplierValidationService:
             "returnable_count": len(items),
             "category_counts": category_counts,
             "readiness_counts": readiness_counts,
+            "category_progress": progress,
+            "company_documents_complete": progress["company_documents"]["complete"],
+            "company_documents_total": progress["company_documents"]["total"],
+            "buyer_forms_complete": progress["buyer_forms"]["complete"],
+            "buyer_forms_total": progress["buyer_forms"]["total"],
+            "declarations_complete": progress["declarations"]["complete"],
+            "declarations_total": progress["declarations"]["total"],
+            "pricing_rules_complete": progress["pricing_rules"]["complete"],
+            "pricing_rules_total": progress["pricing_rules"]["total"],
+            "submission_rules_complete": progress["submission_rules"]["complete"],
+            "submission_rules_total": progress["submission_rules"]["total"],
+            "deadline_rules_complete": progress["deadline_rules"]["complete"],
+            "deadline_rules_total": progress["deadline_rules"]["total"],
+            "conditional_requirements_complete": progress["conditional_requirements"]["complete"],
+            "conditional_requirements_total": progress["conditional_requirements"]["total"],
+            "technical_evidence_complete": progress["technical_evidence"]["complete"],
+            "technical_evidence_total": progress["technical_evidence"]["total"],
+            "manual_classification_complete": progress["manual_classification"]["complete"],
+            "manual_classification_total": progress["manual_classification"]["total"],
+            "total_requirements": total_requirements,
+            "total_resolved": total_resolved,
+            "total_unresolved": total_unresolved,
+            "blocking_requirements": blockers,
+            "readiness_percentage": round((total_resolved / total_requirements) * 100.0, 2) if total_requirements else 0.0,
+            "supplier_validation_complete": supplier_validation_complete,
+            "manual_pricing_complete": manual_pricing_complete,
+            "human_approval_complete": human_approval_complete,
+            "quote_prep_ready": quote_prep_ready,
             "missing_or_unverified_count": len(blockers),
             "documents_missing": readiness_counts["documents_missing"],
             "buyer_forms_incomplete": readiness_counts["buyer_forms_incomplete"],
@@ -698,11 +820,200 @@ class RfqSupplierValidationService:
             "conditional_requirements_unresolved": readiness_counts["conditional_requirements_unresolved"],
             "technical_evidence_missing": readiness_counts["technical_evidence_missing"],
             "manual_classification_required": readiness_counts["manual_classification_required"],
-            "submission_blocked": bool(blockers),
+            "submission_blocked": bool(blockers) or not quote_prep_ready,
             "blockers": blockers,
+            "blocker_reasons": blocker_reasons,
             "quote_pack_generated": False,
             "submission_pack_generated": False,
         }
+
+    def _normalize_evidence_reference(self, raw: Dict[str, Any], index: int) -> Dict[str, Any]:
+        evidence_id = _safe_text(raw.get("evidence_id") or raw.get("id") or f"evidence-{index}")
+        return {
+            "evidence_id": evidence_id,
+            "evidence_type": _safe_text(raw.get("evidence_type") or raw.get("type") or "document_reference"),
+            "file_name": _safe_text(raw.get("file_name") or raw.get("filename") or raw.get("name")),
+            "file_path": _safe_text(raw.get("file_path") or raw.get("path") or raw.get("document_reference")),
+            "document_reference": _safe_text(raw.get("document_reference") or raw.get("reference")),
+            "source": _safe_text(raw.get("source") or "operator_reference"),
+            "checksum": _safe_text(raw.get("checksum")),
+            "linked_at": _safe_text(raw.get("linked_at") or raw.get("uploaded_at") or _now_iso()),
+            "linked_by": _safe_text(raw.get("linked_by") or raw.get("uploaded_by") or raw.get("reviewer") or "operator"),
+            "description": _safe_text(raw.get("description")),
+            "document_date": _safe_text(raw.get("document_date")),
+            "expiry_date": _safe_text(raw.get("expiry_date")),
+            "verification_status": _safe_text(raw.get("verification_status") or "PENDING_REVIEW"),
+            "reviewer": _safe_text(raw.get("reviewer")),
+            "reviewed_at": _safe_text(raw.get("reviewed_at")),
+            "review_note": _safe_text(raw.get("review_note")),
+        }
+
+    def _normalize_evidence_references(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        raw = payload.get("evidence_references")
+        if raw is None:
+            raw = payload.get("evidence") or payload.get("evidence_reference")
+        refs: List[Dict[str, Any]] = []
+        for index, item in enumerate(_as_list(raw), start=1):
+            if isinstance(item, dict):
+                refs.append(self._normalize_evidence_reference(item, index))
+            elif item:
+                refs.append(self._normalize_evidence_reference({"document_reference": item, "file_path": item}, index))
+        return refs
+
+    def _allowed_statuses(self, category: str) -> set:
+        base = {"MISSING", "REJECTED", "REQUIRES_CLARIFICATION"}
+        by_category = {
+            RETURNABLE_REQUIRED_COMPANY_DOCUMENT: base | {"PRESENT", "REVIEWED", "APPROVED"},
+            RETURNABLE_BUYER_FORM_COMPLETION: base | {"COMPLETED", "REVIEWED", "APPROVED"},
+            RETURNABLE_ELIGIBILITY_DECLARATION: base | {"ACKNOWLEDGED", "REVIEWED", "APPROVED"},
+            RETURNABLE_PRICING_RULE: base | {"CONFIRMED", "NON_COMPLIANT", "REVIEWED", "APPROVED"},
+            RETURNABLE_SUBMISSION_FORMAT: base | {"ACKNOWLEDGED", "CONFIRMED", "NON_COMPLIANT", "REVIEWED", "APPROVED"},
+            RETURNABLE_DEADLINE_RULE: base | {"ACKNOWLEDGED", "CLOSING_DATE_VERIFIED", "DATE_DISCREPANCY"},
+            RETURNABLE_CONDITIONAL: base | {"APPLICABLE", "NOT_APPLICABLE", "PRESENT", "REVIEWED", "APPROVED"},
+            RETURNABLE_TECHNICAL_EVIDENCE: base | {"PRESENT", "REVIEWED", "APPROVED"},
+            RETURNABLE_GENERAL_INSTRUCTION: base | {"ACKNOWLEDGED", "REVIEWED", "APPROVED"},
+            RETURNABLE_MANUAL_CLASSIFICATION: base | {"CLASSIFIED"},
+        }
+        return by_category.get(category, base)
+
+    def _validate_review_payload(self, current: Dict[str, Any], payload: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+        category = current.get("category")
+        status = _safe_text(payload.get("review_status") or payload.get("status") or payload.get("action") or "MISSING").upper()
+        approval = _safe_text(payload.get("approval_state") or ("REVIEWED" if status in {"ACKNOWLEDGED", "CONFIRMED", "CLOSING_DATE_VERIFIED"} else "UNREVIEWED")).upper()
+        evidence_refs = self._normalize_evidence_references(payload)
+        evidence = _safe_text(payload.get("evidence_file") or payload.get("evidence_location"))
+        if evidence and not evidence_refs:
+            evidence_refs = self._normalize_evidence_references({"evidence_reference": evidence})
+        override = _safe_text(payload.get("operator_override_justification") or payload.get("override_reason"))
+        review_note = _safe_text(payload.get("review_note") or payload.get("note"))
+        reviewer = _safe_text(payload.get("reviewer") or payload.get("actor"))
+        errors: List[str] = []
+
+        if status not in self._allowed_statuses(category):
+            errors.append("invalid_state_transition")
+        if status in {"NON_COMPLIANT", "REJECTED", "DATE_DISCREPANCY"}:
+            approval = "REJECTED"
+        if category in {RETURNABLE_REQUIRED_COMPANY_DOCUMENT, RETURNABLE_TECHNICAL_EVIDENCE} and status in {"PRESENT", "REVIEWED", "APPROVED"} and not evidence_refs and not override:
+            errors.append("mandatory_evidence_required")
+        if category == RETURNABLE_BUYER_FORM_COMPLETION and status in {"COMPLETED", "REVIEWED", "APPROVED"} and not (
+            _safe_text(payload.get("buyer_form_reference") or payload.get("workflow_reference")) or evidence_refs or override
+        ):
+            errors.append("buyer_form_workflow_reference_required")
+        if category == RETURNABLE_CONDITIONAL and status == "NOT_APPLICABLE" and not review_note:
+            errors.append("not_applicable_reason_required")
+        if category == RETURNABLE_DEADLINE_RULE:
+            if status in {"ACKNOWLEDGED", "CLOSING_DATE_VERIFIED"} and not self._deadline_is_open(current.get("closing_date")):
+                errors.append("deadline_not_open_or_invalid")
+            if _safe_bool(payload.get("deadline_discrepancy")) or status == "DATE_DISCREPANCY":
+                errors.append("deadline_discrepancy_blocks_resolution")
+        if category == RETURNABLE_MANUAL_CLASSIFICATION and not _safe_text(payload.get("assigned_category")):
+            errors.append("manual_category_required")
+        if status == "NOT_APPLICABLE" and not review_note:
+            errors.append("review_note_required")
+        if not reviewer:
+            errors.append("reviewer_required")
+
+        if errors:
+            return None, errors
+
+        normalized = {
+            "returnable_id": current["returnable_id"],
+            "requirement_text": current.get("requirement_text"),
+            "category": _safe_text(payload.get("assigned_category") or category),
+            "source_page": current.get("source_page"),
+            "mandatory_status": current.get("mandatory_status"),
+            "applicable_state": _safe_text(payload.get("applicable_state") or status),
+            "review_status": status,
+            "approval_state": approval,
+            "evidence_references": evidence_refs,
+            "evidence_file": evidence or (evidence_refs[0].get("file_path") if evidence_refs else ""),
+            "evidence_location": _safe_text(payload.get("evidence_location") or (evidence_refs[0].get("file_path") if evidence_refs else "")),
+            "buyer_form_reference": _safe_text(payload.get("buyer_form_reference") or payload.get("workflow_reference")),
+            "review_note": review_note,
+            "reviewer": reviewer,
+            "reviewed_at": _now_iso(),
+            "override_used": bool(override),
+            "operator_override_justification": override,
+            "override_reason": override,
+            "deadline_discrepancy": _safe_bool(payload.get("deadline_discrepancy")) or status == "DATE_DISCREPANCY",
+        }
+        normalized["unresolved"] = not self._review_resolved(
+            normalized["category"],
+            normalized,
+            self._category_policy(normalized["category"], closing_date=current.get("closing_date")),
+        )
+        normalized["blocker_reasons"] = [current.get("blocker_key")] if normalized["unresolved"] and current.get("blocker_key") else []
+        return normalized, []
+
+    def update_returnable_review(self, rfq_id: str, returnable_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        workspace = self.get_returnables_review_workspace(rfq_id)
+        if workspace.get("status") != "ok":
+            return workspace
+        current = next((item for item in workspace.get("returnables", []) if item.get("returnable_id") == returnable_id), None)
+        if not current:
+            return {"status": "blocked", "rfq_id": rfq_id, "returnable_id": returnable_id, "errors": ["unknown_returnable_id"], "submission_blocked": True}
+
+        stored = _read_json(self._returnables_path(rfq_id), {})
+        existing_reviews = {
+            _safe_text(item.get("returnable_id")): item
+            for item in _as_list(stored.get("reviews"))
+            if isinstance(item, dict)
+        }
+        previous = existing_reviews.get(returnable_id, {})
+        normalized, errors = self._validate_review_payload(current, payload)
+        if errors:
+            return {"status": "blocked", "rfq_id": rfq_id, "returnable_id": returnable_id, "errors": errors, "submission_blocked": True}
+
+        history = _as_list(previous.get("action_history"))
+        comparable_previous = {
+            key: previous.get(key)
+            for key in (
+                "category",
+                "applicable_state",
+                "review_status",
+                "approval_state",
+                "evidence_references",
+                "buyer_form_reference",
+                "review_note",
+                "override_reason",
+                "deadline_discrepancy",
+            )
+        }
+        comparable_new = {
+            key: normalized.get(key)
+            for key in comparable_previous
+        }
+        if comparable_previous != comparable_new:
+            history.append({
+                "action": _safe_text(payload.get("action") or normalized.get("review_status") or "review_update"),
+                "previous_state": comparable_previous,
+                "new_state": comparable_new,
+                "actor": normalized["reviewer"],
+                "timestamp": normalized["reviewed_at"],
+                "note": normalized.get("review_note"),
+                "evidence_reference_ids": [ref.get("evidence_id") for ref in normalized.get("evidence_references", [])],
+            })
+        normalized["action_history"] = history
+        existing_reviews[returnable_id] = normalized
+
+        record = {
+            "schema_version": RETURNABLES_SCHEMA_VERSION,
+            "rfq_id": rfq_id,
+            "updated_at": _now_iso(),
+            "reviews": list(existing_reviews.values()),
+            "safety": {
+                "local_only": True,
+                "quote_pack_generated": False,
+                "submission_pack_generated": False,
+                "submission_approved": False,
+                "external_connection_attempted": False,
+            },
+        }
+        _atomic_write_json(self._returnables_path(rfq_id, create=True), record)
+        result = self.get_returnables_review_workspace(rfq_id)
+        result["saved"] = True
+        result["updated_returnable_id"] = returnable_id
+        return result
 
     def save_returnables_review(self, rfq_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         workspace = self.get_returnables_review_workspace(rfq_id)

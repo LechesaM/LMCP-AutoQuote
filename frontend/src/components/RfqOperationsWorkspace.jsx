@@ -538,6 +538,8 @@ function SupplierValidationPanel({ rfq }) {
 
 function ReturnablesReviewPanel({ rfq }) {
   const [state, setState] = useState({ loading: true, data: null, error: "" });
+  const [drafts, setDrafts] = useState({});
+  const [saving, setSaving] = useState({ id: "", message: "", error: "" });
 
   useEffect(() => {
     let cancelled = false;
@@ -573,6 +575,61 @@ function ReturnablesReviewPanel({ rfq }) {
     acc[category].push(item);
     return acc;
   }, {});
+
+  function updateDraft(id, field, value) {
+    setDrafts((current) => ({ ...current, [id]: { ...(current[id] || {}), [field]: value } }));
+  }
+
+  function primaryAction(item) {
+    if (item.category === "REQUIRED_COMPANY_DOCUMENT" || item.category === "SUPPORTING_TECHNICAL_EVIDENCE") return "PRESENT";
+    if (item.category === "BUYER_FORM_COMPLETION") return "COMPLETED";
+    if (item.category === "PRICING_COMMERCIAL_RULE") return "CONFIRMED";
+    if (item.category === "DEADLINE_SUBMISSION_RULE") return "CLOSING_DATE_VERIFIED";
+    return "ACKNOWLEDGED";
+  }
+
+  function payloadFor(item, status) {
+    const draft = drafts[item.returnable_id] || {};
+    const payload = {
+      review_status: status,
+      approval_state: status === "REJECTED" || status === "NON_COMPLIANT" ? "REJECTED" : "REVIEWED",
+      reviewer: draft.reviewer || "operator",
+      review_note: draft.note || "",
+      operator_override_justification: draft.overrideReason || "",
+    };
+    if (draft.evidenceRef) {
+      payload.evidence_references = [{
+        evidence_id: `${item.returnable_id}-evidence`,
+        evidence_type: item.requires_buyer_form_workflow ? "buyer_form_reference" : "document_reference",
+        document_reference: draft.evidenceRef,
+        file_path: draft.evidenceRef,
+        linked_by: payload.reviewer,
+        description: draft.note || item.requirement_text,
+      }];
+      payload.evidence_file = draft.evidenceRef;
+      payload.evidence_location = draft.evidenceRef;
+      payload.buyer_form_reference = item.requires_buyer_form_workflow ? draft.evidenceRef : "";
+    }
+    return payload;
+  }
+
+  async function saveRequirement(item, status) {
+    setSaving({ id: item.returnable_id, message: "", error: "" });
+    const result = await patchEndpoint(
+      `/rfq-lifecycle/returnables-review/${encodeURIComponent(rfq.reference)}/${encodeURIComponent(item.returnable_id)}`,
+      payloadFor(item, status),
+    );
+    if (!result.ok || result.data?.status === "blocked") {
+      setSaving({
+        id: item.returnable_id,
+        message: "",
+        error: result.error || asArray(result.data?.errors).join(", ") || "Requirement update blocked.",
+      });
+      return;
+    }
+    setState({ loading: false, data: result.data, error: "" });
+    setSaving({ id: item.returnable_id, message: "Review saved.", error: "" });
+  }
   return (
     <div className="rfq-tab-panel">
       <div className="rfq-pricing-summary">
@@ -588,13 +645,39 @@ function ReturnablesReviewPanel({ rfq }) {
           {group.map((item) => (
             <div className={`rfq-check-row ${item.unresolved ? "missing" : "complete"}`} key={item.returnable_id}>
               {item.unresolved ? <ShieldAlert size={17} /> : <CheckCircle2 size={17} />}
-              <span>{item.requirement_text}</span>
-              <small>
-                {item.review_status}
-                {item.source_page ? ` · p.${item.source_page}` : ""}
-                {item.requires_evidence ? " · evidence required" : " · no upload required"}
-                {item.action_required ? ` · ${item.action_required}` : ""}
-              </small>
+              <div>
+                <span>{item.requirement_text}</span>
+                <small>
+                  {item.review_status}
+                  {item.source_page ? ` · p.${item.source_page}` : ""}
+                  {item.requires_evidence ? " · evidence required" : item.requires_buyer_form_workflow ? " · buyer-form link required" : " · no upload required"}
+                  {item.action_required ? ` · ${item.action_required}` : ""}
+                </small>
+                <div className="rfq-returnable-controls">
+                  <input
+                    type="text"
+                    value={drafts[item.returnable_id]?.evidenceRef || ""}
+                    onChange={(event) => updateDraft(item.returnable_id, "evidenceRef", event.target.value)}
+                    placeholder={item.requires_buyer_form_workflow ? "Buyer form or BOQ reference" : item.requires_evidence ? "Existing evidence reference" : "Optional reference"}
+                  />
+                  <input
+                    type="text"
+                    value={drafts[item.returnable_id]?.note || ""}
+                    onChange={(event) => updateDraft(item.returnable_id, "note", event.target.value)}
+                    placeholder="Operator note"
+                  />
+                  <button type="button" onClick={() => saveRequirement(item, primaryAction(item))}>
+                    {item.requires_evidence ? "Link Evidence" : item.requires_buyer_form_workflow ? "Link Buyer Form" : item.category === "PRICING_COMMERCIAL_RULE" ? "Confirm Compliant" : "Acknowledge"}
+                  </button>
+                  {item.category === "CONDITIONAL_REQUIREMENT" ? (
+                    <button type="button" onClick={() => saveRequirement(item, "NOT_APPLICABLE")}>Not Applicable</button>
+                  ) : null}
+                  <button type="button" onClick={() => saveRequirement(item, "REQUIRES_CLARIFICATION")}>Requires Clarification</button>
+                  <button type="button" onClick={() => saveRequirement(item, "REJECTED")}>Reject</button>
+                  {saving.id === item.returnable_id && saving.message ? <small>{saving.message}</small> : null}
+                  {saving.id === item.returnable_id && saving.error ? <small className="rfq-risk">{saving.error}</small> : null}
+                </div>
+              </div>
             </div>
           ))}
         </div>
@@ -780,6 +863,39 @@ async function postEndpoint(path, payload) {
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {}),
+      signal: controller.signal,
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail ||
+        data?.message ||
+        `${response.status} ${response.statusText}`
+      );
+    }
+
+    return { ok: true, data };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message || "Request failed",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function patchEndpoint(path, payload) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload || {}),
       signal: controller.signal,

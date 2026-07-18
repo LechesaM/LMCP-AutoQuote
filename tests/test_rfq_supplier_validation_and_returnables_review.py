@@ -270,7 +270,7 @@ def test_returnables_are_classified_and_submission_remains_blocked(tmp_path, mon
     assert result["conditional_requirements_unresolved"] == 2
     assert result["technical_evidence_missing"] == 1
     assert result["manual_classification_required"] == 0
-    assert result["missing_or_unverified_count"] == 13
+    assert result["missing_or_unverified_count"] == 14
 
 
 def test_required_6000080601_returnable_mapping_by_text(tmp_path, monkeypatch):
@@ -440,3 +440,230 @@ def test_phase33_counts_and_unrelated_rfq_remain_unchanged(tmp_path, monkeypatch
     assert live_rfq_store.list_active_rfqs()["count"] == 2
     assert before == after
     assert after["items"][1]["rfq_number"] == "UNRELATED"
+
+
+def test_patch_company_document_requires_evidence_or_justified_override(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+    workspace = service.get_returnables_review_workspace("6000080601")
+    company_doc = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_REQUIRED_COMPANY_DOCUMENT)
+
+    blocked = service.update_returnable_review(
+        "6000080601",
+        company_doc["returnable_id"],
+        {"review_status": "PRESENT", "reviewer": "operator"},
+    )
+    assert blocked["status"] == "blocked"
+    assert "mandatory_evidence_required" in blocked["errors"]
+
+    saved = service.update_returnable_review(
+        "6000080601",
+        company_doc["returnable_id"],
+        {
+            "review_status": "PRESENT",
+            "approval_state": "REVIEWED",
+            "reviewer": "operator",
+            "evidence_references": [
+                {
+                    "evidence_id": "bee-cert",
+                    "evidence_type": "company_document",
+                    "file_name": "bee.pdf",
+                    "file_path": "document-vault/bee.pdf",
+                    "checksum": "abc123",
+                }
+            ],
+        },
+    )
+
+    updated = next(item for item in saved["returnables"] if item["returnable_id"] == company_doc["returnable_id"])
+    assert saved["saved"] is True
+    assert updated["unresolved"] is False
+    assert updated["evidence_references"][0]["evidence_id"] == "bee-cert"
+    assert saved["documents_missing"] == 1
+    assert saved["quote_prep_ready"] is False
+    assert saved["submission_blocked"] is True
+
+
+def test_patch_buyer_form_requires_workflow_reference_or_override(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+    workspace = service.get_returnables_review_workspace("6000080601")
+    buyer_form = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_BUYER_FORM_COMPLETION)
+
+    blocked = service.update_returnable_review(
+        "6000080601",
+        buyer_form["returnable_id"],
+        {"review_status": "COMPLETED", "approval_state": "REVIEWED", "reviewer": "operator"},
+    )
+    assert blocked["status"] == "blocked"
+    assert "buyer_form_workflow_reference_required" in blocked["errors"]
+
+    saved = service.update_returnable_review(
+        "6000080601",
+        buyer_form["returnable_id"],
+        {
+            "review_status": "COMPLETED",
+            "approval_state": "REVIEWED",
+            "reviewer": "operator",
+            "buyer_form_reference": "buyer-forms/6000080601/mbd",
+        },
+    )
+    updated = next(item for item in saved["returnables"] if item["returnable_id"] == buyer_form["returnable_id"])
+    assert updated["unresolved"] is False
+    assert saved["buyer_forms_incomplete"] == 1
+
+
+def test_patch_rules_and_declarations_resolve_without_uploads(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+    workspace = service.get_returnables_review_workspace("6000080601")
+    declaration = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_ELIGIBILITY_DECLARATION)
+    pricing_rule = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_PRICING_RULE)
+    format_rule = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_SUBMISSION_FORMAT)
+
+    service.update_returnable_review("6000080601", declaration["returnable_id"], {"review_status": "ACKNOWLEDGED", "approval_state": "REVIEWED", "reviewer": "operator"})
+    service.update_returnable_review("6000080601", pricing_rule["returnable_id"], {"review_status": "CONFIRMED", "approval_state": "REVIEWED", "reviewer": "operator"})
+    saved = service.update_returnable_review("6000080601", format_rule["returnable_id"], {"review_status": "ACKNOWLEDGED", "approval_state": "REVIEWED", "reviewer": "operator"})
+
+    assert saved["declarations_unreviewed"] == 1
+    assert saved["pricing_rules_unconfirmed"] == 1
+    assert saved["submission_rules_unconfirmed"] == 1
+    assert saved["submission_blocked"] is True
+
+
+def test_deadline_rule_evaluates_canonical_closing_date_and_expired_blocks(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    live_store = _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+    workspace = service.get_returnables_review_workspace("6000080601")
+    deadline = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_DEADLINE_RULE)
+
+    saved = service.update_returnable_review(
+        "6000080601",
+        deadline["returnable_id"],
+        {"review_status": "CLOSING_DATE_VERIFIED", "approval_state": "REVIEWED", "reviewer": "operator"},
+    )
+    assert saved["deadline_rules_complete"] == 1
+    assert saved["deadline_rules_active"] == 0
+
+    data = json.loads(live_store.read_text(encoding="utf-8"))
+    data["items"][0]["closing_date"] = "2026-01-01T12:00:00+02:00"
+    live_store.write_text(json.dumps(data), encoding="utf-8")
+    expired = service.update_returnable_review(
+        "6000080601",
+        deadline["returnable_id"],
+        {"review_status": "CLOSING_DATE_VERIFIED", "approval_state": "REVIEWED", "reviewer": "operator"},
+    )
+    assert expired["status"] == "not_found"
+
+
+def test_conditional_not_applicable_requires_reason_and_is_idempotent(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+    workspace = service.get_returnables_review_workspace("6000080601")
+    conditional = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_CONDITIONAL)
+
+    blocked = service.update_returnable_review(
+        "6000080601",
+        conditional["returnable_id"],
+        {"review_status": "NOT_APPLICABLE", "approval_state": "REVIEWED", "reviewer": "operator"},
+    )
+    assert "not_applicable_reason_required" in blocked["errors"]
+
+    payload = {
+        "review_status": "NOT_APPLICABLE",
+        "approval_state": "REVIEWED",
+        "reviewer": "operator",
+        "review_note": "No joint venture for this bid.",
+    }
+    first = service.update_returnable_review("6000080601", conditional["returnable_id"], payload)
+    second = service.update_returnable_review("6000080601", conditional["returnable_id"], payload)
+    stored = json.loads((tmp_path / "returnables_review" / "6000080601.json").read_text(encoding="utf-8"))
+    review = next(item for item in stored["reviews"] if item["returnable_id"] == conditional["returnable_id"])
+
+    assert first["conditional_requirements_unresolved"] == 1
+    assert second["conditional_requirements_unresolved"] == 1
+    assert len(review["action_history"]) == 1
+
+
+def test_technical_evidence_requires_reference_or_override(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+    workspace = service.get_returnables_review_workspace("6000080601")
+    technical = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_TECHNICAL_EVIDENCE)
+
+    blocked = service.update_returnable_review(
+        "6000080601",
+        technical["returnable_id"],
+        {"review_status": "REVIEWED", "approval_state": "REVIEWED", "reviewer": "operator"},
+    )
+    assert "mandatory_evidence_required" in blocked["errors"]
+
+    saved = service.update_returnable_review(
+        "6000080601",
+        technical["returnable_id"],
+        {
+            "review_status": "REVIEWED",
+            "approval_state": "REVIEWED",
+            "reviewer": "operator",
+            "operator_override_justification": "Existing manufacturer datasheet is embedded in the buyer PDF.",
+        },
+    )
+    assert saved["technical_evidence_missing"] == 0
+
+
+def test_unknown_returnable_archived_rfq_and_invalid_transition_are_rejected(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    live_store = _write_fixture_live_store(tmp_path, monkeypatch)
+    service = _service(tmp_path)
+
+    unknown = service.update_returnable_review("6000080601", "ret-999", {"review_status": "ACKNOWLEDGED", "reviewer": "operator"})
+    assert unknown["status"] == "blocked"
+    assert "unknown_returnable_id" in unknown["errors"]
+
+    workspace = service.get_returnables_review_workspace("6000080601")
+    pricing_rule = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_PRICING_RULE)
+    invalid = service.update_returnable_review("6000080601", pricing_rule["returnable_id"], {"review_status": "PRESENT", "reviewer": "operator"})
+    assert "invalid_state_transition" in invalid["errors"]
+
+    data = json.loads(live_store.read_text(encoding="utf-8"))
+    data["items"][0]["closing_date"] = "2026-01-01T12:00:00+02:00"
+    live_store.write_text(json.dumps(data), encoding="utf-8")
+    archived = service.update_returnable_review("6000080601", pricing_rule["returnable_id"], {"review_status": "CONFIRMED", "reviewer": "operator"})
+    assert archived["status"] == "not_found"
+
+
+def test_readiness_percentage_and_phase33_counts_do_not_mutate_authoritative_store(tmp_path, monkeypatch):
+    _block_external(monkeypatch)
+    live_store = _write_fixture_live_store(tmp_path, monkeypatch)
+    before = live_store.read_text(encoding="utf-8")
+    service = _service(tmp_path)
+    workspace = service.get_returnables_review_workspace("6000080601")
+    company_doc = next(item for item in workspace["returnables"] if item["category"] == RETURNABLE_REQUIRED_COMPANY_DOCUMENT)
+
+    saved = service.update_returnable_review(
+        "6000080601",
+        company_doc["returnable_id"],
+        {
+            "review_status": "PRESENT",
+            "approval_state": "REVIEWED",
+            "reviewer": "operator",
+            "operator_override_justification": "Verified in existing company compliance vault.",
+        },
+    )
+
+    assert saved["total_requirements"] == 14
+    assert saved["total_resolved"] == 1
+    assert saved["readiness_percentage"] == 7.14
+    assert saved["quote_prep_ready"] is False
+    assert saved["supplier_validation_complete"] is False
+    assert saved["human_approval_complete"] is False
+    assert saved["quote_pack_generated"] is False
+    assert saved["submission_pack_generated"] is False
+    assert live_rfq_store.list_active_rfqs()["count"] == 2
+    assert live_store.read_text(encoding="utf-8") == before

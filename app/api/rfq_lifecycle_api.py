@@ -197,6 +197,15 @@ def save_returnables_review(rfq_id: str, payload: Dict[str, Any] = Body(default_
     return supplier_validation_service().save_returnables_review(rfq_id, payload)
 
 
+@router.patch("/returnables-review/{rfq_id}/{returnable_id}")
+def update_returnables_review_item(
+    rfq_id: str,
+    returnable_id: str,
+    payload: Dict[str, Any] = Body(default_factory=dict),
+) -> Dict[str, Any]:
+    return supplier_validation_service().update_returnable_review(rfq_id, returnable_id, payload)
+
+
 @router.post("/ingest")
 def ingest(payload: Dict[str, Any] = Body(default_factory=dict)) -> Dict[str, Any]:
     return service().ingest(payload)

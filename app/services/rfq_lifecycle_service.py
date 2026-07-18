@@ -3132,7 +3132,11 @@ class RfqLifecycleService:
         items = list(state.get("items", {}).values())
         queue = self._queue_by_state(items)
         throughput = state.get("throughput", {}) if isinstance(state.get("throughput"), dict) else {}
-        queue_analytics = {}
+        queue_analytics = self._queue_analytics(
+            items,
+            queue,
+            throughput if isinstance(throughput, dict) else {},
+        )
         events = self._all_audit_events(items)
 
         latency_totals: Dict[str, float] = defaultdict(float)
@@ -3217,7 +3221,10 @@ class RfqLifecycleService:
             "retry_reason_histogram": dict(retry_reasons.most_common(12)),
             "recovery_reason_histogram": dict(recovery_reasons.most_common(12)),
             "rejection_reason_histogram": dict(rejection_reasons.most_common(12)),
-            "queue_wait_times": queue_analytics["queue_wait_time"],
+            "queue_wait_times": queue_analytics.get(
+                "queue_wait_time",
+                queue_analytics.get("queue_wait_times", []),
+            ),
             "queue_drain_rate": queue_analytics["task_processing_rate"],
             "queue_trend": queue_trend,
             "source_reliability_score": self._source_reliability(items),

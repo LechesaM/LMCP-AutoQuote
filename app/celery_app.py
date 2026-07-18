@@ -6,14 +6,25 @@ from celery import Celery
 from celery.schedules import crontab
 from kombu import Queue
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", os.getenv("REDIS_URL", "redis://redis:6379/0"))
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", os.getenv("REDIS_URL", "redis://redis:6379/0"))
 SUBMISSION_RETRY_SCHEDULE_MINUTES = int(str(os.getenv("SUBMISSION_RETRY_SCHEDULE_MINUTES", "15")).strip() or "15")
 SUBMISSION_RETRY_BATCH_LIMIT = int(str(os.getenv("SUBMISSION_RETRY_BATCH_LIMIT", "10")).strip() or "10")
 
-AUTO_HARVEST_SCHEDULE_ENABLED = (
-    str(os.getenv("AUTO_HARVEST_SCHEDULE_ENABLED", "false")).strip().lower()
-    in {"1", "true", "yes", "on"}
+AUTO_HARVEST_SCHEDULE_ENABLED = _env_flag(
+    "AUTO_HARVEST_SCHEDULE_ENABLED",
+    False,
+)
+AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED = _env_flag(
+    "AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED",
+    False,
 )
 AUTO_HARVEST_SCHEDULE_MINUTES = int(
     str(os.getenv("AUTO_HARVEST_SCHEDULE_MINUTES", "30")).strip() or "30"
@@ -34,15 +45,20 @@ celery_app = Celery(
     backend=CELERY_RESULT_BACKEND,
 )
 
-beat_schedule = {
-    "submission-retry-cycle": {
-        "task": "app.tasks.submission_scheduler_tasks.run_submission_retry_cycle_task",
+beat_schedule = {}
+
+if AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED:
+    beat_schedule["submission-retry-cycle"] = {
+        "task": (
+            "app.tasks.submission_scheduler_tasks."
+            "run_autonomous_submission_loop_task"
+        ),
         "schedule": crontab(
             minute=f"*/{max(1, SUBMISSION_RETRY_SCHEDULE_MINUTES)}"
         ),
         "kwargs": {"limit": SUBMISSION_RETRY_BATCH_LIMIT},
-    },
-}
+        "options": {"queue": "retry_queue"},
+    }
 
 if AUTO_HARVEST_SCHEDULE_ENABLED:
     beat_schedule["rfq-harvest-cycle"] = {
@@ -84,6 +100,9 @@ celery_app.conf.update(
     task_routes={
         "app.tasks.run_harvest_only": {
             "queue": "acquisition_queue"
+        },
+        "app.tasks.submission_scheduler_tasks.run_autonomous_submission_loop_task": {
+            "queue": "retry_queue"
         },
         "app.tasks.rfq_lifecycle_acquisition_task": {"queue": "acquisition_queue"},
         "app.tasks.rfq_lifecycle_parsing_task": {"queue": "parsing_queue"},

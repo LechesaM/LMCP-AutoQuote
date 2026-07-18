@@ -114,10 +114,12 @@ def test_compatibility_routes_delegate_to_current_service(monkeypatch):
 
 def test_manual_pricing_service_uses_temporary_store_and_reports_safe_defaults(tmp_path, monkeypatch):
     from app.services import rfq_lifecycle_service
+    from app.services import rfq_state_store
     from app.services.rfq_lifecycle_service import RfqLifecycleService
     from app.services.rfq_state_store import RfqStateStore
 
     manual_dir = tmp_path / "manual_pricing"
+    audit_file = tmp_path / "rfq_lifecycle" / "audit_events.json"
     store = RfqStateStore(tmp_path / "rfqs.json")
     store.upsert_item(
         {
@@ -129,7 +131,9 @@ def test_manual_pricing_service_uses_temporary_store_and_reports_safe_defaults(t
         }
     )
     monkeypatch.setattr(rfq_lifecycle_service, "MANUAL_PRICING_DIR", manual_dir)
+    monkeypatch.setattr(rfq_state_store, "RFQ_AUDIT_FILE", audit_file)
     service = RfqLifecycleService(store=store)
+    assert service._manual_pricing_path("RFQ-1", create=True).parent == manual_dir.resolve()
 
     result = service.save_manual_pricing(
         "RFQ-1",
@@ -144,6 +148,7 @@ def test_manual_pricing_service_uses_temporary_store_and_reports_safe_defaults(t
     assert result["safety"]["live_rfq_store_modified"] is False
     assert "line_1_invalid_quantity" in result["blockers"]
     assert (manual_dir / "RFQ-1.json").exists()
+    assert audit_file.exists()
     assert not (tmp_path / "runtime" / "live_rfqs.json").exists()
 
 

@@ -145,7 +145,7 @@ class DraftMessage:
 
 def resolve_transport_mode(env: Optional[Dict[str, str]] = None) -> str:
     env = env or os.environ
-    raw = str(env.get("LMCP_EMAIL_TRANSPORT_MODE") or TRANSPORT_DISABLED).strip().upper()
+    raw = str(env.get("LMCP_EMAIL_TRANSPORT_MODE") or TRANSPORT_DRAFT_ONLY).strip().upper()
     return raw if raw in VALID_TRANSPORT_MODES else TRANSPORT_DISABLED
 
 

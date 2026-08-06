@@ -4,22 +4,45 @@ import {
   BadgeCheck,
   BrainCircuit,
   Calculator,
+  BarChart3,
   ClipboardList,
   Cpu,
+  Building2,
+  Bell,
   FileText,
+  Factory,
   LayoutDashboard,
   ListChecks,
   PackageCheck,
+  PlugZap,
+  Puzzle,
+  Search,
   ScrollText,
   Send,
   Settings,
+  Layers3,
   ShieldCheck,
+  Gauge,
+  TrendingUp,
+  FlaskConical,
 } from "lucide-react";
 import {
   API_BASE,
   getAutonomousStatus,
   getOperatorSession,
   getDashboardSummary,
+  getAgentCoordinationHealth,
+  getAgentCoordinationAgents,
+  getAgentCoordinationTasks,
+  getAgentCoordinationPlans,
+  getAgentCoordinationApiContract,
+  getCrossOrganizationHealth,
+  getCrossOrganizationOrganizations,
+  getCrossOrganizationCounterparties,
+  getCrossOrganizationInteractions,
+  getCrossOrganizationRequests,
+  getCrossOrganizationResponses,
+  getCrossOrganizationApiContract,
   getHealth,
   getOpportunities,
   getPortalHealth,
@@ -31,32 +54,87 @@ import {
   getSubmissionHistory,
   getSubmissionProfit,
   getSubmissionSummary,
+  getWorkManagementItems,
+  getWorkManagementReadiness,
   getPolicy,
+  getPolicyDecisionContract,
+  getPolicyDecisionEvaluations,
+  getPolicyDecisionHealth,
+  getPolicyDecisionPolicies,
+  getApprovalsHealth,
+  getApprovals,
+  getApprovalsPending,
+  getApprovalsEscalated,
+  getApprovalsHistory,
+  getApprovalsApiContract,
   getRfqLifecycleMissionControl,
   getRfqLifecycleAnalytics,
   getRfqLifecycleTelemetry,
+  getResourceCapacityHealth,
+  getResourceCapacityResources,
+  getResourceCapacityMetrics,
+  getResourceCapacityConstraints,
+  getResourceCapacityForecasts,
+  getResourceCapacityRecommendations,
+  getResourceCapacityApiContract,
+  getEnterpriseSimulationHealth,
+  getEnterpriseSimulationScenarios,
+  getEnterpriseSimulationApiContract,
   updatePolicy,
   runAutonomousOnce,
   bootstrapOperatorAdmin,
   loginOperator,
   logoutOperator,
 } from "./services/api";
+import { getPlatformFoundationSnapshot } from "./services/platformFoundationApi";
+import { getMultiTenantArchitectureSnapshot } from "./services/multiTenantArchitectureApi";
+import { getEnterpriseApiPlatformSnapshot } from "./services/enterpriseApiPlatformApi";
+import { getExternalIntegrationFrameworkSnapshot } from "./services/externalIntegrationFrameworkApi";
+import { getPluginExtensionFrameworkSnapshot } from "./services/pluginExtensionFrameworkApi";
+import { getCustomerSelfServicePortalSnapshot } from "./services/customerSelfServicePortalApi";
+import { getCustomerIdentitySnapshot } from "./services/customerIdentityApi";
+import { getCustomerDashboardSnapshot } from "./services/customerDashboardApi";
+import { getCustomerRfqQuoteWorkspaceSnapshot } from "./services/customerRfqQuoteApi";
 import "./App.css";
+import "./components/SupplierIntelligenceWorkspace.css";
 import WebSocketAutoConnector from "./components/WebSocketAutoConnector";
 
 const DashboardWorkspace = lazy(() => import("./components/DashboardWorkspace"));
+const MissionControlLanding = lazy(() => import("./components/MissionControlLanding"));
 const DecisionPackWorkspace = lazy(() => import("./components/DecisionPackWorkspace"));
 const PortalWorkersWorkspace = lazy(() => import("./components/PortalWorkersWorkspace"));
 const ProofAuditCentreWorkspace = lazy(() => import("./components/ProofAuditCentreWorkspace"));
 const QuotePackEngineWorkspace = lazy(() => import("./components/QuotePackEngineWorkspace"));
 const RfqOperationsWorkspace = lazy(() => import("./components/RfqOperationsWorkspace"));
 const SubmissionCentreWorkspace = lazy(() => import("./components/SubmissionCentreWorkspace"));
+const BuyerIntelligenceWorkspace = lazy(() => import("./components/BuyerIntelligenceWorkspace"));
+const DecisionSupportWorkspace = lazy(() => import("./components/DecisionSupportWorkspace"));
+const EnterpriseOptimizationWorkspace = lazy(() => import("./components/EnterpriseOptimizationWorkspace"));
+const PredictiveAnalyticsWorkspace = lazy(() => import("./components/PredictiveAnalyticsWorkspace"));
+const ResourceCapacityWorkspace = lazy(() => import("./components/ResourceCapacityWorkspace"));
+const CrossOrganizationWorkspace = lazy(() => import("./components/CrossOrganizationWorkspace"));
+const EnterpriseSimulationWorkspace = lazy(() => import("./components/EnterpriseSimulationWorkspace"));
+const SupplierIntelligenceWorkspace = lazy(() => import("./components/SupplierIntelligenceWorkspace"));
 const WeeklyIntelligenceReportWorkspace = lazy(() => import("./components/WeeklyIntelligenceReportWorkspace"));
 const WorkflowOrchestratorWorkspace = lazy(() => import("./components/WorkflowOrchestratorWorkspace"));
+const EnterprisePlatformWorkspace = lazy(() => import("./components/EnterprisePlatformWorkspace"));
+const MultiTenantArchitectureWorkspace = lazy(() => import("./components/MultiTenantArchitectureWorkspace"));
+const EnterpriseApiPlatformWorkspace = lazy(() => import("./components/EnterpriseApiPlatformWorkspace"));
+const ExternalIntegrationFrameworkWorkspace = lazy(() => import("./components/ExternalIntegrationFrameworkWorkspace"));
+const PluginExtensionFrameworkWorkspace = lazy(() => import("./components/PluginExtensionFrameworkWorkspace"));
+const CustomerSelfServicePortalWorkspace = lazy(() => import("./components/CustomerSelfServicePortalWorkspace"));
+const CustomerIdentityWorkspace = lazy(() => import("./components/CustomerIdentityWorkspace"));
+const CustomerDashboardWorkspace = lazy(() => import("./components/CustomerDashboardWorkspace"));
+const CustomerRfqQuoteWorkspace = lazy(() => import("./components/CustomerRfqQuoteWorkspace"));
 
 const REFRESH_MS = 15000;
 const navItems = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard, workspace: "dashboard" },
+  { key: "mission-control", label: "Mission Control", icon: LayoutDashboard, workspace: "mission-control" },
+  { key: "production-readiness", label: "Production Readiness", icon: ShieldCheck, targetId: "production-readiness" },
+  { key: "harvest-operations", label: "Harvest Operations", icon: Factory, targetId: "harvest-operations" },
+  { key: "search", label: "Search", icon: Search, targetId: "enterprise-search" },
+  { key: "alerts", label: "Alerts", icon: Bell, targetId: "alerts" },
+  { key: "trends", label: "Trends", icon: TrendingUp, targetId: "trends" },
   { key: "rfq-operations", label: "RFQ Operations", icon: ClipboardList, workspace: "rfq-operations" },
   { key: "workflow-orchestrator", label: "Review Workflow", icon: Activity, workspace: "workflow-orchestrator" },
   { key: "rfq-intelligence", label: "RFQ Intelligence", icon: BrainCircuit, targetId: "rfq-intelligence" },
@@ -67,22 +145,41 @@ const navItems = [
   { key: "submission-centre", label: "Approval Centre", icon: Send, workspace: "submission-centre" },
   { key: "proof-audit-centre", label: "Review Audit Centre", icon: ScrollText, workspace: "proof-audit-centre" },
   { key: "weekly-report", label: "Weekly Report", icon: FileText, workspace: "weekly-report" },
+  { key: "buyer-intelligence", label: "Customer & Buyer Intelligence", icon: Building2, workspace: "buyer-intelligence" },
+  { key: "decision-support", label: "Decision Support", icon: Gauge, workspace: "decision-support" },
+  { key: "enterprise-optimization", label: "Enterprise Optimization", icon: BarChart3, workspace: "enterprise-optimization" },
+  { key: "predictive-analytics", label: "Predictive Analytics", icon: TrendingUp, workspace: "predictive-analytics" },
+  { key: "resource-capacity", label: "Resource Capacity", icon: BarChart3, workspace: "resource-capacity" },
+  { key: "cross-organization", label: "Cross-Organisation", icon: Building2, workspace: "cross-organization" },
+  { key: "enterprise-simulation", label: "Simulation", icon: FlaskConical, workspace: "enterprise-simulation" },
+  { key: "supplier-intelligence", label: "Supplier Intelligence", icon: Factory, workspace: "supplier-intelligence" },
+  { key: "platform-foundation", label: "Platform Foundation", icon: Layers3, workspace: "platform-foundation" },
+  { key: "multi-tenant-architecture", label: "Multi-Tenant Architecture", icon: Building2, workspace: "multi-tenant-architecture" },
+  { key: "enterprise-api-platform", label: "Enterprise API Platform", icon: Settings, workspace: "enterprise-api-platform" },
+  { key: "external-integration-framework", label: "External Integration Framework", icon: PlugZap, workspace: "external-integration-framework" },
+  { key: "plugin-extension-framework", label: "Plugin & Extension Framework", icon: Puzzle, workspace: "plugin-extension-framework" },
+  { key: "customer-self-service-portal", label: "Customer Self-Service Portal", icon: FileText, workspace: "customer-self-service-portal" },
+  { key: "customer-identity", label: "Customer Identity & Authentication", icon: BadgeCheck, workspace: "customer-identity" },
+  { key: "customer-dashboard", label: "Customer Dashboard", icon: Gauge, workspace: "customer-dashboard" },
+  { key: "customer-rfq-quotes", label: "RFQ & Quote Workspace", icon: FileText, workspace: "customer-rfq-quotes" },
   { key: "proof-centre", label: "Evidence Centre", icon: ShieldCheck, targetId: "submission-centre" },
   { key: "portal-health", label: "Portal Health", icon: Activity, targetId: "portal-health" },
   { key: "portal-workers", label: "Review Operations", icon: Cpu, workspace: "portal-workers" },
   { key: "workers", label: "Queue Monitor", icon: Cpu, targetId: "rfq-intelligence" },
   { key: "compliance", label: "Compliance Review", icon: BadgeCheck, targetId: "rfq-intelligence" },
   { key: "audit-trail", label: "Audit Trail", icon: ScrollText, targetId: "submission-centre" },
+  { key: "legacy-dashboard", label: "Legacy Dashboard", icon: LayoutDashboard, workspace: "legacy-dashboard" },
   { key: "settings", label: "Settings", icon: Settings },
 ];
 export default function App() {
   const [state, setState] = useState({ loading: true, lastUpdated: null });
   const [busy, setBusy] = useState(false);
-  const [activeWorkspace, setActiveWorkspace] = useState("dashboard");
+  const [activeWorkspace, setActiveWorkspace] = useState("mission-control");
   const [operatorAuthState, setOperatorAuthState] = useState({ loading: true, session: null, error: "" });
   const [complianceCatalog, setComplianceCatalog] = useState({ loading: true, items: [], error: "" });
   const [compliancePackId, setCompliancePackId] = useState("");
   const [complianceSummaryState, setComplianceSummaryState] = useState({ loading: false, data: null, error: "", loadedPackId: "" });
+  const [simulationState, setSimulationState] = useState({ loading: true, health: null, scenarios: [], contract: null });
   const [showWorkflowRaw, setShowWorkflowRaw] = useState(false);
 
   async function loadComplianceSummary(packId) {
@@ -181,20 +278,110 @@ export default function App() {
   }, []);
 
   async function load() {
-    const [health, workflow, auto, summary, opps, subSummary, profit, history, portal, radar, policy, lifecycle, lifecycleAnalytics, lifecycleTelemetry] = await Promise.all([
-      getHealth(), getWorkflowHealth(), getAutonomousStatus(), getDashboardSummary(), getOpportunities(), getSubmissionSummary(), getSubmissionProfit(), getSubmissionHistory(), getPortalHealth(), getRadarStatus(), getPolicy(), getRfqLifecycleMissionControl(), getRfqLifecycleAnalytics(), getRfqLifecycleTelemetry(),
+    const [health, workflow, auto, summary, opps, subSummary, profit, history, portal, radar, policy, policyDecisionHealth, policyDecisionPolicies, policyDecisionEvaluations, policyDecisionContract, approvalHealth, approvalRecords, approvalPending, approvalEscalated, approvalHistory, approvalContract, lifecycle, lifecycleAnalytics, lifecycleTelemetry, workManagementReadiness, workManagementItems, agentCoordinationHealth, agentCoordinationAgents, agentCoordinationTasks, agentCoordinationPlans, agentCoordinationApiContract, resourceCapacityHealth, resourceCapacityResources, resourceCapacityMetrics, resourceCapacityConstraints, resourceCapacityForecasts, resourceCapacityRecommendations, resourceCapacityApiContract, crossOrganizationHealth, crossOrganizationOrganizations, crossOrganizationCounterparties, crossOrganizationInteractions, crossOrganizationRequests, crossOrganizationResponses, crossOrganizationApiContract, enterpriseSimulationHealth, enterpriseSimulationScenarios, enterpriseSimulationApiContract, platformFoundationSnapshot, multiTenantArchitectureSnapshot, enterpriseApiPlatformSnapshot, externalIntegrationFrameworkSnapshot, pluginExtensionFrameworkSnapshot, customerSelfServicePortalSnapshot, customerIdentitySnapshot, customerDashboardSnapshot, customerRfqQuoteWorkspaceSnapshot] = await Promise.all([
+      getHealth(), getWorkflowHealth(), getAutonomousStatus(), getDashboardSummary(), getOpportunities(), getSubmissionSummary(), getSubmissionProfit(), getSubmissionHistory(), getPortalHealth(), getRadarStatus(), getPolicy(), getPolicyDecisionHealth(), getPolicyDecisionPolicies(), getPolicyDecisionEvaluations(), getPolicyDecisionContract(), getApprovalsHealth(), getApprovals(), getApprovalsPending(), getApprovalsEscalated(), getApprovalsHistory(), getApprovalsApiContract(), getRfqLifecycleMissionControl(), getRfqLifecycleAnalytics(), getRfqLifecycleTelemetry(), getWorkManagementReadiness(), getWorkManagementItems(), getAgentCoordinationHealth(), getAgentCoordinationAgents(), getAgentCoordinationTasks(), getAgentCoordinationPlans(), getAgentCoordinationApiContract(), getResourceCapacityHealth(), getResourceCapacityResources(), getResourceCapacityMetrics(), getResourceCapacityConstraints(), getResourceCapacityForecasts(), getResourceCapacityRecommendations(), getResourceCapacityApiContract(), getCrossOrganizationHealth(), getCrossOrganizationOrganizations(), getCrossOrganizationCounterparties(), getCrossOrganizationInteractions(), getCrossOrganizationRequests(), getCrossOrganizationResponses(), getCrossOrganizationApiContract(), getEnterpriseSimulationHealth(), getEnterpriseSimulationScenarios(), getEnterpriseSimulationApiContract(),
+      getPlatformFoundationSnapshot(),
+      getMultiTenantArchitectureSnapshot(),
+      getEnterpriseApiPlatformSnapshot(),
+      getExternalIntegrationFrameworkSnapshot(),
+      getPluginExtensionFrameworkSnapshot(),
+      getCustomerSelfServicePortalSnapshot(),
+      getCustomerIdentitySnapshot(),
+      getCustomerDashboardSnapshot(),
+      getCustomerRfqQuoteWorkspaceSnapshot(),
     ]);
-    setState({ health, workflow, auto, summary, opps, subSummary, profit, history, portal, radar, policy, lifecycle, lifecycleAnalytics, lifecycleTelemetry, loading: false, lastUpdated: new Date() });
+    setState({
+      health,
+      workflow,
+      auto,
+      summary,
+      opps,
+      subSummary,
+      profit,
+      history,
+      portal,
+      radar,
+      policy,
+      policyDecision: {
+        health: policyDecisionHealth,
+        policies: Array.isArray(policyDecisionPolicies?.policies) ? policyDecisionPolicies.policies : [],
+        evaluations: Array.isArray(policyDecisionEvaluations?.evaluations) ? policyDecisionEvaluations.evaluations : [],
+        contract: policyDecisionContract,
+      },
+      approvals: {
+        health: approvalHealth,
+        approvals: Array.isArray(approvalRecords?.approvals) ? approvalRecords.approvals : [],
+        pending: Array.isArray(approvalPending?.approvals) ? approvalPending.approvals : [],
+        escalated: Array.isArray(approvalEscalated?.approvals) ? approvalEscalated.approvals : [],
+        history: Array.isArray(approvalHistory?.approvals) ? approvalHistory.approvals : [],
+        contract: approvalContract,
+      },
+      lifecycle,
+      lifecycleAnalytics,
+      lifecycleTelemetry,
+      workManagement: {
+        readiness: workManagementReadiness,
+        items: Array.isArray(workManagementItems?.items) ? workManagementItems.items : [],
+        queues: Array.isArray(workManagementItems?.queues) ? workManagementItems.queues : [],
+      },
+      agentCoordination: {
+        health: agentCoordinationHealth,
+        agents: Array.isArray(agentCoordinationAgents?.agents) ? agentCoordinationAgents.agents : [],
+        tasks: Array.isArray(agentCoordinationTasks?.tasks) ? agentCoordinationTasks.tasks : [],
+        plans: Array.isArray(agentCoordinationPlans?.plans) ? agentCoordinationPlans.plans : [],
+        apiContract: agentCoordinationApiContract,
+      },
+      resourceCapacity: {
+        health: resourceCapacityHealth,
+        resources: Array.isArray(resourceCapacityResources?.items) ? resourceCapacityResources.items : [],
+        metrics: Array.isArray(resourceCapacityMetrics?.items) ? resourceCapacityMetrics.items : [],
+        constraints: Array.isArray(resourceCapacityConstraints?.items) ? resourceCapacityConstraints.items : [],
+        forecasts: Array.isArray(resourceCapacityForecasts?.items) ? resourceCapacityForecasts.items : [],
+        recommendations: Array.isArray(resourceCapacityRecommendations?.items) ? resourceCapacityRecommendations.items : [],
+        apiContract: resourceCapacityApiContract,
+      },
+      crossOrganization: {
+        health: crossOrganizationHealth,
+        organizations: Array.isArray(crossOrganizationOrganizations?.items) ? crossOrganizationOrganizations.items : [],
+        counterparties: Array.isArray(crossOrganizationCounterparties?.items) ? crossOrganizationCounterparties.items : [],
+        interactions: Array.isArray(crossOrganizationInteractions?.items) ? crossOrganizationInteractions.items : [],
+        requests: Array.isArray(crossOrganizationRequests?.items) ? crossOrganizationRequests.items : [],
+        responses: Array.isArray(crossOrganizationResponses?.items) ? crossOrganizationResponses.items : [],
+        apiContract: crossOrganizationApiContract,
+      },
+      enterpriseSimulation: {
+        health: enterpriseSimulationHealth,
+        scenarios: Array.isArray(enterpriseSimulationScenarios?.items) ? enterpriseSimulationScenarios.items : [],
+        apiContract: enterpriseSimulationApiContract,
+      },
+      platformFoundation: platformFoundationSnapshot,
+      multiTenantArchitecture: multiTenantArchitectureSnapshot,
+      enterpriseApiPlatform: enterpriseApiPlatformSnapshot,
+      externalIntegrationFramework: externalIntegrationFrameworkSnapshot,
+      pluginExtensionFramework: pluginExtensionFrameworkSnapshot,
+      customerSelfServicePortal: customerSelfServicePortalSnapshot,
+      customerIdentity: customerIdentitySnapshot,
+      customerDashboard: customerDashboardSnapshot,
+      customerRfqQuoteWorkspace: customerRfqQuoteWorkspaceSnapshot,
+      loading: false,
+      lastUpdated: new Date(),
+    });
+    setSimulationState({
+      loading: false,
+      health: enterpriseSimulationHealth,
+      scenarios: Array.isArray(enterpriseSimulationScenarios?.items) ? enterpriseSimulationScenarios.items : [],
+      contract: enterpriseSimulationApiContract,
+    });
   }
 
   useEffect(() => {
-    load();
+    void Promise.resolve().then(() => load());
     const id = setInterval(load, REFRESH_MS);
     return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
-    refreshOperatorSession();
+    void Promise.resolve().then(() => refreshOperatorSession());
   }, []);
 
   useEffect(() => {
@@ -233,10 +420,7 @@ export default function App() {
         ? true
         : state.policy?.policy?.enabled ?? state.auto?.enabled ?? true
   );
-  const backendStatus =
-    state.health?.status === "healthy" || state.lifecycleTelemetry?.worker_online || (state.radar?.radar || state.radar || {}).worker_online
-      ? "healthy"
-      : state.health?.status || "unknown";
+  const backendStatus = state.health?.status || "unknown";
 
   async function toggleSystem() {
     setBusy(true);
@@ -253,12 +437,52 @@ export default function App() {
     setBusy(false);
   }
 
+  function navigateTo(target) {
+    const workspaceTargets = new Set([
+      "mission-control",
+      "legacy-dashboard",
+      "workflow-orchestrator",
+      "portal-workers",
+      "proof-audit-centre",
+      "weekly-report",
+      "buyer-intelligence",
+      "decision-support",
+      "predictive-analytics",
+      "supplier-intelligence",
+      "platform-foundation",
+      "multi-tenant-architecture",
+      "enterprise-api-platform",
+      "external-integration-framework",
+      "plugin-extension-framework",
+      "customer-self-service-portal",
+      "customer-identity",
+      "customer-dashboard",
+      "customer-rfq-quotes",
+      "submission-centre",
+      "quote-pack-engine",
+      "decision-pack",
+      "rfq-operations",
+      "cross-organization",
+      "enterprise-simulation",
+    ]);
+
+    if (workspaceTargets.has(target)) {
+      setActiveWorkspace(target);
+      return;
+    }
+
+    setActiveWorkspace("mission-control");
+    requestAnimationFrame(() => {
+      document.getElementById(target)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   function selectWorkspace(item) {
     if (item.workspace) {
       setActiveWorkspace(item.workspace);
       return;
     }
-    setActiveWorkspace("dashboard");
+    setActiveWorkspace("mission-control");
     if (item.targetId) {
       requestAnimationFrame(() => {
         document.getElementById(item.targetId)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -271,6 +495,196 @@ export default function App() {
     refreshMs: REFRESH_MS,
     state,
     backendStatus,
+    resourceCapacity: state.resourceCapacity,
+    crossOrganization: state.crossOrganization,
+    enterpriseSimulation: simulationState,
+    platformFoundation: state.platformFoundation || { loading: true, status: "NO_DATA", capabilities: [], services: [], modules: [], extensionPoints: [] },
+    multiTenantArchitecture: state.multiTenantArchitecture || {
+      loading: true,
+      status: "NO_DATA",
+      tenantIdentity: null,
+      tenantRegistry: { tenant_count: 0, records: [] },
+      tenantContextContract: null,
+      tenantIsolation: null,
+      tenantConfiguration: null,
+      tenantCapabilityModel: { capabilities: [] },
+      tenantServiceModel: { services: [] },
+      tenantModuleModel: { modules: [] },
+    },
+    enterpriseApiPlatform: state.enterpriseApiPlatform || {
+      loading: true,
+      status: "NO_DATA",
+      identity: null,
+      registry: [],
+      domains: [],
+      classification: [],
+      lifecycle: null,
+      versions: null,
+      compatibility: null,
+      exposure: [],
+      authenticationAuthorisation: null,
+      tenantContext: null,
+      policy: null,
+      rateLimitQuota: null,
+      requestResponse: null,
+      errorContract: null,
+      queryContract: null,
+      idempotency: null,
+      audit: null,
+      observability: null,
+      openapiGovernance: null,
+      diagnostics: null,
+      apiContract: null,
+    },
+    externalIntegrationFramework: state.externalIntegrationFramework || {
+      loading: true,
+      status: "NO_DATA",
+      connectorActivation: null,
+      identity: null,
+      registry: [],
+      connectors: [],
+      adapters: [],
+      providers: [],
+      classification: [],
+      lifecycle: null,
+      compatibility: null,
+      policy: null,
+      authenticationAuthorisation: null,
+      credentialReference: null,
+      transformation: [],
+      messageContract: null,
+      eventModel: [],
+      commandResponse: null,
+      resilience: null,
+      circuitBreaker: null,
+      idempotency: null,
+      deadLetter: null,
+      tenantContext: null,
+      audit: null,
+      observability: null,
+      diagnostics: null,
+      apiContract: null,
+    },
+      pluginExtensionFramework: state.pluginExtensionFramework || {
+        loading: true,
+        status: "NO_DATA",
+      identity: null,
+      manifestContract: null,
+      registry: [],
+      extensionPoints: [],
+      capabilities: [],
+      classification: [],
+      lifecycle: null,
+      dependencies: [],
+      compatibility: null,
+      permissions: [],
+      trust: null,
+      certification: null,
+      packageIntegrity: null,
+      configuration: null,
+      tenantContext: null,
+      policy: null,
+      audit: null,
+      observability: null,
+      diagnostics: null,
+      persistence: null,
+      apiContract: null,
+      health: null,
+      readiness: null,
+      missionControlIntegration: null,
+        frontendExperience: null,
+        counts: { plugins: 0, extensionPoints: 0, capabilities: 0, disabledPlugins: 0, certificationRequired: 0 },
+      },
+      customerSelfServicePortal: state.customerSelfServicePortal || {
+        loading: true,
+        status: "NO_DATA",
+        identity: null,
+        registry: [],
+        features: [],
+        extensionPoints: [],
+        permissions: [],
+        tenantContext: null,
+        policy: null,
+        audit: null,
+        diagnostics: null,
+        compatibility: null,
+        configuration: null,
+        lifecycle: null,
+        readiness: null,
+        health: null,
+        missionControlIntegration: null,
+        frontendExperience: null,
+        apiContract: null,
+        counts: { features: 0, extensionPoints: 0, permissions: 0 },
+      },
+      customerIdentity: state.customerIdentity || {
+        loading: true,
+        status: "NO_DATA",
+        identity: null,
+        roles: [],
+        permissions: [],
+        tenantContext: null,
+        sessionPolicy: null,
+        policy: null,
+        audit: null,
+        diagnostics: null,
+        compatibility: null,
+        configuration: null,
+        lifecycle: null,
+        readiness: null,
+        health: null,
+        missionControlIntegration: null,
+        frontendExperience: null,
+        apiContract: null,
+        counts: { roles: 0, permissions: 0, deniedPermissions: 0 },
+      },
+      customerDashboard: state.customerDashboard || {
+        loading: true,
+        status: "NO_DATA",
+        identity: null,
+        summary: null,
+        sections: [],
+        widgets: [],
+        organisation: null,
+        rfqs: null,
+        quotations: null,
+        activity: null,
+        notifications: null,
+        policy: null,
+        audit: null,
+        observability: null,
+        compatibility: null,
+        lifecycle: null,
+        readiness: null,
+        health: null,
+        diagnostics: null,
+        apiContract: null,
+        missionControlIntegration: null,
+        frontendExperience: null,
+        counts: { sections: 0, widgets: 0 },
+      },
+      customerRfqQuoteWorkspace: state.customerRfqQuoteWorkspace || {
+        loading: true,
+        status: "NO_DATA",
+        identity: null,
+        rfqs: null,
+        quotations: null,
+        rfqLifecycle: null,
+        quotationLifecycle: null,
+        sourceAuthority: null,
+        freshness: null,
+        policy: null,
+        audit: null,
+        observability: null,
+        compatibility: null,
+        health: null,
+        readiness: null,
+        diagnostics: null,
+        apiContract: null,
+        missionControlIntegration: null,
+        frontendExperience: null,
+        counts: { rfqs: 0, quotations: 0 },
+      },
     systemOn,
     busy,
     toggleSystem,
@@ -282,6 +696,8 @@ export default function App() {
     complianceSummaryState,
     setCompliancePackId,
     loadComplianceSummary,
+    refreshAll: load,
+    navigate: navigateTo,
   };
 
   return (
@@ -316,8 +732,10 @@ export default function App() {
       <main className="dashboard-shell dashboard-view">
         <WebSocketAutoConnector />
         <Suspense fallback={<div className="card"><p className="muted">Loading workspace...</p></div>}>
-          {activeWorkspace === "dashboard" ? (
-            <DashboardWorkspace view={dashboardView} />
+          {activeWorkspace === "mission-control" || activeWorkspace === "dashboard" ? (
+            <MissionControlLanding view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "legacy-dashboard" ? (
+            <DashboardWorkspace view={{ ...dashboardView, legacyMode: true }} />
           ) : activeWorkspace === "workflow-orchestrator" ? (
             <WorkflowOrchestratorWorkspace />
           ) : activeWorkspace === "portal-workers" ? (
@@ -326,6 +744,40 @@ export default function App() {
             <ProofAuditCentreWorkspace />
           ) : activeWorkspace === "weekly-report" ? (
             <WeeklyIntelligenceReportWorkspace />
+          ) : activeWorkspace === "buyer-intelligence" ? (
+            <BuyerIntelligenceWorkspace />
+          ) : activeWorkspace === "decision-support" ? (
+            <DecisionSupportWorkspace />
+          ) : activeWorkspace === "enterprise-optimization" ? (
+            <EnterpriseOptimizationWorkspace />
+          ) : activeWorkspace === "predictive-analytics" ? (
+            <PredictiveAnalyticsWorkspace />
+          ) : activeWorkspace === "resource-capacity" ? (
+            <ResourceCapacityWorkspace />
+          ) : activeWorkspace === "cross-organization" ? (
+            <CrossOrganizationWorkspace />
+          ) : activeWorkspace === "enterprise-simulation" ? (
+            <EnterpriseSimulationWorkspace />
+          ) : activeWorkspace === "supplier-intelligence" ? (
+            <SupplierIntelligenceWorkspace />
+          ) : activeWorkspace === "platform-foundation" ? (
+            <EnterprisePlatformWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "multi-tenant-architecture" ? (
+            <MultiTenantArchitectureWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "enterprise-api-platform" ? (
+            <EnterpriseApiPlatformWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "external-integration-framework" ? (
+            <ExternalIntegrationFrameworkWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "plugin-extension-framework" ? (
+            <PluginExtensionFrameworkWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "customer-self-service-portal" ? (
+            <CustomerSelfServicePortalWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "customer-identity" ? (
+            <CustomerIdentityWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "customer-dashboard" ? (
+            <CustomerDashboardWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "customer-rfq-quotes" ? (
+            <CustomerRfqQuoteWorkspace view={dashboardView} onNavigate={navigateTo} />
           ) : activeWorkspace === "submission-centre" ? (
             <SubmissionCentreWorkspace
               authState={operatorAuthState}

@@ -478,6 +478,7 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
   const customerRfqQuoteWorkspace = view.customerRfqQuoteWorkspace || {};
   const customerDocumentCentre = view.customerDocumentCentre || {};
   const customerCommunication = view.customerCommunication || {};
+  const customerSupport = view.customerSupport || {};
   const crossOrganizationHealth = crossOrganization.health || {};
   const crossOrganizationOrganizations = Array.isArray(crossOrganization.organizations) ? crossOrganization.organizations : [];
   const crossOrganizationCounterparties = Array.isArray(crossOrganization.counterparties) ? crossOrganization.counterparties : [];
@@ -579,6 +580,18 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
   const customerCommunicationPolicy = customerCommunication.policy || {};
   const customerCommunicationDiagnostics = customerCommunication.diagnostics || {};
   const customerCommunicationCompatibility = customerCommunication.compatibility || {};
+  const customerSupportHealth = customerSupport.health || {};
+  const customerSupportReadiness = customerSupport.readiness || {};
+  const customerSupportIdentity = customerSupport.identity || {};
+  const customerSupportCases = customerSupport.cases || {};
+  const customerSupportPriorities = customerSupport.priorities || {};
+  const customerSupportSlas = customerSupport.slas || {};
+  const customerSupportQueues = customerSupport.queues || {};
+  const customerSupportKnowledgeBase = customerSupport.knowledgeBase || {};
+  const customerSupportLifecycle = customerSupport.lifecycle || {};
+  const customerSupportPolicy = customerSupport.policy || {};
+  const customerSupportDiagnostics = customerSupport.diagnostics || {};
+  const customerSupportCompatibility = customerSupport.compatibility || {};
   const tenantCounts = multiTenantArchitecture.counts || {};
   const crossOrganizationStateLabel =
     crossOrganizationHealth.data_state === "NO_DATA" || (!crossOrganizationOrganizations.length && !crossOrganizationCounterparties.length && !crossOrganizationInteractions.length)
@@ -773,6 +786,14 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
         detail: `${compactCount(customerCommunication.counts?.notifications || customerCommunicationRegistry.records?.length || 0)} notification record(s), ${compactCount(customerCommunication.counts?.templates || customerCommunicationTemplates.templates?.length || 0)} template record(s), and ${compactCount(customerCommunication.counts?.preferences || customerCommunicationPreferences.channels?.length || 0)} preference channel(s) remain read only and tenant bound.`,
       },
       {
+        id: "customer-support",
+        label: "Support & Service Desk",
+        value: String(customerSupportReadiness.readiness_state || customerSupport.status || "NO_DATA").toUpperCase(),
+        source: "/platform/customer-support/health",
+        freshness: formatDateTime(customerSupportHealth.updated_at || lastUpdated),
+        detail: `${compactCount(customerSupport.counts?.cases || customerSupportCases.records?.length || 0)} case record(s), ${compactCount(customerSupport.counts?.priorities || customerSupportPriorities.priorities?.length || 0)} priority record(s), ${compactCount(customerSupport.counts?.slas || customerSupportSlas.slas?.length || 0)} SLA record(s), and ${compactCount(customerSupport.counts?.knowledge || customerSupportKnowledgeBase.records?.length || 0)} knowledge article(s) remain read only and tenant bound.`,
+      },
+      {
         id: "plugin-extension-framework",
         label: "Plugin Framework",
         value: String(pluginReadiness.readiness_state || pluginExtensionFramework.status || "NO_DATA").toUpperCase(),
@@ -781,7 +802,7 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
         detail: `${compactCount(pluginRegistry.length)} metadata record(s), ${compactCount(pluginExtensionPoints.length)} extension point(s), and ${compactCount(pluginCapabilities.length)} capability record(s) are available. No plugin code executes.`,
       },
     ];
-  }, [backendAvailable, crossOrganizationCounterparties.length, crossOrganizationHealth.updated_at, crossOrganizationInteractions.length, crossOrganizationOrganizations.length, crossOrganizationStateLabel, customerCommunication.status, customerCommunicationHealth.updated_at, customerCommunicationReadiness.readiness_state, customerCommunicationRegistry.records?.length, customerCommunicationTemplates.templates?.length, customerCommunicationPreferences.channels?.length, customerCommunicationCatalogue.records?.length, customerCommunicationDelivery.delivery_records?.length, customerCommunicationIdentity.workspace_id, customerCommunicationLifecycle.lifecycle_state, customerCommunicationPolicy.global_governance_precedence, customerCommunicationDiagnostics.diagnostic_state, customerCommunicationCompatibility.compatibility_state, customerDashboard.status, customerDashboardHealth.updated_at, customerDashboardReadiness.readiness_state, customerDashboardSections.length, customerDashboardSummary.dashboard_status, customerDashboardWidgets.length, customerDocumentCentre.status, customerDocumentCentre.counts?.documents, customerDocumentCentre.counts?.classifications, customerDocumentCentreHealth.updated_at, customerDocumentCentreReadiness.readiness_state, customerDocumentCentreCatalogue.records?.length, customerDocumentCentreClassifications.classifications?.length, customerDocumentCentreIdentity.workspace_id, customerDocumentCentreLifecycle.lifecycle_state, customerDocumentCentreRetention.retention_state, customerDocumentCentreIntegrity.integrity_state, customerDocumentCentreVisibility.document_visibility_policy, customerDocumentCentreCompatibility.compatibility_state, customerIdentity, customerIdentityHealth.updated_at, customerIdentityPermissions, customerIdentityReadiness.readiness_state, customerIdentityRoles.length, customerRfqQuoteWorkspace.counts?.quotations, customerRfqQuoteWorkspace.counts?.rfqs, customerRfqQuoteWorkspace.status, customerRfqQuoteWorkspaceHealth.updated_at, customerRfqQuoteWorkspaceQuotations.records?.length, customerRfqQuoteWorkspaceReadiness.readiness_state, customerRfqQuoteWorkspaceRfqs.records?.length, customerSelfServicePortal.status, history, lifecycle?.failed_rfqs, lifecycle?.proof_captured_rfqs, lifecycle?.total_rfqs, lastUpdated, opportunities.length, portalExtensionPoints.length, portalFeatures.length, portalHealth.updated_at, portalReadiness.readiness_state, portalRegistry.length, pluginCapabilities.length, pluginExtensionFramework.status, pluginHealth.updated_at, pluginReadiness.readiness_state, pluginRegistry.length, pluginExtensionPoints.length, queueByState, resourceCapacityHealth.updated_at, resourceCapacityStateLabel, resourceCapacitySummary.constraint_count, resourceCapacitySummary.recommendation_count, resourceCapacitySummary.resource_count, simulationHealth.updated_at, simulationStateLabel, simulationScenarios.length, summary]);
+  }, [backendAvailable, crossOrganizationCounterparties.length, crossOrganizationHealth.updated_at, crossOrganizationInteractions.length, crossOrganizationOrganizations.length, crossOrganizationStateLabel, customerCommunication.status, customerCommunicationHealth.updated_at, customerCommunicationReadiness.readiness_state, customerCommunicationRegistry.records?.length, customerCommunicationTemplates.templates?.length, customerCommunicationPreferences.channels?.length, customerCommunicationCatalogue.records?.length, customerCommunicationDelivery.delivery_records?.length, customerCommunicationIdentity.workspace_id, customerCommunicationLifecycle.lifecycle_state, customerCommunicationPolicy.global_governance_precedence, customerCommunicationDiagnostics.diagnostic_state, customerCommunicationCompatibility.compatibility_state, customerDashboard.status, customerDashboardHealth.updated_at, customerDashboardReadiness.readiness_state, customerDashboardSections.length, customerDashboardSummary.dashboard_status, customerDashboardWidgets.length, customerDocumentCentre.status, customerDocumentCentre.counts?.documents, customerDocumentCentre.counts?.classifications, customerDocumentCentreHealth.updated_at, customerDocumentCentreReadiness.readiness_state, customerDocumentCentreCatalogue.records?.length, customerDocumentCentreClassifications.classifications?.length, customerDocumentCentreIdentity.workspace_id, customerDocumentCentreLifecycle.lifecycle_state, customerDocumentCentreRetention.retention_state, customerDocumentCentreIntegrity.integrity_state, customerDocumentCentreVisibility.document_visibility_policy, customerDocumentCentreCompatibility.compatibility_state, customerIdentity, customerIdentityHealth.updated_at, customerIdentityPermissions, customerIdentityReadiness.readiness_state, customerIdentityRoles.length, customerRfqQuoteWorkspace.counts?.quotations, customerRfqQuoteWorkspace.counts?.rfqs, customerRfqQuoteWorkspace.status, customerRfqQuoteWorkspaceHealth.updated_at, customerRfqQuoteWorkspaceQuotations.records?.length, customerRfqQuoteWorkspaceReadiness.readiness_state, customerRfqQuoteWorkspaceRfqs.records?.length, customerSelfServicePortal.status, customerSupport.status, customerSupportHealth.updated_at, customerSupportReadiness.readiness_state, customerSupportCases.records?.length, customerSupportPriorities.priorities?.length, customerSupportSlas.slas?.length, customerSupportKnowledgeBase.records?.length, history, lifecycle?.failed_rfqs, lifecycle?.proof_captured_rfqs, lifecycle?.total_rfqs, lastUpdated, opportunities.length, portalExtensionPoints.length, portalFeatures.length, portalHealth.updated_at, portalReadiness.readiness_state, portalRegistry.length, pluginCapabilities.length, pluginExtensionFramework.status, pluginHealth.updated_at, pluginReadiness.readiness_state, pluginRegistry.length, pluginExtensionPoints.length, queueByState, resourceCapacityHealth.updated_at, resourceCapacityStateLabel, resourceCapacitySummary.constraint_count, resourceCapacitySummary.recommendation_count, resourceCapacitySummary.resource_count, simulationHealth.updated_at, simulationStateLabel, simulationScenarios.length, summary]);
 
   const selectedMetric = missionMetrics.find((metric) => metric.id === selectedMetricId) || missionMetrics[0];
   const selectedReadiness = READINESS_ITEMS.find((item) => item.id === selectedReadinessId) || READINESS_ITEMS[0];
@@ -1346,6 +1367,30 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
           <DetailPanel label="Security state" value={apiMission.security_state || "FAIL_CLOSED"} note="Deny-by-default exposure and redacted diagnostics remain in force." />
           <DetailPanel label="Deprecated APIs" value={compactCount(apiMission.deprecated_api_count || enterpriseApiPlatform.registry?.filter((item) => item.implementation_status === 'DEPRECATED_API').length || 0)} note="No deprecated endpoint is treated as active." />
           <DetailPanel label="Next architect action" value={apiMission.next_architect_action || "Proceed to Phase65.4 External Integration Framework only after validation."} note={apiMission.current_milestone || "PHASE65.3_ENTERPRISE_API_PLATFORM"} />
+        </div>
+        <div className="mission-work-grid">
+          <div className="mission-work-detail">
+            <h3>Phase65.6.7 Support & Service Desk</h3>
+            <p className="muted">Read-only support metadata only. Ticket creation, editing, closure, assignment, escalation execution, chat, live SLA monitoring, and external ITSM integrations remain not implemented.</p>
+            <div className="mission-detail-grid compact">
+              <DetailPanel label="Workspace" value={customerSupportIdentity.canonical_name || "NO_DATA"} note={customerSupportIdentity.workspace_id || "Workspace ID unavailable"} />
+              <DetailPanel label="Readiness" value={String(customerSupportReadiness.readiness_state || customerSupport.status || "READY_WITH_LIMITATIONS").toUpperCase()} note={(customerSupportReadiness.limitations || customerSupportIdentity.accepted_limitations || []).join(" · ") || "Read-only support workspace remains truthful."} />
+              <DetailPanel label="Cases" value={compactCount(customerSupport.counts?.cases || customerSupportCases.records?.length || 0)} note={customerSupportHealth.health_state || "NO_DATA"} />
+              <DetailPanel label="Priorities" value={compactCount(customerSupport.counts?.priorities || customerSupportPriorities.priorities?.length || 0)} note={customerSupportPolicy.ticket_creation_prohibition || "denied"} />
+              <DetailPanel label="SLAs" value={compactCount(customerSupport.counts?.slas || customerSupportSlas.slas?.length || 0)} note={customerSupportDiagnostics.diagnostic_state || "READY_WITH_LIMITATIONS"} />
+              <DetailPanel label="Knowledge base" value={compactCount(customerSupport.counts?.knowledge || customerSupportKnowledgeBase.records?.length || 0)} note={customerSupportCompatibility.compatibility_state || "COMPATIBLE_WITH_LIMITATIONS"} />
+            </div>
+          </div>
+          <div className="mission-work-detail">
+            <h3>Support posture</h3>
+            <p className="muted">Mission Control surfaces case catalogue, priority model, SLA metadata, queue metadata, and knowledge metadata while preserving fail-closed governance.</p>
+            <div className="mission-detail-grid compact">
+              <DetailPanel label="Queues" value={compactCount(customerSupport.counts?.queues || customerSupportQueues.queues?.length || 0)} note={customerSupportQueues.queue_state || "REGISTERED_METADATA_ONLY"} />
+              <DetailPanel label="Lifecycle" value={customerSupportLifecycle.lifecycle_state || "NO_DATA"} note="Lifecycle metadata only" />
+              <DetailPanel label="Mission Control" value={customerSupportHealth.health_state || "READY_WITH_LIMITATIONS"} note={customerSupportHealth.current_milestone || "PHASE65.6.7_SUPPORT_AND_SERVICE_DESK"} />
+              <DetailPanel label="Next milestone" value="READY_FOR_PHASE65_6_8_CUSTOMER_PROFILE_TENANT_MANAGEMENT" note="Support foundation remains deferred." />
+            </div>
+          </div>
         </div>
         <div className="mission-work-grid">
           <div className="mission-work-detail">

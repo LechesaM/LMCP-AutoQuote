@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Bell, BookOpenText, FileText, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowLeftRight, Bell, BookOpenText, ClipboardList, FileText, RefreshCw, ShieldCheck } from "lucide-react";
 
 function toneForStatus(value) {
   const text = String(value || "").toUpperCase();
@@ -221,6 +221,7 @@ export default function CustomerCommunicationWorkspace({ view = {}, onNavigate =
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-document-centre")}><FileText size={15} /> Open Secure Document Centre</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-rfq-quotes")}><Bell size={15} /> Open RFQ & Quote Workspace</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-self-service-portal")}><ShieldCheck size={15} /> Open Customer Portal</button>
+            <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-support")}><ClipboardList size={15} /> Open Support & Service Desk</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("mission-control")}><ArrowLeftRight size={15} /> Return to Mission Control</button>
           </div>
         </div>

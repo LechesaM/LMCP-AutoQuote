@@ -1,4 +1,4 @@
-import { ArrowLeftRight, BookOpenText, LayoutDashboard, RefreshCw, ShieldCheck } from "lucide-react";
+import { ArrowLeftRight, Bell, BookOpenText, LayoutDashboard, RefreshCw, ShieldCheck } from "lucide-react";
 
 function toneForStatus(value) {
   const text = String(value || "").toUpperCase();
@@ -224,6 +224,7 @@ export default function CustomerDashboardWorkspace({ view = {}, onNavigate = () 
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-self-service-portal")}><LayoutDashboard size={15} /> Open Customer Portal</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-identity")}><ShieldCheck size={15} /> Open Customer Identity</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-document-centre")}><FileText size={15} /> Open Secure Document Centre</button>
+            <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-communication")}><Bell size={15} /> Open Communication & Notifications</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("mission-control")}><ArrowLeftRight size={15} /> Return to Mission Control</button>
             <span className="mission-footer-note"><BookOpenText size={15} /> Truthful read-only customer dashboard workspace</span>
           </div>

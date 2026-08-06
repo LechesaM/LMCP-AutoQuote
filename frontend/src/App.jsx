@@ -96,6 +96,7 @@ import { getCustomerIdentitySnapshot } from "./services/customerIdentityApi";
 import { getCustomerDashboardSnapshot } from "./services/customerDashboardApi";
 import { getCustomerRfqQuoteWorkspaceSnapshot } from "./services/customerRfqQuoteApi";
 import { getCustomerDocumentCentreSnapshot } from "./services/customerDocumentCentreApi";
+import { getCustomerCommunicationSnapshot } from "./services/customerCommunicationApi";
 import "./App.css";
 import "./components/SupplierIntelligenceWorkspace.css";
 import WebSocketAutoConnector from "./components/WebSocketAutoConnector";
@@ -128,6 +129,7 @@ const CustomerIdentityWorkspace = lazy(() => import("./components/CustomerIdenti
 const CustomerDashboardWorkspace = lazy(() => import("./components/CustomerDashboardWorkspace"));
 const CustomerRfqQuoteWorkspace = lazy(() => import("./components/CustomerRfqQuoteWorkspace"));
 const CustomerDocumentCentreWorkspace = lazy(() => import("./components/CustomerDocumentCentreWorkspace"));
+const CustomerCommunicationWorkspace = lazy(() => import("./components/CustomerCommunicationWorkspace"));
 
 const REFRESH_MS = 15000;
 const navItems = [
@@ -165,6 +167,7 @@ const navItems = [
   { key: "customer-dashboard", label: "Customer Dashboard", icon: Gauge, workspace: "customer-dashboard" },
   { key: "customer-rfq-quotes", label: "RFQ & Quote Workspace", icon: FileText, workspace: "customer-rfq-quotes" },
   { key: "customer-document-centre", label: "Secure Document Centre", icon: FileText, workspace: "customer-document-centre" },
+  { key: "customer-communication", label: "Communication & Notifications", icon: Bell, workspace: "customer-communication" },
   { key: "proof-centre", label: "Evidence Centre", icon: ShieldCheck, targetId: "submission-centre" },
   { key: "portal-health", label: "Portal Health", icon: Activity, targetId: "portal-health" },
   { key: "portal-workers", label: "Review Operations", icon: Cpu, workspace: "portal-workers" },
@@ -281,7 +284,7 @@ export default function App() {
   }, []);
 
   async function load() {
-    const [health, workflow, auto, summary, opps, subSummary, profit, history, portal, radar, policy, policyDecisionHealth, policyDecisionPolicies, policyDecisionEvaluations, policyDecisionContract, approvalHealth, approvalRecords, approvalPending, approvalEscalated, approvalHistory, approvalContract, lifecycle, lifecycleAnalytics, lifecycleTelemetry, workManagementReadiness, workManagementItems, agentCoordinationHealth, agentCoordinationAgents, agentCoordinationTasks, agentCoordinationPlans, agentCoordinationApiContract, resourceCapacityHealth, resourceCapacityResources, resourceCapacityMetrics, resourceCapacityConstraints, resourceCapacityForecasts, resourceCapacityRecommendations, resourceCapacityApiContract, crossOrganizationHealth, crossOrganizationOrganizations, crossOrganizationCounterparties, crossOrganizationInteractions, crossOrganizationRequests, crossOrganizationResponses, crossOrganizationApiContract, enterpriseSimulationHealth, enterpriseSimulationScenarios, enterpriseSimulationApiContract, platformFoundationSnapshot, multiTenantArchitectureSnapshot, enterpriseApiPlatformSnapshot, externalIntegrationFrameworkSnapshot, pluginExtensionFrameworkSnapshot, customerSelfServicePortalSnapshot, customerIdentitySnapshot, customerDashboardSnapshot, customerRfqQuoteWorkspaceSnapshot, customerDocumentCentreSnapshot] = await Promise.all([
+    const [health, workflow, auto, summary, opps, subSummary, profit, history, portal, radar, policy, policyDecisionHealth, policyDecisionPolicies, policyDecisionEvaluations, policyDecisionContract, approvalHealth, approvalRecords, approvalPending, approvalEscalated, approvalHistory, approvalContract, lifecycle, lifecycleAnalytics, lifecycleTelemetry, workManagementReadiness, workManagementItems, agentCoordinationHealth, agentCoordinationAgents, agentCoordinationTasks, agentCoordinationPlans, agentCoordinationApiContract, resourceCapacityHealth, resourceCapacityResources, resourceCapacityMetrics, resourceCapacityConstraints, resourceCapacityForecasts, resourceCapacityRecommendations, resourceCapacityApiContract, crossOrganizationHealth, crossOrganizationOrganizations, crossOrganizationCounterparties, crossOrganizationInteractions, crossOrganizationRequests, crossOrganizationResponses, crossOrganizationApiContract, enterpriseSimulationHealth, enterpriseSimulationScenarios, enterpriseSimulationApiContract, platformFoundationSnapshot, multiTenantArchitectureSnapshot, enterpriseApiPlatformSnapshot, externalIntegrationFrameworkSnapshot, pluginExtensionFrameworkSnapshot, customerSelfServicePortalSnapshot, customerIdentitySnapshot, customerDashboardSnapshot, customerRfqQuoteWorkspaceSnapshot, customerDocumentCentreSnapshot, customerCommunicationSnapshot] = await Promise.all([
       getHealth(), getWorkflowHealth(), getAutonomousStatus(), getDashboardSummary(), getOpportunities(), getSubmissionSummary(), getSubmissionProfit(), getSubmissionHistory(), getPortalHealth(), getRadarStatus(), getPolicy(), getPolicyDecisionHealth(), getPolicyDecisionPolicies(), getPolicyDecisionEvaluations(), getPolicyDecisionContract(), getApprovalsHealth(), getApprovals(), getApprovalsPending(), getApprovalsEscalated(), getApprovalsHistory(), getApprovalsApiContract(), getRfqLifecycleMissionControl(), getRfqLifecycleAnalytics(), getRfqLifecycleTelemetry(), getWorkManagementReadiness(), getWorkManagementItems(), getAgentCoordinationHealth(), getAgentCoordinationAgents(), getAgentCoordinationTasks(), getAgentCoordinationPlans(), getAgentCoordinationApiContract(), getResourceCapacityHealth(), getResourceCapacityResources(), getResourceCapacityMetrics(), getResourceCapacityConstraints(), getResourceCapacityForecasts(), getResourceCapacityRecommendations(), getResourceCapacityApiContract(), getCrossOrganizationHealth(), getCrossOrganizationOrganizations(), getCrossOrganizationCounterparties(), getCrossOrganizationInteractions(), getCrossOrganizationRequests(), getCrossOrganizationResponses(), getCrossOrganizationApiContract(), getEnterpriseSimulationHealth(), getEnterpriseSimulationScenarios(), getEnterpriseSimulationApiContract(),
       getPlatformFoundationSnapshot(),
       getMultiTenantArchitectureSnapshot(),
@@ -293,6 +296,7 @@ export default function App() {
       getCustomerDashboardSnapshot(),
       getCustomerRfqQuoteWorkspaceSnapshot(),
       getCustomerDocumentCentreSnapshot(),
+      getCustomerCommunicationSnapshot(),
     ]);
     setState({
       health,
@@ -368,6 +372,7 @@ export default function App() {
       customerDashboard: customerDashboardSnapshot,
       customerRfqQuoteWorkspace: customerRfqQuoteWorkspaceSnapshot,
       customerDocumentCentre: customerDocumentCentreSnapshot,
+      customerCommunication: customerCommunicationSnapshot,
       loading: false,
       lastUpdated: new Date(),
     });
@@ -464,6 +469,7 @@ export default function App() {
       "customer-dashboard",
       "customer-rfq-quotes",
       "customer-document-centre",
+      "customer-communication",
       "submission-centre",
       "quote-pack-engine",
       "decision-pack",
@@ -713,6 +719,28 @@ export default function App() {
         frontendExperience: null,
         counts: { documents: 0, classifications: 0 },
       },
+      customerCommunication: state.customerCommunication || {
+        loading: true,
+        status: "NO_DATA",
+        identity: null,
+        registry: null,
+        catalogue: null,
+        templates: null,
+        preferences: null,
+        delivery: null,
+        lifecycle: null,
+        policy: null,
+        audit: null,
+        observability: null,
+        compatibility: null,
+        health: null,
+        readiness: null,
+        diagnostics: null,
+        apiContract: null,
+        missionControlIntegration: null,
+        frontendExperience: null,
+        counts: { notifications: 0, catalogue: 0, templates: 0, preferences: 0, deliveries: 0 },
+      },
     systemOn,
     busy,
     toggleSystem,
@@ -808,6 +836,8 @@ export default function App() {
             <CustomerRfqQuoteWorkspace view={dashboardView} onNavigate={navigateTo} />
           ) : activeWorkspace === "customer-document-centre" ? (
             <CustomerDocumentCentreWorkspace view={dashboardView} onNavigate={navigateTo} />
+          ) : activeWorkspace === "customer-communication" ? (
+            <CustomerCommunicationWorkspace view={dashboardView} onNavigate={navigateTo} />
           ) : activeWorkspace === "submission-centre" ? (
             <SubmissionCentreWorkspace
               authState={operatorAuthState}

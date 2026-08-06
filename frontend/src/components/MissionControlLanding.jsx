@@ -477,6 +477,7 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
   const customerDashboard = view.customerDashboard || {};
   const customerRfqQuoteWorkspace = view.customerRfqQuoteWorkspace || {};
   const customerDocumentCentre = view.customerDocumentCentre || {};
+  const customerCommunication = view.customerCommunication || {};
   const crossOrganizationHealth = crossOrganization.health || {};
   const crossOrganizationOrganizations = Array.isArray(crossOrganization.organizations) ? crossOrganization.organizations : [];
   const crossOrganizationCounterparties = Array.isArray(crossOrganization.counterparties) ? crossOrganization.counterparties : [];
@@ -566,6 +567,18 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
   const customerDocumentCentreIntegrity = customerDocumentCentre.integrity || {};
   const customerDocumentCentreVisibility = customerDocumentCentre.visibility || {};
   const customerDocumentCentreCompatibility = customerDocumentCentre.compatibility || {};
+  const customerCommunicationHealth = customerCommunication.health || {};
+  const customerCommunicationReadiness = customerCommunication.readiness || {};
+  const customerCommunicationIdentity = customerCommunication.identity || {};
+  const customerCommunicationRegistry = customerCommunication.registry || {};
+  const customerCommunicationCatalogue = customerCommunication.catalogue || {};
+  const customerCommunicationTemplates = customerCommunication.templates || {};
+  const customerCommunicationPreferences = customerCommunication.preferences || {};
+  const customerCommunicationDelivery = customerCommunication.delivery || {};
+  const customerCommunicationLifecycle = customerCommunication.lifecycle || {};
+  const customerCommunicationPolicy = customerCommunication.policy || {};
+  const customerCommunicationDiagnostics = customerCommunication.diagnostics || {};
+  const customerCommunicationCompatibility = customerCommunication.compatibility || {};
   const tenantCounts = multiTenantArchitecture.counts || {};
   const crossOrganizationStateLabel =
     crossOrganizationHealth.data_state === "NO_DATA" || (!crossOrganizationOrganizations.length && !crossOrganizationCounterparties.length && !crossOrganizationInteractions.length)
@@ -752,6 +765,14 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
         detail: `${compactCount(customerDocumentCentre.counts?.documents || customerDocumentCentreCatalogue.records?.length || 0)} document record(s) and ${compactCount(customerDocumentCentre.counts?.classifications || customerDocumentCentreClassifications.classifications?.length || 0)} classification record(s) remain read only and tenant bound.`,
       },
       {
+        id: "customer-communication",
+        label: "Communication & Notifications",
+        value: String(customerCommunicationReadiness.readiness_state || customerCommunication.status || "NO_DATA").toUpperCase(),
+        source: "/platform/customer-communication/health",
+        freshness: formatDateTime(customerCommunicationHealth.updated_at || lastUpdated),
+        detail: `${compactCount(customerCommunication.counts?.notifications || customerCommunicationRegistry.records?.length || 0)} notification record(s), ${compactCount(customerCommunication.counts?.templates || customerCommunicationTemplates.templates?.length || 0)} template record(s), and ${compactCount(customerCommunication.counts?.preferences || customerCommunicationPreferences.channels?.length || 0)} preference channel(s) remain read only and tenant bound.`,
+      },
+      {
         id: "plugin-extension-framework",
         label: "Plugin Framework",
         value: String(pluginReadiness.readiness_state || pluginExtensionFramework.status || "NO_DATA").toUpperCase(),
@@ -760,7 +781,7 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
         detail: `${compactCount(pluginRegistry.length)} metadata record(s), ${compactCount(pluginExtensionPoints.length)} extension point(s), and ${compactCount(pluginCapabilities.length)} capability record(s) are available. No plugin code executes.`,
       },
     ];
-  }, [backendAvailable, crossOrganizationCounterparties.length, crossOrganizationHealth.updated_at, crossOrganizationInteractions.length, crossOrganizationOrganizations.length, crossOrganizationStateLabel, customerDashboard.status, customerDashboardHealth.updated_at, customerDashboardReadiness.readiness_state, customerDashboardSections.length, customerDashboardSummary.dashboard_status, customerDashboardWidgets.length, customerDocumentCentre.status, customerDocumentCentre.counts?.documents, customerDocumentCentre.counts?.classifications, customerDocumentCentreHealth.updated_at, customerDocumentCentreReadiness.readiness_state, customerDocumentCentreCatalogue.records?.length, customerDocumentCentreClassifications.classifications?.length, customerDocumentCentreIdentity.workspace_id, customerDocumentCentreLifecycle.lifecycle_state, customerDocumentCentreRetention.retention_state, customerDocumentCentreIntegrity.integrity_state, customerDocumentCentreVisibility.document_visibility_policy, customerDocumentCentreCompatibility.compatibility_state, customerIdentity, customerIdentityHealth.updated_at, customerIdentityPermissions, customerIdentityReadiness.readiness_state, customerIdentityRoles.length, customerRfqQuoteWorkspace.counts?.quotations, customerRfqQuoteWorkspace.counts?.rfqs, customerRfqQuoteWorkspace.status, customerRfqQuoteWorkspaceHealth.updated_at, customerRfqQuoteWorkspaceQuotations.records?.length, customerRfqQuoteWorkspaceReadiness.readiness_state, customerRfqQuoteWorkspaceRfqs.records?.length, customerSelfServicePortal.status, history, lifecycle?.failed_rfqs, lifecycle?.proof_captured_rfqs, lifecycle?.total_rfqs, lastUpdated, opportunities.length, portalExtensionPoints.length, portalFeatures.length, portalHealth.updated_at, portalReadiness.readiness_state, portalRegistry.length, pluginCapabilities.length, pluginExtensionFramework.status, pluginHealth.updated_at, pluginReadiness.readiness_state, pluginRegistry.length, pluginExtensionPoints.length, queueByState, resourceCapacityHealth.updated_at, resourceCapacityStateLabel, resourceCapacitySummary.constraint_count, resourceCapacitySummary.recommendation_count, resourceCapacitySummary.resource_count, simulationHealth.updated_at, simulationStateLabel, simulationScenarios.length, summary]);
+  }, [backendAvailable, crossOrganizationCounterparties.length, crossOrganizationHealth.updated_at, crossOrganizationInteractions.length, crossOrganizationOrganizations.length, crossOrganizationStateLabel, customerCommunication.status, customerCommunicationHealth.updated_at, customerCommunicationReadiness.readiness_state, customerCommunicationRegistry.records?.length, customerCommunicationTemplates.templates?.length, customerCommunicationPreferences.channels?.length, customerCommunicationCatalogue.records?.length, customerCommunicationDelivery.delivery_records?.length, customerCommunicationIdentity.workspace_id, customerCommunicationLifecycle.lifecycle_state, customerCommunicationPolicy.global_governance_precedence, customerCommunicationDiagnostics.diagnostic_state, customerCommunicationCompatibility.compatibility_state, customerDashboard.status, customerDashboardHealth.updated_at, customerDashboardReadiness.readiness_state, customerDashboardSections.length, customerDashboardSummary.dashboard_status, customerDashboardWidgets.length, customerDocumentCentre.status, customerDocumentCentre.counts?.documents, customerDocumentCentre.counts?.classifications, customerDocumentCentreHealth.updated_at, customerDocumentCentreReadiness.readiness_state, customerDocumentCentreCatalogue.records?.length, customerDocumentCentreClassifications.classifications?.length, customerDocumentCentreIdentity.workspace_id, customerDocumentCentreLifecycle.lifecycle_state, customerDocumentCentreRetention.retention_state, customerDocumentCentreIntegrity.integrity_state, customerDocumentCentreVisibility.document_visibility_policy, customerDocumentCentreCompatibility.compatibility_state, customerIdentity, customerIdentityHealth.updated_at, customerIdentityPermissions, customerIdentityReadiness.readiness_state, customerIdentityRoles.length, customerRfqQuoteWorkspace.counts?.quotations, customerRfqQuoteWorkspace.counts?.rfqs, customerRfqQuoteWorkspace.status, customerRfqQuoteWorkspaceHealth.updated_at, customerRfqQuoteWorkspaceQuotations.records?.length, customerRfqQuoteWorkspaceReadiness.readiness_state, customerRfqQuoteWorkspaceRfqs.records?.length, customerSelfServicePortal.status, history, lifecycle?.failed_rfqs, lifecycle?.proof_captured_rfqs, lifecycle?.total_rfqs, lastUpdated, opportunities.length, portalExtensionPoints.length, portalFeatures.length, portalHealth.updated_at, portalReadiness.readiness_state, portalRegistry.length, pluginCapabilities.length, pluginExtensionFramework.status, pluginHealth.updated_at, pluginReadiness.readiness_state, pluginRegistry.length, pluginExtensionPoints.length, queueByState, resourceCapacityHealth.updated_at, resourceCapacityStateLabel, resourceCapacitySummary.constraint_count, resourceCapacitySummary.recommendation_count, resourceCapacitySummary.resource_count, simulationHealth.updated_at, simulationStateLabel, simulationScenarios.length, summary]);
 
   const selectedMetric = missionMetrics.find((metric) => metric.id === selectedMetricId) || missionMetrics[0];
   const selectedReadiness = READINESS_ITEMS.find((item) => item.id === selectedReadinessId) || READINESS_ITEMS[0];
@@ -1574,6 +1595,30 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
               <DetailPanel label="Visibility" value={customerDocumentCentreVisibility.document_visibility_policy || "TENANT_CONTEXT_REQUIRED"} note={customerDocumentCentreVisibility.fail_closed_behavior || "deny and audit"} />
               <DetailPanel label="Compatibility" value={customerDocumentCentreCompatibility.compatibility_state || "COMPATIBLE_WITH_LIMITATIONS"} note={customerDocumentCentreCompatibility.limitations?.[0] || "Compatibility remains bounded."} />
               <DetailPanel label="Next milestone" value="READY_FOR_PHASE65_6_6_COMMUNICATION_NOTIFICATIONS" note="Secure document centre remains deferred." />
+            </div>
+          </div>
+        </div>
+        <div className="mission-work-grid">
+          <div className="mission-work-detail">
+            <h3>Phase65.6.6 Communication & Notifications</h3>
+            <p className="muted">Read-only communication metadata only. Messaging, email, SMS, WhatsApp, Teams, Slack, webhooks, push notifications, scheduling, queues, and live delivery remain not implemented.</p>
+            <div className="mission-detail-grid compact">
+              <DetailPanel label="Workspace" value={customerCommunicationIdentity.canonical_name || "NO_DATA"} note={customerCommunicationIdentity.workspace_id || "Workspace ID unavailable"} />
+              <DetailPanel label="Readiness" value={String(customerCommunicationReadiness.readiness_state || customerCommunication.status || "READY_WITH_LIMITATIONS").toUpperCase()} note={(customerCommunicationReadiness.limitations || customerCommunicationIdentity.accepted_limitations || []).join(" · ") || "Read-only workspace remains truthful."} />
+              <DetailPanel label="Notifications" value={compactCount(customerCommunication.counts?.notifications || customerCommunicationRegistry.records?.length || 0)} note={customerCommunicationHealth.health_state || "NO_DATA"} />
+              <DetailPanel label="Templates" value={compactCount(customerCommunication.counts?.templates || customerCommunicationTemplates.templates?.length || 0)} note={customerCommunicationDelivery.delivery_state || "NO_DATA"} />
+              <DetailPanel label="Preferences" value={compactCount(customerCommunication.counts?.preferences || customerCommunicationPreferences.channels?.length || 0)} note={customerCommunicationPolicy.transmission_prohibition || "denied"} />
+              <DetailPanel label="Lifecycle" value={customerCommunicationLifecycle.lifecycle_state || "NO_DATA"} note="Lifecycle metadata only" />
+            </div>
+          </div>
+          <div className="mission-work-detail">
+            <h3>Communication posture</h3>
+            <p className="muted">Mission Control surfaces notification registry state, template catalogue, delivery posture, and channel preferences while preserving fail-closed governance.</p>
+            <div className="mission-detail-grid compact">
+              <DetailPanel label="Diagnostics" value={customerCommunicationDiagnostics.diagnostic_state || "READY_WITH_LIMITATIONS"} note={customerCommunicationDiagnostics.limitations?.[0] || "Diagnostics are redacted."} />
+              <DetailPanel label="Compatibility" value={customerCommunicationCompatibility.compatibility_state || "COMPATIBLE_WITH_LIMITATIONS"} note={customerCommunicationCompatibility.limitations?.[0] || "Compatibility remains bounded."} />
+              <DetailPanel label="Mission Control" value={customerCommunicationHealth.health_state || "READY_WITH_LIMITATIONS"} note={customerCommunicationHealth.current_milestone || "PHASE65.6.6_COMMUNICATION_AND_NOTIFICATIONS"} />
+              <DetailPanel label="Next milestone" value="READY_FOR_PHASE65_6_7_SUPPORT_SERVICE_DESK" note="Communication centre remains deferred." />
             </div>
           </div>
         </div>

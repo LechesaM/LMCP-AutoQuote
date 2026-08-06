@@ -193,6 +193,7 @@ export default function CustomerRfqQuoteWorkspace({ view = {}, onNavigate = () =
           <div className="mission-action-grid">
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-dashboard")}><BookOpenText size={15} /> Open Customer Dashboard</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-identity")}><ShieldCheck size={15} /> Open Customer Identity</button>
+            <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-document-centre")}><FileText size={15} /> Open Secure Document Centre</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("mission-control")}><ArrowLeftRight size={15} /> Return to Mission Control</button>
             <button type="button" className="mission-action-button" onClick={() => onNavigate("customer-self-service-portal")}><FileText size={15} /> Open Customer Portal</button>
           </div>

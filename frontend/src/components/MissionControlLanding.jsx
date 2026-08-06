@@ -476,6 +476,7 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
   const customerIdentity = view.customerIdentity || {};
   const customerDashboard = view.customerDashboard || {};
   const customerRfqQuoteWorkspace = view.customerRfqQuoteWorkspace || {};
+  const customerDocumentCentre = view.customerDocumentCentre || {};
   const crossOrganizationHealth = crossOrganization.health || {};
   const crossOrganizationOrganizations = Array.isArray(crossOrganization.organizations) ? crossOrganization.organizations : [];
   const crossOrganizationCounterparties = Array.isArray(crossOrganization.counterparties) ? crossOrganization.counterparties : [];
@@ -555,6 +556,16 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
   const customerRfqQuoteWorkspaceSourceAuthority = customerRfqQuoteWorkspace.sourceAuthority || {};
   const customerRfqQuoteWorkspaceFreshness = customerRfqQuoteWorkspace.freshness || {};
   const customerRfqQuoteWorkspaceCompatibility = customerRfqQuoteWorkspace.compatibility || {};
+  const customerDocumentCentreHealth = customerDocumentCentre.health || {};
+  const customerDocumentCentreReadiness = customerDocumentCentre.readiness || {};
+  const customerDocumentCentreIdentity = customerDocumentCentre.identity || {};
+  const customerDocumentCentreCatalogue = customerDocumentCentre.catalogue || {};
+  const customerDocumentCentreClassifications = customerDocumentCentre.classifications || {};
+  const customerDocumentCentreLifecycle = customerDocumentCentre.lifecycle || {};
+  const customerDocumentCentreRetention = customerDocumentCentre.retention || {};
+  const customerDocumentCentreIntegrity = customerDocumentCentre.integrity || {};
+  const customerDocumentCentreVisibility = customerDocumentCentre.visibility || {};
+  const customerDocumentCentreCompatibility = customerDocumentCentre.compatibility || {};
   const tenantCounts = multiTenantArchitecture.counts || {};
   const crossOrganizationStateLabel =
     crossOrganizationHealth.data_state === "NO_DATA" || (!crossOrganizationOrganizations.length && !crossOrganizationCounterparties.length && !crossOrganizationInteractions.length)
@@ -733,6 +744,14 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
         detail: `${compactCount(customerRfqQuoteWorkspace.counts?.rfqs || customerRfqQuoteWorkspaceRfqs.records?.length || 0)} RFQ record(s) and ${compactCount(customerRfqQuoteWorkspace.counts?.quotations || customerRfqQuoteWorkspaceQuotations.records?.length || 0)} quotation record(s) remain read only and tenant bound.`,
       },
       {
+        id: "customer-document-centre",
+        label: "Secure Document Centre",
+        value: String(customerDocumentCentreReadiness.readiness_state || customerDocumentCentre.status || "NO_DATA").toUpperCase(),
+        source: "/platform/customer-documents/health",
+        freshness: formatDateTime(customerDocumentCentreHealth.updated_at || lastUpdated),
+        detail: `${compactCount(customerDocumentCentre.counts?.documents || customerDocumentCentreCatalogue.records?.length || 0)} document record(s) and ${compactCount(customerDocumentCentre.counts?.classifications || customerDocumentCentreClassifications.classifications?.length || 0)} classification record(s) remain read only and tenant bound.`,
+      },
+      {
         id: "plugin-extension-framework",
         label: "Plugin Framework",
         value: String(pluginReadiness.readiness_state || pluginExtensionFramework.status || "NO_DATA").toUpperCase(),
@@ -741,7 +760,7 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
         detail: `${compactCount(pluginRegistry.length)} metadata record(s), ${compactCount(pluginExtensionPoints.length)} extension point(s), and ${compactCount(pluginCapabilities.length)} capability record(s) are available. No plugin code executes.`,
       },
     ];
-  }, [backendAvailable, crossOrganizationCounterparties.length, crossOrganizationHealth.updated_at, crossOrganizationInteractions.length, crossOrganizationOrganizations.length, crossOrganizationStateLabel, customerDashboard.status, customerDashboardHealth.updated_at, customerDashboardReadiness.readiness_state, customerDashboardSections.length, customerDashboardSummary.dashboard_status, customerDashboardWidgets.length, customerIdentity, customerIdentityHealth.updated_at, customerIdentityPermissions, customerIdentityReadiness.readiness_state, customerIdentityRoles.length, customerRfqQuoteWorkspace.counts?.quotations, customerRfqQuoteWorkspace.counts?.rfqs, customerRfqQuoteWorkspace.status, customerRfqQuoteWorkspaceHealth.updated_at, customerRfqQuoteWorkspaceQuotations.records?.length, customerRfqQuoteWorkspaceReadiness.readiness_state, customerRfqQuoteWorkspaceRfqs.records?.length, customerSelfServicePortal.status, history, lifecycle?.failed_rfqs, lifecycle?.proof_captured_rfqs, lifecycle?.total_rfqs, lastUpdated, opportunities.length, portalExtensionPoints.length, portalFeatures.length, portalHealth.updated_at, portalReadiness.readiness_state, portalRegistry.length, pluginCapabilities.length, pluginExtensionFramework.status, pluginHealth.updated_at, pluginReadiness.readiness_state, pluginRegistry.length, pluginExtensionPoints.length, queueByState, resourceCapacityHealth.updated_at, resourceCapacityStateLabel, resourceCapacitySummary.constraint_count, resourceCapacitySummary.recommendation_count, resourceCapacitySummary.resource_count, simulationHealth.updated_at, simulationStateLabel, simulationScenarios.length, summary]);
+  }, [backendAvailable, crossOrganizationCounterparties.length, crossOrganizationHealth.updated_at, crossOrganizationInteractions.length, crossOrganizationOrganizations.length, crossOrganizationStateLabel, customerDashboard.status, customerDashboardHealth.updated_at, customerDashboardReadiness.readiness_state, customerDashboardSections.length, customerDashboardSummary.dashboard_status, customerDashboardWidgets.length, customerDocumentCentre.status, customerDocumentCentre.counts?.documents, customerDocumentCentre.counts?.classifications, customerDocumentCentreHealth.updated_at, customerDocumentCentreReadiness.readiness_state, customerDocumentCentreCatalogue.records?.length, customerDocumentCentreClassifications.classifications?.length, customerDocumentCentreIdentity.workspace_id, customerDocumentCentreLifecycle.lifecycle_state, customerDocumentCentreRetention.retention_state, customerDocumentCentreIntegrity.integrity_state, customerDocumentCentreVisibility.document_visibility_policy, customerDocumentCentreCompatibility.compatibility_state, customerIdentity, customerIdentityHealth.updated_at, customerIdentityPermissions, customerIdentityReadiness.readiness_state, customerIdentityRoles.length, customerRfqQuoteWorkspace.counts?.quotations, customerRfqQuoteWorkspace.counts?.rfqs, customerRfqQuoteWorkspace.status, customerRfqQuoteWorkspaceHealth.updated_at, customerRfqQuoteWorkspaceQuotations.records?.length, customerRfqQuoteWorkspaceReadiness.readiness_state, customerRfqQuoteWorkspaceRfqs.records?.length, customerSelfServicePortal.status, history, lifecycle?.failed_rfqs, lifecycle?.proof_captured_rfqs, lifecycle?.total_rfqs, lastUpdated, opportunities.length, portalExtensionPoints.length, portalFeatures.length, portalHealth.updated_at, portalReadiness.readiness_state, portalRegistry.length, pluginCapabilities.length, pluginExtensionFramework.status, pluginHealth.updated_at, pluginReadiness.readiness_state, pluginRegistry.length, pluginExtensionPoints.length, queueByState, resourceCapacityHealth.updated_at, resourceCapacityStateLabel, resourceCapacitySummary.constraint_count, resourceCapacitySummary.recommendation_count, resourceCapacitySummary.resource_count, simulationHealth.updated_at, simulationStateLabel, simulationScenarios.length, summary]);
 
   const selectedMetric = missionMetrics.find((metric) => metric.id === selectedMetricId) || missionMetrics[0];
   const selectedReadiness = READINESS_ITEMS.find((item) => item.id === selectedReadinessId) || READINESS_ITEMS[0];
@@ -1531,6 +1550,30 @@ export default function MissionControlLanding({ view = {}, onNavigate = () => {}
               <DetailPanel label="Freshness" value={customerRfqQuoteWorkspaceFreshness.overall_freshness_state || "NO_DATA"} note={customerRfqQuoteWorkspaceFreshness.stale_threshold || "Freshness unavailable"} />
               <DetailPanel label="Compatibility" value={customerRfqQuoteWorkspaceCompatibility.compatibility_state || "COMPATIBLE_WITH_LIMITATIONS"} note={customerRfqQuoteWorkspaceCompatibility.limitations?.[0] || "Compatibility remains bounded."} />
               <DetailPanel label="Next milestone" value="READY_FOR_PHASE65_6_5_SECURE_DOCUMENT_CENTRE" note="Document centre remains deferred." />
+            </div>
+          </div>
+        </div>
+        <div className="mission-work-grid">
+          <div className="mission-work-detail">
+            <h3>Phase65.6.5 Secure Document Centre</h3>
+            <p className="muted">Read-only document metadata only. Uploads, downloads, sharing, signing, editing, OCR, and storage-provider actions remain not implemented.</p>
+            <div className="mission-detail-grid compact">
+              <DetailPanel label="Workspace" value={customerDocumentCentreIdentity.canonical_name || "NO_DATA"} note={customerDocumentCentreIdentity.workspace_id || "Workspace ID unavailable"} />
+              <DetailPanel label="Readiness" value={String(customerDocumentCentreReadiness.readiness_state || customerDocumentCentre.status || "READY_WITH_LIMITATIONS").toUpperCase()} note={customerDocumentCentreReadiness.limitations?.[0] || "Read-only workspace remains truthful."} />
+              <DetailPanel label="Documents" value={compactCount(customerDocumentCentre.counts?.documents || customerDocumentCentreCatalogue.records?.length || 0)} note={customerDocumentCentreHealth.health_state || "NO_DATA"} />
+              <DetailPanel label="Classifications" value={compactCount(customerDocumentCentre.counts?.classifications || customerDocumentCentreClassifications.classifications?.length || 0)} note={customerDocumentCentreIntegrity.integrity_state || "NO_DATA"} />
+              <DetailPanel label="Lifecycle" value={customerDocumentCentreLifecycle.lifecycle_state || "NO_DATA"} note={customerDocumentCentreLifecycle.no_mutation_guarantee ? "No mutation guarantee in force." : "Lifecycle metadata unavailable."} />
+              <DetailPanel label="Retention" value={customerDocumentCentreRetention.retention_state || "NO_DATA"} note={customerDocumentCentreVisibility.document_visibility_policy || "tenant-bound read only"} />
+            </div>
+          </div>
+          <div className="mission-work-detail">
+            <h3>Document posture</h3>
+            <p className="muted">Mission Control surfaces document catalogue state, integrity, retention, and visibility while preserving fail-closed governance.</p>
+            <div className="mission-detail-grid compact">
+              <DetailPanel label="Integrity" value={customerDocumentCentreIntegrity.integrity_state || "NO_DATA"} note={customerDocumentCentreIntegrity.checksum_algorithm || "SHA-256"} />
+              <DetailPanel label="Visibility" value={customerDocumentCentreVisibility.document_visibility_policy || "TENANT_CONTEXT_REQUIRED"} note={customerDocumentCentreVisibility.fail_closed_behavior || "deny and audit"} />
+              <DetailPanel label="Compatibility" value={customerDocumentCentreCompatibility.compatibility_state || "COMPATIBLE_WITH_LIMITATIONS"} note={customerDocumentCentreCompatibility.limitations?.[0] || "Compatibility remains bounded."} />
+              <DetailPanel label="Next milestone" value="READY_FOR_PHASE65_6_6_COMMUNICATION_NOTIFICATIONS" note="Secure document centre remains deferred." />
             </div>
           </div>
         </div>

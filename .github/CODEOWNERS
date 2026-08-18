@@ -1,0 +1,21 @@
+# LMCP AutoQuote human code ownership
+# CODEOWNERS identifies review ownership. Enforcement requires repository rules/branch protection.
+
+* @LechesaM
+
+# Governance and agent controls
+/.github/ @LechesaM
+/AGENTS.md @LechesaM
+/docs/engineering/ @LechesaM
+
+# Production/runtime/security-sensitive surfaces
+/app/ @LechesaM
+/tests/ @LechesaM
+/scripts/ @LechesaM
+/runtime/ @LechesaM
+/k8s/ @LechesaM
+/docker-compose.production.example.yml @LechesaM
+/.env.production* @LechesaM
+
+# Frontend product surface
+/etenders_acquisition/lmcp-dashboard/ @LechesaM

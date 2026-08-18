@@ -1,0 +1,15 @@
+# LMCP AutoQuote human ownership boundary
+# CODEOWNERS becomes an enforceable review gate when repository branch protection/rulesets require code-owner approval.
+
+* @LechesaM
+
+# Critical governance, security, runtime, and delivery surfaces
+/.github/ @LechesaM
+/AGENTS.md @LechesaM
+/.env* @LechesaM
+/docker-compose* @LechesaM
+/app/ @LechesaM
+/runtime/ @LechesaM
+/scripts/ @LechesaM
+/tests/ @LechesaM
+/etenders_acquisition/lmcp-dashboard/ @LechesaM

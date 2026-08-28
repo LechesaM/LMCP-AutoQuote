@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from app.services.autonomous_submission_governance import autonomous_submission_authorization
 from app.services.submission_retry_service import retry_failed_submissions
 
 logger = logging.getLogger(__name__)
@@ -18,10 +19,10 @@ _LAST_RUN_FILE = _SCHEDULER_DIR / "last_run.json"
 
 DEFAULT_LOOP_LIMIT = int(str(os.getenv("AUTONOMOUS_SUBMISSION_LOOP_LIMIT", "10")).strip() or "10")
 AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED = (
-    str(os.getenv("AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED", "true")).strip().lower() == "true"
+    str(os.getenv("AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED", "false")).strip().lower() == "true"
 )
 AUTONOMOUS_PENDING_STAGE_ENABLED = (
-    str(os.getenv("AUTONOMOUS_PENDING_STAGE_ENABLED", "true")).strip().lower() == "true"
+    str(os.getenv("AUTONOMOUS_PENDING_STAGE_ENABLED", "false")).strip().lower() == "true"
 )
 AUTONOMOUS_PENDING_STAGE_HOOK = str(os.getenv("AUTONOMOUS_PENDING_STAGE_HOOK", "")).strip()
 
@@ -149,6 +150,17 @@ def _find_pending_stage_callable() -> Tuple[Optional[Callable[..., Any]], str]:
 
 
 def run_retry_stage(limit: int) -> Dict[str, Any]:
+    governance = autonomous_submission_authorization()
+    if not governance["authorized"]:
+        return {
+            "status": "governance_blocked",
+            "stage": "retry",
+            "message": "Retry stage blocked by autonomous submission governance.",
+            "reason": governance["reason"],
+            "total_retried": 0,
+            "retried": [],
+            "skipped": [],
+        }
     result = retry_failed_submissions(limit=limit)
     if not isinstance(result, dict):
         return {
@@ -168,11 +180,13 @@ def run_retry_stage(limit: int) -> Dict[str, Any]:
 
 
 def run_pending_submission_stage(limit: int) -> Dict[str, Any]:
-    if not AUTONOMOUS_PENDING_STAGE_ENABLED:
+    governance = autonomous_submission_authorization(require_pending_stage=True)
+    if not governance["authorized"]:
         return {
-            "status": "disabled",
+            "status": "governance_blocked",
             "stage": "pending_submission",
-            "message": "Pending submission stage disabled by environment flag.",
+            "message": "Pending submission stage blocked by autonomous submission governance.",
+            "reason": governance["reason"],
             "processed": 0,
             "items": [],
             "hook": "",
@@ -231,12 +245,15 @@ def run_pending_submission_stage(limit: int) -> Dict[str, Any]:
 def run_autonomous_submission_loop(limit: int | None = None) -> Dict[str, Any]:
     safe_limit = max(1, _safe_int(limit, DEFAULT_LOOP_LIMIT))
 
-    if not AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED:
+    governance = autonomous_submission_authorization()
+    if not governance["authorized"]:
         payload = {
-            "status": "disabled",
+            "status": "governance_blocked",
             "checked_at": _utc_now_iso(),
             "scheduler": "autonomous_submission_loop",
-            "message": "Autonomous submission scheduler is disabled by environment flag.",
+            "message": "Autonomous submission loop blocked by governance.",
+            "reason": governance["reason"],
+            "system_control_state": governance["system_control_state"],
             "limit": safe_limit,
             "retry_stage": {
                 "status": "disabled",
@@ -278,5 +295,4 @@ def run_autonomous_submission_loop(limit: int | None = None) -> Dict[str, Any]:
     }
     _write_last_run(payload)
     return payload
-
 

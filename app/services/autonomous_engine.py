@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.services.autonomous_submission_governance import system_master_authorization
 from app.services.system_state_service import (
     get_block_reason,
     get_system_state,
@@ -408,6 +409,23 @@ def run_autonomous_cycle(
     """
     started_at = _now_iso()
 
+    master_authorization = system_master_authorization()
+    if not master_authorization["authorized"]:
+        return {
+            "status": "skipped",
+            "message": "Autonomous cycle skipped by fail-closed system-control governance",
+            "reason": master_authorization["reason"],
+            "started_at": started_at,
+            "updated_at": _now_iso(),
+            "system_state": master_authorization["system_control_state"],
+            "isolated_sources": ISOLATED_SOURCES,
+            "harvest_count": 0,
+            "supply_count": 0,
+            "eligible_count": 0,
+            "pipeline_input_count": 0,
+            "pipeline_result": {"status": "skipped", "reason": master_authorization["reason"], "results": []},
+        }
+
     state_snapshot = get_system_state()
     system_block_reason = get_block_reason("system")
     if system_block_reason:
@@ -607,4 +625,3 @@ def get_autonomous_status() -> Dict[str, Any]:
 
 
 _load_isolation_state()
-

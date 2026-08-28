@@ -7,6 +7,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+from app.services.autonomous_submission_governance import autonomous_submission_authorization
 from app.services.autonomous_submission_loop_service import (
     get_autonomous_submission_loop_health,
     get_last_autonomous_submission_loop_run,
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RETRY_LIMIT = int(str(os.getenv("SUBMISSION_RETRY_BATCH_LIMIT", "10")).strip() or "10")
 AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED = (
-    str(os.getenv("AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED", "true")).strip().lower() == "true"
+    str(os.getenv("AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED", "false")).strip().lower() == "true"
 )
 
 
@@ -85,11 +86,14 @@ def get_submission_scheduler_last_run() -> Dict[str, Any]:
 
 
 def run_submission_retry_cycle(limit: int | None = None) -> Dict[str, Any]:
-    if not AUTONOMOUS_SUBMISSION_SCHEDULER_ENABLED:
+    governance = autonomous_submission_authorization()
+    if not governance["authorized"]:
         return {
-            "status": "disabled",
+            "status": "governance_blocked",
             "checked_at": _utc_now_iso(),
-            "message": "Autonomous submission scheduler is disabled by environment flag.",
+            "message": "Autonomous submission scheduler blocked by governance.",
+            "reason": governance["reason"],
+            "system_control_state": governance["system_control_state"],
             "total_retried": 0,
             "retried": [],
             "skipped": [],
@@ -116,7 +120,6 @@ def run_submission_retry_cycle(limit: int | None = None) -> Dict[str, Any]:
         "scheduler": str(result.get("scheduler") or "autonomous_submission_loop"),
         **result,
     }
-
 
 
 

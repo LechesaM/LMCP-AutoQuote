@@ -7561,10 +7561,11 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
     source_runs: List[Dict[str, Any]] = []
     try:
         control_state = get_system_control_state()
-        if not control_state.get("system_on", True):
+        if control_state.get("system_on") is not True:
             return {"status": "skipped", "reason": "system_off", "message": "Tender harvester blocked by master system OFF switch.", "run_started_at": run_started_at, "system_control_state": control_state, "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "persist_source_health": persist_source_health, "source_runs": [], "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
     except Exception as exc:
-        logger.warning("System control check failed, continuing safe default: %s", exc)
+        logger.warning("System control check failed; tender harvester is blocked: %s", exc)
+        return {"status": "skipped", "reason": "system_control_unreadable", "message": "Tender harvester blocked because system control is unreadable.", "run_started_at": run_started_at, "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "persist_source_health": persist_source_health, "source_runs": [], "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
     if PAUSE_FILE.exists():
         return {"status": "paused", "run_started_at": run_started_at, "pause_file": str(PAUSE_FILE.relative_to(PROJECT_ROOT)), "source_count": len(sources), "selected_source_count": len(selected_sources), "items": [], "harvested_total": 0, "blocked_total": 0, "screened_out_total": 0, "eligible_total": 0, "quote_ready_total": 0, "auto_quote_enabled": enable_auto_quote, "true_autonomous": true_autonomous, "auto_quote_results": [], "persist_to_live_store": persist_to_live_store, "persist_source_health": persist_source_health, "live_store_result": None, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": [], "blocked_items": [], "screened_out_items": [], "eligible_items": [], "critical_priority_total": 0, "downloaded_document_total": 0, "form_document_total": 0, "ai_agent_profile": AI_AGENT_PROFILE}
     for source in selected_sources:
@@ -7722,11 +7723,12 @@ def run_continuous_tender_radar(sleep_seconds: int = 600, **kwargs: Any) -> None
     while True:
         try:
             control_state = get_system_control_state()
-            if not control_state.get("system_on", True):
+            if control_state.get("system_on") is not True:
                 time.sleep(max(5, sleep_seconds))
                 continue
         except Exception:
-            pass
+            time.sleep(max(5, sleep_seconds))
+            continue
         if PAUSE_FILE.exists():
             time.sleep(max(5, sleep_seconds))
             continue

@@ -4,6 +4,7 @@ import logging
 import os
 
 from app.celery_app import celery_app
+from app.services.autonomous_submission_governance import autonomous_submission_authorization
 from app.services.autonomous_submission_loop_service import run_autonomous_submission_loop
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,15 @@ logger = logging.getLogger(__name__)
 )
 def run_submission_retry_cycle_task(self, limit: int | None = None):
     logger.info("Celery task started: autonomous submission loop | limit=%s", limit)
+    governance = autonomous_submission_authorization()
+    if not governance["authorized"]:
+        return {
+            "status": "governance_blocked",
+            "scheduler": "autonomous_submission_loop",
+            "message": "Celery submission task blocked by governance.",
+            "reason": governance["reason"],
+            "system_control_state": governance["system_control_state"],
+            "total_processed": 0,
+        }
     return run_autonomous_submission_loop(limit=limit)
-
 

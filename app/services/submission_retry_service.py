@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
+from app.services.autonomous_submission_governance import autonomous_submission_authorization
 from app.services.submission_history_service import (
     list_submission_history,
     update_submission_event,
@@ -52,6 +53,16 @@ def _build_retry_payload(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def retry_failed_submissions(limit: int = 10) -> Dict[str, Any]:
+    governance = autonomous_submission_authorization()
+    if not governance["authorized"]:
+        return {
+            "retried": [],
+            "skipped": [],
+            "total_retried": 0,
+            "status": "governance_blocked",
+            "reason": governance["reason"],
+        }
+
     history = list_submission_history(limit=500, offset=0)
     items = history.get("items", [])
 

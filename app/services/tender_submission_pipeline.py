@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-from app.services.system_control_service import get_system_control_state
+from app.services.autonomous_submission_governance import submission_system_control_authorization
 
 logger = logging.getLogger(__name__)
 
@@ -1061,38 +1061,15 @@ def _block_if_system_off(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     Master OFF switch enforcement:
     Block ALL outgoing submissions when system is OFF
     """
-    try:
-        state = get_system_control_state()
-
-        if not state.get("system_on", True):
-            return {
-                "success": False,
-                "status": "skipped",
-                "message": "Submission blocked by system control: system_off",
-                "reason": "system_off",
-                "system_state": state,
-            }
-
-        if state.get("emergency_stop", False):
-            return {
-                "success": False,
-                "status": "skipped",
-                "message": "Submission blocked by emergency stop",
-                "reason": "emergency_stop",
-                "system_state": state,
-            }
-
-        if state.get("submission_paused", False):
-            return {
-                "success": False,
-                "status": "skipped",
-                "message": "Submission blocked: submissions paused",
-                "reason": "submission_paused",
-                "system_state": state,
-            }
-
-    except Exception as e:
-        logger.warning("System control check failed during submission: %s", e)
+    authorization = submission_system_control_authorization()
+    if not authorization["authorized"]:
+        return {
+            "success": False,
+            "status": "skipped",
+            "message": "Submission blocked by system-control governance.",
+            "reason": authorization["reason"],
+            "system_state": authorization["system_control_state"],
+        }
 
     return None
 
@@ -1100,7 +1077,6 @@ def submit_tender_to_portal(payload: Dict[str, Any]) -> Dict[str, Any]:
     # MASTER SYSTEM OFF CHECK
     blocked = _block_if_system_off(payload)
     if blocked:
-        _log_submission_history_if_available(payload, blocked)
         return blocked
     
     validation_error = _validate_payload(payload)
@@ -1179,8 +1155,6 @@ def get_portal_submission_health() -> Dict[str, Any]:
         "submission_history_logging_available": log_submission_event is not None,
         "email_fallback_available": _send_submission_email is not None,
     }
-
-
 
 
 

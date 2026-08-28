@@ -23,9 +23,11 @@ def _utc_now_iso() -> str:
 @dataclass
 class SystemControlState:
     system_enabled: bool = True
-    autonomous_enabled: bool = True
+    # The system master switch may remain on for human-operated workflows;
+    # autonomous execution and its scheduler must opt in explicitly.
+    autonomous_enabled: bool = False
     harvester_enabled: bool = True
-    submission_scheduler_enabled: bool = True
+    submission_scheduler_enabled: bool = False
     last_action: str = "initialized"
     updated_at: str = ""
     reason: str = ""
@@ -48,22 +50,31 @@ class SystemControlService:
         # Accept BOTH schemas:
         # old schema: system_enabled / harvester_enabled / submission_scheduler_enabled
         # new schema: system_on / harvest_paused / submission_paused / emergency_stop
-        system_enabled = bool(
-            state["system_enabled"] if "system_enabled" in state else state.get("system_on", True)
-        )
+        if "system_enabled" in state:
+            system_enabled = type(state.get("system_enabled")) is bool and state["system_enabled"] is True
+        elif "system_on" in state:
+            system_enabled = type(state.get("system_on")) is bool and state["system_on"] is True
+        else:
+            # Preserve the master-switch default for human-operated workflows.
+            system_enabled = True
 
         if "harvester_enabled" in state:
             harvester_enabled = bool(state.get("harvester_enabled", True))
         else:
             harvester_enabled = not bool(state.get("harvest_paused", False))
 
-        if "submission_scheduler_enabled" in state:
-            submission_scheduler_enabled = bool(state.get("submission_scheduler_enabled", True))
-        else:
-            submission_scheduler_enabled = not bool(state.get("submission_paused", False))
-
-        autonomous_enabled = bool(
-            state.get("autonomous_enabled", system_enabled)
+        # Autonomous controls fail closed.  Do not coerce strings such as
+        # "false" with bool(), and do not infer authorization from a missing
+        # legacy field or from an unpaused state.
+        explicitly_paused = type(state.get("submission_paused")) is bool and state["submission_paused"] is True
+        submission_scheduler_enabled = (
+            not explicitly_paused
+            and type(state.get("submission_scheduler_enabled")) is bool
+            and state["submission_scheduler_enabled"] is True
+        )
+        autonomous_enabled = (
+            type(state.get("autonomous_enabled")) is bool
+            and state["autonomous_enabled"] is True
         )
 
         emergency_stop = bool(
@@ -307,4 +318,3 @@ def clear_emergency_stop(reason: str = "emergency stop cleared") -> Dict[str, An
 
 def resume_all(reason: str = "all services resumed") -> Dict[str, Any]:
     return system_control_service.resume_all(reason=reason)
-

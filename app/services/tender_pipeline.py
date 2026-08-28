@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.services.autonomous_submission_governance import autonomous_submission_authorization
 from app.services.csd_refresh_service import CSDRefreshService
 from app.services.monthly_quotes_storage import MonthlyQuotesStorageService
 from app.services.quote_engine import build_quote_from_rfq
@@ -3933,6 +3934,18 @@ def process_pending_submissions(limit: int = 10) -> Dict[str, Any]:
     It scans monthly quote packs, blocks synthetic/test records, blocks duplicates,
     enforces the R30,000 profit floor, and records only real quote packs.
     """
+    governance = autonomous_submission_authorization(require_pending_stage=True)
+    if not governance["authorized"]:
+        return {
+            "status": "governance_blocked",
+            "stage": "pending_submission",
+            "message": "Pending submissions blocked by autonomous submission governance.",
+            "reason": governance["reason"],
+            "processed": 0,
+            "items": [],
+            "skipped": [],
+        }
+
     safe_limit = max(1, int(limit or 10))
     stage = "pending_submission"
     now = _lmcp_now_iso()

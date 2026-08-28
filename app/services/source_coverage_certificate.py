@@ -599,6 +599,7 @@ def update_daily_coverage(
                 qualifying_opportunities += int(record.get("qualifying_candidates") or 0)
 
     enabled_attempted_count = len(attempted_sources)
+    disabled_sources = max(0, registry_total - enabled_registry_count)
     not_checked = max(0, enabled_registry_count - enabled_attempted_count)
     success_count = len(successful_sources)
     failed_count = len(failed_sources)
@@ -612,6 +613,7 @@ def update_daily_coverage(
         "date": date_value,
         "registry_total": registry_total,
         "enabled_registry_count": enabled_registry_count,
+        "disabled_sources": disabled_sources,
         "unique_enabled_sources_attempted": enabled_attempted_count,
         "successful_sources": success_count,
         "failed_sources": failed_count,

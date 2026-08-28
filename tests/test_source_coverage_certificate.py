@@ -856,3 +856,28 @@ def test_repeated_source_attempt_records_count_once_by_identity(tmp_path: Path) 
     assert summary.attempted_sources == 1
     assert summary.unique_sources_checked == 1
     assert summary.successful_sources + summary.failed_sources == 1
+
+
+def test_daily_coverage_includes_disabled_sources_and_today_cli_renders_it(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=970, disabled=355)
+    runtime_root = tmp_path / "runtime"
+    source_names = ["source-%04d" % (index + 1) for index in range(12)]
+    result = make_result(
+        run_id="daily-disabled-sources",
+        source_names=source_names,
+        selected=set(source_names),
+        attempted=set(source_names),
+        successful=set(source_names),
+    )
+    write_run_certificate(result, registry_path=registry_path, runtime_root=str(runtime_root))
+
+    daily = load_daily_summary("2026-08-28", str(runtime_root))
+    assert daily["registry_total"] == 1325
+    assert daily["enabled_registry_count"] == 970
+    assert daily["disabled_sources"] == 355
+
+    source_coverage_main(["--today", "--runtime-root", str(runtime_root)])
+    assert "DISABLED 355" in capsys.readouterr().out

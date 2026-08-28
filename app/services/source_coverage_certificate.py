@@ -594,7 +594,10 @@ def update_daily_coverage(
                 if record.get("success"):
                     successful_sources[identity] = record
                     failed_sources.pop(identity, None)
-                else:
+                elif identity not in successful_sources:
+                    # Daily health is optimistic across repeated attempts:
+                    # one legitimate success makes the identity successful for
+                    # the day, and terminal buckets must stay disjoint.
                     failed_sources.setdefault(identity, record)
                 qualifying_opportunities += int(record.get("qualifying_candidates") or 0)
 

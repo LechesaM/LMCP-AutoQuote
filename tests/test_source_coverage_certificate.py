@@ -881,3 +881,66 @@ def test_daily_coverage_includes_disabled_sources_and_today_cli_renders_it(
 
     source_coverage_main(["--today", "--runtime-root", str(runtime_root)])
     assert "DISABLED 355" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("outcomes", "expected_successful", "expected_failed"),
+    [
+        ([True, False], 1, 0),
+        ([False, True], 1, 0),
+        ([False, False], 0, 1),
+    ],
+)
+def test_daily_repeated_source_terminal_outcome_is_disjoint(
+    tmp_path: Path,
+    outcomes: list[bool],
+    expected_successful: int,
+    expected_failed: int,
+) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=2, disabled=0)
+    runtime_root = tmp_path / "runtime"
+    for index, success in enumerate(outcomes, start=1):
+        result = make_result(
+            run_id="daily-terminal-%d" % index,
+            source_names=["source-0001"],
+            selected={"source-0001"},
+            attempted={"source-0001"},
+            successful={"source-0001"} if success else set(),
+            failed=set() if success else {"source-0001"},
+        )
+        write_run_certificate(result, registry_path=registry_path, runtime_root=str(runtime_root))
+
+    daily = update_daily_coverage("2026-08-28", runtime_root=str(runtime_root))
+    assert daily["unique_enabled_sources_attempted"] == 1
+    assert daily["successful_sources"] == expected_successful
+    assert daily["failed_sources"] == expected_failed
+    assert daily["successful_sources"] + daily["failed_sources"] == daily["unique_enabled_sources_attempted"]
+    assert daily["not_checked"] == 1
+
+
+def test_daily_distinct_source_identities_keep_independent_terminal_outcomes(tmp_path: Path) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=2, disabled=0)
+    runtime_root = tmp_path / "runtime"
+    successful = make_result(
+        run_id="daily-distinct-success",
+        source_names=["source-0001"],
+        selected={"source-0001"},
+        attempted={"source-0001"},
+        successful={"source-0001"},
+    )
+    failed = make_result(
+        run_id="daily-distinct-failed",
+        source_names=["source-0002"],
+        selected={"source-0002"},
+        attempted={"source-0002"},
+        failed={"source-0002"},
+    )
+    write_run_certificate(successful, registry_path=registry_path, runtime_root=str(runtime_root))
+    write_run_certificate(failed, registry_path=registry_path, runtime_root=str(runtime_root))
+
+    daily = update_daily_coverage("2026-08-28", runtime_root=str(runtime_root))
+    assert daily["unique_enabled_sources_attempted"] == 2
+    assert daily["successful_sources"] == 1
+    assert daily["failed_sources"] == 1
+    assert daily["successful_sources"] + daily["failed_sources"] == daily["unique_enabled_sources_attempted"]
+    assert daily["not_checked"] == 0

@@ -201,6 +201,7 @@ class SourceCoverageRecord:
     source_identity: str = ""
     source_url: Optional[str] = None
     source_type: Optional[str] = None
+    source_group: Optional[str] = None
     enabled: bool = True
     selected: bool = False
     attempted: bool = False
@@ -236,6 +237,7 @@ class SourceCoverageSummary:
     failed_sources: int
     skipped_sources: int
     unique_sources_checked: int
+    not_checked: int
     coverage_percentage: float
     candidates_found: int
     qualifying_opportunities_found: int
@@ -338,14 +340,28 @@ def _normalise_source_results(
                 source_name=name,
                 source_url=explicit.get("source_url") or _source_url(base),
                 source_type=explicit.get("source_type") or _source_type(base),
+                source_group=(
+                    explicit.get("source_group")
+                    or explicit.get("category_group")
+                    or base.get("source_group")
+                    or base.get("category_group")
+                ),
                 enabled=enabled,
                 selected=selected,
                 attempted=attempted,
                 success=success,
                 started_at=explicit.get("started_at"),
                 completed_at=explicit.get("completed_at"),
-                response_time_ms=explicit.get("response_time_ms") or explicit.get("response_time_seconds"),
-                http_status=explicit.get("http_status") or explicit.get("status_code"),
+                response_time_ms=(
+                    explicit.get("response_time_ms")
+                    if explicit.get("response_time_ms") is not None
+                    else explicit.get("response_time_seconds")
+                ),
+                http_status=(
+                    explicit.get("http_status")
+                    if explicit.get("http_status") is not None
+                    else explicit.get("status_code")
+                ),
                 candidates_found=explicit.get("candidates_found"),
                 qualifying_candidates=explicit.get("qualifying_candidates"),
                 error_reason=error_reason,
@@ -362,6 +378,9 @@ def _source_summary_counts(records: Sequence[SourceCoverageRecord]) -> Dict[str,
     attempted = [record for record in enabled_records if record.attempted]
     successful = [record for record in attempted if record.success]
     failed = [record for record in attempted if not record.success]
+    # This is a count of unattempted *normalised records*.  Registry entries
+    # can share a source name and are normalised into one record, so it is not
+    # the coverage denominator and must never be displayed as NOT CHECKED.
     skipped = [record for record in enabled_records if not record.attempted]
     return {
         "selected_sources": len(selected),
@@ -473,6 +492,7 @@ def build_run_summary(
         failed_sources=counts["failed_sources"],
         skipped_sources=counts["skipped_sources"],
         unique_sources_checked=counts["unique_sources_checked"],
+        not_checked=max(0, registry_counts_map["enabled_sources"] - counts["unique_sources_checked"]),
         coverage_percentage=coverage_percentage,
         candidates_found=counts["candidates_found"],
         qualifying_opportunities_found=counts["qualifying_opportunities_found"],
@@ -626,6 +646,17 @@ def load_daily_summary(date_value: str, runtime_root: Optional[str] = None) -> D
 
 
 def format_summary_lines(summary: Mapping[str, Any]) -> List[str]:
+    not_checked = summary.get("not_checked")
+    if not_checked is None:
+        # Legacy per-run summaries predate ``not_checked``.  Derive it from
+        # the coverage denominator instead of reusing skipped_sources, whose
+        # normalised-record meaning is different.
+        try:
+            enabled = int(summary.get("enabled_sources", summary.get("enabled_registry_count", 0)) or 0)
+            checked = int(summary.get("unique_sources_checked", summary.get("unique_enabled_sources_attempted", 0)) or 0)
+            not_checked = max(0, enabled - checked)
+        except (TypeError, ValueError):
+            not_checked = 0
     return [
         "DATE %s" % (summary.get("date") or str(summary.get("completed_at", ""))[:10]),
         "REGISTRY TOTAL %s" % summary.get("registry_total", summary.get("enabled_registry_count", 0) + summary.get("not_checked", 0)),
@@ -634,7 +665,7 @@ def format_summary_lines(summary: Mapping[str, Any]) -> List[str]:
         "CHECKED %s" % summary.get("unique_sources_checked", summary.get("unique_enabled_sources_attempted", 0)),
         "SUCCESSFUL %s" % summary.get("successful_sources", 0),
         "FAILED %s" % summary.get("failed_sources", 0),
-        "NOT CHECKED %s" % summary.get("skipped_sources", summary.get("not_checked", 0)),
+        "NOT CHECKED %s" % not_checked,
         "COVERAGE %% %s" % summary.get("coverage_percentage", 0),
         "QUALIFYING RFQs %s" % summary.get("qualifying_opportunities_found", 0),
         "STATUS %s" % summary.get("coverage_status", "UNKNOWN"),

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
+import app.services.tender_harvester as tender_harvester
 from app.services.rfq_lifecycle_service import RfqLifecycleService
 from app.services.source_coverage_certificate import (
     attach_harvest_run_certificate_hooks,
     build_run_summary,
     failure_records_from_summary,
+    format_summary_lines,
     load_daily_summary,
     load_latest_summary,
     update_daily_coverage,
@@ -26,6 +29,7 @@ def make_registry(path: Path, enabled: int, disabled: int) -> Path:
                 "source_name": "source-%04d" % (index + 1),
                 "source_url": "https://example.invalid/source/%d" % (index + 1),
                 "source_type": "portal",
+                "source_group": "test",
                 "enabled": index < enabled,
             }
         )
@@ -680,3 +684,175 @@ def test_cli_reports_no_certificate_recorded_when_missing(tmp_path: Path, capsys
     source_coverage_main(["--latest", "--runtime-root", str(tmp_path / "runtime")])
     out = capsys.readouterr().out.strip()
     assert out == "no certificate recorded"
+
+
+class _FakeHttpResponse:
+    def __init__(self, *, status_code: int = 200, text: str = "<html></html>", data: object = None) -> None:
+        self.status_code = status_code
+        self.text = text
+        self._data = [] if data is None else data
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            error = tender_harvester.requests.HTTPError("HTTP %s" % self.status_code)
+            error.response = self
+            raise error
+        return None
+
+    def json(self) -> object:
+        return self._data
+
+
+def _run_mocked_single_source_radar(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    source_type: str,
+    source_group: str = "test-group",
+) -> tuple[dict[str, object], dict[str, object]]:
+    source: dict[str, object] = {
+        "name": "Telemetry fixture source",
+        "source_name": "Telemetry fixture source",
+        "url": "https://example.invalid/tenders",
+        "list_url": "https://example.invalid/tenders",
+        "type": source_type,
+        "source_group": source_group,
+        "enabled": True,
+        "priority": 1,
+    }
+    monkeypatch.setattr(tender_harvester, "load_harvest_sources", lambda source_file=None: [dict(source)])
+    monkeypatch.setattr(tender_harvester, "select_sources_for_cycle", lambda sources, **kwargs: list(sources))
+    monkeypatch.setattr(tender_harvester, "get_system_control_state", lambda: {"system_on": True})
+    monkeypatch.setattr(
+        RfqLifecycleService,
+        "ingest_discovered_items",
+        lambda self, items, source="discovered": {"status": "ok", "ingested_count": 0, "skipped_duplicates_count": 0},
+    )
+    result = tender_harvester.run_national_tender_radar(
+        max_total=3,
+        max_per_source=1,
+        max_sources_per_cycle=1,
+        persist_to_live_store=False,
+        persist_source_health=False,
+    )
+    return source, result
+
+
+def test_dns_failure_is_failed_with_measured_source_telemetry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def dns_failure(*args: object, **kwargs: object) -> object:
+        raise tender_harvester.requests.ConnectionError("DNS resolution failed for telemetry fixture")
+
+    monkeypatch.setattr(tender_harvester.requests, "get", dns_failure)
+    source, result = _run_mocked_single_source_radar(monkeypatch, source_type="ocds")
+    row = result["source_results"][0]
+    assert row["attempted"] is True
+    assert row["success"] is False
+    assert "DNS resolution failed" in str(row["error_reason"])
+    assert row["response_time_ms"] is not None
+    assert row["http_status"] is None
+
+    registry_path = tmp_path / "harvest_sources.json"
+    registry_path.write_text(json.dumps([source]), encoding="utf-8")
+    summary, records = build_run_summary(result, registry_path=str(registry_path), runtime_root=str(tmp_path / "runtime"))
+    assert summary.attempted_sources == 1
+    assert summary.successful_sources == 0
+    assert summary.failed_sources == 1
+    assert summary.successful_sources + summary.failed_sources == summary.unique_sources_checked
+    assert records[0].error_reason and "DNS resolution failed" in records[0].error_reason
+
+
+def test_browser_failure_without_successful_fallback_is_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "playwright", None)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
+    monkeypatch.setattr(
+        tender_harvester.requests,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(tender_harvester.requests.ConnectionError("DNS fallback failed")),
+    )
+    _, result = _run_mocked_single_source_radar(monkeypatch, source_type="generic_portal")
+    row = result["source_results"][0]
+    assert row["attempted"] is True
+    assert row["success"] is False
+    assert "DNS fallback failed" in str(row["error_reason"])
+
+
+def test_successful_http_fallback_with_zero_candidates_counts_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "playwright", None)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", None)
+    monkeypatch.setattr(tender_harvester.requests, "get", lambda *args, **kwargs: _FakeHttpResponse())
+    _, result = _run_mocked_single_source_radar(monkeypatch, source_type="generic_portal")
+    assert len(result["source_results"]) == 1
+    row = result["source_results"][0]
+    assert row["attempted"] is True
+    assert row["success"] is True
+    assert row["candidates_found"] == 0
+    assert row["error_reason"] is None
+
+
+def test_http_terminal_error_without_successful_fallback_is_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tender_harvester.requests, "get", lambda *args, **kwargs: _FakeHttpResponse(status_code=503))
+    _, result = _run_mocked_single_source_radar(monkeypatch, source_type="ocds")
+    row = result["source_results"][0]
+    assert row["success"] is False
+    assert row["http_status"] == 503
+    assert "HTTP 503" in str(row["error_reason"])
+
+
+def test_source_group_survives_harvester_to_certificate_jsonl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tender_harvester.requests, "get", lambda *args, **kwargs: _FakeHttpResponse(data=[]))
+    source, result = _run_mocked_single_source_radar(monkeypatch, source_type="ocds", source_group="government-api")
+    registry_path = tmp_path / "harvest_sources.json"
+    registry_path.write_text(json.dumps([source]), encoding="utf-8")
+    summary = write_run_certificate(result, registry_path=str(registry_path), runtime_root=str(tmp_path / "runtime"))
+    rows = [json.loads(line) for line in Path(summary.source_results_path).read_text(encoding="utf-8").splitlines()]
+    attempted = next(row for row in rows if row["attempted"])
+    assert attempted["source_group"] == "government-api"
+    assert attempted["response_time_ms"] is not None
+    assert attempted["http_status"] == 200
+
+
+def test_per_run_and_daily_not_checked_use_enabled_denominator_and_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=970, disabled=0)
+    runtime_root = tmp_path / "runtime"
+    names = ["source-%04d" % (index + 1) for index in range(12)]
+    result = make_result(
+        run_id="accounting-970-12",
+        source_names=names,
+        selected=set(names),
+        attempted=set(names),
+        successful=set(names[:7]),
+        failed=set(names[7:]),
+    )
+    summary = write_run_certificate(result, registry_path=registry_path, runtime_root=str(runtime_root))
+    assert summary.unique_sources_checked == 12
+    assert summary.not_checked == 958
+    assert summary.coverage_percentage == 1.24
+    assert summary.successful_sources + summary.failed_sources == summary.unique_sources_checked
+    assert "NOT CHECKED 958" in format_summary_lines(summary.to_dict())
+    assert "NOT CHECKED 958" in format_summary_lines(
+        {"enabled_sources": 970, "unique_sources_checked": 12, "skipped_sources": 952}
+    )
+
+    source_coverage_main(["--latest", "--runtime-root", str(runtime_root)])
+    assert "NOT CHECKED 958" in capsys.readouterr().out
+    daily = load_daily_summary("2026-08-28", str(runtime_root))
+    assert daily["unique_enabled_sources_attempted"] == 12
+    assert daily["not_checked"] == 958
+    assert daily["coverage_percentage"] == 1.24
+    assert daily["successful_sources"] + daily["failed_sources"] == daily["unique_enabled_sources_attempted"]
+
+
+def test_repeated_source_attempt_records_count_once_by_identity(tmp_path: Path) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=1, disabled=0)
+    result = make_result(
+        run_id="retry-one-source",
+        source_names=["source-0001"],
+        selected={"source-0001"},
+        attempted={"source-0001"},
+        successful={"source-0001"},
+    )
+    retry_record = dict(result["source_results"][0])
+    result["source_results"].append(retry_record)
+    summary, _ = build_run_summary(result, registry_path=str(registry_path), runtime_root=str(tmp_path / "runtime"))
+    assert summary.attempted_sources == 1
+    assert summary.unique_sources_checked == 1
+    assert summary.successful_sources + summary.failed_sources == 1

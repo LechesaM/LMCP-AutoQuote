@@ -441,6 +441,40 @@ def _record_source_result(
     _save_source_health(health, persist=persist_source_health)
 
 
+def _track_source_access(
+    telemetry: Optional[Dict[str, Any]],
+    *,
+    path: str,
+    success: bool,
+    error: str = "",
+    http_status: Optional[Any] = None,
+) -> None:
+    """Record access-path outcomes without changing harvester return values.
+
+    A source can try a browser path and then an HTTP fallback.  The source is
+    successful when *any* legitimate path completes, while failures remain
+    available when every path fails.
+    """
+    if telemetry is None:
+        return
+    attempts = telemetry.setdefault("access_paths", [])
+    if isinstance(attempts, list):
+        attempts.append({
+            "path": path,
+            "success": bool(success),
+            "error": _truncate(str(error), 240) if error else "",
+            "http_status": http_status,
+        })
+    if success:
+        telemetry["successful_path"] = True
+    elif error:
+        errors = telemetry.setdefault("errors", [])
+        if isinstance(errors, list):
+            errors.append(_truncate(str(error), 240))
+    if http_status is not None:
+        telemetry["http_status"] = http_status
+
+
 def _v52_source_priority(source: Dict[str, Any]) -> Tuple[int, int, int, str]:
     text = " ".join(
         [
@@ -5373,7 +5407,13 @@ def _should_skip_preharvest_candidate(text: str, title: str = "") -> bool:
     return False
 
 
-def _direct_etenders(source: Dict[str, Any], max_items: int, headless: bool) -> List[Dict[str, Any]]:
+def _direct_etenders(
+    source: Dict[str, Any],
+    max_items: int,
+    headless: bool,
+    *,
+    telemetry: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     try:
         from app.services.etenders_playwright import run_etenders_playwright  # type: ignore
         try:
@@ -5381,6 +5421,12 @@ def _direct_etenders(source: Dict[str, Any], max_items: int, headless: bool) -> 
         except TypeError:
             data = run_etenders_playwright(max_items=max_items)
         if not isinstance(data, list):
+            _track_source_access(
+                telemetry,
+                path="etenders_direct",
+                success=False,
+                error="Direct eTenders parser returned a non-list result.",
+            )
             return []
         results: List[Dict[str, Any]] = []
         for raw in data:
@@ -5419,8 +5465,10 @@ def _direct_etenders(source: Dict[str, Any], max_items: int, headless: bool) -> 
             item["portal_name"] = item["source_name"]
             item["closing_date"] = _clean(raw.get("closing_date") or _extract_closing_date(text))
             results.append(item)
+        _track_source_access(telemetry, path="etenders_direct", success=True)
         return _dedupe_keep_order(results)[:max_items]
     except Exception as exc:
+        _track_source_access(telemetry, path="etenders_direct", success=False, error=str(exc))
         logger.warning("Direct eTenders parser failed for %s: %s", source.get("name"), exc)
         return []
 
@@ -5431,16 +5479,25 @@ def run_generic_scraper(
     max_items: int = 20,
     *,
     persist_source_health: bool = True,
+    telemetry: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     url = _clean(source.get("url") or source.get("list_url"))
     max_items = _safe_positive_int(max_items, 20)
     if not url:
+        _track_source_access(telemetry, path="static_http", success=False, error="Source URL is missing.")
         return []
     try:
         response = requests.get(url, timeout=timeout, verify=bool(source.get("verify_ssl", True)), headers={"User-Agent": "Mozilla/5.0 LMCP-AutoQuote/1.0"})
         response.raise_for_status()
         html = response.text
     except Exception as exc:
+        _track_source_access(
+            telemetry,
+            path="static_http",
+            success=False,
+            error=str(exc),
+            http_status=getattr(getattr(exc, "response", None), "status_code", None),
+        )
         _record_source_result(
             source,
             ok=False,
@@ -5465,6 +5522,7 @@ def run_generic_scraper(
         harvested=len(results),
         persist_source_health=persist_source_health,
     )
+    _track_source_access(telemetry, path="static_http", success=True, http_status=getattr(response, "status_code", None))
     return _dedupe_keep_order(results)
 
 
@@ -5474,26 +5532,34 @@ def run_playwright_generic_scraper(
     headless: bool = True,
     *,
     persist_source_health: bool = True,
+    telemetry: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     url = _clean(source.get("url") or source.get("list_url"))
     max_items = _safe_positive_int(max_items, 20)
     if not url:
+        _track_source_access(telemetry, path="browser_playwright", success=False, error="Source URL is missing.")
         return []
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
     except Exception as exc:
+        _track_source_access(telemetry, path="browser_playwright", success=False, error=str(exc))
         logger.warning("Playwright unavailable, using static fallback for %s: %s", source.get("name"), exc)
         return run_generic_scraper(
             source,
             max_items=max_items,
             persist_source_health=persist_source_health,
+            telemetry=telemetry,
         )
     results: List[Dict[str, Any]] = []
+    browser_http_status: Optional[Any] = None
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
             page = browser.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=18000)
+            navigation_response = page.goto(url, wait_until="domcontentloaded", timeout=18000)
+            browser_http_status = getattr(navigation_response, "status", None)
+            if isinstance(browser_http_status, int) and browser_http_status >= 400:
+                raise RuntimeError("Browser navigation returned HTTP %s" % browser_http_status)
             page.wait_for_timeout(1200)
             row_selectors = ["table tbody tr", "table tr", ".table tbody tr"]
             rows = []
@@ -5526,6 +5592,13 @@ def run_playwright_generic_scraper(
                     continue
             browser.close()
     except Exception as exc:
+        _track_source_access(
+            telemetry,
+            path="browser_playwright",
+            success=False,
+            error=str(exc),
+            http_status=browser_http_status,
+        )
         _record_source_result(
             source,
             ok=False,
@@ -5538,12 +5611,19 @@ def run_playwright_generic_scraper(
             source,
             max_items=max_items,
             persist_source_health=persist_source_health,
+            telemetry=telemetry,
         )
     _record_source_result(
         source,
         ok=True,
         harvested=len(results),
         persist_source_health=persist_source_health,
+    )
+    _track_source_access(
+        telemetry,
+        path="browser_playwright",
+        success=True,
+        http_status=getattr(navigation_response, "status", None),
     )
     return _dedupe_keep_order(results)[:max_items]
 
@@ -5554,16 +5634,25 @@ def run_ocds_api_harvester(
     timeout: int = 8,
     *,
     persist_source_health: bool = True,
+    telemetry: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     url = _clean(source.get("url") or source.get("list_url"))
     max_items = _safe_positive_int(max_items, 20)
     if not url:
+        _track_source_access(telemetry, path="ocds_http", success=False, error="Source URL is missing.")
         return []
     try:
         response = requests.get(url, timeout=timeout, verify=bool(source.get("verify_ssl", True)))
         response.raise_for_status()
         data = response.json()
     except Exception as exc:
+        _track_source_access(
+            telemetry,
+            path="ocds_http",
+            success=False,
+            error=str(exc),
+            http_status=getattr(getattr(exc, "response", None), "status_code", None),
+        )
         _record_source_result(
             source,
             ok=False,
@@ -5605,6 +5694,7 @@ def run_ocds_api_harvester(
         harvested=len(results),
         persist_source_health=persist_source_health,
     )
+    _track_source_access(telemetry, path="ocds_http", success=True, http_status=getattr(response, "status_code", None))
     return _dedupe_keep_order(results)
 
 
@@ -7405,12 +7495,13 @@ def _harvest_from_source(
     headless: bool,
     *,
     persist_source_health: bool = True,
+    telemetry: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     source_type = _safe_lower(source.get("type"))
     source_name = _safe_lower(source.get("name") or source.get("source_name"))
     source_group = _safe_lower(source.get("source_group") or source.get("category_group"))
     if "etenders" in source_name or source_group == "etenders":
-        direct = _direct_etenders(source, max_items=max_per_source, headless=headless)
+        direct = _direct_etenders(source, max_items=max_per_source, headless=headless, telemetry=telemetry)
         if direct:
             _record_source_result(
                 source,
@@ -7424,6 +7515,7 @@ def _harvest_from_source(
             max_items=max_per_source,
             headless=headless,
             persist_source_health=persist_source_health,
+            telemetry=telemetry,
         )
     if source_type in {"web", "generic_portal", "portal", "website"}:
         return run_playwright_generic_scraper(
@@ -7431,12 +7523,14 @@ def _harvest_from_source(
             max_items=max_per_source,
             headless=headless,
             persist_source_health=persist_source_health,
+            telemetry=telemetry,
         )
     if source_type in {"ocds", "api", "json_api"}:
         return run_ocds_api_harvester(
             source,
             max_items=max_per_source,
             persist_source_health=persist_source_health,
+            telemetry=telemetry,
         )
     return []
 
@@ -7478,14 +7572,34 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
             break
         if not source.get("enabled", True):
             continue
-        harvested = _dedupe_keep_order(
-            _harvest_from_source(
+        source_started_at = _now_iso()
+        source_started_monotonic = time.perf_counter()
+        access_telemetry: Dict[str, Any] = {}
+        try:
+            harvested = _dedupe_keep_order(
+                _harvest_from_source(
+                    source,
+                    max_per_source=max_per_source,
+                    headless=headless,
+                    persist_source_health=persist_source_health,
+                    telemetry=access_telemetry,
+                )
+            )
+        except Exception as exc:
+            _track_source_access(
+                access_telemetry,
+                path="harvest_dispatch",
+                success=False,
+                error=str(exc),
+            )
+            _record_source_result(
                 source,
-                max_per_source=max_per_source,
-                headless=headless,
+                ok=False,
+                harvested=0,
+                error=str(exc),
                 persist_source_health=persist_source_health,
             )
-        )
+            harvested = []
         processed_for_source: List[Dict[str, Any]] = []
         for item in harvested:
             item["auto_quote_enabled"] = enable_auto_quote or true_autonomous
@@ -7508,6 +7622,12 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
             all_items.append(classified)
             if len(all_items) >= max_total:
                 break
+        response_time_ms = round((time.perf_counter() - source_started_monotonic) * 1000.0, 3)
+        successful_path = bool(access_telemetry.get("successful_path"))
+        access_errors = [str(error) for error in access_telemetry.get("errors", []) if str(error)]
+        error_reason = "" if successful_path else "; ".join(dict.fromkeys(access_errors))
+        if not error_reason:
+            error_reason = "No legitimate source access path reported a terminal outcome."
         source_runs.append({
             "source_name": source.get("name") or source.get("source_name") or "Unknown",
             "source_identity": _source_identity(source),
@@ -7516,9 +7636,12 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
             "source_group": source.get("source_group") or source.get("category_group"),
             "selected": True,
             "attempted": True,
-            "success": True,
-            "started_at": run_started_at,
+            "success": successful_path,
+            "started_at": source_started_at,
             "completed_at": _now_iso(),
+            "response_time_ms": response_time_ms,
+            "http_status": access_telemetry.get("http_status"),
+            "error_reason": None if successful_path else error_reason,
             "harvested": len(processed_for_source),
             "candidates_found": len(processed_for_source),
             "qualifying_candidates": sum(1 for i in processed_for_source if i.get("eligible")),

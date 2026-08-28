@@ -1,0 +1,3 @@
+from .source_coverage_certificate import attach_harvest_run_certificate_hooks
+
+attach_harvest_run_certificate_hooks()

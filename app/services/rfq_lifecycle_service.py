@@ -646,8 +646,10 @@ class RfqLifecycleService:
             blockers.append("below_minimum_profit")
         if margin_percent < MIN_MARGIN:
             blockers.append("below_minimum_margin")
-        if any(bool(item.get("requires_supplier_validation")) for item in line_items):
-            blockers.append("supplier_validation_required")
+        supplier_validation_required = any(bool(item.get("requires_supplier_validation")) for item in line_items)
+        warning_reasons: List[str] = []
+        if supplier_validation_required:
+            warning_reasons.append("supplier_validation_required")
         blockers.append("operator_approval_required")
         deduped_blockers: List[str] = []
         for blocker in blockers:
@@ -669,7 +671,10 @@ class RfqLifecycleService:
             "minimum_margin_required": MIN_MARGIN,
             "recommended_markup_scenario": 35.0 if estimated_profit < MIN_PROFIT else MIN_MARGIN,
             "commercial_policy_result": "PASS" if not deduped_blockers else "REVIEW_REQUIRED",
-            "supplier_validation_required": any(bool(item.get("requires_supplier_validation")) for item in line_items),
+            "supplier_validation_required": supplier_validation_required,
+            "supplier_validation_blocking": False,
+            "commercial_pricing_complete": not deduped_blockers,
+            "warning_reasons": warning_reasons,
             "operator_approval_required": True,
             "quote_pack_generated": False,
             "submission_pack_generated": False,
@@ -2471,6 +2476,7 @@ class RfqLifecycleService:
         harvested: List[Dict[str, Any]] = []
         harvest_status = "not_run"
         harvest_error = ""
+        harvest: Dict[str, Any] = {}
         try:
             from app.services.tender_harvester import run_national_tender_radar
 
@@ -2721,6 +2727,8 @@ class RfqLifecycleService:
             "mode": "controlled_live_pilot_no_submission",
             "harvest_status": harvest_status,
             "harvest_error": harvest_error,
+            "selected_sources": harvest.get("selected_sources") if isinstance(harvest.get("selected_sources"), list) else [],
+            "source_results": harvest.get("source_results") if isinstance(harvest.get("source_results"), list) else (harvest.get("source_runs") if isinstance(harvest.get("source_runs"), list) else []),
             "harvested_count": len(harvested),
             "qualified_count": len(qualified),
             "pilot_rfqs_count": len(pilot_items),
@@ -3066,6 +3074,36 @@ class RfqLifecycleService:
             sources.append({"path": str(path), "count": len(items)})
         result = self.ingest_discovered_items(all_items, source="existing_discovery_stores")
         result["sources_scanned"] = sources
+        result["selected_sources"] = [
+            {
+                "source_name": str(row.get("path") or "discovery_store"),
+                "source_url": str(row.get("path") or "discovery_store"),
+                "source_type": "discovery_store",
+                "enabled": True,
+            }
+            for row in sources
+        ]
+        result["source_results"] = [
+            {
+                "source_name": str(row.get("path") or "discovery_store"),
+                "source_identity": str(row.get("path") or "discovery_store"),
+                "source_url": str(row.get("path") or "discovery_store"),
+                "source_type": "discovery_store",
+                "enabled": True,
+                "selected": True,
+                "attempted": True,
+                "success": True,
+                "started_at": None,
+                "completed_at": None,
+                "response_time_ms": 0.0,
+                "http_status": 200,
+                "candidates_found": int(row.get("count") or 0),
+                "qualifying_candidates": int(row.get("count") or 0),
+                "error_reason": "",
+                "run_id": "",
+            }
+            for row in sources
+        ]
         return result
 
     def list_items(self, state: Optional[str] = None, limit: int = 250) -> Dict[str, Any]:
@@ -3125,6 +3163,7 @@ class RfqLifecycleService:
             "steps": [],
         }
         harvested: List[Dict[str, Any]] = []
+        result: Dict[str, Any] = {}
         try:
             from app.services.tender_harvester import run_multi_portal_discovery
 
@@ -3133,8 +3172,12 @@ class RfqLifecycleService:
             if isinstance(raw, list):
                 harvested = raw[: max(1, int(limit))]
             diagnostics["steps"].append({"step": "tender_harvester", "status": "ok", "count": len(harvested)})
+            diagnostics["selected_sources"] = result.get("selected_sources") if isinstance(result.get("selected_sources"), list) else []
+            diagnostics["source_results"] = result.get("source_results") if isinstance(result.get("source_results"), list) else (result.get("source_runs") if isinstance(result.get("source_runs"), list) else [])
         except Exception as exc:
             diagnostics["steps"].append({"step": "tender_harvester", "status": "warning", "error": str(exc)})
+            diagnostics["selected_sources"] = []
+            diagnostics["source_results"] = []
 
         if harvested:
             ingest_result = self.ingest_discovered_items(harvested, source="golden_cycle:tender_harvester")
@@ -3166,6 +3209,8 @@ class RfqLifecycleService:
         return {
             "status": "ok",
             "harvest_status": harvest.get("status"),
+            "selected_sources": harvest.get("selected_sources") if isinstance(harvest.get("selected_sources"), list) else [],
+            "source_results": harvest.get("source_results") if isinstance(harvest.get("source_results"), list) else (harvest.get("source_runs") if isinstance(harvest.get("source_runs"), list) else []),
             "harvested_total": harvest.get("harvested_total", len(candidates)),
             "eligible_total": harvest.get("eligible_total"),
             "quote_ready_total": harvest.get("quote_ready_total"),

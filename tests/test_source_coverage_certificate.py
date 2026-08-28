@@ -55,6 +55,7 @@ def make_result(
         source_results.append(
             {
                 "source_name": name,
+                "source_identity": name,
                 "source_url": "https://example.invalid/source/%s" % name,
                 "source_type": "portal",
                 "enabled": True,
@@ -115,6 +116,26 @@ def test_partial_run_summary_records_subset_and_denominator(tmp_path: Path) -> N
     daily = load_daily_summary("2026-08-28", str(tmp_path / "runtime"))
     assert daily["unique_enabled_sources_attempted"] == 25
     assert daily["coverage_status"] == "PARTIAL"
+
+
+def test_aggregate_success_without_source_records_is_not_misclassified_as_failed() -> None:
+    summary, records = build_run_summary(
+        {
+            "status": "ok",
+            "harvest_status": "ok",
+            "harvested_total": 25,
+            "eligible_total": 9,
+            "quote_ready_total": 3,
+            "ingest": {"ingested_count": 9, "skipped_duplicates_count": 2},
+            "mission_control": {},
+            "safety": {},
+        }
+    )
+
+    assert not any(record.attempted for record in records)
+    assert summary.attempted_sources == 0
+    assert summary.unique_sources_checked == 0
+    assert summary.coverage_status == "PARTIAL"
 
 
 def test_full_sweep_requires_explicit_records_for_every_enabled_source(tmp_path: Path) -> None:
@@ -204,6 +225,334 @@ def test_daily_aggregate_deduplicates_repeated_sources(tmp_path: Path) -> None:
     assert daily["unique_enabled_sources_attempted"] == 1
     assert daily["coverage_percentage"] == 50.0
     assert daily["coverage_status"] == "PARTIAL"
+
+
+def test_daily_aggregate_deduplicates_by_source_identity(tmp_path: Path) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=2, disabled=0)
+    runtime_root = tmp_path / "runtime"
+    first = make_result(
+        run_id="run-identity-1",
+        source_names=["alpha"],
+        selected={"alpha"},
+        attempted={"alpha"},
+        successful={"alpha"},
+    )
+    first["selected_sources"] = [{"source_name": "alpha", "source_identity": "registry-123"}]
+    first["source_results"][0]["source_identity"] = "registry-123"
+    second = make_result(
+        run_id="run-identity-2",
+        source_names=["beta"],
+        selected={"beta"},
+        attempted={"beta"},
+        successful={"beta"},
+        started_at="2026-08-28T10:00:00Z",
+        completed_at="2026-08-28T10:01:00Z",
+    )
+    second["selected_sources"] = [{"source_name": "beta", "source_identity": "registry-123"}]
+    second["source_results"][0]["source_identity"] = "registry-123"
+
+    write_run_certificate(first, registry_path=registry_path, runtime_root=str(runtime_root))
+    write_run_certificate(second, registry_path=registry_path, runtime_root=str(runtime_root))
+    daily = update_daily_coverage("2026-08-28", runtime_root=str(runtime_root))
+    assert daily["unique_enabled_sources_attempted"] == 1
+    assert daily["coverage_percentage"] == 50.0
+
+
+def _capture_certificate(monkeypatch: pytest.MonkeyPatch, registry_path: Path, runtime_root: Path):
+    captured: list[tuple[object, list[dict[str, object]], dict[str, object]]] = []
+
+    def fake_writer(run_result: dict[str, object], **kwargs: object) -> object:
+        summary, records = build_run_summary(
+            run_result,
+            registry_path=str(registry_path),
+            runtime_root=str(runtime_root),
+            git_commit="test-commit",
+        )
+        captured.append((summary, records, dict(run_result)))
+        return summary
+
+    monkeypatch.setattr("app.services.source_coverage_certificate.write_run_certificate", fake_writer)
+    return captured
+
+
+def _fake_candidate(name: str) -> dict[str, object]:
+    return {
+        "title": "RFQ for office supplies",
+        "description": "Supply and delivery of office supplies",
+        "source_name": name,
+        "source_url": "https://example.invalid/%s" % name,
+        "buyer_name": "Example Buyer",
+        "closing_date": "2026-12-31",
+        "submission_method": "portal",
+        "document_urls": [],
+    }
+
+
+def _patch_harvest_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.services.tender_harvester._v54_deep_extract_candidate",
+        lambda item, source: {**dict(item), "source_name": source.get("name") or source.get("source_name"), "source_url": source.get("url") or source.get("list_url")},
+    )
+    monkeypatch.setattr(
+        "app.services.tender_harvester._v54_qualification",
+        lambda candidate: {
+            **dict(candidate),
+            "eligible": True,
+            "quote_ready": True,
+            "pipeline_status": "eligible",
+            "qualification_score": 100,
+            "confidence_score": 100,
+            "qualification_reasons": [],
+        },
+    )
+    monkeypatch.setattr("app.services.tender_harvester._v57_apply_candidate_memory_learning", lambda candidate, memory_files: candidate)
+    monkeypatch.setattr("app.services.tender_harvester._lmcp_apply_v49_navigation_gate", lambda item: item)
+    monkeypatch.setattr("app.services.tender_harvester._lmcp_apply_v50_7_etenders_navigation_gate", lambda item: item)
+    monkeypatch.setattr("app.services.tender_harvester._lmcp_apply_docx_verified_quantity_gate", lambda item: item)
+    monkeypatch.setattr("app.services.tender_harvester._lmcp_apply_real_buyer_pricing_gate", lambda item: item)
+    monkeypatch.setattr("app.services.tender_harvester._lmcp_enforce_final_quantity_safety", lambda item: item)
+    monkeypatch.setattr("app.services.tender_harvester._lmcp_apply_v50_7_verified_rfq_promotion_gate", lambda item, policy: item)
+    monkeypatch.setattr("app.services.tender_harvester._rank_items", lambda items: items)
+    monkeypatch.setattr("app.services.tender_harvester._v53_update_source_health_after_scan", lambda *args, **kwargs: {})
+    monkeypatch.setattr("app.services.tender_harvester._save_source_health", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.tender_harvester._v57_update_discovery_memory", lambda *args, **kwargs: {"memory_sources_count": 0, "memory_buyers_count": 0, "memory_categories_count": 0, "boosted_priority_sources": [], "boosted_priority_buyers": [], "boosted_priority_categories": []})
+    monkeypatch.setattr("app.services.tender_harvester._persist_live_store", lambda *args, **kwargs: {"status": "ok", "count": len(args[0]) if args else 0})
+
+
+def _fake_registry_sources(*names: str) -> list[dict[str, object]]:
+    sources: list[dict[str, object]] = []
+    for index, name in enumerate(names, start=1):
+        sources.append(
+            {
+                "name": name,
+                "source_name": name,
+                "url": "https://example.invalid/%s" % name,
+                "list_url": "https://example.invalid/%s" % name,
+                "type": "portal",
+                "source_group": "test",
+                "category_group": "test",
+                "enabled": True,
+                "priority": index,
+                "intelligence_score": 100 - index,
+            }
+        )
+    return sources
+
+
+def _patch_fake_registry(monkeypatch: pytest.MonkeyPatch, *names: str) -> list[dict[str, object]]:
+    sources = _fake_registry_sources(*names)
+    monkeypatch.setattr("app.services.tender_harvester.load_harvest_sources", lambda source_file=None: list(sources))
+    monkeypatch.delenv("LMCP_SOURCE_PACK_MODE", raising=False)
+    return sources
+
+
+def _patch_pack_rotation(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_select_sources_for_pack_rotation(
+        sources: list[dict[str, object]],
+        max_sources: int,
+        include_bad_sources: bool = False,
+        pack_mode: object = None,
+    ) -> tuple[list[dict[str, object]], str, list[dict[str, object]], dict[str, object]]:
+        selected = list(sources)[: max(1, int(max_sources))]
+        strategy = {
+            "active_pack_mode": "balanced",
+            "packs": {},
+            "source_rows": [
+                {
+                    "source_name": str(source.get("name") or source.get("source_name") or ""),
+                    "source_url": source.get("url") or source.get("list_url") or "",
+                    "source_type": source.get("type") or "",
+                    "source_group": source.get("source_group") or source.get("category_group") or "",
+                    "v58_yield_score": 100 - index,
+                    "selected_this_cycle": True,
+                }
+                for index, source in enumerate(selected)
+            ],
+            "diagnostics": {"status": "ok"},
+            "projected_highest_yield_pack": "document_rich_pack",
+        }
+        return selected, "test-pack-batch", [], strategy
+
+    monkeypatch.setattr("app.services.tender_harvester._v58_select_sources_for_pack_rotation", fake_select_sources_for_pack_rotation)
+
+
+def _patch_service_store(monkeypatch: pytest.MonkeyPatch, service: RfqLifecycleService) -> None:
+    service.store.update_many = lambda *args, **kwargs: None  # type: ignore[assignment]
+    service.store.append_audit_events = lambda *args, **kwargs: None  # type: ignore[assignment]
+
+
+def _fake_harvest_cycle_result() -> dict[str, object]:
+    source_results = [
+        {
+            "source_name": "source-0001",
+            "source_identity": "registry-001",
+            "source_url": "https://example.invalid/source-0001",
+            "source_type": "portal",
+            "enabled": True,
+            "selected": True,
+            "attempted": True,
+            "success": True,
+            "started_at": "2026-08-28T09:00:00Z",
+            "completed_at": "2026-08-28T09:00:01Z",
+            "response_time_ms": 100.0,
+            "http_status": 200,
+            "candidates_found": 0,
+            "qualifying_candidates": 0,
+        },
+        {
+            "source_name": "source-0002",
+            "source_identity": "registry-002",
+            "source_url": "https://example.invalid/source-0002",
+            "source_type": "portal",
+            "enabled": True,
+            "selected": True,
+            "attempted": True,
+            "success": True,
+            "started_at": "2026-08-28T09:00:00Z",
+            "completed_at": "2026-08-28T09:00:02Z",
+            "response_time_ms": 150.0,
+            "http_status": 200,
+            "candidates_found": 1,
+            "qualifying_candidates": 1,
+        },
+        {
+            "source_name": "source-0003",
+            "source_identity": "registry-003",
+            "source_url": "https://example.invalid/source-0003",
+            "source_type": "portal",
+            "enabled": True,
+            "selected": True,
+            "attempted": False,
+            "success": False,
+            "started_at": None,
+            "completed_at": None,
+            "response_time_ms": 0.0,
+            "http_status": None,
+            "candidates_found": 0,
+            "qualifying_candidates": 0,
+        },
+    ]
+    return {
+        "status": "ok",
+        "harvest_status": "ok",
+        "selected_sources": [
+            {"source_name": "source-0001", "source_identity": "registry-001"},
+            {"source_name": "source-0002", "source_identity": "registry-002"},
+            {"source_name": "source-0003", "source_identity": "registry-003"},
+        ],
+        "source_results": source_results,
+        "eligible_items": [_fake_candidate("source-0002")],
+        "harvested_total": 1,
+        "eligible_total": 1,
+        "quote_ready_total": 0,
+    }
+
+
+def test_wrapped_discovery_cycle_emits_real_source_results_and_partial_coverage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=3, disabled=0)
+    runtime_root = tmp_path / "runtime"
+    captured = _capture_certificate(monkeypatch, registry_path, runtime_root)
+    monkeypatch.setattr("app.services.tender_harvester.run_national_tender_radar", lambda **kwargs: _fake_harvest_cycle_result())
+    monkeypatch.setattr(RfqLifecycleService, "ingest_discovered_items", lambda self, items, source="discovered": {"status": "ok", "ingested_count": len(items), "skipped_duplicates_count": 0, "items": [], "skipped_duplicates": [], "qualified_count": len(items), "discovered_count": len(items)}, raising=False)
+    _patch_harvest_pipeline(monkeypatch)
+
+    service = RfqLifecycleService()
+    _patch_service_store(monkeypatch, service)
+    result = service.run_discovery_cycle(max_total=1, max_per_source=1, max_sources=3)
+    assert result["status"] == "ok"
+    assert len(captured) == 1
+
+    summary, records, run_result = captured[0]
+    assert summary.coverage_status == "PARTIAL"
+    assert summary.attempted_sources == 2
+    assert summary.unique_sources_checked == 2
+    assert summary.selected_sources == 3
+    assert summary.skipped_sources == 1
+    zero = next(record for record in records if record.source_name == "source-0001")
+    skipped = next(record for record in records if record.source_name == "source-0003")
+    assert zero.attempted is True
+    assert zero.success is True
+    assert zero.candidates_found == 0
+    assert skipped.selected is True
+    assert skipped.attempted is False
+    assert run_result["selected_sources"]
+    assert run_result["source_results"]
+
+
+def test_wrapped_golden_cycle_emits_real_source_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=2, disabled=0)
+    runtime_root = tmp_path / "runtime"
+    captured = _capture_certificate(monkeypatch, registry_path, runtime_root)
+    monkeypatch.setattr("app.services.tender_harvester.MULTI_PORTAL_DISCOVERY_DIR", runtime_root / "multi_portal_discovery", raising=False)
+    monkeypatch.setattr("app.services.tender_harvester.run_multi_portal_discovery", lambda **kwargs: _fake_harvest_cycle_result())
+    monkeypatch.setattr(RfqLifecycleService, "ingest_discovered_items", lambda self, items, source="discovered": {"status": "ok", "ingested_count": len(items), "skipped_duplicates_count": 0}, raising=False)
+    _patch_harvest_pipeline(monkeypatch)
+
+    service = RfqLifecycleService()
+    service.store.increment = lambda *args, **kwargs: None  # type: ignore[assignment]
+    _patch_service_store(monkeypatch, service)
+    service.recover_stuck = lambda timeout_minutes=120: {"status": "ok"}  # type: ignore[assignment]
+    service.mission_control_summary = lambda: {"status": "ok"}  # type: ignore[assignment]
+    result = service.run_golden_cycle(limit=1, dry_run=True)
+    assert result["status"] == "ok"
+    assert len(captured) == 1
+    summary, records, run_result = captured[0]
+    assert summary.coverage_status == "PARTIAL"
+    assert summary.attempted_sources > 0
+    assert summary.unique_sources_checked > 0
+    assert run_result["selected_sources"]
+    assert run_result["source_results"]
+
+
+def test_wrapped_live_pilot_emits_real_source_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=2, disabled=0)
+    runtime_root = tmp_path / "runtime"
+    captured = _capture_certificate(monkeypatch, registry_path, runtime_root)
+    monkeypatch.setattr("app.services.tender_harvester.run_national_tender_radar", lambda **kwargs: _fake_harvest_cycle_result())
+    monkeypatch.setattr(RfqLifecycleService, "_is_lifecycle_qualified", lambda self, row: False, raising=False)
+    _patch_harvest_pipeline(monkeypatch)
+
+    service = RfqLifecycleService()
+    service._update_live_pilot_metrics = lambda result: {"status": "ok", "mode": "controlled_live_pilot_no_submission", "last_run_at": "", "success_rate": 0.0, "real_rfq_throughput": 0, "acquisition_success_rate": 0.0, "last_result": {}, "throughput_trend": []}  # type: ignore[assignment]
+    _patch_service_store(monkeypatch, service)
+    result = service.run_live_pilot(limit=3, timeout_seconds=1, max_concurrent_downloads=1, retry_backoff_seconds=0.0)
+    assert result["status"] == "ok"
+    assert len(captured) == 1
+    summary, records, run_result = captured[0]
+    assert summary.coverage_status == "PARTIAL"
+    assert summary.attempted_sources > 0
+    assert summary.unique_sources_checked > 0
+    assert run_result["selected_sources"]
+    assert run_result["source_results"]
+
+
+def test_wrapped_ingest_discovered_emits_scanned_sources(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=2, disabled=0)
+    runtime_root = tmp_path / "runtime"
+    captured = _capture_certificate(monkeypatch, registry_path, runtime_root)
+    monkeypatch.setenv("LMCP_HARVEST_SOURCES_PATH", str(registry_path))
+
+    def fake_load_discovery_store(self: RfqLifecycleService, path: Path) -> list[dict[str, object]]:
+        if path.name.endswith("one.json"):
+            return [{"title": "Discovered one", "source_name": "store-one"}]
+        return [{"title": "Discovered two", "source_name": "store-two"}]
+
+    monkeypatch.setattr(RfqLifecycleService, "_load_discovery_store", fake_load_discovery_store, raising=False)
+    monkeypatch.setattr(RfqLifecycleService, "ingest_discovered_items", lambda self, items, source="discovered": {"status": "ok", "ingested_count": len(items), "skipped_duplicates_count": 0}, raising=False)
+    monkeypatch.setattr("app.services.rfq_lifecycle_service.DISCOVERY_STORE_CANDIDATES", [tmp_path / "one.json", tmp_path / "two.json"], raising=False)
+    _patch_harvest_pipeline(monkeypatch)
+
+    service = RfqLifecycleService()
+    _patch_service_store(monkeypatch, service)
+    result = service.ingest_discovered()
+    assert result["status"] == "ok"
+    assert len(captured) == 1
+    summary, records, run_result = captured[0]
+    assert summary.coverage_status == "PARTIAL"
+    assert summary.attempted_sources > 0
+    assert summary.unique_sources_checked > 0
+    assert run_result["selected_sources"]
+    assert run_result["source_results"]
 
 
 def test_stale_artifacts_outside_source_coverage_tree_do_not_count(tmp_path: Path) -> None:

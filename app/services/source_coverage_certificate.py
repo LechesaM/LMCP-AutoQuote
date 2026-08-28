@@ -9,6 +9,7 @@ import subprocess
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 
@@ -111,6 +112,31 @@ def _source_type(source: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
+def _source_identity(source: Mapping[str, Any], fallback_index: int = 0) -> str:
+    for key in (
+        "registry_id",
+        "source_identity",
+        "source_id",
+        "source_key",
+        "registry_key",
+        "key",
+        "id",
+        "uuid",
+    ):
+        value = source.get(key)
+        if value:
+            return str(value)
+    url = _source_url(source)
+    name = _source_name(source, fallback_index)
+    if url:
+        parsed = urlsplit(url)
+        canonical_url = "%s://%s%s" % (parsed.scheme, parsed.netloc, parsed.path)
+        canonical_url = canonical_url.rstrip("/")
+        if canonical_url:
+            return "%s::%s" % (canonical_url, name)
+    return name or "source-%d" % (fallback_index + 1)
+
+
 def _source_enabled(source: Mapping[str, Any]) -> bool:
     for key in ("enabled", "is_enabled", "active", "selected_for_run"):
         if key in source:
@@ -172,6 +198,7 @@ def registry_counts(entries: Sequence[Mapping[str, Any]]) -> Dict[str, int]:
 @dataclass
 class SourceCoverageRecord:
     source_name: str
+    source_identity: str = ""
     source_url: Optional[str] = None
     source_type: Optional[str] = None
     enabled: bool = True
@@ -236,6 +263,7 @@ def _extract_explicit_records(run_result: Mapping[str, Any]) -> List[Dict[str, A
                 record.setdefault("source_name", _source_name(record, index))
                 record.setdefault("source_url", _source_url(record))
                 record.setdefault("source_type", _source_type(record))
+                record.setdefault("source_identity", _source_identity(record, index))
                 record.setdefault("enabled", _coerce_bool(record.get("enabled"), True))
                 record.setdefault("selected", _coerce_bool(record.get("selected")))
                 record.setdefault("attempted", _coerce_bool(record.get("attempted")))
@@ -267,6 +295,10 @@ def _normalise_source_results(
 ) -> List[SourceCoverageRecord]:
     explicit_records = _extract_explicit_records(run_result)
     explicit_by_name = {record["source_name"]: record for record in explicit_records}
+    explicit_by_identity = {
+        str(record.get("source_identity") or record["source_name"]): record
+        for record in explicit_records
+    }
     selected_names = _extract_name_set(run_result.get("selected_sources"))
     attempted_names = _extract_name_set(run_result.get("attempted_sources"))
     successful_names = _extract_name_set(run_result.get("successful_sources"))
@@ -274,14 +306,18 @@ def _normalise_source_results(
     skipped_names = _extract_name_set(run_result.get("skipped_sources"))
     records: List[SourceCoverageRecord] = []
 
-    registry_map = {_source_name(entry, index): entry for index, entry in enumerate(registry_entries)}
+    registry_map_by_name = {_source_name(entry, index): entry for index, entry in enumerate(registry_entries)}
+    registry_map_by_identity = {
+        _source_identity(entry, index): entry
+        for index, entry in enumerate(registry_entries)
+    }
     source_names = [_source_name(entry, index) for index, entry in enumerate(registry_entries)]
     source_names.extend(sorted(selected_names | attempted_names | successful_names | failed_names | skipped_names))
     source_names = list(dict.fromkeys(source_names))
 
     for name in source_names:
-        base = registry_map.get(name, {})
-        explicit = explicit_by_name.get(name, {})
+        base = registry_map_by_name.get(name, {})
+        explicit = explicit_by_name.get(name, explicit_by_identity.get(name, {}))
         attempted = _coerce_bool(
             explicit.get("attempted"),
             default=name in attempted_names or name in successful_names or name in failed_names or name in selected_names,
@@ -294,6 +330,11 @@ def _normalise_source_results(
             error_reason = str(error_reason)
         records.append(
             SourceCoverageRecord(
+                source_identity=str(
+                    explicit.get("source_identity")
+                    or _source_identity(explicit or base or {"source_name": name}, 0)
+                    or _source_identity(registry_map_by_identity.get(name, {}) or {"source_name": name}, 0)
+                ),
                 source_name=name,
                 source_url=explicit.get("source_url") or _source_url(base),
                 source_type=explicit.get("source_type") or _source_type(base),
@@ -328,7 +369,7 @@ def _source_summary_counts(records: Sequence[SourceCoverageRecord]) -> Dict[str,
         "successful_sources": len(successful),
         "failed_sources": len(failed),
         "skipped_sources": len(skipped),
-        "unique_sources_checked": len({record.source_name for record in attempted}),
+        "unique_sources_checked": len({record.source_identity or record.source_name for record in attempted}),
         "candidates_found": sum(int(record.candidates_found or 0) for record in records),
         "qualifying_opportunities_found": sum(int(record.qualifying_candidates or 0) for record in records),
         "documents_found": int(sum(int(record.candidates_found or 0) for record in records)),
@@ -388,8 +429,16 @@ def build_run_summary(
     records = _normalise_source_results(run_result, registry_entries)
     counts = _source_summary_counts(records)
     run_id = str(run_result.get("run_id") or "source-coverage-%s-%s" % (utc_now_iso().replace(":", "").replace("-", ""), uuid.uuid4().hex[:8]))
-    started_at = str(run_result.get("started_at") or run_result.get("started") or utc_now_iso())
-    completed_at = str(run_result.get("completed_at") or run_result.get("completed") or "")
+    started_at = str(run_result.get("started_at") or run_result.get("started") or run_result.get("run_started_at") or utc_now_iso())
+    completed_at = str(run_result.get("completed_at") or run_result.get("completed") or run_result.get("run_completed_at") or "")
+    # Some legacy harvest entry points report a terminal aggregate outcome but
+    # do not include timestamps.  That is evidence of a completed run, even
+    # though it cannot establish source-level coverage; classify it as PARTIAL
+    # rather than FAILED.  Hooked entry points still supply real timings.
+    terminal_statuses = {"ok", "success", "succeeded", "completed", "complete"}
+    terminal_status = str(run_result.get("status") or run_result.get("harvest_status") or "").strip().lower()
+    if not completed_at and terminal_status in terminal_statuses:
+        completed_at = utc_now_iso()
     execution_mode = str(run_result.get("execution_mode") or run_result.get("mode") or "unknown")
     full_sweep_requested = _coerce_bool(run_result.get("full_sweep_requested"), False)
     explicit_complete = run_result.get("complete") if "complete" in run_result else run_result.get("run_complete")
@@ -518,15 +567,15 @@ def update_daily_coverage(
                     continue
                 if not record.get("attempted"):
                     continue
-                name = str(record.get("source_name") or "")
-                if not name:
+                identity = str(record.get("source_identity") or record.get("source_name") or "")
+                if not identity:
                     continue
-                attempted_sources.setdefault(name, record)
+                attempted_sources.setdefault(identity, record)
                 if record.get("success"):
-                    successful_sources[name] = record
-                    failed_sources.pop(name, None)
+                    successful_sources[identity] = record
+                    failed_sources.pop(identity, None)
                 else:
-                    failed_sources.setdefault(name, record)
+                    failed_sources.setdefault(identity, record)
                 qualifying_opportunities += int(record.get("qualifying_candidates") or 0)
 
     enabled_attempted_count = len(attempted_sources)
@@ -626,14 +675,16 @@ def attach_harvest_run_certificate_hooks() -> None:
             return
 
         def wrapped(self, *args: Any, **kwargs: Any):
+            started_at = utc_now_iso()
             try:
                 result = original(self, *args, **kwargs)
             except Exception as exc:
+                completed_at = utc_now_iso()
                 try:
                     write_run_certificate(
                         {
-                            "started_at": utc_now_iso(),
-                            "completed_at": utc_now_iso(),
+                            "started_at": started_at,
+                            "completed_at": completed_at,
                             "execution_mode": method_name,
                             "full_sweep_requested": False,
                             "complete": False,
@@ -646,7 +697,10 @@ def attach_harvest_run_certificate_hooks() -> None:
                 raise
             if isinstance(result, Mapping):
                 try:
-                    write_run_certificate(result)
+                    payload = dict(result)
+                    payload["started_at"] = started_at
+                    payload["completed_at"] = utc_now_iso()
+                    write_run_certificate(payload)
                 except Exception as exc:  # pragma: no cover - defensive logging only
                     LOGGER.warning("source coverage certificate emission failed for %s: %s", method_name, exc)
             return result

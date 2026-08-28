@@ -401,6 +401,21 @@ def _source_key(source: Dict[str, Any]) -> str:
     return _clean(source.get("name") or source.get("source_name") or source.get("url") or "unknown")
 
 
+def _source_identity(source: Dict[str, Any]) -> str:
+    for key in ("registry_id", "source_identity", "source_id", "source_key", "registry_key", "key", "id", "uuid"):
+        value = source.get(key)
+        if value:
+            return _clean(value)
+    url = _clean(source.get("url") or source.get("list_url"))
+    name = _clean(source.get("name") or source.get("source_name") or "")
+    if url:
+        parsed = urlparse(url)
+        canonical_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+        if canonical_url:
+            return _clean(f"{canonical_url}::{name or 'unknown'}")
+    return name or _source_key(source)
+
+
 def _record_source_result(
     source: Dict[str, Any],
     ok: bool,
@@ -3322,8 +3337,10 @@ def run_multi_portal_discovery(
 
     for source in selected_sources:
         source_name = _clean(source.get("name") or source.get("source_name") or source.get("url") or "Unknown Source")
+        source_identity = _source_identity(source)
         harvested: List[Dict[str, Any]] = []
         error = ""
+        source_started_at = _now_iso()
         response_started = time.perf_counter()
         try:
             harvested = _dedupe_keep_order(
@@ -3392,23 +3409,37 @@ def run_multi_portal_discovery(
                 "metadata": doc.get("metadata"),
             })
         response_time = time.perf_counter() - response_started
+        source_completed_at = _now_iso()
         source_candidate_count = 0
         source_extracted_count = 0
         source_qualified_count = 0
         source_document_count = 0
         source_runs.append({
             "source_name": source_name,
+            "source_identity": source_identity,
             "source_url": source.get("url") or source.get("list_url"),
             "source_type": source.get("type"),
             "source_group": source.get("source_group") or source.get("category_group"),
+            "selected": True,
+            "attempted": True,
+            "success": not bool(error),
+            "started_at": source_started_at,
+            "completed_at": source_completed_at,
             "source_packs": (source_pack_rows_by_name.get(source_name) or {}).get("packs", []),
             "source_pack_yield_score": (source_pack_rows_by_name.get(source_name) or {}).get("v58_yield_score"),
             "harvested_count": len(harvested),
+            "candidates_found": len(harvested),
+            "qualifying_candidates": 0,
             "document_links_found_count": len(document_links),
+            "documents_found": len(document_links),
             "documents_downloaded_count": len(downloaded_documents),
+            "documents_downloaded": len(downloaded_documents),
             "documents_parsed_count": sum(1 for doc in parsed_documents if doc.get("status") == "parsed"),
             "document_built_candidates_count": len(document_built_items),
             "source_response_time": round(response_time, 3),
+            "response_time_ms": round(response_time * 1000.0, 3),
+            "http_status": 200 if not error else None,
+            "error_reason": error,
             "error": error,
         })
         for item in _dedupe_keep_order(harvested + document_built_items):
@@ -3471,6 +3502,46 @@ def run_multi_portal_discovery(
                 persist_source_health=persist_source_health,
             )
         )
+        source_runs[-1]["qualifying_candidates"] = source_qualified_count
+
+    attempted_identities = {
+        _source_identity({"name": row.get("source_name"), "source_name": row.get("source_name"), "url": row.get("source_url")})
+        for row in source_runs
+        if row.get("attempted")
+    }
+    for source in selected_sources:
+        identity = _source_identity(source)
+        if identity in attempted_identities:
+            continue
+        source_name = _clean(source.get("name") or source.get("source_name") or source.get("url") or "Unknown Source")
+        source_runs.append({
+            "source_name": source_name,
+            "source_identity": identity,
+            "source_url": source.get("url") or source.get("list_url"),
+            "source_type": source.get("type"),
+            "source_group": source.get("source_group") or source.get("category_group"),
+            "selected": True,
+            "attempted": False,
+            "success": False,
+            "started_at": None,
+            "completed_at": None,
+            "source_packs": (source_pack_rows_by_name.get(source_name) or {}).get("packs", []),
+            "source_pack_yield_score": (source_pack_rows_by_name.get(source_name) or {}).get("v58_yield_score"),
+            "harvested_count": 0,
+            "candidates_found": 0,
+            "qualifying_candidates": 0,
+            "document_links_found_count": 0,
+            "documents_found": 0,
+            "documents_downloaded_count": 0,
+            "documents_downloaded": 0,
+            "documents_parsed_count": 0,
+            "document_built_candidates_count": 0,
+            "source_response_time": 0.0,
+            "response_time_ms": 0.0,
+            "http_status": None,
+            "error_reason": "",
+            "error": "",
+        })
 
     eligible = sorted(
         eligible,
@@ -3614,6 +3685,7 @@ def run_multi_portal_discovery(
         "completed_at": _now_iso(),
         "total_sources_loaded": len(all_sources),
         "sources_selected_this_cycle": len(selected_sources),
+        "selected_sources": selected_sources,
         "healthy_sources_count": healthy_sources_count,
         "unhealthy_sources_count": unhealthy_sources_count,
         "candidate_producing_sources_count": candidate_producing_sources_count,
@@ -3668,6 +3740,7 @@ def run_multi_portal_discovery(
         "top_eligible_candidates": eligible[:10],
         "discovery_termination_reason": "completed",
         "source_runs": source_runs,
+        "source_results": source_runs,
         "source_health_this_cycle": source_health_rows,
         "pre_cycle_health_sample": pre_cycle_health_rows[:20],
         "artifacts": {
@@ -7435,7 +7508,49 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
             all_items.append(classified)
             if len(all_items) >= max_total:
                 break
-        source_runs.append({"source_name": source.get("name") or source.get("source_name") or "Unknown", "harvested": len(processed_for_source), "blocked": sum(1 for i in processed_for_source if i.get("pipeline_status") == "blocked"), "screened_out": sum(1 for i in processed_for_source if i.get("pipeline_status") == "screened_out"), "eligible": sum(1 for i in processed_for_source if i.get("eligible")), "quote_ready": sum(1 for i in processed_for_source if i.get("quote_ready"))})
+        source_runs.append({
+            "source_name": source.get("name") or source.get("source_name") or "Unknown",
+            "source_identity": _source_identity(source),
+            "source_url": source.get("url") or source.get("list_url"),
+            "source_type": source.get("type"),
+            "source_group": source.get("source_group") or source.get("category_group"),
+            "selected": True,
+            "attempted": True,
+            "success": True,
+            "started_at": run_started_at,
+            "completed_at": _now_iso(),
+            "harvested": len(processed_for_source),
+            "candidates_found": len(processed_for_source),
+            "qualifying_candidates": sum(1 for i in processed_for_source if i.get("eligible")),
+            "blocked": sum(1 for i in processed_for_source if i.get("pipeline_status") == "blocked"),
+            "screened_out": sum(1 for i in processed_for_source if i.get("pipeline_status") == "screened_out"),
+            "eligible": sum(1 for i in processed_for_source if i.get("eligible")),
+            "quote_ready": sum(1 for i in processed_for_source if i.get("quote_ready")),
+        })
+    attempted_identities = {row.get("source_identity") or row.get("source_name") for row in source_runs if row.get("attempted")}
+    for source in selected_sources:
+        identity = _source_identity(source)
+        if identity in attempted_identities:
+            continue
+        source_runs.append({
+            "source_name": source.get("name") or source.get("source_name") or "Unknown",
+            "source_identity": identity,
+            "source_url": source.get("url") or source.get("list_url"),
+            "source_type": source.get("type"),
+            "source_group": source.get("source_group") or source.get("category_group"),
+            "selected": True,
+            "attempted": False,
+            "success": False,
+            "started_at": None,
+            "completed_at": None,
+            "harvested": 0,
+            "candidates_found": 0,
+            "qualifying_candidates": 0,
+            "blocked": 0,
+            "screened_out": 0,
+            "eligible": 0,
+            "quote_ready": 0,
+        })
     policy = _read_v48_policy()
     eligible_items = [
         _lmcp_apply_v50_7_verified_rfq_promotion_gate(
@@ -7477,7 +7592,7 @@ def run_national_tender_radar(max_total: int = 20, max_per_source: int = 3, enab
     except Exception as exc:
         lifecycle_ingestion = {"status": "warning", "error": _truncate(str(exc), 240)}
     source_pack_diagnostics = source_pack_strategy.get("diagnostics", {}) if isinstance(source_pack_strategy, dict) else {}
-    return {"status": "ok", "run_started_at": run_started_at, "source_count": len(sources), "selected_source_count": len(selected_sources), "items": all_items, "harvested_total": len(all_items), "blocked_total": len(blocked_items), "screened_out_total": len(screened_out_items), "eligible_total": len(eligible_items), "quote_ready_total": quote_ready_total, "auto_quote_enabled": enable_auto_quote or true_autonomous, "true_autonomous": bool(true_autonomous), "auto_submission_policy": policy, "auto_quote_results": auto_quote_results, "persist_to_live_store": persist_to_live_store, "persist_source_health": persist_source_health, "live_store_result": live_store_result, "lifecycle_ingestion": lifecycle_ingestion, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": source_runs, "blocked_items": blocked_items, "screened_out_items": screened_out_items, "eligible_items": eligible_items, "critical_priority_total": len(eligible_items), "downloaded_document_total": len(eligible_items), "form_document_total": 0, "source_pack_strategy": source_pack_strategy, **source_pack_diagnostics, "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
+    return {"status": "ok", "run_started_at": run_started_at, "source_count": len(sources), "selected_source_count": len(selected_sources), "selected_sources": selected_sources, "items": all_items, "harvested_total": len(all_items), "blocked_total": len(blocked_items), "screened_out_total": len(screened_out_items), "eligible_total": len(eligible_items), "quote_ready_total": quote_ready_total, "auto_quote_enabled": enable_auto_quote or true_autonomous, "true_autonomous": bool(true_autonomous), "auto_submission_policy": policy, "auto_quote_results": auto_quote_results, "persist_to_live_store": persist_to_live_store, "persist_source_health": persist_source_health, "live_store_result": live_store_result, "lifecycle_ingestion": lifecycle_ingestion, "minimum_margin_pct": minimum_margin_pct, "minimum_profit": minimum_profit, "source_runs": source_runs, "source_results": source_runs, "blocked_items": blocked_items, "screened_out_items": screened_out_items, "eligible_items": eligible_items, "critical_priority_total": len(eligible_items), "downloaded_document_total": len(eligible_items), "form_document_total": 0, "source_pack_strategy": source_pack_strategy, **source_pack_diagnostics, "ai_agent_profile": AI_AGENT_PROFILE, "ai_primary_model_hint": AI_PRIMARY_MODEL_HINT, "ai_fast_model_hint": AI_FAST_MODEL_HINT, "ai_api_style_hint": AI_API_STYLE_HINT, "ai_orchestration_hint": AI_ORCHESTRATION_HINT}
 
 
 def run_continuous_tender_radar(sleep_seconds: int = 600, **kwargs: Any) -> None:

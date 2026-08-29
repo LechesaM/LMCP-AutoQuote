@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -865,16 +866,19 @@ def test_daily_coverage_includes_disabled_sources_and_today_cli_renders_it(
     registry_path = make_registry(tmp_path / "harvest_sources.json", enabled=970, disabled=355)
     runtime_root = tmp_path / "runtime"
     source_names = ["source-%04d" % (index + 1) for index in range(12)]
+    today = datetime.now(timezone.utc).date().isoformat()
     result = make_result(
         run_id="daily-disabled-sources",
         source_names=source_names,
         selected=set(source_names),
         attempted=set(source_names),
         successful=set(source_names),
+        started_at=f"{today}T09:00:00Z",
+        completed_at=f"{today}T09:01:00Z",
     )
     write_run_certificate(result, registry_path=registry_path, runtime_root=str(runtime_root))
 
-    daily = load_daily_summary("2026-08-28", str(runtime_root))
+    daily = load_daily_summary(today, str(runtime_root))
     assert daily["registry_total"] == 1325
     assert daily["enabled_registry_count"] == 970
     assert daily["disabled_sources"] == 355

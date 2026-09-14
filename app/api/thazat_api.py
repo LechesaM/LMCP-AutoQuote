@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
 
+from app.business_intelligence.thazat_outcomes import record_outcome, summarize_outcomes
 from app.governance.thazat import (
     build_outcome_learning,
     calculate_readiness,
@@ -16,12 +17,20 @@ from app.governance.thazat import (
 router = APIRouter(prefix="/thazat", tags=["thazat-governance"])
 
 
+def _bool(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 @router.post("/commercial-gate")
 def thazat_commercial_gate(payload: Dict[str, Any]) -> Dict[str, Any]:
     return commercial_gate(
         estimated_profit=float(payload.get("estimated_profit") or 0.0),
         gross_margin_ratio=float(payload.get("gross_margin_ratio") or 0.0),
-        recoverable=bool(payload.get("recoverable", True)),
+        recoverable=_bool(payload.get("recoverable"), True),
     )
 
 
@@ -49,6 +58,16 @@ def thazat_red_team(payload: Dict[str, Any]) -> Dict[str, Any]:
 @router.post("/outcome-learning")
 def thazat_outcome_learning(payload: Dict[str, Any]) -> Dict[str, Any]:
     return build_outcome_learning(payload).as_dict()
+
+
+@router.post("/outcomes")
+def thazat_record_outcome(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return {"status": "recorded", "record": record_outcome(payload)}
+
+
+@router.get("/outcomes/summary")
+def thazat_outcome_summary() -> Dict[str, Any]:
+    return summarize_outcomes()
 
 
 @router.get("/policy")

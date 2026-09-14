@@ -1,0 +1,45 @@
+name: THAZAT Governance
+
+on:
+  push:
+    paths:
+      - "app/governance/thazat/**"
+      - "app/business_intelligence/thazat_outcomes.py"
+      - "app/api/thazat_api.py"
+      - "app/api/decision_intelligence_api.py"
+      - "app/services/decision_intelligence_service.py"
+      - "app/qualification/opportunity_viability.py"
+      - "app/test_thazat_*.py"
+      - ".github/workflows/thazat-governance.yml"
+  pull_request:
+    paths:
+      - "app/governance/thazat/**"
+      - "app/business_intelligence/thazat_outcomes.py"
+      - "app/api/thazat_api.py"
+      - "app/api/decision_intelligence_api.py"
+      - "app/services/decision_intelligence_service.py"
+      - "app/qualification/opportunity_viability.py"
+      - "app/test_thazat_*.py"
+      - ".github/workflows/thazat-governance.yml"
+  workflow_dispatch:
+
+jobs:
+  thazat-governance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test tooling
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Compile THAZAT modules
+        run: python -m compileall -q app/governance/thazat app/business_intelligence/thazat_outcomes.py app/qualification/opportunity_viability.py
+
+      - name: Run THAZAT governance tests
+        run: pytest -q app/test_thazat_governance.py app/test_thazat_outcomes.py

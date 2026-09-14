@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter
 
+from app.api.thazat_api import router as thazat_router
 from app.services.decision_intelligence_service import (
     get_decision_summary,
     score_and_publish,
@@ -12,6 +13,7 @@ from app.services.decision_intelligence_service import (
 )
 
 router = APIRouter(prefix="/decision-intelligence", tags=["decision-intelligence"])
+router.include_router(thazat_router)
 
 
 @router.get("/summary")

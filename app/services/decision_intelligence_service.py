@@ -6,6 +6,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Dict, Iterable, List, Optional
 
+from app.governance.thazat import evaluate_opportunity
 from app.services.websocket_broker import publish_dashboard_event
 
 DEFAULT_RUNTIME_DIR = Path("runtime")
@@ -127,19 +128,19 @@ def score_opportunity(opportunity: Dict[str, Any]) -> Dict[str, Any]:
         or 0
     )
 
-    if estimated_profit >= 30000:
+    if estimated_profit >= 25000:
         score += 20
-        reasons.append("Estimated profit meets R30,000 target")
+        reasons.append("Estimated profit meets R25,000 minimum")
     elif estimated_profit > 0:
         score -= 8
-        reasons.append("Estimated profit below R30,000 target")
+        reasons.append("Estimated profit below R25,000 minimum; THAZAT repricing required")
 
     if estimated_margin >= 25:
         score += 15
-        reasons.append("Margin meets 25% target")
+        reasons.append("Margin meets 25% base target")
     elif estimated_margin > 0:
         score -= 10
-        reasons.append("Margin below 25% target")
+        reasons.append("Margin below 25% base target")
 
     province = str(opportunity.get("province") or "").strip()
     if province:
@@ -160,6 +161,11 @@ def score_opportunity(opportunity: Dict[str, Any]) -> Dict[str, Any]:
     if not reasons and not blockers:
         reasons.append("Limited information available; conservative score applied")
 
+    thazat_payload = dict(opportunity)
+    thazat_payload["estimated_profit"] = estimated_profit
+    thazat_payload["gross_margin_ratio"] = estimated_margin / 100.0 if estimated_margin > 1 else estimated_margin
+    thazat_assessment = evaluate_opportunity(thazat_payload).as_dict()
+
     return {
         "buyer_rfq_number": buyer_rfq_number,
         "title": title,
@@ -171,6 +177,7 @@ def score_opportunity(opportunity: Dict[str, Any]) -> Dict[str, Any]:
         "estimated_margin_percent": estimated_margin,
         "submission_method": opportunity.get("submission_method") or "",
         "province": province,
+        "thazat": thazat_assessment,
         "raw": opportunity,
         "scored_at": _now_iso(),
     }
